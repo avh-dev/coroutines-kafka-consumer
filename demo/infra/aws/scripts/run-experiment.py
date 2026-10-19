@@ -44,6 +44,13 @@ MIN_TARGET_WATCHDOG_SECONDS = 3600
 TARGET_WATCHDOG_SAFETY_SECONDS = 1800
 COST_EXPLORER_REGION = "us-east-1"
 COST_ALLOCATION_TAG = "SessionId"
+# This is deliberately conservative. An unknown type is recreated rather than
+# asking the MSK API to perform a potentially unsupported reduction.
+MSK_BROKER_CAPACITY_ORDER = {
+    "kafka.t3.small": 1,
+    "kafka.m7g.large": 2,
+    "kafka.m7g.xlarge": 3,
+}
 
 
 def utc_now() -> datetime:
@@ -155,8 +162,15 @@ def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: in
         value = target.get(name)
         return max(0, int(default if value is None else value))
 
+    minimum_lead_seconds = phase_seconds("minimum_lead_time_seconds", 0)
+    alignment_wait_seconds = minimum_lead_seconds
+    if target.get("start_alignment") == "utc_hour":
+        # A target can become ready immediately after an hour boundary and
+        # must then remain alive until the next boundary, not merely the
+        # configured minimum lead time.
+        alignment_wait_seconds = max(alignment_wait_seconds, 3600)
     expected_lifecycle_seconds = (
-        phase_seconds("minimum_lead_time_seconds", 0)
+        alignment_wait_seconds
         + phase_seconds("duration_seconds", 0)
         + phase_seconds("consumer_drain_timeout_seconds", 300)
         + phase_seconds("telemetry_settle_seconds", 65)
@@ -165,13 +179,26 @@ def target_watchdog_seconds(target: dict[str, Any], configured_floor_seconds: in
     return max(MIN_TARGET_WATCHDOG_SECONDS, configured_floor_seconds, expected_lifecycle_seconds)
 
 
+def msk_broker_transition_action(current_type: str, desired_type: str) -> str:
+    """Choose the safe lifecycle action for a per-target MSK broker type."""
+    if current_type == desired_type:
+        return "preserve"
+    current_capacity = MSK_BROKER_CAPACITY_ORDER.get(current_type)
+    desired_capacity = MSK_BROKER_CAPACITY_ORDER.get(desired_type)
+    if current_capacity is not None and desired_capacity is not None and desired_capacity > current_capacity:
+        return "upgrade"
+    return "recreate"
+
+
 class CommandError(RuntimeError):
     pass
 
 
 class TargetRunProgress:
     def __init__(self) -> None:
+        self.target_started = False
         self.workload_finished = False
+        self.waiting_for_start = False
         self.drain_started_at: float | None = None
         self.drain_lag: float | None = None
         self.drain_wait_notified = False
@@ -195,7 +222,20 @@ class TargetRunProgress:
             except json.JSONDecodeError:
                 continue
             phase = event.get("phase")
-            if phase == "workload_finished" and not self.workload_finished:
+            if phase == "target_waiting_for_start" and not self.waiting_for_start:
+                self.waiting_for_start = True
+                notifications.append({
+                    "event": "target_waiting_for_start",
+                    "scheduled_start": event.get("scheduled_start"),
+                    "wait_seconds": event.get("wait_seconds"),
+                })
+            elif phase == "target_started" and not self.target_started:
+                self.target_started = True
+                notifications.append({
+                    "event": "target_started",
+                    "scheduled_start": event.get("scheduled_start"),
+                })
+            elif phase == "workload_finished" and not self.workload_finished:
                 self.workload_finished = True
                 notifications.append({"event": "workload_finished"})
             elif phase == "consumer_drain_started" and self.drain_started_at is None:
@@ -388,12 +428,12 @@ class SessionController:
         }
         self.save()
 
-    def destroy_stack(self, stack: str) -> None:
+    def destroy_stack(self, stack: str, variables: dict[str, Any] | None = None) -> None:
         item = self.state.get("terraform", {}).get(stack)
         if not item or not item.get("created"):
             return
         module = self.repo / item["module"]
-        self.terraform(stack, module, "destroy", item["variables"], item.get("extra"))
+        self.terraform(stack, module, "destroy", variables or item["variables"], item.get("extra"))
         item["created"] = False
         item["destroyed_at"] = utc_text()
         self.save()
@@ -795,17 +835,38 @@ class SessionController:
         })
         self.terraform("lab", lab_module, "apply", lab_variables, [])
         lab_outputs = self.terraform_outputs("lab", lab_module)
-        lab_outputs["runner_instance_type"] = runner_outputs.get("instance_type")
-        lab_outputs["runner_root_volume_size"] = runner_outputs.get("root_volume_size")
+        self.configure_lab_on_runner(lab_outputs, runner_outputs)
+        self.phase("LAB_READY")
+
+    def configure_lab_on_runner(
+        self,
+        lab_outputs: dict[str, Any],
+        runner_outputs: dict[str, Any] | None = None,
+    ) -> None:
+        """Publish the current lab endpoints and configure workloads against them."""
+        config = self.config
+        session_id = config["session_id"]
+        region = config["region"]
+        context_path = self.session_dir / "provisioned-lab.json"
+        previous_outputs: dict[str, Any] = {}
+        if context_path.is_file():
+            previous_outputs = json.loads(context_path.read_text(encoding="utf-8"))
+        if runner_outputs:
+            lab_outputs["runner_instance_type"] = runner_outputs.get("instance_type")
+            lab_outputs["runner_root_volume_size"] = runner_outputs.get("root_volume_size")
+        else:
+            for key in ("runner_instance_type", "runner_root_volume_size"):
+                if key in previous_outputs:
+                    lab_outputs[key] = previous_outputs[key]
         context_path = self.session_dir / "provisioned-lab.json"
         json_write(context_path, lab_outputs)
         context_key = f"sessions/{session_id}/provisioned-lab.json"
         self.run([
-            "aws", "s3", "cp", str(context_path), f"s3://{artifact_outputs['bucket_name']}/{context_key}",
+            "aws", "s3", "cp", str(context_path), f"s3://{self.state['artifact_bucket']}/{context_key}",
             "--region", region, "--only-show-errors",
         ])
         remote_context = f"/opt/ckc-runner/config/provisioned-lab-{session_id}.json"
-        context_uri = f"s3://{artifact_outputs['bucket_name']}/{context_key}"
+        context_uri = f"s3://{self.state['artifact_bucket']}/{context_key}"
         self.ssm(
             " && ".join([
                 "set -euo pipefail",
@@ -821,7 +882,6 @@ class SessionController:
             "configure disposable lab",
             7200,
         )
-        self.phase("LAB_READY")
 
     def transition_msk_for_target(self, target: dict[str, Any]) -> bool:
         desired_type = str(((target.get("lab") or {}).get("kafka") or {}).get("msk_instance_type") or "").strip()
@@ -830,8 +890,11 @@ class SessionController:
         if self.config["kafka"].get("mode") != "msk":
             raise RuntimeError(f"Target {target['id']!r} requests MSK resizing but the lab does not use MSK")
         current_type = str(self.config["kafka"].get("instance_type") or "")
-        if current_type == desired_type:
+        action = msk_broker_transition_action(current_type, desired_type)
+        if action == "preserve":
             return False
+        if action == "recreate":
+            return self.recreate_msk_for_target(target, current_type, desired_type)
         context_path = f"/opt/ckc-runner/config/load-lab-{self.config['aws_environment']}.json"
         command = "\n".join([
             "set -euo pipefail",
@@ -879,6 +942,57 @@ class SessionController:
         })
         self.state.setdefault("msk_transitions", []).append(evidence)
         self.config["kafka"]["instance_type"] = desired_type
+        self.config.setdefault("terraform_lab_inputs", {})["msk_broker_instance_type"] = desired_type
+        self.state["terraform"]["lab"]["variables"]["msk_broker_instance_type"] = desired_type
+        self.save()
+        return True
+
+    def recreate_msk_for_target(self, target: dict[str, Any], current_type: str, desired_type: str) -> bool:
+        """Replace only the MSK cluster when a later target needs less capacity.
+
+        MSK broker-type updates are retained for known capacity upgrades.  A
+        downscale gets a fresh cluster instead, then the Kubernetes workloads
+        are configured against the new bootstrap endpoints.
+        """
+        config = self.config
+        lab_stack = self.state.get("terraform", {}).get("lab", {})
+        if not lab_stack.get("created"):
+            raise RuntimeError("Cannot recreate MSK: Terraform lab stack is not available")
+        lab_module = self.repo / str(lab_stack["module"])
+        lab_variables = self.stack_variables("lab")
+        lab_variables["msk_broker_instance_type"] = desired_type
+        transition_started_at = utc_text()
+        self.phase("RECREATING_MSK", target_id=target["id"], target_instance_type=desired_type)
+        self.ssm(
+            "CKC_LOAD_LAB_SKIP_TERRAFORM=true "
+            "/opt/ckc-runner/assets/repo/demo/infra/aws/runner-assets/bin/destroy-lab.sh "
+            f"{shlex.quote(config['region'])} {shlex.quote(config['aws_environment'])}",
+            f"remove Kubernetes workloads before recreating MSK for {target['name']}",
+            1800,
+        )
+        self.record_stack("lab", lab_module, lab_variables, [])
+        self.terraform(
+            "lab",
+            lab_module,
+            "apply",
+            lab_variables,
+            ["-replace=aws_msk_cluster.load_lab[0]"],
+        )
+        lab_outputs = self.terraform_outputs("lab", lab_module)
+        self.configure_lab_on_runner(lab_outputs)
+        evidence = {
+            "operation_arn": None,
+            "before": current_type,
+            "after": desired_type,
+            "status": "recreated",
+            "target_id": target["id"],
+            "started_at": transition_started_at,
+            "completed_at": utc_text(),
+            "desired_instance_type": desired_type,
+        }
+        self.state.setdefault("msk_transitions", []).append(evidence)
+        self.config["kafka"]["instance_type"] = desired_type
+        self.config.setdefault("terraform_lab_inputs", {})["msk_broker_instance_type"] = desired_type
         self.save()
         return True
 
@@ -969,7 +1083,7 @@ class SessionController:
                 'cat "$phase_log"; exit "$status"'
             )
             self.phase("RUNNING_TARGET", target_index=index, target_total=len(targets), target_id=target["id"])
-            self.notify("target_started", {
+            self.notify("target_generator_preparing", {
                 "experiment": config["experiment_name"],
                 "environment": {"name": "aws", "detail": config["region"]},
                 "index": index,
@@ -996,7 +1110,32 @@ class SessionController:
                     output = str(invocation.get("StandardOutputContent", ""))
                     output += str(invocation.get("StandardErrorContent", ""))
                 for progress_event in run_progress.observe(output):
-                    if progress_event["event"] == "workload_finished":
+                    if progress_event["event"] == "target_waiting_for_start":
+                        self.notify("target_waiting_for_start", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "scheduled_start": progress_event["scheduled_start"],
+                            "wait_seconds": progress_event["wait_seconds"],
+                        })
+                    elif progress_event["event"] == "target_started":
+                        self.notify("target_started", {
+                            "experiment": config["experiment_name"],
+                            "environment": {"name": "aws", "detail": config["region"]},
+                            "index": index,
+                            "total": len(targets),
+                            "id": target["id"],
+                            "name": target["name"],
+                            "profile": target.get("profile"),
+                            "replicas": target.get("replicas"),
+                            "base_tps": target.get("base_tps"),
+                            "expected_duration_seconds": target.get("duration_seconds"),
+                            "scheduled_start": progress_event.get("scheduled_start"),
+                        })
+                    elif progress_event["event"] == "workload_finished":
                         self.notify("target_workload_finished", {
                             "experiment": config["experiment_name"],
                             "environment": {"name": "aws", "detail": config["region"]},
@@ -1497,6 +1636,45 @@ class SessionController:
             self.state["deleted_orphaned_cni_enis"] = sorted(deleted)
             self.save()
 
+    def delete_session_eks_cluster(self) -> None:
+        """Remove the session EKS cluster even when Terraform never recorded it.
+
+        A controller interruption can happen after AWS has accepted EKS cluster
+        creation but before Terraform persists that resource in its state file.
+        Terraform cannot then discover the cluster during ``destroy``; its
+        control-plane ENIs keep the VPC subnets and security groups alive.  The
+        cluster name is deterministic, but require the session tag as a second
+        guard before issuing an irreversible delete.
+        """
+        region = self.config["region"]
+        cluster_name = f"ckc-load-lab-{self.config['aws_environment']}"
+        response = self.aws_json([
+            "eks", "describe-cluster", "--region", region, "--name", cluster_name,
+        ], check=False) or {}
+        cluster = response.get("cluster") or {}
+        cluster_arn = cluster.get("arn")
+        if not cluster_arn:
+            return
+        tags = cluster.get("tags") or self.aws_json([
+            "eks", "list-tags-for-resource", "--region", region,
+            "--resource-arn", cluster_arn,
+        ], check=False) or {}
+        if isinstance(tags, dict) and "tags" in tags:
+            tags = tags["tags"]
+        if not isinstance(tags, dict) or tags.get("SessionId") != self.config["session_id"]:
+            raise RuntimeError(
+                f"Refusing to delete EKS cluster {cluster_name}: its SessionId tag does not match this session."
+            )
+        self.run([
+            "aws", "eks", "delete-cluster", "--region", region, "--name", cluster_name,
+        ])
+        self.run([
+            "aws", "eks", "wait", "cluster-deleted", "--region", region,
+            "--name", cluster_name,
+        ])
+        self.state["deleted_session_eks_cluster"] = cluster_name
+        self.save()
+
     def cleanup(self) -> list[str]:
         self.phase("CLEANING_UP")
         self.notify("cleanup_started", {
@@ -1514,11 +1692,32 @@ class SessionController:
             self.prepare_lab_destroy()
         except Exception as error:
             warnings.append(f"EKS node-group pre-cleanup: {error}")
-        for stack in ("lab", "runner", "artifacts"):
-            try:
-                self.destroy_stack(stack)
-            except Exception as error:
-                failures.append(f"{stack} destroy: {error}")
+        try:
+            self.delete_session_eks_cluster()
+        except Exception as error:
+            failures.append(f"EKS cluster pre-cleanup: {error}")
+        lab_variables: dict[str, Any] | None = None
+        if not self.state.get("terraform", {}).get("runner", {}).get("created"):
+            # A previous incomplete cleanup may already have removed the runner.
+            # Disable resources whose data sources refer to that VPC, otherwise
+            # Terraform cannot even plan the remaining lab teardown.
+            lab_variables = self.stack_variables("lab")
+            lab_variables["enable_runner_observability_peering"] = False
+            self.state["lab_destroy_without_runner"] = True
+            self.save()
+        try:
+            self.destroy_stack("lab", variables=lab_variables)
+        except Exception as error:
+            failures.append(f"lab destroy: {error}")
+        else:
+            # The runner VPC is a dependency of the lab peering.  Keep it (and
+            # the evidence bucket) intact after a failed lab destroy so retrying
+            # cleanup has all Terraform data sources available.
+            for stack in ("runner", "artifacts"):
+                try:
+                    self.destroy_stack(stack)
+                except Exception as error:
+                    failures.append(f"{stack} destroy: {error}")
         try:
             self.delete_cloudwatch_log_group()
         except Exception as error:
@@ -1935,6 +2134,10 @@ class SessionController:
             self.run([
                 "docker", "run", "-d", "--name", container_name,
                 "-p", f"127.0.0.1:{port}:9090",
+                # The metrics directory belongs to the operator checkout.
+                # Do not leave root-owned VictoriaMetrics files behind after
+                # a report regeneration.
+                "--user", f"{os.getuid()}:{os.getgid()}",
                 "-v", f"{metrics_dir.resolve()}:/victoria-metrics-data",
                 "victoriametrics/victoria-metrics:v1.102.1",
                 "-storageDataPath=/victoria-metrics-data",

@@ -14,6 +14,32 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
+    def test_environment_tls_transport_is_materialized_for_targets_with_only_msk_size_overrides(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-hourly-50k-tls-qualification.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+
+        with tempfile.TemporaryDirectory() as directory:
+            targets = materialize_experiment(
+                resolved,
+                output_dir=Path(directory),
+                repo_dir=REPO_ROOT,
+            )
+            transports = [
+                yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))["deployment"]["kafka_transport"]
+                for target in targets
+            ]
+            terraform_inputs = yaml.safe_load(
+                (Path(directory) / "environment" / "terraform-lab-inputs.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(["tls", "tls", "tls"], transports)
+        self.assertEqual(["m7i.xlarge"], terraform_inputs["support_node_instance_types"])
+        self.assertEqual((1, 1, 1), (
+            terraform_inputs["support_node_desired_size"],
+            terraform_inputs["support_node_min_size"],
+            terraform_inputs["support_node_max_size"],
+        ))
+
     def test_smoke_uses_two_minute_single_target_with_useful_traffic_windows(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/smoke.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))

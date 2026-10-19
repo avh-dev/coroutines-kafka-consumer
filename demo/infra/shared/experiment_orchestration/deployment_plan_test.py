@@ -706,7 +706,7 @@ class DeploymentPlanTest(unittest.TestCase):
             ],
         )
 
-    def test_all_provisioned_msk_experiments_default_to_kafka_4_1(self) -> None:
+    def test_provisioned_msk_experiments_use_4_1_except_t3_qualification(self) -> None:
         definitions = []
         for source in sorted((REPO_ROOT / "demo/infra/experiments").glob("*.yaml")):
             experiment = yaml.safe_load(source.read_text(encoding="utf-8"))
@@ -715,10 +715,11 @@ class DeploymentPlanTest(unittest.TestCase):
                 definitions.append((source.name, kafka.get("msk_version")))
 
         self.assertTrue(definitions)
-        self.assertEqual(
-            [(name, "4.1.x.kraft") for name, _ in definitions],
-            definitions,
-        )
+        expected = {
+            name: ("3.9.x" if name == "aws-hourly-50k-tls-qualification.yaml" else "4.1.x.kraft")
+            for name, _ in definitions
+        }
+        self.assertEqual(expected, dict(definitions))
         variables = (REPO_ROOT / "demo/infra/aws/assets/terraform/load-lab/variables.tf").read_text(
             encoding="utf-8"
         )

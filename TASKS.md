@@ -469,6 +469,7 @@
 | [INFRA-300](#infra-300) | Forward dash-prefixed application JVM options safely. | DONE |
 | [INFRA-301](#infra-301) | Accept equals-form JVM options in the target runner. | DONE |
 | [INFRA-302](#infra-302) | Remove fixed-dispatcher settings from the virtual-thread target. | DONE |
+| [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5487,3 +5488,13 @@ _Date: 2026-10-16_
 
 Keep the one-carrier JVM scheduler bounds for CKC-sync/VT, but do not inherit `WORKER_DISPATCHER_THREADS`, which is valid only for a fixed dispatcher.
 Verification: materialization asserts fixed and virtual dispatcher settings separately; 53 shared and 196 internal-lab tests pass.
+
+<a id="infra-304"></a>
+### INFRA-304 - Prepare hourly TLS AWS 50k qualification
+
+_Date: 2026-10-17_
+
+Added the three-target AWS qualification: Spring/KEDA, fixed-one-worker CKC/HPA, then one-carrier virtual-thread CKC-sync/HPA. Each target runs at 50k TPS for one UTC-hour-aligned 60-minute profile: five linear samples approximate each half of a normalized normal curve from -4σ to its peak (0/1/6/28/73/100%), with a 10-minute 50k plateau inserted between them. The plateau is the single measurement window and Kafka transport is TLS.
+MSK type transitions now preserve an equal type, resize a known increase, and replace the MSK cluster for a decrease. Replacement reconfigures the Kubernetes lab using the new broker endpoints before the next target.
+Environment-level Kafka transport is now inherited by each materialized target unless that target explicitly selects a different listener; this keeps the qualification TLS-only despite its per-target MSK size overrides.
+Verification: 111 AWS and shared orchestration unit tests plus Python compilation and whitespace checks pass. No AWS experiment was started.

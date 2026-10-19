@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from .lifecycle import load_environment_file, notify
+from .telegram import message_for
 
 
 class NotificationLifecycleTest(unittest.TestCase):
@@ -60,6 +61,17 @@ class NotificationLifecycleTest(unittest.TestCase):
         self.assertEqual("failed", receipt["status"])
         self.assertEqual(1, receipt["returncode"])
         self.assertEqual("topic not found", receipt["detail"])
+
+    def test_waiting_notification_reports_a_scheduled_start_without_claiming_readiness(self) -> None:
+        message = message_for("target_waiting_for_start", {
+            "name": "spring-kafka",
+            "scheduled_start": "2026-10-18T08:00:00Z",
+            "wait_seconds": 2741,
+        })
+
+        self.assertIn("Load generator submitted", message)
+        self.assertIn("Scheduled load start: 2026-10-18T08:00:00Z", message)
+        self.assertNotIn("ready", message.lower())
 
 
 if __name__ == "__main__":

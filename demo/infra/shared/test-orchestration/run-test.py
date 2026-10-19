@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -26,7 +27,7 @@ if str(SHARED_INFRA) not in sys.path:
 
 from experiment_orchestration.definition_environment import normalized_chaos_steps, stub_settings_from_definition
 from experiment_orchestration.diagnostic_steps import normalize as normalize_diagnostic_steps
-from experiment_orchestration.deployment_plan import DeploymentBindings, render_project_manifests
+from experiment_orchestration.deployment_plan import STUB_SERVICE_PORT, DeploymentBindings, render_project_manifests
 from experiment_orchestration.drain import DRAINED, IDLE, ConsumerDrainTracker, exact_group_regex
 
 
@@ -560,7 +561,7 @@ def configure_stubs(settings: dict[str, Any], log_path: Path, local_port: int = 
         process = subprocess.Popen(
             [
                 "kubectl", "-n", "ckc-app", "port-forward", "service/ckc-demo-stubs",
-                f"{local_port}:8080", "--address", "127.0.0.1",
+                f"{local_port}:{STUB_SERVICE_PORT}", "--address", "127.0.0.1",
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -759,8 +760,54 @@ def collect_cluster_diagnostics(run_dir: Path, require_healthy: bool = False) ->
         )
 
 
-def wait_for_job(job_name: str, timeout_seconds: int) -> None:
-    run(["kubectl", "-n", "ckc-loadtest", "wait", "--for=condition=Complete", f"job/{job_name}", f"--timeout={timeout_seconds}s"])
+def collect_job_failure_diagnostics(job_name: str, run_dir: Path) -> Path:
+    """Preserve the terminal Job state before Kubernetes or cleanup removes it."""
+    diagnostics_dir = run_dir / "job-diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    namespace = "ckc-loadtest"
+    job = kubectl_json(["kubectl", "-n", namespace, "get", "job", job_name, "-o", "json"])
+    (diagnostics_dir / "job.json").write_text(json_dump(job) + "\n", encoding="utf-8")
+    description = run(["kubectl", "-n", namespace, "describe", "job", job_name], capture_output=True, check=False)
+    (diagnostics_dir / "job.describe.txt").write_text(description, encoding="utf-8")
+    pods = kubectl_json([
+        "kubectl", "-n", namespace, "get", "pods", "-l", f"job-name={job_name}", "-o", "json",
+    ])
+    (diagnostics_dir / "pods.json").write_text(json_dump(pods) + "\n", encoding="utf-8")
+    for item in pods.get("items", []):
+        pod_name = str((item.get("metadata") or {}).get("name") or "")
+        if not pod_name:
+            continue
+        pod_description = run(
+            ["kubectl", "-n", namespace, "describe", "pod", pod_name], capture_output=True, check=False,
+        )
+        (diagnostics_dir / f"{pod_name}.describe.txt").write_text(pod_description, encoding="utf-8")
+        pod_log = run(["kubectl", "-n", namespace, "logs", pod_name, "--all-containers=true"], capture_output=True, check=False)
+        (diagnostics_dir / f"{pod_name}.log").write_text(pod_log, encoding="utf-8")
+    return diagnostics_dir
+
+
+def job_failure_reason(job: dict[str, Any]) -> str:
+    for condition in (job.get("status") or {}).get("conditions") or []:
+        if condition.get("type") == "Failed" and condition.get("status") == "True":
+            reason = str(condition.get("reason") or "JobFailed")
+            message = str(condition.get("message") or "")
+            return f"{reason}: {message}".rstrip(": ")
+    return "Job did not reach Complete"
+
+
+def wait_for_job(job_name: str, timeout_seconds: int, run_dir: Path) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        job = kubectl_json(["kubectl", "-n", "ckc-loadtest", "get", "job", job_name, "-o", "json"])
+        conditions = (job.get("status") or {}).get("conditions") or []
+        if any(item.get("type") == "Complete" and item.get("status") == "True" for item in conditions):
+            return
+        if any(item.get("type") == "Failed" and item.get("status") == "True" for item in conditions):
+            diagnostics_dir = collect_job_failure_diagnostics(job_name, run_dir)
+            raise RuntimeError(f"Load-test Job {job_name} failed: {job_failure_reason(job)}; see {diagnostics_dir}")
+        time.sleep(2)
+    diagnostics_dir = collect_job_failure_diagnostics(job_name, run_dir)
+    raise TimeoutError(f"Load-test Job {job_name} did not reach Complete within {timeout_seconds}s; see {diagnostics_dir}")
 
 
 def delete_job(job_name: str) -> None:
@@ -1141,6 +1188,29 @@ def scheduled_start_at(now: datetime, alignment: str, minimum_lead_time_seconds:
     return (earliest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
 
 
+def scheduled_wait_seconds(scheduled_start: datetime, now: datetime) -> int:
+    """Return the whole-second wait a Job must survive before load can begin."""
+    return max(0, math.ceil((scheduled_start - now).total_seconds()))
+
+
+def load_job_deadline_seconds(
+    scheduled_start: datetime,
+    now: datetime,
+    load_profile_seconds: int,
+    job_wait_buffer_seconds: int,
+) -> int:
+    """Cover actual alignment wait, workload duration, and shutdown buffer."""
+    return scheduled_wait_seconds(scheduled_start, now) + load_profile_seconds + job_wait_buffer_seconds
+
+
+def wait_for_scheduled_start(scheduled_start: datetime) -> None:
+    while True:
+        remaining = (scheduled_start - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 1.0))
+
+
 def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir)
@@ -1184,7 +1254,6 @@ def main() -> None:
             )
     if args.minimum_lead_time_seconds < 0:
         raise ValueError("minimum-lead-time-seconds must not be negative")
-    wait_timeout_seconds = load_profile_seconds + args.job_wait_buffer_seconds + args.minimum_lead_time_seconds
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,49}", run_id):
         raise ValueError("run-id must be 3-50 letters, digits, or hyphens.")
@@ -1240,14 +1309,21 @@ def main() -> None:
         telemetry_ready_at = wait_for_telemetry_ready(
             metrics_url, run_dir / "telemetry-readiness.json", run_id=run_id
         )
+        schedule_resolved_at = datetime.now(timezone.utc)
         scheduled_start = scheduled_start_at(
-            datetime.now(timezone.utc), args.start_alignment, args.minimum_lead_time_seconds
+            schedule_resolved_at, args.start_alignment, args.minimum_lead_time_seconds
+        )
+        scheduled_wait = scheduled_wait_seconds(scheduled_start, schedule_resolved_at)
+        active_deadline_seconds = load_job_deadline_seconds(
+            scheduled_start, schedule_resolved_at, load_profile_seconds, args.job_wait_buffer_seconds
         )
         started_at = scheduled_start.isoformat(timespec="seconds").replace("+00:00", "Z")
         metadata["started_at"] = started_at
         metadata["scheduled_start_at"] = started_at
         metadata["start_alignment"] = args.start_alignment
         metadata["minimum_lead_time_seconds"] = args.minimum_lead_time_seconds
+        metadata["scheduled_wait_seconds"] = scheduled_wait
+        metadata["load_job_active_deadline_seconds"] = active_deadline_seconds
         metadata["telemetry_ready_at"] = telemetry_ready_at
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
         annotation_label = as_str(deployment.get("annotation_label"), deployment_profile(deployment) or run_id)
@@ -1267,8 +1343,13 @@ def main() -> None:
             network_counters_enabled,
             run_id,
             started_at,
-            wait_timeout_seconds,
+            active_deadline_seconds,
             run_dir / "generated",
+        )
+        emit_run_phase(
+            "target_waiting_for_start",
+            scheduled_start=started_at,
+            wait_seconds=scheduled_wait,
         )
         metadata["environment_evidence"] = environment_evidence(lab_context, job_name)
         (run_dir / "run-metadata.json").write_text(json_dump(metadata) + "\n", encoding="utf-8")
@@ -1292,7 +1373,12 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-        wait_for_job(job_name, wait_timeout_seconds)
+        wait_for_scheduled_start(scheduled_start)
+        emit_run_phase("target_started", scheduled_start=started_at)
+        # The Job has the same active deadline.  Give the API one poll interval
+        # after it expires so its terminal Failed condition is reported instead
+        # of replacing the useful Kubernetes reason with a controller timeout.
+        wait_for_job(job_name, active_deadline_seconds + 30, run_dir)
         emit_run_phase("workload_finished")
         wait_for_consumer_drain(
             metrics_url,

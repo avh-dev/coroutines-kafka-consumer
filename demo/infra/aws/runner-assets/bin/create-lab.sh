@@ -179,6 +179,16 @@ data:
       }
 
       rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label  = "run_id"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label  = "profile"
+      }
+
+      rule {
         target_label = "environment"
         replacement  = "${ENVIRONMENT}"
       }
@@ -267,17 +277,56 @@ data:
     }
     discovery.relabel "ckc_kafka_network" {
       targets = discovery.kubernetes.ckc_kafka_network_pods.targets
-      rule { source_labels = ["__meta_kubernetes_pod_container_port_number"]; regex = "9406"; action = "keep" }
-      rule { source_labels = ["__meta_kubernetes_pod_name"]; target_label = "pod" }
-      rule { source_labels = ["__meta_kubernetes_namespace"]; target_label = "namespace" }
-      rule { source_labels = ["__meta_kubernetes_pod_node_name"]; target_label = "node" }
-      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]; target_label = "run_id" }
-      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]; target_label = "profile" }
-      rule { source_labels = ["__meta_kubernetes_pod_label_ckc_dev_workload"]; target_label = "workload" }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex = "9406"
+        action = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]
+        target_label = "run_id"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_profile"]
+        target_label = "profile"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_ckc_dev_workload"]
+        target_label = "workload"
+      }
+      // Network exporters run inside the producer Job and application pods.
+      // Preserve this role at scrape time: reports and dashboards must not
+      // infer it from a transient pod name.
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex = "ckc-loadtest"
+        target_label = "role"
+        replacement = "producer"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_ckc_dev_component"]
+        separator = ";"
+        regex = "ckc-app;application"
+        target_label = "role"
+        replacement = "consumer"
+      }
     }
     prometheus.scrape "ckc_kafka_network" {
       targets = discovery.relabel.ckc_kafka_network.output
       scrape_interval = "5s"
+      scrape_timeout = "4s"
       forward_to = [prometheus.remote_write.runner.receiver]
     }
 
@@ -1102,6 +1151,21 @@ extraEnvVars:
     value: "1"
 controller:
   replicaCount: ${KAFKA_BROKERS}
+  # The Kubernetes Kafka lab is deliberately small.  Three controllers must
+  # leave enough schedulable CPU for the load generator on a two-node smoke
+  # cluster; 250m is ample for its control-plane-only smoke workload.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 100Mi
+    limits:
+      cpu: 750m
+      memory: 768Mi
+      # Kafka's log segments and container stdout share the node's ephemeral
+      # filesystem when persistence is disabled.  The chart default of 2Gi
+      # caused broker eviction before even a 10 TPS smoke could run.
+      ephemeral-storage: 10Gi
   persistence:
     enabled: false
 broker:

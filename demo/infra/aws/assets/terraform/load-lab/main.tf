@@ -149,6 +149,14 @@ resource "aws_security_group" "msk" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  ingress {
+    description = "Kafka TLS from inside the load-lab VPC"
+    from_port   = 9094
+    to_port     = 9094
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0

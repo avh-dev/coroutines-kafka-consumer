@@ -135,6 +135,15 @@ class AwsSessionTest(unittest.TestCase):
             "telemetry_settle_seconds": 180,
         }, configured_floor_seconds=12000))
 
+    def test_hour_aligned_target_watchdog_covers_the_full_wait_to_next_hour(self) -> None:
+        self.assertEqual(9240, session_module.target_watchdog_seconds({
+            "start_alignment": "utc_hour",
+            "minimum_lead_time_seconds": 300,
+            "duration_seconds": 3600,
+            "consumer_drain_timeout_seconds": 60,
+            "telemetry_settle_seconds": 180,
+        }))
+
     def test_aws_alloy_collects_fine_grained_metrics_and_continuous_labeled_logs(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         export_script = (AWS_ROOT / "runner-assets/bin/export-run-artifacts.sh").read_text(encoding="utf-8")
@@ -144,6 +153,24 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('target_label  = "pod"', script)
         self.assertIn('target_label  = "container"', script)
         self.assertIn('target_label  = "profile"', script)
+        self.assertIn('discovery.relabel "ckc_demo"', script)
+        self.assertIn('source_labels = ["__meta_kubernetes_pod_label_ckc_dev_test_run_id"]\n        target_label  = "run_id"', script)
+        self.assertIn('discovery.relabel "ckc_kafka_network"', script)
+        self.assertIn('target_label = "role"\n        replacement = "producer"', script)
+        self.assertIn('regex = "ckc-app;application"\n        target_label = "role"\n        replacement = "consumer"', script)
+        alloy_config = script.split("deploy_observability_agent()", 1)[1].split(
+            "deploy_kafka_exporter()", 1
+        )[0]
+        self.assertNotIn("#", alloy_config)
+        self.assertIn(
+            'prometheus.scrape "ckc_kafka_network" {\n'
+            '      targets = discovery.relabel.ckc_kafka_network.output\n'
+            '      scrape_interval = "5s"\n'
+            '      scrape_timeout = "4s"',
+            script,
+        )
+        self.assertNotIn('rule { source_labels = ["__meta_kubernetes_pod_container_port_number"];', script)
+        self.assertNotIn("; action =", script)
         self.assertNotIn("export-loki.py", export_script)
         self.assertIn("memory: 512Mi", script)
         self.assertIn("memory: 2Gi", script)
@@ -172,6 +199,15 @@ class AwsSessionTest(unittest.TestCase):
         )
         rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
         self.assertLessEqual(len(rendered_prefix), 38)
+
+    def test_msk_security_group_admits_plaintext_and_tls_listeners(self) -> None:
+        terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
+        msk_security_group = terraform.split('resource "aws_security_group" "msk"', 1)[1].split(
+            'resource "aws_security_group" "elasticache"', 1
+        )[0]
+        self.assertIn('from_port   = 9092', msk_security_group)
+        self.assertIn('from_port   = 9094', msk_security_group)
+        self.assertIn('description = "Kafka TLS from inside the load-lab VPC"', msk_security_group)
 
     def test_aws_environment_evidence_captures_every_kubernetes_role(self) -> None:
         commands: list[list[str]] = []
@@ -485,7 +521,7 @@ class AwsSessionTest(unittest.TestCase):
             ):
                 controller.execute_test()
 
-        self.assertEqual("target_started", notify.call_args_list[0].args[0])
+        self.assertEqual("target_generator_preparing", notify.call_args_list[0].args[0])
         self.assertEqual(12, notify.call_args_list[0].args[1]["replicas"])
         self.assertEqual(1200, notify.call_args_list[0].args[1]["expected_duration_seconds"])
         self.assertEqual("target_workload_finished", notify.call_args_list[1].args[0])
@@ -514,6 +550,69 @@ class AwsSessionTest(unittest.TestCase):
             '"status":"DRAINED","timestamp":"1970-01-01T00:02:15Z"}'
         )
         self.assertEqual([], progress.observe(finished_output, now=140))
+
+    def test_target_progress_reports_the_resolved_aligned_start_once(self) -> None:
+        progress = session_module.TargetRunProgress()
+        output = (
+            'CKC_RUN_PHASE {"phase":"target_waiting_for_start",'
+            '"scheduled_start":"2026-10-18T08:00:00Z","wait_seconds":2741}'
+        )
+
+        self.assertEqual([{
+            "event": "target_waiting_for_start",
+            "scheduled_start": "2026-10-18T08:00:00Z",
+            "wait_seconds": 2741,
+        }], progress.observe(output))
+        self.assertEqual([], progress.observe(output))
+
+    def test_target_progress_reports_actual_target_start_once(self) -> None:
+        progress = session_module.TargetRunProgress()
+        output = (
+            'CKC_RUN_PHASE {"phase":"target_started",'
+            '"scheduled_start":"2026-10-18T08:00:00Z"}'
+        )
+
+        self.assertEqual([{
+            "event": "target_started",
+            "scheduled_start": "2026-10-18T08:00:00Z",
+        }], progress.observe(output))
+        self.assertEqual([], progress.observe(output))
+
+    def test_aligned_load_job_deadline_includes_the_actual_wait_to_the_hour(self) -> None:
+        now = datetime(2026, 10, 18, 18, 16, 48, tzinfo=timezone.utc)
+        scheduled = run_test_module.scheduled_start_at(now, "utc_hour", 300)
+
+        self.assertEqual(datetime(2026, 10, 18, 19, 0, tzinfo=timezone.utc), scheduled)
+        self.assertEqual(2592, run_test_module.scheduled_wait_seconds(scheduled, now))
+        self.assertEqual(
+            6312,
+            run_test_module.load_job_deadline_seconds(scheduled, now, 3600, 120),
+        )
+
+    def test_configure_stubs_forwards_the_declared_service_port(self) -> None:
+        class Response:
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            process = SimpleNamespace(
+                poll=lambda: None,
+                terminate=lambda: None,
+                wait=lambda **_kwargs: None,
+            )
+            with (
+                patch.object(run_test_module.subprocess, "Popen", return_value=process) as popen,
+                patch.object(run_test_module.urllib.request, "urlopen", return_value=Response()),
+            ):
+                run_test_module.configure_stubs({"errorRatePercent": 0}, Path(directory) / "stubs.log")
+
+        self.assertEqual(
+            f"18081:{run_test_module.STUB_SERVICE_PORT}",
+            popen.call_args.args[0][5],
+        )
 
     def test_runner_phase_events_are_mirrored_to_the_dedicated_progress_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -680,7 +779,7 @@ class AwsSessionTest(unittest.TestCase):
                     controller.execute_test()
 
         self.assertEqual(
-            ["target_started", "target_workload_finished"],
+            ["target_generator_preparing", "target_workload_finished"],
             [call.args[0] for call in notify.call_args_list],
         )
         self.assertEqual("Success", notify.call_args_list[1].args[1]["status"])
@@ -1039,6 +1138,66 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual(8, config["eks"]["node_groups"]["application"]["max_size"])
         self.assertEqual(3000, config["targets"][0]["duration_seconds"])
 
+    def test_hourly_tls_qualification_materializes_spring_then_shared_ckc_msk(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-hourly-50k-tls-qualification.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=7200,
+        )
+        source = REPO_ROOT / args.experiment
+        resolved = session_module.resolve_experiment_definition(source, environment="aws")
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        config = state["config"]
+        self.assertEqual("tls", resolved.environment_definition["lab"]["kafka"]["transport"])
+        self.assertEqual(
+            "0 -> (5m, normal-ramp-1) -> 1 -> (5m, normal-ramp-2) -> 6 -> "
+            "(5m, normal-ramp-3) -> 28 -> (5m, normal-ramp-4) -> 73 -> "
+            "(5m, normal-ramp-5) -> 100 -> (10m, steady) -> 100 -> "
+            "(5m, normal-cool-down-1) -> 73 -> (5m, normal-cool-down-2) -> 28 -> "
+            "(5m, normal-cool-down-3) -> 6 -> (5m, normal-cool-down-4) -> 1 -> "
+            "(5m, normal-cool-down-5) -> 0",
+            resolved.test.definition["load_test"]["load_profile"],
+        )
+        self.assertEqual([{"name": "steady-state", "start_seconds": 1500, "duration_seconds": 600}], resolved.test.definition["load_test"]["measurement_windows"])
+        self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
+        self.assertEqual(
+            ["spring-kafka.per-topic-keda-1-5", "ckc.hpa-1-12", "ckc-sync.virtual-1carrier-hpa-1-12"],
+            [target["name"] for target in config["targets"]],
+        )
+        self.assertEqual(
+            ["kafka.m7g.xlarge", "kafka.t3.small", "kafka.t3.small"],
+            [target["lab"]["kafka"]["msk_instance_type"] for target in config["targets"]],
+        )
+        self.assertTrue(all(target["duration_seconds"] == 3600 for target in config["targets"]))
+        self.assertTrue(all(target["start_alignment"] == "utc_hour" for target in config["targets"]))
+        virtual = resolved.targets[2].definition
+        self.assertEqual("VIRTUAL", virtual["env"]["PROCESSING_DISPATCHER_TYPE"])
+        self.assertNotIn("WORKER_DISPATCHER_THREADS", virtual["env"])
+        self.assertIn("-Djdk.virtualThreadScheduler.parallelism=1", virtual["application"]["java_tool_options"])
+        self.assertIn("-Djdk.virtualThreadScheduler.maxPoolSize=1", virtual["application"]["java_tool_options"])
+
+    def test_msk_broker_transitions_upgrade_but_recreate_for_downgrade(self) -> None:
+        self.assertEqual("preserve", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.t3.small"))
+        self.assertEqual("upgrade", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.m7g.xlarge"))
+        self.assertEqual("recreate", session_module.msk_broker_transition_action("kafka.m7g.xlarge", "kafka.t3.small"))
+        self.assertEqual("recreate", session_module.msk_broker_transition_action("kafka.unknown.small", "kafka.m7g.xlarge"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["config"]["kafka"] = {"mode": "msk", "instance_type": "kafka.m7g.xlarge"}
+            target = {"id": "ckc", "name": "CKC", "lab": {"kafka": {"msk_instance_type": "kafka.t3.small"}}}
+            with patch.object(controller, "recreate_msk_for_target", return_value=True) as recreate:
+                self.assertTrue(controller.transition_msk_for_target(target))
+
+        recreate.assert_called_once_with(target, "kafka.m7g.xlarge", "kafka.t3.small")
+
     def test_local_audit_analysis_materializes_latency_limits_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session_dir = Path(directory) / "session"
@@ -1333,20 +1492,22 @@ class AwsSessionTest(unittest.TestCase):
             actions: list[str] = []
             controller.cleanup_remote_lab = lambda: actions.append("remote")
             controller.prepare_lab_destroy = lambda: actions.append("prepare")
-            controller.destroy_stack = lambda stack: actions.append(stack)
+            controller.delete_session_eks_cluster = lambda: actions.append("cluster")
+            controller.destroy_stack = lambda stack, variables=None: actions.append(stack)
             controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
             controller.verify_cleanup = lambda: actions.append("verify")
             controller.prune_terraform_cache = lambda: actions.append("prune")
             failures = controller.cleanup()
         self.assertEqual([], failures)
-        self.assertEqual(["remote", "prepare", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
+        self.assertEqual(["remote", "prepare", "cluster", "lab", "runner", "artifacts", "logs", "verify", "prune"], actions)
 
     def test_cleanup_preparation_failure_is_warning_when_verification_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self.controller(Path(directory))
             controller.cleanup_remote_lab = lambda: None
             controller.prepare_lab_destroy = lambda: (_ for _ in ()).throw(RuntimeError("temporary EKS outage"))
-            controller.destroy_stack = lambda _stack: None
+            controller.delete_session_eks_cluster = lambda: None
+            controller.destroy_stack = lambda _stack, variables=None: None
             controller.delete_cloudwatch_log_group = lambda: None
             controller.verify_cleanup = lambda: None
             controller.prune_terraform_cache = lambda: None
@@ -1358,6 +1519,88 @@ class AwsSessionTest(unittest.TestCase):
             ["EKS node-group pre-cleanup: temporary EKS outage"],
             controller.state["cleanup_warnings"],
         )
+
+    def test_cleanup_keeps_runner_when_lab_destroy_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            actions: list[str] = []
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: None
+            controller.delete_session_eks_cluster = lambda: None
+
+            def destroy_stack(stack: str, variables: dict[str, object] | None = None) -> None:
+                actions.append(stack)
+                if stack == "lab":
+                    raise RuntimeError("subnet still has a dependency")
+
+            controller.destroy_stack = destroy_stack
+            controller.delete_cloudwatch_log_group = lambda: actions.append("logs")
+            controller.verify_cleanup = lambda: actions.append("verify")
+            controller.prune_terraform_cache = lambda: actions.append("prune")
+            failures = controller.cleanup()
+
+        self.assertEqual(["lab", "logs", "verify"], actions)
+        self.assertIn("lab destroy: subnet still has a dependency", failures)
+
+    def test_cleanup_disables_runner_peering_when_runner_was_already_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            controller.state["terraform"] = {
+                "lab": {"created": True, "variables": {"enable_runner_observability_peering": True}},
+                "runner": {"created": False},
+            }
+            received_variables: list[dict[str, object] | None] = []
+            controller.cleanup_remote_lab = lambda: None
+            controller.prepare_lab_destroy = lambda: None
+            controller.delete_session_eks_cluster = lambda: None
+
+            def destroy_stack(stack: str, variables: dict[str, object] | None = None) -> None:
+                if stack == "lab":
+                    received_variables.append(variables)
+
+            controller.destroy_stack = destroy_stack
+            controller.delete_cloudwatch_log_group = lambda: None
+            controller.verify_cleanup = lambda: None
+            controller.prune_terraform_cache = lambda: None
+            failures = controller.cleanup()
+
+        self.assertEqual([], failures)
+        self.assertEqual([{"enable_runner_observability_peering": False}], received_variables)
+        self.assertTrue(controller.state["lab_destroy_without_runner"])
+
+    def test_cleanup_removes_tagged_eks_cluster_outside_terraform_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            cluster_name = "ckc-load-lab-s-1234567890"
+            with (
+                patch.object(controller, "aws_json", return_value={"cluster": {
+                    "arn": "arn:aws:eks:us-east-1:123456789012:cluster/ckc-load-lab-s-1234567890",
+                    "tags": {"SessionId": controller.config["session_id"]},
+                }}),
+                patch.object(controller, "run") as run_command,
+            ):
+                controller.delete_session_eks_cluster()
+
+        self.assertEqual(cluster_name, controller.state["deleted_session_eks_cluster"])
+        self.assertEqual([
+            ["aws", "eks", "delete-cluster", "--region", "us-east-1", "--name", cluster_name],
+            ["aws", "eks", "wait", "cluster-deleted", "--region", "us-east-1", "--name", cluster_name],
+        ], [call.args[0] for call in run_command.call_args_list])
+
+    def test_cleanup_refuses_eks_cluster_with_another_session_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            with (
+                patch.object(controller, "aws_json", return_value={"cluster": {
+                    "arn": "arn:aws:eks:us-east-1:123456789012:cluster/foreign",
+                    "tags": {"SessionId": "another-session"},
+                }}),
+                patch.object(controller, "run") as run_command,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "SessionId tag"):
+                    controller.delete_session_eks_cluster()
+
+        run_command.assert_not_called()
 
     def test_lab_destroy_removes_only_detached_vpc_cni_interfaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1528,6 +1771,29 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("containerPort: 9405", manifest)
         self.assertIn("cpu: '1'", manifest)
         self.assertIn("memory: 2Gi", manifest)
+
+    def test_kubernetes_kafka_keeps_cpu_for_the_smoke_generator_and_has_safe_ephemeral_storage(self) -> None:
+        create_lab = (AWS_ROOT / "runner-assets" / "bin" / "create-lab.sh").read_text(encoding="utf-8")
+        self.assertIn("controller:\n  replicaCount: ${KAFKA_BROKERS}\n  # The Kubernetes Kafka lab", create_lab)
+        self.assertIn("cpu: 250m", create_lab)
+        self.assertIn("ephemeral-storage: 10Gi", create_lab)
+
+    def test_report_regeneration_runs_victoriametrics_as_the_operator(self) -> None:
+        controller_source = (AWS_ROOT / "scripts" / "run-experiment.py").read_text(encoding="utf-8")
+        self.assertIn('"--user", f"{os.getuid()}:{os.getgid()}"', controller_source)
+
+    def test_failed_load_job_is_reported_without_waiting_for_the_outer_timeout(self) -> None:
+        failed_job = {"status": {"conditions": [{
+            "type": "Failed", "status": "True", "reason": "DeadlineExceeded", "message": "Job was active too long",
+        }]}}
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(run_test_module, "kubectl_json", return_value=failed_job),
+                patch.object(run_test_module, "collect_job_failure_diagnostics", return_value=Path(directory) / "job-diagnostics") as collect,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "DeadlineExceeded"):
+                    run_test_module.wait_for_job("smoke", 120, Path(directory))
+        collect.assert_called_once_with("smoke", Path(directory))
 
     def test_telemetry_coverage_requires_early_samples_for_every_capability(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

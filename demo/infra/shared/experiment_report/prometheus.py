@@ -374,7 +374,16 @@ def collect_kafka_network_counters(
     selector = f'run_id="{run_id}"'
     def value(metric: str, role: str, direction: str | None = None) -> float | None:
         labels = f'{selector},role="{role}"' + (f',direction="{direction}"' if direction else "")
-        return client.query_scalar(f"sum(increase({metric}{{{labels}}}[{seconds}s]))", end)
+        measured = client.query_scalar(f"sum(increase({metric}{{{labels}}}[{seconds}s]))", end)
+        if measured is not None:
+            return measured
+        # Early AWS artifacts carried run_id but predate the explicit role
+        # relabeling.  Their exporter exists only in the load-test namespace
+        # or in application pods, so this is a safe compatibility fallback
+        # that also lets already-collected reports be regenerated.
+        namespace = "ckc-loadtest" if role == "producer" else "ckc-app"
+        legacy_labels = f'{selector},namespace="{namespace}"' + (f',direction="{direction}"' if direction else "")
+        return client.query_scalar(f"sum(increase({metric}{{{legacy_labels}}}[{seconds}s]))", end)
     def gauge(metric: str) -> float | None:
         return client.query_scalar(f"min(min_over_time({metric}{{{selector}}}[{seconds}s]))", end)
     rules, reads = gauge("ckc_kafka_network_rules_present"), gauge("ckc_kafka_network_counter_read_success")
@@ -399,7 +408,15 @@ def collect_kafka_network_counters(
                 f'(sum(increase(demo_ckc_record_dropped_total{{run_id="{run_id}", pod=~"ckc-demo-.+"}}[{seconds}s])) or vector(0))'
             )
             source = "processed_plus_dropped"
-        return client.query_scalar(query, end), source
+        count = client.query_scalar(query, end)
+        if count is None and role == "consumer" and implementation in {"ckc", "ckc-sync"}:
+            # See the equivalent counter fallback above.  Application metrics
+            # from the first AWS exporter revision did not yet retain run_id.
+            count = client.query_scalar(
+                f'sum(increase(demo_ckc_poll_records_sum{{namespace="ckc-app", pod=~"ckc-demo-.+"}}[{seconds}s]))',
+                end,
+            )
+        return count, source
     total_rx = total_tx = total_rx_packets = total_tx_packets = 0.0
     for role, result_key in (("producer", "published_messages"), ("consumer", "consumer_records")):
         rx = value("ckc_kafka_client_network_bytes_total", role, "receive") or 0.0
