@@ -1183,6 +1183,31 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("-Djdk.virtualThreadScheduler.parallelism=1", virtual["application"]["java_tool_options"])
         self.assertIn("-Djdk.virtualThreadScheduler.maxPoolSize=1", virtual["application"]["java_tool_options"])
 
+    def test_spring_tls_requalification_starts_without_hour_alignment(self) -> None:
+        args = SimpleNamespace(
+            experiment="demo/infra/experiments/aws-spring-keda-50k-tls-requalification.yaml",
+            experiment_id=None,
+            max_session_hours=12,
+            region="eu-central-1",
+            owner="tester",
+            image_environment="dev",
+            lab_profile=None,
+            test_timeout_seconds=7200,
+        )
+        source = REPO_ROOT / args.experiment
+        resolved = session_module.resolve_experiment_definition(source, environment="aws")
+        with tempfile.TemporaryDirectory() as directory:
+            state = session_module.new_state(args, "safe-session", Path(directory))
+
+        self.assertEqual("tls", resolved.environment_definition["lab"]["kafka"]["transport"])
+        self.assertEqual("4.1.x.kraft", resolved.environment_definition["lab"]["kafka"]["msk_version"])
+        self.assertEqual(["spring-kafka.per-topic-keda-1-5"], [target["name"] for target in state["config"]["targets"]])
+        target = state["config"]["targets"][0]
+        self.assertEqual("kafka.m7g.xlarge", target["lab"]["kafka"]["msk_instance_type"])
+        self.assertEqual(3600, target["duration_seconds"])
+        self.assertEqual("none", target["start_alignment"])
+        self.assertEqual(0, target["minimum_lead_time_seconds"])
+
     def test_msk_broker_transitions_upgrade_but_recreate_for_downgrade(self) -> None:
         self.assertEqual("preserve", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.t3.small"))
         self.assertEqual("upgrade", session_module.msk_broker_transition_action("kafka.t3.small", "kafka.m7g.xlarge"))

@@ -363,6 +363,7 @@ def _scaled_object(
     topic: str,
     group: str,
     kafka_bootstrap: str,
+    kafka_tls: bool,
 ) -> dict[str, Any] | None:
     if not values.get("enabled"):
         return None
@@ -463,6 +464,7 @@ def _scaled_object(
                         "offsetResetPolicy": offset_reset_policy,
                         "allowIdleConsumers": "false",
                         "fullMetadata": "false",
+                        **({"tls": "enable"} if kafka_tls else {}),
                     },
                 },
             ],
@@ -732,7 +734,10 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 raise ValueError(f"Deployment plan does not contain the Kafka topic for {workload_name}")
             autoscaler = _scaled_object(
                 deployment_name, bindings.application_namespace, workload.get("hpa") or {},
-                topic=topic, group=group_id, kafka_bootstrap=bindings.kafka_bootstrap,
+                topic=topic,
+                group=group_id,
+                kafka_bootstrap=bindings.kafka_bootstrap,
+                kafka_tls=bindings.kafka_security_protocol.strip().upper() in {"SSL", "SASL_SSL"},
             )
             if autoscaler:
                 manifests.append(autoscaler)
