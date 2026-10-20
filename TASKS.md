@@ -470,6 +470,7 @@
 | [INFRA-301](#infra-301) | Accept equals-form JVM options in the target runner. | DONE |
 | [INFRA-302](#infra-302) | Remove fixed-dispatcher settings from the virtual-thread target. | DONE |
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
+| [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5498,3 +5499,12 @@ Added the three-target AWS qualification: Spring/KEDA, fixed-one-worker CKC/HPA,
 MSK type transitions now preserve an equal type, resize a known increase, and replace the MSK cluster for a decrease. Replacement reconfigures the Kubernetes lab using the new broker endpoints before the next target.
 Environment-level Kafka transport is now inherited by each materialized target unless that target explicitly selects a different listener; this keeps the qualification TLS-only despite its per-target MSK size overrides.
 Verification: 111 AWS and shared orchestration unit tests plus Python compilation and whitespace checks pass. No AWS experiment was started.
+
+<a id="infra-306"></a>
+### INFRA-306 - Enable TLS for KEDA Kafka lag scaling
+
+_Date: 2026-10-20_
+
+Configure generated KEDA Kafka lag triggers for the Kafka transport selected by the experiment.
+Add TLS rendering coverage and prepare a Spring-only requalification without UTC-hour waiting.
+Do not automatically start the AWS experiment.

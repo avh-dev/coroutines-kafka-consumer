@@ -661,6 +661,19 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("ckc-demo-order", alias["spec"]["selector"]["app.kubernetes.io/name"])
         self.assertEqual(30080, alias["spec"]["ports"][0]["nodePort"])
 
+        tls_manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="spring-scaling-tls-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka.internal:9094",
+            kafka_security_protocol="SSL",
+            redis_host="redis.internal",
+            audit_host="audit.internal",
+        ))
+        tls_scaler = next(item for item in tls_manifests if item.get("kind") == "ScaledObject")
+        self.assertEqual("enable", tls_scaler["spec"]["triggers"][1]["metadata"]["tls"])
+
     def test_materializes_local_spring_topic_autoscaling_qualification(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/spring-topic-autoscaling-5k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
