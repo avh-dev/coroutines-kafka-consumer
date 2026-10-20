@@ -8,15 +8,20 @@ workload:
     flavour: *fast_stub
     registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
     deployment:
-      replicas: 4
+      replicas: 2
       workers: 4
       resources:
         requests: {cpu: 300m, memory: 384Mi}
         limits: {memory: 1Gi}
   load:
-    shards: 2
+    # The generator already distributes aggregate TPS across its in-process
+    # workers. A single JVM avoids a second Job pod on the one-node support
+    # pool and makes the full 50k/s load all-or-nothing.
+    shards: 1
     workers: 100
-    dispatcher_threads: 2
+    # Keep the aggregate dispatch parallelism of the former two-shard setup
+    # while generating all 50k/s from this one JVM.
+    dispatcher_threads: 4
     base_tps: 50000
     producer_capacity_tps: {order: 10000, batch: 10000, telemetry: 10000}
     load_profile: 0 -> (5m, normal-ramp-1) -> 1 -> (5m, normal-ramp-2) -> 6 -> (5m, normal-ramp-3) -> 28 -> (5m, normal-ramp-4) -> 73 -> (5m, normal-ramp-5) -> 100 -> (10m, steady) -> 100 -> (5m, normal-cool-down-1) -> 73 -> (5m, normal-cool-down-2) -> 28 -> (5m, normal-cool-down-3) -> 6 -> (5m, normal-cool-down-4) -> 1 -> (5m, normal-cool-down-5) -> 0
@@ -37,8 +42,11 @@ workload:
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 1
     audit_log_enabled: true
-    cpu_request: 800m
-    memory_request: 768Mi
+    # One 50k/s generator and two four-worker stubs share one m7i.xlarge
+    # support node. Requests total 2.1 vCPU before observability and EKS
+    # system pods, while preserving headroom above the observed 25k/s load.
+    cpu_request: 1500m
+    memory_request: 1Gi
     memory_limit: 1280Mi
     java_options: -Xms256m -Xmx768m -XX:+UseSerialGC
     consumer_drain_timeout_seconds: 60

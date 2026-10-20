@@ -5505,6 +5505,9 @@ Verification: 111 AWS and shared orchestration unit tests plus Python compilatio
 
 _Date: 2026-10-20_
 
+Enable TLS metadata on KEDA Kafka lag triggers and prepare an unaligned, Spring-only 50k AWS requalification.
+Use one in-process-sharded 50k/s generator instead of two external generator pods, with four dispatcher threads and a 1500m CPU / 1Gi memory request, and two four-worker stub pods. This keeps 2.1 vCPU of workload requests on the fixed single-node support pool before observability and EKS system pods; do not start the experiment automatically.
+
 Configure generated KEDA Kafka lag triggers for the Kafka transport selected by the experiment.
 Add TLS rendering coverage and prepare a Spring-only requalification without UTC-hour waiting.
 Do not automatically start the AWS experiment.
