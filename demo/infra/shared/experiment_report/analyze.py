@@ -760,6 +760,57 @@ def configuration(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def requested_pod_capacity(
+    measurements: dict[str, float | None],
+    configuration: dict[str, Any],
+    duration_seconds: float,
+) -> None:
+    """Add request-weighted replica-hours to Prometheus measurements.
+
+    Kubernetes does not expose kube-state-metrics in every supported
+    environment. The resolved request is therefore taken from the immutable
+    run plan, while the replica average is observed from application pods.
+    This is capacity demand, deliberately not an infrastructure-cost estimate.
+    """
+    replicas = measurements.get("application_replicas_average")
+    resources = configuration.get("resources")
+    requests = resources.get("requests") if isinstance(resources, dict) else None
+    if replicas is None or not isinstance(requests, dict) or duration_seconds <= 0:
+        measurements.update({
+            "application_pod_hours": None,
+            "application_requested_vcpu_hours": None,
+            "application_requested_gib_hours": None,
+        })
+        return
+
+    def cpu_cores(value: Any) -> float | None:
+        text = str(value or "").strip()
+        try:
+            return float(text[:-1]) / 1000 if text.endswith("m") else float(text)
+        except ValueError:
+            return None
+
+    def memory_gib(value: Any) -> float | None:
+        text = str(value or "").strip()
+        units = {"Ki": 1 / 1024 / 1024, "Mi": 1 / 1024, "Gi": 1.0, "Ti": 1024.0}
+        for suffix, factor in units.items():
+            if text.endswith(suffix):
+                try:
+                    return float(text[:-len(suffix)]) * factor
+                except ValueError:
+                    return None
+        return None
+
+    pod_hours = replicas * duration_seconds / 3600
+    cpu = cpu_cores(requests.get("cpu"))
+    memory = memory_gib(requests.get("memory"))
+    measurements.update({
+        "application_pod_hours": pod_hours,
+        "application_requested_vcpu_hours": pod_hours * cpu if cpu is not None else None,
+        "application_requested_gib_hours": pod_hours * memory if memory is not None else None,
+    })
+
+
 def thread_stats_coverage(
     run_dir: Path,
     metadata: dict[str, Any],
@@ -914,10 +965,22 @@ def resolved_environment(snapshots: list[dict[str, Any]], warnings: list[str]) -
     if not snapshots:
         warnings.append("Resolved environment evidence is unavailable")
         return {}
-    environment = snapshots[0]
+    environment = dict(snapshots[0])
     identity = tuple(environment.get(key) for key in ("provider", "environment", "region", "cluster_name"))
     if any(tuple(snapshot.get(key) for key in ("provider", "environment", "region", "cluster_name")) != identity for snapshot in snapshots[1:]):
         warnings.append("Targets were captured with different resolved environment identities")
+    # Some evidence is collected only by particular target workloads (for
+    # example, the load generator image manifest).  Preserve every observed
+    # Java runtime instead of letting the first target hide it.
+    java = dict(environment.get("java") or {})
+    for snapshot in snapshots[1:]:
+        snapshot_java = snapshot.get("java")
+        if isinstance(snapshot_java, dict):
+            for role, version in snapshot_java.items():
+                if version and not java.get(role):
+                    java[role] = version
+    if java:
+        environment["java"] = java
     return environment
 
 
@@ -927,14 +990,26 @@ def resolved_environment_topologies(
     grouped: list[dict[str, Any]] = []
     by_placement: dict[tuple[str, ...], dict[str, Any]] = {}
     for target_name, environment in snapshots:
-        workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
-        application_nodes = workloads.get("application") if isinstance(workloads, dict) else []
-        placement = tuple(sorted(str(node) for node in application_nodes or []))
+        # AWS target runs can legitimately resize MSK and application autoscaling.
+        # Those are target settings, not different system topologies.  Keep one
+        # readable diagram and surface the varying values in the target table.
+        if str(environment.get("provider") or "").upper() == "AWS":
+            placement = ("aws-shared-topology",)
+        else:
+            workloads = environment.get("workloads") if isinstance(environment.get("workloads"), dict) else {}
+            application_nodes = workloads.get("application") if isinstance(workloads, dict) else []
+            placement = tuple(sorted(str(node) for node in application_nodes or []))
         topology = by_placement.get(placement)
         if topology is None:
             topology = {"targets": [], "environment": environment}
             by_placement[placement] = topology
             grouped.append(topology)
+        if placement == ("aws-shared-topology",):
+            canonical = topology["environment"]
+            types = canonical.setdefault("target_msk_instance_types", [])
+            instance_type = ((environment.get("kafka") or {}) if isinstance(environment.get("kafka"), dict) else {}).get("instance_type")
+            if instance_type and instance_type not in types:
+                types.append(instance_type)
         topology["targets"].append(target_name)
     return grouped
 
@@ -1228,6 +1303,15 @@ def analyze_experiment(
                 "workloads": configured_application.get("workloads") or {},
                 "resources": configured_application.get("resources") or target_configuration.get("resources") or {},
             })
+        requested_pod_capacity(measurements, target_configuration, target_load_duration)
+        for window in measurement_window_results:
+            window_measurements = window.get("measurements")
+            if isinstance(window_measurements, dict):
+                requested_pod_capacity(
+                    window_measurements,
+                    target_configuration,
+                    float(window.get("duration_seconds") or 0),
+                )
         targets.append(
             TargetReport(
                 name=str(target.get("name") or target.get("target") or run_dir.name),

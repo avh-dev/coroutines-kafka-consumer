@@ -132,6 +132,7 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertNotIn("shared/workloads", script)
         self.assertNotIn("internal-lab/workloads", script)
         self.assertIn("demo/infra/shared/result_bundle", script)
+        self.assertIn("-type f -name '*.pyc' -delete", script)
         self.assertIn("demo/infra/shared/experiment_notifications", script)
         self.assertIn("demo/infra/shared/kafka_warmup", script)
 
