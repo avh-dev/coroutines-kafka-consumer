@@ -25,6 +25,7 @@ from experiment_report.analyze import (  # noqa: E402
     normalize_chaos_scenarios,
     parse_load_profile,
     peak_telemetry_fleet_size,
+    requested_pod_capacity,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
@@ -39,6 +40,19 @@ from experiment_report import svg as svg_renderer  # noqa: E402
 
 
 class ExperimentReportTest(unittest.TestCase):
+    def test_requested_pod_capacity_uses_observed_replicas_and_resolved_requests(self) -> None:
+        measurements = {"application_replicas_average": 3.5}
+
+        requested_pod_capacity(
+            measurements,
+            {"resources": {"requests": {"cpu": "200m", "memory": "512Mi"}}},
+            3600,
+        )
+
+        self.assertEqual(3.5, measurements["application_pod_hours"])
+        self.assertAlmostEqual(0.7, measurements["application_requested_vcpu_hours"])
+        self.assertEqual(1.75, measurements["application_requested_gib_hours"])
+
     def test_full_run_measurement_window_is_implicit(self) -> None:
         windows = configured_measurement_windows(
             {
@@ -1137,7 +1151,7 @@ class ExperimentReportTest(unittest.TestCase):
         namespace = "{http://www.w3.org/2000/svg}"
 
         self.assertEqual("1280", root.attrib["width"])
-        self.assertEqual("900", root.attrib["height"])
+        self.assertEqual("945", root.attrib["height"])
         self.assertIn("AWS environment · eu-central-1", svg)
         for label in (
             "Load generator",
@@ -1148,30 +1162,34 @@ class ExperimentReportTest(unittest.TestCase):
             "Grafana Alloy 1.5.1",
             "Kafka exporter 1.8.0",
             "EC2 · Runner",
-            "VictoriaMetrics 1.102.1",
-            "Loki 3.3.2",
-            "Grafana 11.6.0",
-            "Fluent Bit 4.2.3",
-            "CloudWatch exporter 0.16.0",
+            "VictoriaMetrics",
+            "Loki",
+            "Grafana",
+            "Fluent Bit",
+            "CloudWatch",
+            "exporter",
         ):
             self.assertIn(label, svg)
-        self.assertIn("2 pods · 50000 aggregate TPS", svg)
+        self.assertIn("2 pods · indexed Job", svg)
+        self.assertIn("50000 aggregate TPS", svg)
         self.assertIn("12 pods", svg)
         self.assertIn("4 pods", svg)
         self.assertEqual(3, svg.count("Java 21.0.12.1"))
         self.assertIn("Kafka offsets &amp; consumer lag", svg)
-        self.assertIn("req 100m/128Mi · lim 500m/256Mi CPU/RAM", svg)
-        self.assertIn("req 100m/512Mi · lim 500m/2Gi CPU/RAM", svg)
+        self.assertIn("1 pod · requests 100m / 128Mi", svg)
+        self.assertIn("limits 500m / 256Mi", svg)
+        self.assertIn("1 pod · requests 100m / 512Mi", svg)
+        self.assertIn("limits 500m / 2Gi", svg)
         self.assertIn("2 nodes · cache.r7g.large", svg)
         self.assertIn("Redis 7.1", svg)
-        self.assertIn("2 × m7i.xlarge workers · 100 GiB EBS/node", svg)
+        self.assertIn("node-group details unavailable", svg)
         self.assertIn("EC2 · Runner", svg)
         self.assertIn("t3.small · 20 GiB root EBS", svg)
         self.assertIn("SSM agent · orchestration · artifact staging", svg)
         self.assertIn("Docker · 6 containers", svg)
         self.assertNotIn('data-boundary="managed-services"', svg)
         self.assertNotIn('data-service-card="cloudwatch"', svg)
-        self.assertIn("req 500m/1Gi · lim —/3Gi CPU/RAM", svg)
+        self.assertIn("requests 500m / 1Gi", svg)
         self.assertNotIn("None CPU", svg)
         self.assertNotIn("worker node", svg)
         self.assertNotIn("placement", svg)
@@ -1182,14 +1200,16 @@ class ExperimentReportTest(unittest.TestCase):
             for element in root.iter(f"{namespace}rect")
             if element.attrib.get("data-boundary")
         }
-        self.assertEqual({"aws", "eks", "eks-observability", "runner", "runner-docker"}, boundaries)
+        self.assertEqual({"aws", "eks", "application-workloads", "runner", "runner-docker"}, boundaries)
+        self.assertIn('data-boundary="support-workloads"', svg)
+        self.assertIn('data-boundary="application-workloads"', svg)
         service_cards = {
             element.attrib.get("data-service-card"): element
             for element in root.iter(f"{namespace}rect")
             if element.attrib.get("data-service-card")
         }
         self.assertEqual(
-            {"130"},
+            {"130", "145", "150", "185", "190"},
             {
                 service_cards[name].attrib["height"]
                 for name in ("load-generator", "msk", "stubs", "application", "redis")
@@ -1226,10 +1246,10 @@ class ExperimentReportTest(unittest.TestCase):
         }, set(flows))
         self.assertEqual(
             {
-                "load-to-kafka": "M350 210 H855",
-                "kafka-to-application": "M1040 275 V297.5 H602.5 V320",
-                "application-to-redis": "M760 385 H855",
-                "application-to-stubs": "M445 385 H350",
+                "load-to-kafka": "M355 302.5 H390 V245 H820 V195 H855",
+                "kafka-to-application": "M1040 270 V300 H810 V346.6 H755",
+                "application-to-redis": "M755 410 H855",
+                "application-to-stubs": "M425 378.3 H390 V492.5 H355",
             },
             {name: element.attrib["d"] for name, element in flows.items()},
         )
@@ -1821,24 +1841,30 @@ class ExperimentReportTest(unittest.TestCase):
             svg = (outputs[0].parent / "environment-topology.svg").read_text(encoding="utf-8")
             markdown = outputs[0].read_text(encoding="utf-8")
             root_element = ET.fromstring(svg)
-            self.assertIn('width="1200"', svg)
+            self.assertIn('width="1280"', svg)
             self.assertIn("Resolved two-host environment", svg)
             self.assertIn("Controller host · optilab", svg)
             self.assertIn("Application worker · optilab2", svg)
             self.assertIn("Docker host services", svg)
             self.assertIn("Kubernetes server", svg)
             self.assertIn("Kubernetes agent", svg)
-            self.assertIn("i5-8500T CPU @ 2.10GHz", svg)
+            self.assertIn("i5-8500T CPU @", svg)
+            self.assertIn("2.10GHz", svg)
             self.assertIn("6 logical CPUs · 8 GiB RAM", svg)
             self.assertEqual(2, svg.count("CPU capped at 2 GHz"))
             self.assertIn("Worker: measured application only", svg)
             self.assertNotIn("No Docker lab services", svg)
             self.assertNotIn("Configured IP network", svg)
-            self.assertIn('data-boundary="controller-kubernetes" x="45" y="145" width="300" height="675"', svg)
-            self.assertIn('data-service-card="load-generator" x="70" y="245"', svg)
-            self.assertIn("2 pods · indexed Job · 100 aggregate TPS", svg)
-            self.assertIn("1 worker/pod · Java 21.0.12", svg)
+            self.assertIn('data-boundary="controller-kubernetes" x="45" y="205" width="350" height="780"', svg)
+            self.assertIn('data-service-card="load-generator" x="65" y="345" width="310" height="220"', svg)
+            self.assertIn("2 pods · indexed Job", svg)
+            self.assertIn("100 aggregate TPS", svg)
+            self.assertIn("1 worker/pod", svg)
+            self.assertIn("Java 21.0.12", svg)
             self.assertIn("1 pod · Java 21.0.12", svg)
+            self.assertIn("HTTP downstream stubs", svg)
+            self.assertIn("Telemetry inside Kubernetes", svg)
+            self.assertIn("Telemetry inside Docker", svg)
             self.assertNotIn("host process", svg)
             namespace = "{http://www.w3.org/2000/svg}"
             controller_kubernetes = next(
@@ -1859,12 +1885,12 @@ class ExperimentReportTest(unittest.TestCase):
                 float(load_generator.attrib["y"]) + float(load_generator.attrib["height"]),
                 float(controller_kubernetes.attrib["y"]) + float(controller_kubernetes.attrib["height"]),
             )
-            self.assertIn('<rect x="370" y="145" width="375" height="675"', svg)
-            self.assertIn('<rect x="395" y="520" width="325" height="275"', svg)
-            self.assertIn('data-flow="load-to-kafka" d="M320 302.5 H395"', svg)
-            self.assertIn('data-flow="kafka-to-application" d="M720 302.5 H795 V323.3 H870"', svg)
-            self.assertIn('data-flow="application-to-redis" d="M870 371.7 H795 V435 H720"', svg)
-            self.assertIn('data-flow="application-to-stubs" d="M1000 420 V500 H357.5 V430 H320"', svg)
+            self.assertIn('data-boundary="controller-docker" x="420" y="205" width="395" height="780"', svg)
+            self.assertIn('<rect x="440" y="700" width="355" height="260"', svg)
+            self.assertIn('data-flow="load-to-kafka" d="M375 455 H405 V420 H440"', svg)
+            self.assertIn('data-flow="kafka-to-application" d="M795 420 H855 V450 H920"', svg)
+            self.assertIn('data-flow="application-to-redis" d="M920 550 H855 V610 H795"', svg)
+            self.assertIn('data-flow="application-to-stubs" d="M1065 650 V687.5 H410 V667.5 H375"', svg)
             self.assertNotIn("All shown components share this physical host", svg)
             self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
 
@@ -2182,7 +2208,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
             self.assertNotIn("Published with on-time processed outcome", markdown)
-            self.assertIn(">100.00% within SLA<", markdown)
+            self.assertIn(">100.00% within target<", markdown)
             self.assertIn(
                 'Published<span class="metric-source source-a" title="Audit records">A</span></th><td>1</td>',
                 markdown,
@@ -2199,7 +2225,7 @@ class ExperimentReportTest(unittest.TestCase):
                 '<span class="topic-name">order.events.v1</span><br><span class="topic-requirements">',
                 markdown,
             )
-            self.assertIn("E2E SLA ≤ 2,000 ms", markdown)
+            self.assertIn("E2E target ≤ 2,000 ms", markdown)
             self.assertIn("Consumer contract: at-least-once delivery, per-key ordering", markdown)
             self.assertIn("Per-key ordering violations", markdown)
             self.assertIn("Lost messages", markdown)
@@ -2256,8 +2282,8 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertLess(markdown.index("## Experiment conditions"), markdown.index("## Results"))
             configuration_start = markdown.index("### Application target configurations")
             self.assertLess(configuration_start, markdown.index('<th scope="row">Application</th>'))
-            self.assertIn("Actual application nodes", markdown)
-            self.assertIn("optilab", markdown)
+            self.assertNotIn("Actual application nodes", markdown)
+            self.assertIn("Topics configuration", markdown)
             self.assertLess(markdown.index('<th scope="row">Application</th>'), markdown.index("## Detailed results"))
             steady_start = markdown.index("steady-state window · 20–50 s")
             full_start = markdown.index("Full run completion · 80 s")

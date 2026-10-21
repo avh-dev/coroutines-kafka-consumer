@@ -130,6 +130,11 @@ nodes:
         self.assertIn("/usr/local/libexec/ckc-lab/cpu-performance-acquire", script)
         self.assertIn("/usr/local/libexec/ckc-lab/cpu-performance-release", script)
         self.assertNotIn("NOPASSWD: ALL", script)
+
+    def test_bootstrap_imports_images_into_the_cri_namespace(self) -> None:
+        script = BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('k3s ctr --namespace k8s.io images import "${archive}"', script)
         self.assertNotIn("cpupower frequency-set", script)
         self.assertNotIn("intel_pstate/no_turbo", script)
         self.assertIn("cpu-policy.snapshot", script)

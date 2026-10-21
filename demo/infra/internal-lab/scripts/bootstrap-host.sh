@@ -249,7 +249,9 @@ if [[ ! -f "${archive}" ]]; then
   echo "Image archive was not found: ${archive}" >&2
   exit 1
 fi
-k3s ctr images import "${archive}"
+# kubelet reads the CRI image store from the k8s.io namespace.  Importing into
+# ctr's default namespace leaves the archive invisible to workload pods.
+k3s ctr --namespace k8s.io images import "${archive}"
 EOF
 chmod 0755 /usr/local/libexec/ckc-lab/import-k3s-images
 cat > /usr/local/libexec/ckc-lab/cpu-performance-acquire <<'EOF'

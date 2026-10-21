@@ -2436,6 +2436,11 @@ def parse_args() -> argparse.Namespace:
     for name in ("status", "cleanup"):
         child = subparsers.add_parser(name)
         child.add_argument("session_id")
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Regenerate a completed local report and canonical bundle from saved metrics and audit summaries.",
+    )
+    report_parser.add_argument("session_id")
     cost_parser = subparsers.add_parser(
         "cost-evidence",
         help="Refresh Cost Explorer evidence for a completed AWS session without starting infrastructure.",
@@ -2473,6 +2478,12 @@ def main() -> None:
         if failures:
             raise SystemExit("Cleanup incomplete:\n- " + "\n- ".join(failures))
         print(f"AWS session is clean: {args.session_id}")
+        return
+    if args.command == "report":
+        controller = load_controller(work_dir, args.session_id)
+        controller.generate_local_experiment_report()
+        controller.finalize_bundle()
+        print(json.dumps(controller.state.get("canonical_artifacts", {}), indent=2, sort_keys=True))
         return
     if args.command == "cost-evidence":
         controller = load_controller(work_dir, args.session_id)

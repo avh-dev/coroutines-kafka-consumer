@@ -530,10 +530,10 @@ def render_markdown(report: ExperimentReport) -> str:
             e2e_compliance_cells(
                 data,
                 denominator="processed",
-                primary_label="within SLA",
-                complement_label="outside SLA",
-                comparison_noun="SLA misses",
-                zero_note="no observed SLA misses",
+                primary_label="within target",
+                complement_label="outside target",
+                comparison_noun="target misses",
+                zero_note="no observed target misses",
                 compare=len(targets) > 1,
             ),
             "audit",
@@ -838,7 +838,7 @@ def render_markdown(report: ExperimentReport) -> str:
         }
         requirements = []
         if len(limits) == 1:
-            requirements.append(f"E2E SLA ≤ {number(limits.pop(), 0)} ms")
+            requirements.append(f"E2E target ≤ {number(limits.pop(), 0)} ms")
         contract = contract_label(topic)
         if contract:
             requirements.append(contract)
@@ -933,23 +933,46 @@ def render_markdown(report: ExperimentReport) -> str:
             return any(bool(((workloads.get(name) or {}).get("hpa") or {}).get("enabled")) for name in workloads)
         return bool((target.configuration.get("hpa") or {}).get("enabled"))
 
-    section("Target differences and shared settings")
+    def execution_model(target: TargetReport) -> str:
+        configuration = target.configuration
+        if str(configuration.get("profile") or "").startswith("spring-kafka"):
+            return "Platform thread per consumer"
+        dispatcher = str(configuration.get("dispatcher") or "").upper()
+        threads = configuration.get("dispatcher_threads")
+        if "VIRTUAL" in dispatcher:
+            return "Coroutine dispatcher — virtual threads (1 carrier platform thread)"
+        if threads:
+            return f"Coroutine dispatcher — {number(threads, 0)} fixed platform threads"
+        return "Coroutine dispatcher"
+
+    def autoscaling_configuration(target: TargetReport) -> str:
+        configuration = target.configuration
+        workloads = configuration.get("workloads")
+        if configuration.get("deployment_mode") == "per_topic" and isinstance(workloads, dict):
+            values = []
+            for name in ("order", "batch", "telemetry"):
+                hpa = (workloads.get(name) or {}).get("hpa") or {}
+                if not hpa.get("enabled"):
+                    continue
+                kind = "KEDA (Kafka lag)" if (hpa.get("kafka_lag") or {}).get("enabled") else "HPA (CPU)"
+                values.append(f"{escaped(name)}: {kind}, {number(hpa.get('min_replicas'), 0)}–{number(hpa.get('max_replicas'), 0)} pods")
+            return "<br>".join(values) or "Static replicas"
+        hpa = configuration.get("hpa") or {}
+        if not hpa.get("enabled"):
+            return "Static replicas"
+        return f"HPA (CPU), {number(hpa.get('minReplicas'), 0)}–{number(hpa.get('maxReplicas'), 0)} pods"
+
+    section("Target configuration")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("Requested application placement", [escaped(target.configuration.get("placement")) for target in targets])
-    row(
-        "Actual application nodes",
-        [
-            escaped(target.configuration.get("actual_placement"))
-            if target.configuration.get("actual_placement")
-            else "unavailable"
-            for target in targets
-        ],
-    )
-    row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     if any(target.configuration.get("kafka_transport") for target in targets):
         row("Kafka transport", [escaped(target.configuration.get("kafka_transport") or "—") for target in targets])
-    row("Replicas", [replica_configuration(target) for target in targets])
-    row("HPA replicas", [hpa_configuration(target) for target in targets])
+    if kafka.get("instance_type"):
+        row("MSK broker type", [escaped(kafka.get("instance_type")) for _ in targets])
+    row("Consumer execution model", [execution_model(target) for target in targets])
+    row("Autoscaling configuration", [autoscaling_configuration(target) for target in targets])
+    if not any(target_uses_hpa(target) for target in targets):
+        row("Static replicas", [replica_configuration(target) for target in targets])
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
     row("CPU limit", [resource_value(target, "limits", "cpu") for target in targets])
     row("Memory request", [resource_value(target, "requests", "memory") for target in targets])
@@ -961,8 +984,7 @@ def render_markdown(report: ExperimentReport) -> str:
             for target in targets
         ],
     )
-    row("Dispatcher", [escaped(target.configuration.get("dispatcher")) for target in targets])
-    row("Dispatcher threads", [number(target.configuration.get("dispatcher_threads"), 0) for target in targets])
+    row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
     if any(target.test_definition.get("telemetry_source_mode") == "FLEET" for target in targets):
         row("Telemetry source", [escaped(target.test_definition.get("telemetry_source_mode")) for target in targets])
         row(
@@ -1003,6 +1025,7 @@ def render_markdown(report: ExperimentReport) -> str:
         ("Load producer compression.type", lambda topic: escaped((topic.get("producer") or {}).get("compression_type"))),
         ("Load producer buffer.memory", lambda topic: bytes_value((topic.get("producer") or {}).get("buffer_memory"))),
     )
+    section("Topics configuration")
     shared_kafka_settings: set[str] = set()
     if configured_topics:
         for label, formatter in kafka_setting_rows:
@@ -1160,7 +1183,9 @@ def render_markdown(report: ExperimentReport) -> str:
         "",
         f'<p class="report-execution-time">{escaped(execution_time(report))}</p>',
         "",
-        f"**Execution:** `{escaped(report.execution_status)}` · **Requirements:** `{escaped(report.evaluation_status)}`",
+        f"**Environment:** `{escaped(str(report.environment.get('provider') or report.environment.get('environment') or 'unknown').upper())}`",
+        "",
+        f"**Execution:** `{escaped(report.execution_status)}`",
         "",
         f"Generated {escaped(report.generated_at)} · report generator v{REPORT_GENERATOR_VERSION}",
         "",
@@ -1198,9 +1223,6 @@ def render_markdown(report: ExperimentReport) -> str:
     ]
     section("Outcome")
     row("Execution status", [escaped(target.execution_status) for target in targets])
-    row("Requirements status", [escaped(target.evaluation_status) for target in targets])
-    row("Delivery requirements", [escaped(target.delivery_evaluation_status) for target in targets])
-    row("Latency requirements", [escaped(target.latency_evaluation_status) for target in targets])
 
     cost_evidence = report.cost_evidence
     if cost_evidence:
@@ -1347,7 +1369,7 @@ def render_markdown(report: ExperimentReport) -> str:
     if len(targets) > 1:
         lines.extend([
             "Multipliers compare each metric with the first target in the same measurement window. Green marks the best comparable value; sampled resource metrics within 0.5% of the best are treated as equivalent.",
-            "SLA-compliance rows show the successful share first, but their multipliers and highlighting compare the complementary share outside the limit. Requirement status is independent from comparative highlighting.",
+            "E2E-target rows show the successful share first, but their multipliers and highlighting compare the complementary share outside the configured target.",
             "",
         ])
     load_duration = sum(
@@ -1471,6 +1493,9 @@ def render_markdown(report: ExperimentReport) -> str:
                 )
         if any(target_uses_hpa(target) for target in targets):
             row("Configured HPA range", [hpa_configuration(target) for target in targets])
+        row("Application pod-hours (measurement window)", compared([value.get("application_pod_hours") for value in measurements], 3, " pod·h"), "prometheus")
+        row("Requested application CPU (measurement window)", compared([value.get("application_requested_vcpu_hours") for value in measurements], 3, " vCPU·h"), "prometheus")
+        row("Requested application memory (measurement window)", compared([value.get("application_requested_gib_hours") for value in measurements], 3, " GiB·h"), "prometheus")
         if not is_internal_lab:
             row("Application nodes minimum", compared([value.get("application_nodes_min") for value in measurements], 0, " nodes"), "prometheus")
             row("Application nodes average", compared([value.get("application_nodes_average") for value in measurements], 2, " nodes"), "prometheus")
@@ -1489,6 +1514,9 @@ def render_markdown(report: ExperimentReport) -> str:
             row("Support node-hours", compared([value.get("support_node_hours") for value in measurements], 3, " h"), "prometheus")
 
         subsection("Application resources")
+        row("Application pod-hours (interval)", compared([value.get("application_pod_hours") for value in measurements], 3, " pod·h"), "prometheus")
+        row("Requested application CPU (interval)", compared([value.get("application_requested_vcpu_hours") for value in measurements], 3, " vCPU·h"), "prometheus")
+        row("Requested application memory (interval)", compared([value.get("application_requested_gib_hours") for value in measurements], 3, " GiB·h"), "prometheus")
         row("Application CPU average (all pods)", compared([value.get("cpu_average_cores") for value in measurements], 3, " cores"), "prometheus")
         row("Application memory average", compared([value.get("application_memory_average_mib") for value in measurements], 0, " MiB"), "prometheus")
         row("Measured processing time average", compared([value.get("processing_duration_average_ms") for value in measurements], 1, " ms"), "prometheus")
@@ -1624,6 +1652,10 @@ def render_markdown(report: ExperimentReport) -> str:
             "Conflicting terminal outcomes",
             [unexpected_terminal_conflicts(target.delivery) for target in targets],
         )
+        subsection("Application requested capacity")
+        row("Application pod-hours", compared([target.measurements.get("application_pod_hours") for target in targets], 3, " pod·h"), "prometheus")
+        row("Requested application CPU", compared([target.measurements.get("application_requested_vcpu_hours") for target in targets], 3, " vCPU·h"), "prometheus")
+        row("Requested application memory", compared([target.measurements.get("application_requested_gib_hours") for target in targets], 3, " GiB·h"), "prometheus")
 
     has_network_counters = bool(network_counter_rows)
     if has_network_counters or diagnostic_steps:

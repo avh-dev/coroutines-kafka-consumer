@@ -240,6 +240,7 @@ sync_runtime_test_assets() {
   sync_path "${REPO_ROOT}/demo/infra/shared/kafka_warmup" "${LAB_ROOT}/helpers/kafka_warmup"
   sync_path "${REPO_ROOT}/demo/infra/shared/experiment_report" "${LAB_ROOT}/helpers/experiment_report"
   sync_path "${REPO_ROOT}/demo/infra/shared/result_bundle" "${LAB_ROOT}/helpers/result_bundle"
+  ssh "${LAB_TARGET}" "find '${LAB_ROOT}/helpers/experiment_report' '${LAB_ROOT}/helpers/result_bundle' -type f -name '*.pyc' -delete"
   sync_path "${REPO_ROOT}/demo/infra/experiments" "${LAB_ROOT}/experiments"
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/grafana/dashboards'"
   sync_file "${materialized_dashboard}" "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"
