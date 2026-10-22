@@ -473,7 +473,7 @@
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
-| [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | IN_PROGRESS |
+| [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | DONE |
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
