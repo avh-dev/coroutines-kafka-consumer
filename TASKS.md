@@ -170,6 +170,7 @@
 | [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
+| [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -472,6 +473,8 @@
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
+| [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
+| [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5386,6 +5389,16 @@ Recorded shard arming, profile activation, first send and acknowledgment, genera
 Applied the contract to rate-controlled and fleet-telemetry generators, including already-past timestamps; indexed generator Jobs do not retry a failed shard and use the pod UID as the fallback attempt identity.
 Verification: focused shared deployment-plan tests and the complete `:ckc-demo-load-test:test` suite pass.
 
+<a id="demo-105"></a>
+### DEMO-105 - Prevent fleet telemetry scheduling drift
+
+_Date: 2026-10-22_
+
+Schedule each fleet key from its previous planned deadline instead of publication completion time, preserving the configured per-key phase under producer overhead.
+Skip deadlines already missed rather than emitting catch-up bursts, while keeping every future deadline aligned to the original interval grid.
+Verify the fix against the local 50k TLS reproduction that decayed from 9.36k/s to 1.76k/s across a ten-minute steady plateau.
+Verification: all 47 load-test module tests and Gradle `check` pass; the rebuilt load-test image is installed on both internal-lab nodes. The post-fix experiment remains an explicit operator action.
+
 <a id="infra-292"></a>
 ### INFRA-292 - AWS target scheduling and production-like long-run evidence
 
@@ -5522,3 +5535,24 @@ Simplify report execution context, reorganize target configuration around execut
 Make AWS and internal-lab topology diagrams legible, consistently sized, and explicit about workload boundaries, runtime resources, scaling, telemetry, and environment-specific infrastructure.
 Add autoscaled application capacity usage, including requested CPU-hours and AWS node-hours where available, and prepare the matching 5k local Spring/CKC autoscaling experiment.
 Provide report-only regeneration from saved metrics and audit summaries, and prevent stale installed Python bytecode from hiding reporting changes.
+
+<a id="infra-309"></a>
+### INFRA-309 - Qualify the single-pod 50k fleet-telemetry generator locally
+
+_Date: 2026-10-22_
+
+Add a short internal-lab TLS qualification that reproduces the AWS generator layout: one pod, four dispatcher threads, a 40/40/20 topic mix, and fleet telemetry at 50k/s.
+Use a noop CKC consumer so the run measures real Kafka publication without application business work or audit overhead.
+Use one TLS broker with RF=1 but retain the AWS 336/156/420 partition layout, reproducing producer batching overhead without tripling physical-disk writes through local replication.
+Recover a stale completed or failed load-test Job left by an interrupted run, while still refusing to overlap a non-terminal Job.
+Establish an unchanged baseline before correcting fleet-telemetry scheduling drift; do not launch the experiment automatically.
+The unchanged baseline reproduced telemetry decay from 9.36k/s to 1.76k/s across a ten-minute 50k plateau while order and batch traffic remained stable and producer retries and errors stayed at zero.
+
+<a id="infra-310"></a>
+### INFRA-310 - Preserve internal-lab images across partial rebuilds
+
+_Date: 2026-10-22_
+
+Package and import the complete internal-lab application image set whenever any one image is rebuilt.
+Keep partial source rebuilds fast while making the resulting archive sufficient to recover an empty k3s/containerd image store on both lab nodes.
+Fail explicitly if a required image is missing from the controller Docker store instead of installing an incomplete runtime image set.

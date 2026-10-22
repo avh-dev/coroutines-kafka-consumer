@@ -10,7 +10,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 image_tar="${LAB_ROOT}/state/images/ckc-lab-images.tar"
-image_names=""
+all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"
 mkdir -p "${LAB_ROOT}/state/images" "${LAB_ROOT}/state/fingerprints/images"
 
 for request in "$@"; do
@@ -44,11 +44,21 @@ for request in "$@"; do
   fi
 
   docker build -t "ckc-perf/${service}:latest" "${LAB_ROOT}/docker/build/${service}"
-  image_names="${image_names} ckc-perf/${service}:latest"
+done
+
+# Import the complete local image set even when only one image was rebuilt. A
+# partial archive is not a safe recovery source if the k3s/containerd image
+# store was reset or garbage-collected between lab updates.
+for image_name in ${all_image_names}; do
+  if ! docker image inspect "${image_name}" >/dev/null 2>&1; then
+    echo "Required lab image is missing from Docker: ${image_name}" >&2
+    echo "Run a full lab image rebuild before retrying the update." >&2
+    exit 1
+  fi
 done
 
 # shellcheck disable=SC2086
-docker save ${image_names} -o "${image_tar}"
+docker save ${all_image_names} -o "${image_tar}"
 sudo -n /usr/local/libexec/ckc-lab/import-k3s-images
 if [ -n "${LAB_APPLICATION_TARGET:-}" ]; then
   ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
