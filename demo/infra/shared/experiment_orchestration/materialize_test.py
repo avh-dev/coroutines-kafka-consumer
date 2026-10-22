@@ -656,6 +656,44 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual("VIRTUAL", deployment["application"]["runtime"]["env"]["PROCESSING_DISPATCHER_TYPE"])
         self.assertNotIn("WORKER_DISPATCHER_THREADS", deployment["application"]["runtime"]["env"])
 
+    def test_materializes_single_generator_fleet_50k_local_qualification(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/internal-generator-fleet-50k-qualification.yaml"
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definition = yaml.safe_load(materialized[0].definition_path.read_text(encoding="utf-8"))
+            deployment = yaml.safe_load(materialized[0].deployment_plan_path.read_text(encoding="utf-8"))
+
+        load = definition["load_test"]
+        self.assertEqual(1, load["shards"])
+        self.assertEqual(4, load["dispatcher_threads"])
+        self.assertEqual(50_000, load["base_tps"])
+        self.assertEqual("FLEET", load["telemetry_source_mode"])
+        self.assertEqual(
+            {"order": 40, "batch": 40, "telemetry": 20},
+            {
+                "order": load["order_event_percent"],
+                "batch": load["batch_event_percent"],
+                "telemetry": load["cauldron_telemetry_percent"],
+            },
+        )
+        self.assertEqual(
+            "0 -> (3m, warm-up) -> 100 -> (10m, steady) -> 100 -> (2m, cool-down) -> 0",
+            load["load_profile"],
+        )
+        self.assertEqual(
+            [{"name": "steady-state", "start_seconds": 180, "duration_seconds": 600}],
+            load["measurement_windows"],
+        )
+        self.assertEqual("tls", deployment["environment"]["lab"]["kafka"]["transport"])
+        self.assertEqual("worker", deployment["placement"]["generator"])
+        self.assertFalse(deployment["application"]["planner"]["processing_enabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

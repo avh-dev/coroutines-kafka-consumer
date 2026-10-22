@@ -472,6 +472,7 @@
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
+| [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5522,3 +5523,12 @@ Simplify report execution context, reorganize target configuration around execut
 Make AWS and internal-lab topology diagrams legible, consistently sized, and explicit about workload boundaries, runtime resources, scaling, telemetry, and environment-specific infrastructure.
 Add autoscaled application capacity usage, including requested CPU-hours and AWS node-hours where available, and prepare the matching 5k local Spring/CKC autoscaling experiment.
 Provide report-only regeneration from saved metrics and audit summaries, and prevent stale installed Python bytecode from hiding reporting changes.
+
+<a id="infra-309"></a>
+### INFRA-309 - Qualify the single-pod 50k fleet-telemetry generator locally
+
+_Date: 2026-10-22_
+
+Add a short internal-lab TLS qualification that reproduces the AWS generator layout: one pod, four dispatcher threads, a 40/40/20 topic mix, and fleet telemetry at 50k/s.
+Use a noop CKC consumer so the run measures real Kafka publication without application business work or audit overhead.
+Establish an unchanged baseline before correcting fleet-telemetry scheduling drift; do not launch the experiment automatically.
