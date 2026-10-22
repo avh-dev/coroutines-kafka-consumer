@@ -128,6 +128,12 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("import-k3s-images", rebuild)
         self.assertIn('load-test)', script)
         self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter)', rebuild)
+        self.assertIn(
+            'all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest '
+            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"',
+            rebuild,
+        )
+        self.assertIn("docker save ${all_image_names}", rebuild)
         self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
