@@ -101,19 +101,19 @@ targets:
     - workers
     topics:
       order:
-        partitions: 24
+        partitions: 336
         pollers: 1
         workers: 5000
         queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       batch:
-        partitions: 24
+        partitions: 156
         pollers: 1
         workers: 5000
         queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       telemetry:
-        partitions: 24
+        partitions: 420
         pollers: 1
         workers: 5000
         queue_capacity: 65536
