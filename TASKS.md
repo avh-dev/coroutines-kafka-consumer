@@ -472,7 +472,7 @@
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
-| [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | IN_PROGRESS |
+| [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5534,3 +5534,4 @@ Use a noop CKC consumer so the run measures real Kafka publication without appli
 Use one TLS broker with RF=1 but retain the AWS 336/156/420 partition layout, reproducing producer batching overhead without tripling physical-disk writes through local replication.
 Recover a stale completed or failed load-test Job left by an interrupted run, while still refusing to overlap a non-terminal Job.
 Establish an unchanged baseline before correcting fleet-telemetry scheduling drift; do not launch the experiment automatically.
+The unchanged baseline reproduced telemetry decay from 9.36k/s to 1.76k/s across a ten-minute 50k plateau while order and batch traffic remained stable and producer retries and errors stayed at zero.
