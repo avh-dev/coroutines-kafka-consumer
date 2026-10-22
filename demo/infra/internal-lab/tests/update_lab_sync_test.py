@@ -30,6 +30,14 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("--demo-java-tool-options=*)", script)
         self.assertIn('PLAN_HELM_ARGS+=("$1")', script)
 
+    def test_target_runner_recovers_stale_terminal_load_test_job(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        self.assertIn("existing_job_complete=", script)
+        self.assertIn("existing_job_failed=", script)
+        self.assertIn("Removing stale terminal load-test Job:", script)
+        self.assertIn("already exists and is not terminal:", script)
+
     def test_target_runner_maps_per_target_workload_placement_to_lab_roles(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
         prepare = PREPARE_TEST.read_text(encoding="utf-8")

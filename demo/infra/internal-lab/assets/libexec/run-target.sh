@@ -1266,8 +1266,15 @@ DIAGNOSTICS_PID_PATH="${PID_DIR}/diagnostics.pid"
 if [ -f "${LOAD_TEST_JOB_PATH}" ]; then
   existing_job="$(cat "${LOAD_TEST_JOB_PATH}")"
   if [ -n "${existing_job}" ] && kubectl -n ckc-perf get job "${existing_job}" >/dev/null 2>&1; then
-    echo "Load test Kubernetes Job already exists: ${existing_job}." >&2
-    exit 1
+    existing_job_complete="$(kubectl -n ckc-perf get job "${existing_job}" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+    existing_job_failed="$(kubectl -n ckc-perf get job "${existing_job}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+    if [ "${existing_job_complete}" = "True" ] || [ "${existing_job_failed}" = "True" ]; then
+      echo "Removing stale terminal load-test Job: ${existing_job}."
+      kubectl -n ckc-perf delete job "${existing_job}" --ignore-not-found=true >/dev/null
+    else
+      echo "Load test Kubernetes Job already exists and is not terminal: ${existing_job}." >&2
+      exit 1
+    fi
   fi
   rm -f "${LOAD_TEST_JOB_PATH}"
 fi
