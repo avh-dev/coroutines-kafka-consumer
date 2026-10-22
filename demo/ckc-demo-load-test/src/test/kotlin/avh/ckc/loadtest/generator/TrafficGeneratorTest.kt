@@ -208,7 +208,7 @@ class TrafficGeneratorTest {
     }
 
     @Test
-    fun `fleet telemetry cycles isolated cauldron keys at a fixed cadence`() = runBlocking {
+    fun `fleet telemetry preserves its interval grid after a blocking send`() = runBlocking {
         val publisher = RecordingPublisher(firstTelemetryDelay = Duration.ofMillis(60))
         val config = LoadTestConfig(
             bootstrapServers = "localhost:9092",
@@ -252,8 +252,12 @@ class TrafficGeneratorTest {
         val gaps = publisher.telemetrySentAtNanos.zipWithNext { first, second -> second - first }
         assertTrue(gaps.size >= 2)
         assertTrue(
-            gaps.all { it >= Duration.ofMillis(95).toNanos() },
-            "Telemetry cadence was shortened after a blocking send: $gaps"
+            gaps.first() < Duration.ofMillis(95).toNanos(),
+            "The blocking send shifted the telemetry interval grid: $gaps"
+        )
+        assertTrue(
+            gaps.drop(1).all { it >= Duration.ofMillis(90).toNanos() },
+            "Telemetry did not return to its fixed cadence: $gaps"
         )
     }
 

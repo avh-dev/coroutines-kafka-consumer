@@ -170,6 +170,7 @@
 | [DEMO-102](#demo-102) | Disable high-cardinality Kafka client and Spring listener metrics by default without removing shared processing or E2E metrics. | DONE |
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
+| [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5386,6 +5387,16 @@ Prepared every generator shard and Kafka producer before its assigned timestamp,
 Recorded shard arming, profile activation, first send and acknowledgment, generation completion, and producer flush with run, attempt, and shard identities.
 Applied the contract to rate-controlled and fleet-telemetry generators, including already-past timestamps; indexed generator Jobs do not retry a failed shard and use the pod UID as the fallback attempt identity.
 Verification: focused shared deployment-plan tests and the complete `:ckc-demo-load-test:test` suite pass.
+
+<a id="demo-105"></a>
+### DEMO-105 - Prevent fleet telemetry scheduling drift
+
+_Date: 2026-10-22_
+
+Schedule each fleet key from its previous planned deadline instead of publication completion time, preserving the configured per-key phase under producer overhead.
+Skip deadlines already missed rather than emitting catch-up bursts, while keeping every future deadline aligned to the original interval grid.
+Verify the fix against the local 50k TLS reproduction that decayed from 9.36k/s to 1.76k/s across a ten-minute steady plateau.
+Verification: all 47 load-test module tests and Gradle `check` pass; the rebuilt load-test image is installed on both internal-lab nodes. The post-fix experiment remains an explicit operator action.
 
 <a id="infra-292"></a>
 ### INFRA-292 - AWS target scheduling and production-like long-run evidence
