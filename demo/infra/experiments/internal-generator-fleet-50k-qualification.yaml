@@ -101,19 +101,19 @@ targets:
     - workers
     topics:
       order:
-        partitions: 336
+        partitions: 24
         pollers: 1
         workers: 5000
         queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       batch:
-        partitions: 156
+        partitions: 24
         pollers: 1
         workers: 5000
         queue_capacity: 65536
         processing_mode: AT_LEAST_ONCE_NO_ORDERING
       telemetry:
-        partitions: 420
+        partitions: 24
         pollers: 1
         workers: 5000
         queue_capacity: 65536
@@ -124,11 +124,11 @@ environments:
       profile: installed
       kafka:
         implementation: apache-kafka
-        topology: cluster
+        topology: single
         transport: tls
-        brokers: 3
-        replication_factor: 3
-        min_insync_replicas: 2
+        brokers: 1
+        replication_factor: 1
+        min_insync_replicas: 1
         resources:
           cpu_per_broker: 1
           memory_per_broker: 2Gi

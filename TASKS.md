@@ -5531,4 +5531,5 @@ _Date: 2026-10-22_
 
 Add a short internal-lab TLS qualification that reproduces the AWS generator layout: one pod, four dispatcher threads, a 40/40/20 topic mix, and fleet telemetry at 50k/s.
 Use a noop CKC consumer so the run measures real Kafka publication without application business work or audit overhead.
+Use one TLS broker with RF=1 and 24 partitions per topic so three replicas on one physical lab disk cannot mask generator behavior behind local I/O saturation.
 Establish an unchanged baseline before correcting fleet-telemetry scheduling drift; do not launch the experiment automatically.

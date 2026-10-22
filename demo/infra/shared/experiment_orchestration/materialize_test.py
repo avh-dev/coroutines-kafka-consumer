@@ -691,6 +691,15 @@ class MaterializeTest(unittest.TestCase):
             load["measurement_windows"],
         )
         self.assertEqual("tls", deployment["environment"]["lab"]["kafka"]["transport"])
+        self.assertEqual("single", deployment["environment"]["lab"]["kafka"]["topology"])
+        self.assertEqual(1, deployment["environment"]["lab"]["kafka"]["replication_factor"])
+        self.assertEqual(
+            {"order": 24, "batch": 24, "telemetry": 24},
+            {
+                topic: deployment["application"]["runtime"]["topics"][topic]["partitions"]
+                for topic in ("order", "batch", "telemetry")
+            },
+        )
         self.assertEqual("worker", deployment["placement"]["generator"])
         self.assertFalse(deployment["application"]["planner"]["processing_enabled"])
 
