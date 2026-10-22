@@ -30,6 +30,14 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("--demo-java-tool-options=*)", script)
         self.assertIn('PLAN_HELM_ARGS+=("$1")', script)
 
+    def test_target_runner_recovers_stale_terminal_load_test_job(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        self.assertIn("existing_job_complete=", script)
+        self.assertIn("existing_job_failed=", script)
+        self.assertIn("Removing stale terminal load-test Job:", script)
+        self.assertIn("already exists and is not terminal:", script)
+
     def test_target_runner_maps_per_target_workload_placement_to_lab_roles(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
         prepare = PREPARE_TEST.read_text(encoding="utf-8")
@@ -120,6 +128,12 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("import-k3s-images", rebuild)
         self.assertIn('load-test)', script)
         self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter)', rebuild)
+        self.assertIn(
+            'all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest '
+            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"',
+            rebuild,
+        )
+        self.assertIn("docker save ${all_image_names}", rebuild)
         self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:

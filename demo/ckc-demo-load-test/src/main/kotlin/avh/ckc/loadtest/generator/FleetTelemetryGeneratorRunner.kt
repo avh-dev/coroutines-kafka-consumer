@@ -32,7 +32,10 @@ class FleetTelemetryGeneratorRunner(
         val schedule = PriorityQueue<ScheduledKey>(compareBy(ScheduledKey::dueAt))
         repeat(fleetSize) { index ->
             val phaseNanos = ((goldenFraction(index) * interval.toNanos()).toLong())
-            schedule += ScheduledKey(index, nextDue(startedAt.plusNanos(phaseNanos), interval, clock()))
+            schedule += ScheduledKey(
+                index,
+                nextFleetTelemetryDue(startedAt.plusNanos(phaseNanos), interval, clock())
+            )
         }
 
         while (true) {
@@ -48,14 +51,14 @@ class FleetTelemetryGeneratorRunner(
             while (schedule.isNotEmpty() && !schedule.peek().dueAt.isAfter(now) && handled < config.maxBurst) {
                 val due = schedule.remove()
                 val emitted = due.index < active
-                var completedAt: Instant? = null
                 if (emitted) {
                     stats.record(generator.name, generator.emitFleet(due.index, clock()))
-                    completedAt = clock()
                 }
                 val rescheduledAt = clock()
-                val nextCandidate = completedAt?.plus(interval) ?: due.dueAt.plus(interval)
-                schedule += ScheduledKey(due.index, nextDue(nextCandidate, interval, rescheduledAt))
+                schedule += ScheduledKey(
+                    due.index,
+                    nextFleetTelemetryDue(due.dueAt.plus(interval), interval, rescheduledAt)
+                )
                 handled++
             }
             if (schedule.isNotEmpty() && !schedule.peek().dueAt.isAfter(clock())) {
@@ -66,13 +69,13 @@ class FleetTelemetryGeneratorRunner(
 
     private fun telemetryRate(baseRate: Double): Double = baseRate * config.cauldronTelemetryPercent / 100.0
 
-    private fun nextDue(candidate: Instant, interval: Duration, now: Instant): Instant {
-        if (candidate.isAfter(now)) return candidate
-        val elapsed = Duration.between(candidate, now).toNanos()
-        return candidate.plusNanos((elapsed / interval.toNanos() + 1) * interval.toNanos())
-    }
-
     private fun goldenFraction(index: Int): Double = ((index + 1) * 0.6180339887498949) % 1.0
+}
+
+internal fun nextFleetTelemetryDue(candidate: Instant, interval: Duration, now: Instant): Instant {
+    if (candidate.isAfter(now)) return candidate
+    val elapsed = Duration.between(candidate, now).toNanos()
+    return candidate.plusNanos((elapsed / interval.toNanos() + 1) * interval.toNanos())
 }
 
 internal fun telemetryFleetSize(

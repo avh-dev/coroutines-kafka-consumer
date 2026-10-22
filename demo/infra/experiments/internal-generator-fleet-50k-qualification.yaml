@@ -1,0 +1,135 @@
+schema_version: 2
+name: internal-generator-fleet-50k-qualification
+description: Reproduce the single-pod AWS 50k fleet-telemetry generator on the local TLS lab before scheduling changes.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta:
+      percentiles:
+        p100: 0
+    flavour:
+      percentiles:
+        p100: 0
+    registry:
+      percentiles:
+        p100: 0
+  load:
+    shards: 1
+    workers: 100
+    dispatcher_threads: 4
+    base_tps: 50000
+    producer_capacity_tps:
+      order: 10000
+      batch: 10000
+      telemetry: 10000
+    load_profile: 0 -> (3m, warm-up) -> 100 -> (10m, steady) -> 100 -> (2m, cool-down) -> 0
+    cauldron_count: 10000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: false
+    cpu_request: 1500m
+    memory_request: 1Gi
+    cpu_limit: null
+    memory_limit: 1280Mi
+    java_options: -Xms256m -Xmx768m -XX:+UseSerialGC
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 32768
+    batch_kafka_producer_batch_size: 32768
+    telemetry_kafka_producer_batch_size: 32768
+    stats_log_interval_seconds: 15
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 30
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - name: steady-state
+    start: 3m
+    duration: 10m
+  topics:
+    order:
+      kafka_topic: order.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+    batch:
+      kafka_topic: batch.events.v1
+      traffic_percent: 40
+      max_e2e_latency_ms: 2000
+    telemetry:
+      kafka_topic: cauldron.events.v1
+      traffic_percent: 20
+      max_e2e_latency_ms: 2000
+targets:
+- name: ckc.noop.single-generator-fleet-50k
+  implementation: ckc
+  placement:
+    application: controller
+    stubs: controller
+    generator: worker
+  application:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    hpa:
+      enabled: false
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: false
+      AUDIT_LOG_ENABLED: false
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      PROCESSING_DISPATCHER_TYPE: DEFAULT
+    planning_latency:
+      order_ms: 1
+      batch_ms: 1
+      telemetry_ms: 1
+    parallelism:
+    - partitions
+    - pollers
+    - workers
+    topics:
+      order:
+        partitions: 336
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      batch:
+        partitions: 156
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+      telemetry:
+        partitions: 420
+        pollers: 1
+        workers: 5000
+        queue_capacity: 65536
+        processing_mode: AT_LEAST_ONCE_NO_ORDERING
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: single
+        transport: tls
+        brokers: 1
+        replication_factor: 1
+        min_insync_replicas: 1
+        resources:
+          cpu_per_broker: 1
+          memory_per_broker: 2Gi
+          heap_per_broker: 1Gi
