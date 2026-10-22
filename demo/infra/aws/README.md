@@ -160,6 +160,30 @@ Reuse existing `latest` images with `--skip-build-images`. Session state and
 results stay below `.demo-infra/experiments/aws`; change the root with the global
 `--work-dir` option before the `run` subcommand.
 
+For long experiments, authenticate the IAM Identity Center profile immediately
+before starting and pass its process wrapper to every command. The process
+profile asks the AWS CLI to obtain fresh credentials through the SSO session on
+each AWS operation; do not export a one-time access-key triplet into the shell:
+
+```bash
+aws sso login --profile ckc-lab-operator-sso --use-device-code
+aws sts get-caller-identity --profile ckc-lab-operator-sso-process
+AWS_PROFILE=ckc-lab-operator-sso-process \
+  demo/infra/run-experiment.sh \
+  demo/infra/experiments/aws-long-50k-tls-two-peaks.yaml \
+  --environment aws \
+  --skip-build-images \
+  --max-session-hours 30
+```
+
+The IAM Identity Center interactive session must remain refreshable for the whole lifecycle,
+including provisioning, the three targets, artifact export, and cleanup. A
+temporary network outage can be tolerated while already-issued credentials are
+valid; refreshing credentials after expiry still requires connectivity. User
+background-session duration does not extend ordinary AWS CLI account access.
+Use an interactive-session duration that covers the full lifecycle and verify
+the process profile with `sts get-caller-identity` before a paid run.
+
 SIGINT/SIGTERM and ordinary failures still enter the teardown path. If the
 initiating machine loses power or the process is forcibly killed, inspect or
 clean the recorded session from the same or a copied checkout-local work

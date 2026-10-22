@@ -472,6 +472,7 @@
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
 | [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
+| [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5522,3 +5523,17 @@ Simplify report execution context, reorganize target configuration around execut
 Make AWS and internal-lab topology diagrams legible, consistently sized, and explicit about workload boundaries, runtime resources, scaling, telemetry, and environment-specific infrastructure.
 Add autoscaled application capacity usage, including requested CPU-hours and AWS node-hours where available, and prepare the matching 5k local Spring/CKC autoscaling experiment.
 Provide report-only regeneration from saved metrics and audit summaries, and prevent stale installed Python bytecode from hiding reporting changes.
+
+<a id="infra-308"></a>
+### INFRA-308 - Prepare short and long AWS qualifications
+
+_Date: 2026-10-22_
+
+Prepare a short hour-aligned Spring → CKC qualification and a long
+Spring → CKC → CKC-sync/VT comparison. The long profile has 40k and 50k
+twenty-minute plateaus separated by a 25k valley and uses the intended MSK
+downscale between implementations. Carry forward the single-generator,
+two-stub, TLS, Serial GC, and refreshable AWS process-profile setup.
+Record the selected AWS profile during preflight, reject static environment
+credentials that would override it, and verify profile inheritance by child processes.
+Do not launch an experiment automatically.

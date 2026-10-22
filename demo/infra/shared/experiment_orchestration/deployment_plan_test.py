@@ -729,7 +729,10 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertTrue(definitions)
         expected = {
-            name: ("3.9.x" if name == "aws-hourly-50k-tls-qualification.yaml" else "4.1.x.kraft")
+            name: ("3.9.x" if name in {
+                "aws-hourly-50k-tls-qualification.yaml",
+                "aws-long-50k-tls-two-peaks.yaml",
+            } else "4.1.x.kraft")
             for name, _ in definitions
         }
         self.assertEqual(expected, dict(definitions))

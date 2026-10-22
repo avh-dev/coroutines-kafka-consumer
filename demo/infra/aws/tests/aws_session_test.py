@@ -5,6 +5,7 @@ import gzip
 import importlib.util
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1168,20 +1169,15 @@ class AwsSessionTest(unittest.TestCase):
         self.assertEqual([{"name": "steady-state", "start_seconds": 1500, "duration_seconds": 600}], resolved.test.definition["load_test"]["measurement_windows"])
         self.assertEqual("kafka.m7g.xlarge", config["kafka"]["instance_type"])
         self.assertEqual(
-            ["spring-kafka.per-topic-keda-1-5", "ckc.hpa-1-12", "ckc-sync.virtual-1carrier-hpa-1-12"],
+            ["spring-kafka.per-topic-keda-1-5", "ckc.hpa-1-12"],
             [target["name"] for target in config["targets"]],
         )
         self.assertEqual(
-            ["kafka.m7g.xlarge", "kafka.t3.small", "kafka.t3.small"],
+            ["kafka.m7g.xlarge", "kafka.t3.small"],
             [target["lab"]["kafka"]["msk_instance_type"] for target in config["targets"]],
         )
         self.assertTrue(all(target["duration_seconds"] == 3600 for target in config["targets"]))
         self.assertTrue(all(target["start_alignment"] == "utc_hour" for target in config["targets"]))
-        virtual = resolved.targets[2].definition
-        self.assertEqual("VIRTUAL", virtual["env"]["PROCESSING_DISPATCHER_TYPE"])
-        self.assertNotIn("WORKER_DISPATCHER_THREADS", virtual["env"])
-        self.assertIn("-Djdk.virtualThreadScheduler.parallelism=1", virtual["application"]["java_tool_options"])
-        self.assertIn("-Djdk.virtualThreadScheduler.maxPoolSize=1", virtual["application"]["java_tool_options"])
 
     def test_spring_tls_requalification_starts_without_hour_alignment(self) -> None:
         args = SimpleNamespace(
@@ -1510,6 +1506,41 @@ class AwsSessionTest(unittest.TestCase):
             for call in image_checks:
                 self.assertIn("--no-cli-pager", call.args[0])
                 self.assertTrue(call.kwargs["capture"])
+
+    def test_preflight_records_profile_and_rejects_static_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            with (
+                patch.dict(os.environ, {
+                    "AWS_PROFILE": "ckc-lab-operator-sso-process",
+                    "AWS_ACCESS_KEY_ID": "must-not-win",
+                }, clear=False),
+                self.assertRaisesRegex(RuntimeError, "AWS_ACCESS_KEY_ID"),
+            ):
+                controller.preflight(build_images=False)
+
+            self.assertEqual(
+                "ckc-lab-operator-sso-process",
+                controller.state["aws_credential_source"]["profile"],
+            )
+            self.assertEqual(
+                ["AWS_ACCESS_KEY_ID"],
+                controller.state["aws_credential_source"]["static_environment_credentials_present"],
+            )
+
+    def test_child_commands_inherit_the_selected_aws_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            completed = subprocess.CompletedProcess(["true"], 0, "", "")
+            with (
+                patch.dict(os.environ, {"AWS_PROFILE": "ckc-lab-operator-sso-process"}, clear=False),
+                patch.object(session_module.subprocess, "run", return_value=completed) as run_command,
+            ):
+                controller.run(["true"], env={"TF_DATA_DIR": "/tmp/terraform-data"})
+
+            command_environment = run_command.call_args.kwargs["env"]
+            self.assertEqual("ckc-lab-operator-sso-process", command_environment["AWS_PROFILE"])
+            self.assertEqual("/tmp/terraform-data", command_environment["TF_DATA_DIR"])
 
     def test_cleanup_attempts_every_stack_in_dependency_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

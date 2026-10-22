@@ -26,6 +26,7 @@ class RunRequest:
     internal_lab_user: str
     notify_hook: str
     telegram_env: Path
+    max_session_hours: int
 
 
 class EnvironmentAdapter(Protocol):
@@ -58,6 +59,7 @@ class AwsAdapter:
             region,
         ]
         command.append("--build-images" if request.build_images else "--skip-build-images")
+        command.extend(["--max-session-hours", str(request.max_session_hours)])
         if request.notify_hook:
             command.extend(["--notify-hook", request.notify_hook])
         command.extend(["--telegram-env", str(request.telegram_env)])
@@ -127,6 +129,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--env", action="append", default=[])
     parser.add_argument("--notify-hook", default="")
     parser.add_argument("--telegram-env", type=Path, default=Path("~/.config/ckc-lab/telegram.env"))
+    parser.add_argument(
+        "--max-session-hours",
+        type=int,
+        default=12,
+        help="Maximum AWS session lifetime, including provisioning, targets, export, and cleanup.",
+    )
     images = parser.add_mutually_exclusive_group()
     images.add_argument("--build-images", dest="build_images", action="store_true")
     images.add_argument("--skip-build-images", dest="build_images", action="store_false")
@@ -166,5 +174,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         internal_lab_user=internal_lab_user,
         notify_hook=args.notify_hook,
         telegram_env=args.telegram_env.expanduser().resolve(),
+        max_session_hours=args.max_session_hours,
     )
     return run(request)

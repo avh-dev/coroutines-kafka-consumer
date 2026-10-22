@@ -26,6 +26,7 @@ class SharedExperimentRunnerTest(unittest.TestCase):
             internal_lab_user="ckc-lab",
             notify_hook="",
             telegram_env=Path("/home/test/.config/ckc-lab/telegram.env"),
+            max_session_hours=12,
         )
 
     def setUp(self) -> None:
@@ -43,6 +44,8 @@ class SharedExperimentRunnerTest(unittest.TestCase):
         self.assertIn("--skip-build-images", command)
         self.assertIn("--telegram-env", command)
         self.assertIn("/home/test/.config/ckc-lab/telegram.env", command)
+        self.assertIn("--max-session-hours", command)
+        self.assertIn("12", command)
 
     def test_internal_lab_adapter_uses_bounded_noninteractive_runtime_ssh(self) -> None:
         request = self.request("internal-lab")

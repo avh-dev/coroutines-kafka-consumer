@@ -656,6 +656,26 @@ class SessionController:
         missing = [name for name in required if shutil.which(name) is None]
         if missing:
             raise RuntimeError(f"Missing required commands: {', '.join(missing)}")
+        static_credential_names = [
+            name for name in (
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_SESSION_TOKEN",
+                "AWS_SECURITY_TOKEN",
+            )
+            if os.environ.get(name)
+        ]
+        self.state["aws_credential_source"] = {
+            "profile": os.environ.get("AWS_PROFILE"),
+            "static_environment_credentials_present": static_credential_names,
+            "checked_at": utc_text(),
+        }
+        self.save()
+        if static_credential_names:
+            raise RuntimeError(
+                "Static AWS credential environment variables would override the configured profile: "
+                + ", ".join(static_credential_names)
+            )
         if build_images:
             self.run(["docker", "buildx", "version"])
         identity = self.aws_json(["sts", "get-caller-identity"])
