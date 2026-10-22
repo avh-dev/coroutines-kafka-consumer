@@ -812,6 +812,28 @@ class AwsSessionTest(unittest.TestCase):
                 with patch.object(controller, "sync_target_audit_stream", return_value={"chunks": 1, "bytes": 7}):
                     controller.materialize_target_audit_stream(target, Path(directory) / "result")
 
+    def test_target_prefetch_pruning_removes_only_the_selected_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = self.controller(root)
+            for cache_name in ("audit-prefetch", "telemetry-prefetch"):
+                selected = root / cache_name / "run-selected"
+                sibling = root / cache_name / "run-sibling"
+                selected.mkdir(parents=True)
+                sibling.mkdir(parents=True)
+                (selected / "chunk").write_text("selected", encoding="utf-8")
+                (sibling / "chunk").write_text("sibling", encoding="utf-8")
+
+            controller.prune_target_prefetch({"id": "selected", "run_id": "run-selected"})
+
+            for cache_name in ("audit-prefetch", "telemetry-prefetch"):
+                self.assertFalse((root / cache_name / "run-selected").exists())
+                self.assertTrue((root / cache_name / "run-sibling/chunk").is_file())
+            self.assertEqual(
+                2,
+                len(controller.state["prefetch_pruned"]["selected"]["paths"]),
+            )
+
     def test_runner_audit_stream_uses_only_immutable_gzip_chunks(self) -> None:
         configure = (AWS_ROOT / "runner-assets/bin/configure-audit-stream.sh").read_text(encoding="utf-8")
         finalize = (AWS_ROOT / "runner-assets/bin/finalize-audit-stream.sh").read_text(encoding="utf-8")
@@ -1734,6 +1756,13 @@ class AwsSessionTest(unittest.TestCase):
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:natgateway/nat-deleted", "Tags": []},
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:security-group/sg-deleted", "Tags": []},
                     {"ResourceARN": "arn:aws:ec2:us-east-1:123:vpc-peering-connection/pcx-deleted", "Tags": []},
+                    {
+                        "ResourceARN": (
+                            "arn:aws:eks:us-east-1:123:podidentityassociation/"
+                            "ckc-load-lab-s-deleted/a-deleted"
+                        ),
+                        "Tags": [],
+                    },
                 ]
             }
 
@@ -1741,6 +1770,50 @@ class AwsSessionTest(unittest.TestCase):
                 operation = command[1]
                 if operation == "get-resources":
                     return tagged
+                if operation == "describe-instances":
+                    return {"Reservations": []}
+                if operation == "list-buckets":
+                    return []
+                if operation == "describe-log-groups":
+                    return {"logGroups": []}
+                if operation == "list-clusters":
+                    return {"clusters": []}
+                collection = {
+                    "describe-volumes": "Volumes",
+                    "describe-subnets": "Subnets",
+                    "describe-network-interfaces": "NetworkInterfaces",
+                    "describe-nat-gateways": "NatGateways",
+                    "describe-security-groups": "SecurityGroups",
+                    "describe-vpc-peering-connections": "VpcPeeringConnections",
+                    "describe-vpcs": "Vpcs",
+                    "describe-vpc-endpoints": "VpcEndpoints",
+                    "describe-addresses": "Addresses",
+                }[operation]
+                return {collection: []}
+
+            with patch.object(controller, "aws_json", side_effect=aws_response):
+                controller.verify_cleanup(timeout_seconds=0)
+            report = json.loads((Path(directory) / "cleanup-report.json").read_text(encoding="utf-8"))
+        self.assertEqual("CLEAN", report["status"])
+        self.assertEqual([], report["remaining_resources"])
+        self.assertEqual(8, len(report["tagged_resources"]))
+        self.assertEqual([], report["active_eks_clusters"])
+        self.assertTrue(all(not values for values in report["active_ec2"].values()))
+
+    def test_cleanup_verification_keeps_pod_identity_for_an_active_eks_cluster(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self.controller(Path(directory))
+            cluster = "ckc-load-lab-s-active"
+            association = (
+                f"arn:aws:eks:us-east-1:123:podidentityassociation/{cluster}/a-active"
+            )
+
+            def aws_response(command: list[str]) -> object:
+                operation = command[1]
+                if operation == "get-resources":
+                    return {"ResourceTagMappingList": [{"ResourceARN": association, "Tags": []}]}
+                if operation == "list-clusters":
+                    return {"clusters": [cluster]}
                 if operation == "describe-instances":
                     return {"Reservations": []}
                 if operation == "list-buckets":
@@ -1761,12 +1834,13 @@ class AwsSessionTest(unittest.TestCase):
                 return {collection: []}
 
             with patch.object(controller, "aws_json", side_effect=aws_response):
-                controller.verify_cleanup(timeout_seconds=0)
+                with self.assertRaisesRegex(RuntimeError, "1 live tagged resource"):
+                    controller.verify_cleanup(timeout_seconds=0)
             report = json.loads((Path(directory) / "cleanup-report.json").read_text(encoding="utf-8"))
-        self.assertEqual("CLEAN", report["status"])
-        self.assertEqual([], report["remaining_resources"])
-        self.assertEqual(7, len(report["tagged_resources"]))
-        self.assertTrue(all(not values for values in report["active_ec2"].values()))
+
+        self.assertEqual("RESOURCES_REMAIN", report["status"])
+        self.assertEqual([cluster], report["active_eks_clusters"])
+        self.assertEqual([association], [item["ResourceARN"] for item in report["remaining_resources"]])
 
     def test_cleanup_deletes_the_exact_eks_log_group(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

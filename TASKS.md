@@ -5549,6 +5549,10 @@ downscale between implementations. Carry forward the single-generator,
 two-stub, TLS, Serial GC, and refreshable AWS process-profile setup.
 Record the selected AWS profile during preflight, reject static environment
 credentials that would override it, and verify profile inheritance by child processes.
+Bound local disk use during long runs by pruning successfully uploaded per-target
+audit and telemetry prefetch caches, while retaining failed-target caches for recovery.
+Treat stale EKS Pod Identity tag records as deleted only after a direct EKS cluster
+inventory confirms that their owning cluster no longer exists.
 Do not launch an experiment automatically.
 
 <a id="infra-309"></a>

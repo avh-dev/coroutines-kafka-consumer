@@ -11,6 +11,14 @@ __pycache__/
 # IDE
 .idea/
 *.iml
+/ckc-core/bin/
+/ckc-micrometer/bin/
+/ckc-spring-boot-starter/bin/
+/demo/ckc-demo-contracts/bin/
+/demo/ckc-demo-load-test/bin/
+/demo/ckc-demo-stubs/bin/
+/demo/ckc-demo/bin/
+/experiments/ckc-experiments/bin/
 
 # OS
 .DS_Store
