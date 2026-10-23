@@ -702,6 +702,10 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
     verbs: ["watch", "list", "get"]
+  # Kubernetes 1.35 exposes these resource-capacity APIs to the autoscaler.
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims", "resourceslices", "deviceclasses"]
+    verbs: ["watch", "list", "get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

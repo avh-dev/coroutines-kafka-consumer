@@ -192,6 +192,15 @@ class AwsSessionTest(unittest.TestCase):
             r'verbs: \["get", "update"\]',
         )
 
+    def test_cluster_autoscaler_has_kubernetes_1_35_resource_capacity_permissions(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            script,
+            r'apiGroups: \["resource\.k8s\.io"\]\s+'
+            r'resources: \["resourceclaims", "resourceslices", "deviceclasses"\]\s+'
+            r'verbs: \["watch", "list", "get"\]',
+        )
+
     def test_cluster_autoscaler_role_uses_a_bounded_name_prefix(self) -> None:
         terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
         self.assertIn(
