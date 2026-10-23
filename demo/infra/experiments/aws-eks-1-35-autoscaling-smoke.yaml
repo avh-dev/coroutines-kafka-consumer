@@ -34,7 +34,9 @@ workload:
     telemetry_source_mode: FLEET
     telemetry_publish_interval_seconds: 1
     audit_log_enabled: true
-    cpu_request: 500m
+    # Keep the generator on the fixed support node without consuming the
+    # headroom needed by Kafka, Redis, observability, and system pods.
+    cpu_request: 250m
     memory_request: 512Mi
     memory_limit: 768Mi
     java_options: -Xms192m -Xmx512m -XX:+UseSerialGC

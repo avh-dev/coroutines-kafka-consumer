@@ -46,6 +46,7 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(1, terraform["kubernetes_kafka_brokers"])
         self.assertEqual("kubernetes", terraform["kafka_mode"])
         self.assertEqual("plaintext", definition["deployment"]["kafka_transport"])
+        self.assertEqual("250m", definition["load_test"]["cpu_request"])
         self.assertEqual(
             {"kafka_network_counters": {"enabled": True}},
             plan["target"]["observability"],
