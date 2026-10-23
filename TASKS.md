@@ -5586,9 +5586,11 @@ Move provisioned AWS experiment clusters from EKS 1.33 extended support to
 EKS 1.35 standard support, keeping kubectl and Cluster Autoscaler on the same
 minor version. Update every maintained AWS experiment, Terraform defaults,
 examples, and contract tests together.
-Add a short, inexpensive AWS autoscaling smoke because the existing minimal
-smoke does not exercise a dedicated application node group, HPA, or Cluster
-Autoscaler. Verify network-counter collection and cleanup through the normal
-evidence path. Keep the Terraform Kafka transport contract aligned with the
-selected deployment mode: plaintext in-cluster Kafka and dual-listener MSK.
+Add a short AWS autoscaling smoke because the existing minimal smoke does not
+exercise a dedicated application node group, HPA, or Cluster Autoscaler. Use
+the smallest production-like provisioned MSK topology instead of spending test
+time on an in-cluster Kafka implementation. Verify TLS network-counter
+collection and cleanup through the normal evidence path. Keep the Terraform
+Kafka transport contract aligned with the selected deployment mode: plaintext
+in-cluster Kafka and dual-listener MSK.
 Do not launch the smoke automatically.

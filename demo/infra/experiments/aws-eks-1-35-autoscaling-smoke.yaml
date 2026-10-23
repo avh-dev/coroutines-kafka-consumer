@@ -1,6 +1,6 @@
 schema_version: 2
 name: aws-eks-1-35-autoscaling-smoke
-description: Short EKS 1.35 smoke that forces HPA and Cluster Autoscaler scale-up on inexpensive in-cluster dependencies.
+description: Short EKS 1.35 smoke that forces HPA and Cluster Autoscaler scale-up against an inexpensive provisioned MSK cluster.
 workload:
   stubs:
     error_rate_percent: 0
@@ -107,11 +107,13 @@ environments:
         support: {instance_types: [m7i.large], desired_size: 1, min_size: 1, max_size: 1, disk_size_gib: 50}
         application: {instance_types: [m7i.large], desired_size: 1, min_size: 1, max_size: 2, disk_size_gib: 50}
       kafka:
-        mode: kubernetes
-        transport: plaintext
-        kubernetes_brokers: 1
+        mode: msk
+        transport: tls
+        msk_version: 4.1.x.kraft
+        msk_brokers: 3
+        msk_instance_type: kafka.t3.small
+        msk_volume_size_gib: 20
       redis: {mode: kubernetes, kubernetes_architecture: standalone, kubernetes_replicas: 1}
       observability: {runner_peering: true, runner_project: ckc-runner, remote_write_port: 8428, loki_port: 3100, audit_port: 5170}
     third_party:
-    - {name: ckc-kafka, chart: bitnami/kafka, version: 32.4.3}
     - {name: ckc-redis, chart: bitnami/redis, version: 28.0.12}

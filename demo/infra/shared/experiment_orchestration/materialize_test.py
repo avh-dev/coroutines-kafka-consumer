@@ -32,7 +32,7 @@ class MaterializeTest(unittest.TestCase):
                 application_image="demo:latest",
                 stubs_image="stubs:latest",
                 load_test_image="load-test:latest",
-                kafka_bootstrap="ckc-kafka:9092",
+                kafka_bootstrap="b-1.smoke.kafka.amazonaws.com:9094,b-2.smoke.kafka.amazonaws.com:9094",
                 redis_host="ckc-redis",
                 audit_host="audit",
             ))
@@ -43,9 +43,13 @@ class MaterializeTest(unittest.TestCase):
             terraform["application_node_min_size"],
             terraform["application_node_max_size"],
         ))
-        self.assertEqual(1, terraform["kubernetes_kafka_brokers"])
-        self.assertEqual("kubernetes", terraform["kafka_mode"])
-        self.assertEqual("plaintext", definition["deployment"]["kafka_transport"])
+        self.assertEqual("msk", terraform["kafka_mode"])
+        self.assertEqual("4.1.x.kraft", terraform["msk_kafka_version"])
+        self.assertEqual(3, terraform["msk_number_of_broker_nodes"])
+        self.assertEqual("kafka.t3.small", terraform["msk_broker_instance_type"])
+        self.assertEqual(20, terraform["msk_ebs_volume_size"])
+        self.assertEqual("TLS_PLAINTEXT", terraform["kafka_transport"])
+        self.assertEqual("tls", definition["deployment"]["kafka_transport"])
         self.assertEqual("250m", definition["load_test"]["cpu_request"])
         self.assertEqual(
             {"kafka_network_counters": {"enabled": True}},
@@ -74,7 +78,7 @@ class MaterializeTest(unittest.TestCase):
             if container["name"] == "kafka-network-exporter"
         ]
         self.assertTrue(exporters)
-        self.assertTrue(all(container["args"][:2] == ["--ports", "9092"] for container in exporters))
+        self.assertTrue(all(container["args"][:2] == ["--ports", "9094"] for container in exporters))
         self.assertTrue(all(
             "NET_ADMIN" in container["securityContext"]["capabilities"]["add"]
             for container in exporters
