@@ -1211,10 +1211,22 @@ auth:
 master:
   persistence:
     enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
 replica:
   replicaCount: ${REDIS_REPLICA_COUNT}
   persistence:
     enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
 EOF
   printf '%s\n' 'helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f redis-values.yaml' >> "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f "${REDIS_VALUES_FILE}"

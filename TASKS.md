@@ -476,7 +476,7 @@
 | [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | DONE |
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
-| [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | IN_PROGRESS |
+| [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5593,4 +5593,6 @@ time on an in-cluster Kafka implementation. Verify TLS network-counter
 collection and cleanup through the normal evidence path. Keep the Terraform
 Kafka transport contract aligned with the selected deployment mode: plaintext
 in-cluster Kafka and dual-listener MSK.
+Give the disposable Kubernetes Redis explicit memory headroom so the chart
+defaults cannot OOM-kill it during the smoke workload.
 Do not launch the smoke automatically.

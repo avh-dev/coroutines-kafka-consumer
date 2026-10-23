@@ -386,6 +386,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('HELM_EVIDENCE_DIR="${LAB_EVIDENCE_DIR}/helm"', create_script)
         self.assertIn('KAFKA_VALUES_FILE="${HELM_EVIDENCE_DIR}/kafka-values.yaml"', create_script)
         self.assertIn('REDIS_VALUES_FILE="${HELM_EVIDENCE_DIR}/redis-values.yaml"', create_script)
+        self.assertIn("memory: 512Mi", create_script)
+        self.assertIn("memory: 1Gi", create_script)
         self.assertIn('"${HELM_EVIDENCE_DIR}/commands.log"', create_script)
         self.assertIn('cp -a "${RUNNER_HOME}/config/lab-evidence"', export_script)
 
