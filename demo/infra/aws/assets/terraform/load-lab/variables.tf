@@ -220,13 +220,17 @@ variable "kafka_mode" {
 }
 
 variable "kafka_transport" {
-  description = "Kafka client-broker listener mode for the MSK load lab."
+  description = "Kafka client-broker listener mode for the selected Kafka deployment."
   type        = string
-  default     = "TLS_PLAINTEXT"
+  default     = "plaintext"
 
   validation {
-    condition     = contains(["TLS_PLAINTEXT"], var.kafka_transport)
-    error_message = "AWS MSK experiments require kafka_transport=TLS_PLAINTEXT so every target can select plaintext or TLS."
+    condition = (
+      var.kafka_mode == "kubernetes" && var.kafka_transport == "plaintext"
+      ) || (
+      var.kafka_mode == "msk" && var.kafka_transport == "TLS_PLAINTEXT"
+    )
+    error_message = "kafka_transport must be plaintext for in-cluster Kafka or TLS_PLAINTEXT for Amazon MSK."
   }
 }
 
