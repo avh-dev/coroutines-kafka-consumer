@@ -32,7 +32,7 @@ class MaterializeTest(unittest.TestCase):
                 (Path(directory) / "environment" / "terraform-lab-inputs.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(["tls", "tls", "tls"], transports)
+        self.assertEqual(["tls", "tls"], transports)
         self.assertEqual(["m7i.xlarge"], terraform_inputs["support_node_instance_types"])
         self.assertEqual((1, 1, 1), (
             terraform_inputs["support_node_desired_size"],

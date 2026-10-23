@@ -656,6 +656,26 @@ class SessionController:
         missing = [name for name in required if shutil.which(name) is None]
         if missing:
             raise RuntimeError(f"Missing required commands: {', '.join(missing)}")
+        static_credential_names = [
+            name for name in (
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_SESSION_TOKEN",
+                "AWS_SECURITY_TOKEN",
+            )
+            if os.environ.get(name)
+        ]
+        self.state["aws_credential_source"] = {
+            "profile": os.environ.get("AWS_PROFILE"),
+            "static_environment_credentials_present": static_credential_names,
+            "checked_at": utc_text(),
+        }
+        self.save()
+        if static_credential_names:
+            raise RuntimeError(
+                "Static AWS credential environment variables would override the configured profile: "
+                + ", ".join(static_credential_names)
+            )
         if build_images:
             self.run(["docker", "buildx", "version"])
         identity = self.aws_json(["sts", "get-caller-identity"])
@@ -1255,6 +1275,10 @@ class SessionController:
                 raise CommandError(
                     f"AWS experiment target {target['name']!r} failed; artifacts will still be collected before cleanup."
                 )
+            # Streaming chunks remain durable in S3 until artifact collection.
+            # Bound local disk usage to the active target instead of retaining
+            # six-hour prefetch caches for every target in a long experiment.
+            self.prune_target_prefetch(target)
         self.phase("TARGETS_COMPLETED", target_results=results)
         self.notify("measurements_finished", {
             "experiment": config["experiment_name"],
@@ -1322,6 +1346,23 @@ class SessionController:
         ])
         files = list((root / "loki").glob("*.jsonl.gz")) + list((root / "metrics").glob("*.bin"))
         return {"chunks": len(files), "bytes": sum(path.stat().st_size for path in files)}
+
+    def prune_target_prefetch(self, target: dict[str, Any]) -> None:
+        run_id = str(target["run_id"])
+        removed: list[str] = []
+        for cache_name in ("audit-prefetch", "telemetry-prefetch"):
+            cache_root = (self.session_dir / cache_name).resolve()
+            target_cache = (cache_root / run_id).resolve()
+            if target_cache.parent != cache_root:
+                raise RuntimeError(f"Refusing to remove unsafe prefetch path: {target_cache}")
+            if target_cache.is_dir():
+                shutil.rmtree(target_cache)
+                removed.append(str(target_cache))
+        self.state.setdefault("prefetch_pruned", {})[str(target["id"])] = {
+            "at": utc_text(),
+            "paths": removed,
+        }
+        self.save()
 
     def materialize_target_telemetry_stream(self, target: dict[str, Any], result_dir: Path) -> None:
         self.sync_target_telemetry_stream(target)
@@ -1499,6 +1540,7 @@ class SessionController:
         local_results: dict[str, str] = {}
         collection_errors: list[str] = []
         for index, target in enumerate(targets, start=1):
+            target_collection_errors: list[str] = []
             run_id = target["run_id"]
             prefix = f"sessions/{config['session_id']}/result/runs/{run_id}"
             self.phase("EXPORTING_TARGET_ARTIFACTS", target_index=index, target_total=len(targets), target_id=target["id"])
@@ -1526,16 +1568,19 @@ class SessionController:
                 try:
                     materialize(target, result_dir)
                 except Exception as error:
-                    collection_errors.append(f"{target['name']} {label} stream: {error}")
+                    target_collection_errors.append(f"{target['name']} {label} stream: {error}")
             if export_invocation.get("Status") == "Success":
                 try:
                     self.verify_manifest(result_dir)
                 except Exception as error:
-                    collection_errors.append(f"{target['name']} artifact manifest: {error}")
+                    target_collection_errors.append(f"{target['name']} artifact manifest: {error}")
             else:
-                collection_errors.append(
+                target_collection_errors.append(
                     f"{target['name']} runner artifact export: {export_invocation.get('Status', 'unknown')}"
                 )
+            if not target_collection_errors:
+                self.prune_target_prefetch(target)
+            collection_errors.extend(target_collection_errors)
             local_results[target["id"]] = str(result_dir)
         self.state["local_result_dirs"] = local_results
         self.state["local_result_dir"] = next(iter(local_results.values())) if len(local_results) == 1 else str(result_root)
@@ -1784,6 +1829,10 @@ class SessionController:
                 "--tag-filters", f"Key=SessionId,Values={config['session_id']}",
             ]) or {}
             resources = response.get("ResourceTagMappingList", [])
+            eks_clusters = self.aws_json([
+                "eks", "list-clusters", "--region", config["region"],
+            ]) or {}
+            active_eks_clusters = set(eks_clusters.get("clusters", []))
             instances = self.aws_json([
                 "ec2", "describe-instances", "--region", config["region"],
                 "--filters", f"Name=tag:SessionId,Values={config['session_id']}",
@@ -1861,6 +1910,12 @@ class SessionController:
                     inventory_name = known_ec2_markers.get(resource_type)
                     if inventory_name and arn.rsplit("/", 1)[-1] not in active_ec2[inventory_name]:
                         continue
+                if ":eks:" in arn:
+                    eks_resource = arn.rsplit(":", 1)[-1]
+                    if eks_resource.startswith("podidentityassociation/"):
+                        parts = eks_resource.split("/", 2)
+                        if len(parts) == 3 and parts[1] not in active_eks_clusters:
+                            continue
                 remaining_resources.append(resource)
             tagged_arns = {item.get("ResourceARN") for item in remaining_resources}
             for resource_type, ids in active_ec2.items():
@@ -1897,6 +1952,7 @@ class SessionController:
             "checked_at": utc_text(),
             "tagged_resources": resources,
             "active_ec2": active_ec2,
+            "active_eks_clusters": sorted(active_eks_clusters),
             "remaining_resources": remaining_resources,
             "artifact_bucket_exists": bucket_exists,
             "eks_log_group_name": self.eks_log_group_name(),
