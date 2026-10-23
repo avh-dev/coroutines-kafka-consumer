@@ -109,7 +109,7 @@ environments:
       kafka:
         mode: msk
         transport: tls
-        msk_version: 4.1.x.kraft
+        msk_version: 3.9.x
         msk_brokers: 3
         msk_instance_type: kafka.t3.small
         msk_volume_size_gib: 20

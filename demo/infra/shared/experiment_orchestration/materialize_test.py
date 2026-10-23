@@ -44,7 +44,7 @@ class MaterializeTest(unittest.TestCase):
             terraform["application_node_max_size"],
         ))
         self.assertEqual("msk", terraform["kafka_mode"])
-        self.assertEqual("4.1.x.kraft", terraform["msk_kafka_version"])
+        self.assertEqual("3.9.x", terraform["msk_kafka_version"])
         self.assertEqual(3, terraform["msk_number_of_broker_nodes"])
         self.assertEqual("kafka.t3.small", terraform["msk_broker_instance_type"])
         self.assertEqual(20, terraform["msk_ebs_volume_size"])
