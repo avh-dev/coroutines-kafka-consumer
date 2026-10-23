@@ -4,6 +4,7 @@ locals {
   runner_user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     docker_compose = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
       prometheus_retention_size = var.prometheus_retention_size
+      grafana_cookie_name       = "ckc_${replace(var.session_id, "-", "_")}"
     })
     default_prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
       prometheus_scrape_interval     = var.prometheus_scrape_interval

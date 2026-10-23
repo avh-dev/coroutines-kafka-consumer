@@ -43,6 +43,10 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_COOKIE_NAME: ${grafana_cookie_name}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
     volumes:
       - /opt/ckc-runner/grafana:/var/lib/grafana
       - /opt/ckc-runner/observability/grafana/provisioning:/etc/grafana/provisioning:ro

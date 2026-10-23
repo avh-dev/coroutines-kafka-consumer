@@ -960,7 +960,11 @@ def render_markdown(report: ExperimentReport) -> str:
         hpa = configuration.get("hpa") or {}
         if not hpa.get("enabled"):
             return "Static replicas"
-        return f"HPA (CPU), {number(hpa.get('minReplicas'), 0)}–{number(hpa.get('maxReplicas'), 0)} pods"
+        hot_pod = hpa.get("hot_pod_cpu") or hpa.get("hotPodCpu") or {}
+        kind = "KEDA (CPU average + hot-pod guard)" if hot_pod.get("enabled") else "HPA (CPU)"
+        minimum = hpa.get("min_replicas", hpa.get("minReplicas"))
+        maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
+        return f"{kind}, {number(minimum, 0)}–{number(maximum, 0)} pods"
 
     section("Target configuration")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])

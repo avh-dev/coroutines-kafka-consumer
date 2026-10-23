@@ -477,6 +477,7 @@
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
 | [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | DONE |
+| [INFRA-312](#infra-312) | Preserve metrics across AWS targets and guard CKC autoscaling against a persistently hot pod. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5596,3 +5597,20 @@ in-cluster Kafka and dual-listener MSK.
 Give the disposable Kubernetes Redis explicit memory headroom so the chart
 defaults cannot OOM-kill it during the smoke workload.
 Do not launch the smoke automatically.
+
+<a id="infra-312"></a>
+### INFRA-312 - Preserve target metrics and guard hot pods
+
+_Date: 2026-10-23_
+
+Keep the shared VictoriaMetrics history when a later target recreates and warms
+MSK so every target remains available to the combined experiment report.
+Extend combined-application autoscaling with an optional KEDA Prometheus guard
+that complements average CPU utilization with sustained hottest-pod CPU.
+Keep Grafana annotations visible throughout live and restored evidence sessions
+by using anonymous editor access with per-session/per-port cookie names.
+Keep AWS report packaging anchored to the primary checkout when the lab is
+updated from a temporary linked worktree, and diagnose stale result roots.
+Prepare Spring and CKC requalification with the fixed fleet generator; use 500
+CKC workers per topic and retain autoscaling up to the existing safety maximum.
+Do not launch the qualification automatically.

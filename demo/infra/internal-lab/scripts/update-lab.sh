@@ -4,6 +4,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
+# AWS experiment results live in the primary checkout. A lab update may be run
+# from a linked worktree, but recording that ephemeral path would make report
+# packaging lose AWS results as soon as the worktree is removed.
+GIT_COMMON_DIR="$(git -C "${REPO_ROOT}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [[ "$(basename -- "${GIT_COMMON_DIR}")" == ".git" && -d "$(dirname -- "${GIT_COMMON_DIR}")" ]]; then
+  REPORT_REPOSITORY_ROOT="$(dirname -- "${GIT_COMMON_DIR}")"
+else
+  REPORT_REPOSITORY_ROOT="${REPO_ROOT}"
+fi
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 DEFAULT_LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
@@ -203,7 +212,7 @@ sync_internal_lab_assets() {
   local repository_env="${STATE_DIR}/repository.env"
 
   mkdir -p "$(dirname -- "${repository_env}")"
-  printf 'CKC_REPOSITORY_ROOT=%q\n' "${REPO_ROOT}" > "${repository_env}"
+  printf 'CKC_REPOSITORY_ROOT=%q\n' "${REPORT_REPOSITORY_ROOT}" > "${repository_env}"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/helpers'"
@@ -329,7 +338,10 @@ THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT="$({
   fi
 } | sha256sum | awk '{ print $1 }')"
 DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+ASSETS_SYNC_FINGERPRINT="$({
+  fingerprint_paths "assets-sync" demo/infra/internal-lab/assets
+  printf '%s\n' "${REPORT_REPOSITORY_ROOT}"
+} | sha256sum | awk '{ print $1 }')"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/audit_windows.py \

@@ -1115,6 +1115,7 @@ def deploy_workloads(
         application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
         support_node_selector=lab_context.get("support_node_selector"),
         load_test_node_selector=lab_context.get("load_test_node_selector"),
+        autoscaling_metrics_url=lab_context.get("autoscaling_metrics_url"),
     ))
     application_manifests = [item for item in manifests if item["kind"] not in {"ConfigMap", "Job"}]
     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -1159,6 +1160,7 @@ def deploy_load_workload(
         application_tolerations=tuple(lab_context.get("application_tolerations") or ()),
         support_node_selector=lab_context.get("support_node_selector"),
         load_test_node_selector=lab_context.get("load_test_node_selector"),
+        autoscaling_metrics_url=lab_context.get("autoscaling_metrics_url"),
     ))
     load_manifests = [item for item in manifests if item["kind"] in {"ConfigMap", "Job"}]
     job = next(item for item in load_manifests if item["kind"] == "Job")

@@ -1296,6 +1296,7 @@ context = {
     "registry": "${REGISTRY}",
     "prometheus_bridge_enabled": False,
     "remote_write_url": "${REMOTE_WRITE_URL}",
+    "autoscaling_metrics_url": "http://${RUNNER_PRIVATE_IP}:8428",
     "audit_tcp_host": "${AUDIT_TCP_HOST}",
     "audit_tcp_port": 5170,
     "kafka_exporter_enabled": True,

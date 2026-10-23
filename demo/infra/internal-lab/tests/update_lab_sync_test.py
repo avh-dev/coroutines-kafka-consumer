@@ -150,6 +150,17 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("demo/infra/shared/experiment_notifications", script)
         self.assertIn("demo/infra/shared/kafka_warmup", script)
 
+    def test_report_repository_path_uses_the_primary_checkout_not_a_linked_worktree(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('rev-parse --path-format=absolute --git-common-dir', script)
+        self.assertIn('REPORT_REPOSITORY_ROOT="$(dirname -- "${GIT_COMMON_DIR}")"', script)
+        self.assertIn(
+            "printf 'CKC_REPOSITORY_ROOT=%q\\n' \"${REPORT_REPOSITORY_ROOT}\"",
+            script,
+        )
+        self.assertIn('printf \'%s\\n\' "${REPORT_REPOSITORY_ROOT}"', script)
+
     def test_materializes_the_shared_dashboard_for_internal_lab(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 

@@ -270,6 +270,45 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(12, hpa["spec"]["maxReplicas"])
         self.assertEqual(75, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
 
+    def test_hourly_qualification_guards_ckc_against_a_sustained_hot_pod(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-hourly-50k-tls-qualification.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+        root = Path(self.temp.name) / "hourly-qualification"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+        ckc_target = next(target for target in targets if target.target.name == "ckc.hpa-1-12")
+        plan = yaml.safe_load(ckc_target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            [500, 500, 500],
+            [topic["worker_concurrency"] for topic in plan["application"]["planner"]["topics"]],
+        )
+        self.assertEqual(85, plan["application"]["configuration"]["hpa"]["target_cpu_utilization_percentage"])
+        self.assertEqual(12, plan["application"]["configuration"]["hpa"]["max_replicas"])
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="hourly-ckc",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="msk:9094",
+            kafka_security_protocol="SSL",
+            redis_host="elasticache",
+            audit_host="audit",
+            autoscaling_metrics_url="http://10.0.0.10:8428",
+        ))
+        scaler = next(item for item in manifests if item["kind"] == "ScaledObject")
+        self.assertEqual(1, scaler["spec"]["minReplicaCount"])
+        self.assertEqual(12, scaler["spec"]["maxReplicaCount"])
+        self.assertEqual(0, scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]["scaleUp"]["tolerance"])
+        cpu, hot_pod = scaler["spec"]["triggers"]
+        self.assertEqual(("cpu", "85"), (cpu["type"], cpu["metadata"]["value"]))
+        self.assertEqual(("prometheus", "Value"), (hot_pod["type"], hot_pod["metricType"]))
+        self.assertEqual("100", hot_pod["metadata"]["threshold"])
+        self.assertEqual("http://10.0.0.10:8428", hot_pod["metadata"]["serverAddress"])
+        self.assertIn("[30s]", hot_pod["metadata"]["query"])
+        self.assertIn("[2m:15s]", hot_pod["metadata"]["query"])
+        self.assertIn("/ 0.85", hot_pod["metadata"]["query"])
+
     def test_materializes_per_topic_autoscaling_aws_spring_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-spring-keda-50k-ramp.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")
@@ -730,6 +769,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertTrue(definitions)
         expected = {
             name: ("3.9.x" if name in {
+                "aws-eks-1-35-autoscaling-smoke.yaml",
                 "aws-hourly-50k-tls-qualification.yaml",
                 "aws-long-50k-tls-two-peaks.yaml",
             } else "4.1.x.kraft")

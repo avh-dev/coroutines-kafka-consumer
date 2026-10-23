@@ -126,8 +126,15 @@ targets:
       enabled: true
       min_replicas: 1
       max_replicas: 12
-      target_cpu_utilization_percentage: 75
+      target_cpu_utilization_percentage: 85
       scale_down_stabilization_window_seconds: 300
+      hot_pod_cpu:
+        enabled: true
+        threshold_percentage: 100
+        averaging_window: 30s
+        observation_window: 2m
+        query_step: 15s
+        polling_interval_seconds: 15
   runtime:
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
@@ -145,9 +152,9 @@ targets:
     planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
     parallelism: [workers]
     topics:
-      order: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      batch: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      telemetry: {partitions: 12, workers: 100, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
+      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
 environments:
   aws:
     region: eu-central-1

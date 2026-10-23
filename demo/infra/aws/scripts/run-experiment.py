@@ -1515,10 +1515,6 @@ class SessionController:
             "    '--kubeconfig', str(context['kubeconfig_path']),",
             "], check=True)",
             "PY",
-            "docker stop --time 30 prometheus >/dev/null",
-            "find /opt/ckc-runner/prometheus -mindepth 1 -delete",
-            "docker start prometheus >/dev/null",
-            "for attempt in $(seq 1 60); do curl -fsS http://127.0.0.1:8428/health >/dev/null && break; sleep 1; done",
             "curl -fsS http://127.0.0.1:8428/health >/dev/null",
         ])
         self.ssm(command, "warm new AWS Kafka runtime", 900)

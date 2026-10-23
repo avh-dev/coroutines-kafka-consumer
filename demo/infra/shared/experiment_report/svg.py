@@ -459,7 +459,9 @@ def environment_topology_svg(
                 minimum = hpa.get("min_replicas", hpa.get("minReplicas"))
                 maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
                 range_label = f"{minimum}–{maximum}" if minimum is not None and maximum is not None else "autoscaled"
-                lines.append(f"{implementation} · CPU HPA {range_label}")
+                hot_pod = hpa.get("hot_pod_cpu") or hpa.get("hotPodCpu") or {}
+                scaler_label = "CPU KEDA + hot-pod guard" if hot_pod.get("enabled") else "CPU HPA"
+                lines.append(f"{implementation} · {scaler_label} {range_label}")
                 target_cpu = hpa.get(
                     "target_cpu_utilization_percentage",
                     hpa.get("targetCPUUtilizationPercentage"),

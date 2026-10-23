@@ -340,6 +340,16 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("grafana_dashboard_provider_config", user_data)
         self.assertIn("runner_user_data_bytes_upper_bound <= 16384", runner_terraform)
 
+    def test_runner_grafana_uses_session_scoped_anonymous_access(self) -> None:
+        runner_terraform = (AWS_ROOT / "terraform/runner/main.tf").read_text(encoding="utf-8")
+        compose = (AWS_ROOT / "terraform/runner/templates/docker-compose.yml.tftpl").read_text(encoding="utf-8")
+
+        self.assertIn('grafana_cookie_name       = "ckc_${replace(var.session_id, "-", "_")}"', runner_terraform)
+        self.assertIn("GF_SECURITY_COOKIE_NAME: ${grafana_cookie_name}", compose)
+        self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
+        self.assertIn("GF_AUTH_ANONYMOUS_ORG_ROLE: Editor", compose)
+        self.assertIn('GF_AUTH_DISABLE_LOGIN_FORM: "true"', compose)
+
     def test_aws_cloudwatch_exporter_captures_dependency_capacity(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         outputs = (AWS_ROOT / "assets/terraform/load-lab/outputs.tf").read_text(encoding="utf-8")
@@ -521,7 +531,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("demo/infra/shared/kafka_warmup/run.py", command)
         self.assertIn("'--backend', 'kubernetes'", command)
         self.assertNotIn("--grafana-url", command)
-        self.assertIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
+        self.assertNotIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
+        self.assertNotIn("docker stop", command)
+        self.assertIn("curl -fsS http://127.0.0.1:8428/health", command)
         self.assertNotIn("warmup_completed", command)
         self.assertEqual("completed", controller.state["kafka_warmup"]["status"])
 

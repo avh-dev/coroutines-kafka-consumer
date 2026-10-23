@@ -124,6 +124,7 @@ class DeploymentBindings:
     support_node_selector: Mapping[str, str] | None = None
     load_test_node_selector: Mapping[str, str] | None = None
     load_test_environment: Mapping[str, Any] | None = None
+    autoscaling_metrics_url: str | None = None
 
 
 def build_deployment_plan(
@@ -353,6 +354,96 @@ def _hpa(name: str, namespace: str, values: Mapping[str, Any]) -> dict[str, Any]
 
 def _hpa_value(values: Mapping[str, Any], snake_name: str, camel_name: str, default: Any) -> Any:
     return values.get(snake_name, values.get(camel_name, default))
+
+
+def _cpu_cores(value: Any) -> float:
+    text = str(value or "").strip()
+    if re.fullmatch(r"[0-9]+m", text):
+        return int(text[:-1]) / 1000.0
+    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", text):
+        return float(text)
+    raise ValueError(f"hot-pod CPU autoscaling requires a CPU request in cores or millicores, got {text!r}")
+
+
+def _prometheus_duration(value: Any, field: str) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"[1-9][0-9]*(?:ms|s|m|h)", text):
+        raise ValueError(f"hot-pod CPU autoscaling {field} must be a positive Prometheus duration")
+    return text
+
+
+def _combined_autoscaler(
+    name: str,
+    namespace: str,
+    values: Mapping[str, Any],
+    resources: Mapping[str, Any],
+    metrics_url: str | None,
+) -> dict[str, Any] | None:
+    if not values.get("enabled"):
+        return None
+    hot_pod = values.get("hot_pod_cpu") or values.get("hotPodCpu") or {}
+    if not hot_pod or not hot_pod.get("enabled", True):
+        return _hpa(name, namespace, values)
+    if not metrics_url:
+        raise ValueError("hot-pod CPU autoscaling requires an autoscaling metrics URL")
+    threshold = float(_hpa_value(hot_pod, "threshold_percentage", "thresholdPercentage", 100))
+    if threshold <= 0:
+        raise ValueError("hot-pod CPU autoscaling threshold must be positive")
+    averaging_window = _prometheus_duration(
+        _hpa_value(hot_pod, "averaging_window", "averagingWindow", "30s"), "averaging_window"
+    )
+    observation_window = _prometheus_duration(
+        _hpa_value(hot_pod, "observation_window", "observationWindow", "2m"), "observation_window"
+    )
+    query_step = _prometheus_duration(
+        _hpa_value(hot_pod, "query_step", "queryStep", "15s"), "query_step"
+    )
+    cpu_request = _cpu_cores(((resources.get("requests") or {}).get("cpu")))
+    pod_pattern = re.escape(name) + "-.+"
+    query = (
+        "max(max_over_time((100 * sum by (pod) (rate(container_cpu_usage_seconds_total"
+        f'{{namespace="{namespace}", container="demo", pod=~"{pod_pattern}"}}[{averaging_window}])) '
+        f"/ {cpu_request:g})[{observation_window}:{query_step}]))"
+    )
+    scale_down_seconds = int(_hpa_value(
+        values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
+    ))
+    return {
+        "apiVersion": "keda.sh/v1alpha1",
+        "kind": "ScaledObject",
+        "metadata": _metadata(name, namespace, {"ckc.dev/component": "application"}),
+        "spec": {
+            "scaleTargetRef": {"name": name},
+            "pollingInterval": int(_hpa_value(hot_pod, "polling_interval_seconds", "pollingIntervalSeconds", 15)),
+            "minReplicaCount": int(_hpa_value(values, "min_replicas", "minReplicas", 1)),
+            "maxReplicaCount": int(_hpa_value(values, "max_replicas", "maxReplicas", 1)),
+            "advanced": {"horizontalPodAutoscalerConfig": {"behavior": {
+                "scaleUp": {"tolerance": 0},
+                "scaleDown": {"stabilizationWindowSeconds": scale_down_seconds},
+            }}},
+            "triggers": [
+                {
+                    "type": "cpu",
+                    "metricType": "Utilization",
+                    "metadata": {"value": str(int(_hpa_value(
+                        values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
+                    )))},
+                },
+                {
+                    "type": "prometheus",
+                    "name": "hot-pod-cpu",
+                    "metricType": "Value",
+                    "metadata": {
+                        "serverAddress": metrics_url.rstrip("/"),
+                        "query": query,
+                        "threshold": f"{threshold:g}",
+                        "activationThreshold": "0",
+                        "ignoreNullValues": "false",
+                    },
+                },
+            ],
+        },
+    }
 
 
 def _scaled_object(
@@ -684,8 +775,14 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 },
             },
         ])
-        application_hpa = _hpa(
-            "ckc-demo", bindings.application_namespace, values.get("hpa") or configuration.get("hpa") or {}
+        hpa_values = copy.deepcopy(configuration.get("hpa") or {})
+        hpa_values.update(values.get("hpa") or {})
+        application_hpa = _combined_autoscaler(
+            "ckc-demo",
+            bindings.application_namespace,
+            hpa_values,
+            resources,
+            bindings.autoscaling_metrics_url,
         )
         if application_hpa:
             manifests.append(application_hpa)

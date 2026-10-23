@@ -23,6 +23,11 @@ AWS_EXPERIMENTS_ROOT="${AWS_EXPERIMENTS_ROOT:-${CKC_REPOSITORY_ROOT:+${CKC_REPOS
 EXPORTS_ROOT="${EXPORTS_ROOT:-${LAB_ROOT}/results/exports}"
 ARCHIVE="${EXPORTS_ROOT}/latest-report.zip"
 
+if [[ -n "${AWS_EXPERIMENTS_ROOT}" && ! -d "${AWS_EXPERIMENTS_ROOT}" ]]; then
+  printf 'Warning: AWS experiment results directory does not exist: %s\n' \
+    "${AWS_EXPERIMENTS_ROOT}" >&2
+fi
+
 report_candidates=()
 
 consider_report_root() {
