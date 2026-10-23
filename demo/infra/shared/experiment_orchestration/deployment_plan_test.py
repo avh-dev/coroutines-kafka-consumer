@@ -742,6 +742,17 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertIn('variable "msk_kafka_version"', variables)
         self.assertIn('default     = "4.1.x.kraft"', variables)
 
+    def test_maintained_aws_experiments_use_eks_1_35_standard_support(self) -> None:
+        versions = {}
+        for source in sorted((REPO_ROOT / "demo/infra/experiments").glob("*.yaml")):
+            experiment = yaml.safe_load(source.read_text(encoding="utf-8"))
+            aws = (experiment.get("environments") or {}).get("aws")
+            if aws is not None:
+                versions[source.name] = aws["lab"]["kubernetes_version"]
+
+        self.assertTrue(versions)
+        self.assertEqual({"1.35"}, set(versions.values()), versions)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from .definition import resolve_experiment_definition
+from .deployment_plan import DeploymentBindings, render_project_manifests
 from .materialize import materialize_experiment
 
 
@@ -14,6 +15,70 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
+    def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"
+        resolved = resolve_experiment_definition(source, environment="aws")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+            definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+            plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+            terraform = yaml.safe_load(
+                (root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8")
+            )
+            manifests = render_project_manifests(plan, DeploymentBindings(
+                run_id="run-smoke",
+                application_image="demo:latest",
+                stubs_image="stubs:latest",
+                load_test_image="load-test:latest",
+                kafka_bootstrap="ckc-kafka:9092",
+                redis_host="ckc-redis",
+                audit_host="audit",
+            ))
+
+        self.assertEqual("1.35", terraform["kubernetes_version"])
+        self.assertTrue(terraform["dedicated_node_groups"])
+        self.assertEqual((1, 2), (
+            terraform["application_node_min_size"],
+            terraform["application_node_max_size"],
+        ))
+        self.assertEqual(1, terraform["kubernetes_kafka_brokers"])
+        self.assertEqual("kubernetes", terraform["kafka_mode"])
+        self.assertEqual("plaintext", definition["deployment"]["kafka_transport"])
+        self.assertEqual(
+            {"kafka_network_counters": {"enabled": True}},
+            plan["target"]["observability"],
+        )
+        self.assertEqual(
+            [{"name": "autoscaled-steady-state", "start_seconds": 480, "duration_seconds": 180}],
+            definition["load_test"]["measurement_windows"],
+        )
+        self.assertEqual(
+            {"enabled": True, "min_replicas": 1, "max_replicas": 2,
+             "target_cpu_utilization_percentage": 10,
+             "scale_up": {"stabilization_window_seconds": 0, "max_pods": 1, "period_seconds": 30},
+             "scale_down": {"stabilization_window_seconds": 600, "max_pods": 1, "period_seconds": 300}},
+            plan["application"]["configuration"]["hpa"],
+        )
+        measured_pods = [
+            item["spec"]["template"]["spec"]
+            for item in manifests
+            if item["kind"] in {"Deployment", "Job"}
+        ]
+        exporters = [
+            container
+            for pod in measured_pods
+            for container in pod.get("initContainers", [])
+            if container["name"] == "kafka-network-exporter"
+        ]
+        self.assertTrue(exporters)
+        self.assertTrue(all(container["args"][:2] == ["--ports", "9092"] for container in exporters))
+        self.assertTrue(all(
+            "NET_ADMIN" in container["securityContext"]["capabilities"]["add"]
+            for container in exporters
+        ))
+
     def test_environment_tls_transport_is_materialized_for_targets_with_only_msk_size_overrides(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-hourly-50k-tls-qualification.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")

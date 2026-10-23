@@ -201,6 +201,17 @@ class AwsSessionTest(unittest.TestCase):
         rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
         self.assertLessEqual(len(rendered_prefix), 38)
 
+    def test_eks_tooling_uses_the_same_supported_minor_version(self) -> None:
+        variables = (AWS_ROOT / "assets/terraform/load-lab/variables.tf").read_text(encoding="utf-8")
+        runner_bootstrap = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
+
+        self.assertIn('default     = "1.35"', variables)
+        self.assertIn(
+            'registry.k8s.io/autoscaling/cluster-autoscaler:v1.35.2',
+            variables,
+        )
+        self.assertIn('https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl', runner_bootstrap)
+
     def test_msk_security_group_admits_plaintext_and_tls_listeners(self) -> None:
         terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
         msk_security_group = terraform.split('resource "aws_security_group" "msk"', 1)[1].split(
@@ -217,7 +228,7 @@ class AwsSessionTest(unittest.TestCase):
         def kubectl_json(command: list[str]) -> dict[str, object]:
             commands.append(command)
             if command[1] == "version":
-                return {"serverVersion": {"gitVersion": "v1.33"}}
+                return {"serverVersion": {"gitVersion": "v1.35"}}
             if command[1:4] == ["get", "nodes", "-o"]:
                 return {"items": []}
             if any("app.kubernetes.io/instance=" in value for value in command):

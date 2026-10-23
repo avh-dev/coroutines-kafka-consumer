@@ -476,6 +476,7 @@
 | [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | DONE |
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
+| [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5575,3 +5576,17 @@ _Date: 2026-10-22_
 Package and import the complete internal-lab application image set whenever any one image is rebuilt.
 Keep partial source rebuilds fast while making the resulting archive sufficient to recover an empty k3s/containerd image store on both lab nodes.
 Fail explicitly if a required image is missing from the controller Docker store instead of installing an incomplete runtime image set.
+
+<a id="infra-311"></a>
+### INFRA-311 - Upgrade AWS experiments to EKS 1.35
+
+_Date: 2026-10-23_
+
+Move provisioned AWS experiment clusters from EKS 1.33 extended support to
+EKS 1.35 standard support, keeping kubectl and Cluster Autoscaler on the same
+minor version. Update every maintained AWS experiment, Terraform defaults,
+examples, and contract tests together.
+Add a short, inexpensive AWS autoscaling smoke because the existing minimal
+smoke does not exercise a dedicated application node group, HPA, or Cluster
+Autoscaler. Verify network-counter collection and cleanup through the normal
+evidence path. Do not launch the smoke automatically.

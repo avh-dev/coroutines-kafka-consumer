@@ -1,0 +1,115 @@
+schema_version: 2
+name: aws-eks-1-35-autoscaling-smoke
+description: Short EKS 1.35 smoke that forces HPA and Cluster Autoscaler scale-up on inexpensive in-cluster dependencies.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: &fast_stub {percentiles: {p90: 10, p95: 20, p99: 40, p100: 60}}
+    flavour: *fast_stub
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+    deployment:
+      replicas: 1
+      workers: 4
+      resources:
+        requests: {cpu: 150m, memory: 256Mi}
+        limits: {memory: 512Mi}
+  load:
+    shards: 1
+    workers: 40
+    dispatcher_threads: 2
+    base_tps: 5000
+    producer_capacity_tps: {order: 5000, batch: 5000, telemetry: 5000}
+    load_profile: 0 -> (2m, warm-up) -> 100 -> (10m, steady) -> 100 -> (1m, cool-down) -> 0
+    cauldron_count: 1000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 100
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 33554432
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
+    cpu_request: 500m
+    memory_request: 512Mi
+    memory_limit: 768Mi
+    java_options: -Xms192m -Xmx512m -XX:+UseSerialGC
+    consumer_drain_timeout_seconds: 60
+    consumer_drain_required: false
+    telemetry_settle_seconds: 60
+    maximum_first_sample_delay_seconds: 60
+  measurement_windows:
+  - name: autoscaled-steady-state
+    # Leave six minutes after reaching 5k/s for HPA, EC2 launch, and pod
+    # readiness; the window should then contain a stable two-replica set.
+    start: 8m
+    duration: 3m
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+targets:
+- name: ckc.eks-1-35-autoscaling-smoke
+  annotation_label: CKC · EKS 1.35 HPA and Cluster Autoscaler smoke
+  implementation: ckc
+  observability:
+    kafka_network_counters: {enabled: true}
+  application:
+    replicas: 1
+    resources:
+      # Two replicas cannot fit on one m7i.large application node after
+      # allocatable reservations, so HPA scale-up must exercise node scaling.
+      requests: {cpu: 1100m, memory: 768Mi}
+      limits: {memory: 1Gi}
+    java_options: -Xms256m -Xmx640m -Xss256k -XX:+UseSerialGC
+    hpa:
+      enabled: true
+      min_replicas: 1
+      max_replicas: 2
+      target_cpu_utilization_percentage: 10
+      scale_up: {stabilization_window_seconds: 0, max_pods: 1, period_seconds: 30}
+      scale_down: {stabilization_window_seconds: 600, max_pods: 1, period_seconds: 300}
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 8192
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 1000
+    planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
+    parallelism: [workers]
+    topics:
+      order: {partitions: 12, workers: 100, queue_capacity: 2048, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 12, workers: 100, queue_capacity: 2048, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 12, workers: 100, queue_capacity: 2048, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
+environments:
+  aws:
+    region: eu-central-1
+    lab:
+      kubernetes_version: '1.35'
+      network:
+        vpc_cidr: 10.42.0.0/16
+        availability_zones: [eu-central-1a, eu-central-1b, eu-central-1c]
+        private_subnets: [10.42.0.0/20, 10.42.16.0/20, 10.42.32.0/20]
+        public_subnets: [10.42.128.0/20, 10.42.144.0/20, 10.42.160.0/20]
+      node_groups:
+        support: {instance_types: [m7i.large], desired_size: 1, min_size: 1, max_size: 1, disk_size_gib: 50}
+        application: {instance_types: [m7i.large], desired_size: 1, min_size: 1, max_size: 2, disk_size_gib: 50}
+      kafka:
+        mode: kubernetes
+        transport: plaintext
+        kubernetes_brokers: 1
+      redis: {mode: kubernetes, kubernetes_architecture: standalone, kubernetes_replicas: 1}
+      observability: {runner_peering: true, runner_project: ckc-runner, remote_write_port: 8428, loki_port: 3100, audit_port: 5170}
+    third_party:
+    - {name: ckc-kafka, chart: bitnami/kafka, version: 32.4.3}
+    - {name: ckc-redis, chart: bitnami/redis, version: 28.0.12}
