@@ -364,6 +364,7 @@ RENDER_ARGS=(
   --load-test-namespace ckc-perf
   --pull-policy IfNotPresent
   --application-node-port 30080
+  --autoscaling-metrics-url http://ckc-prometheus.ckc-perf.svc.cluster.local:9090
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --applications-only
 )

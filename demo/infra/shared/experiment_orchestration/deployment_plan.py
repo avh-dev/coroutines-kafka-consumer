@@ -386,6 +386,9 @@ def _combined_autoscaler(
         return _hpa(name, namespace, values)
     if not metrics_url:
         raise ValueError("hot-pod CPU autoscaling requires an autoscaling metrics URL")
+    strategy = str(_hpa_value(hot_pod, "strategy", "strategy", "hot_pod_percentage")).strip().lower()
+    if strategy not in {"hot_pod_percentage", "replica_demand"}:
+        raise ValueError("hot-pod CPU autoscaling strategy must be hot_pod_percentage or replica_demand")
     threshold = float(_hpa_value(hot_pod, "threshold_percentage", "thresholdPercentage", 100))
     if threshold <= 0:
         raise ValueError("hot-pod CPU autoscaling threshold must be positive")
@@ -398,16 +401,112 @@ def _combined_autoscaler(
     query_step = _prometheus_duration(
         _hpa_value(hot_pod, "query_step", "queryStep", "15s"), "query_step"
     )
+    source = str(_hpa_value(hot_pod, "source", "source", "container_cpu")).strip().lower()
+    if source not in {"container_cpu", "thread_stats_excluding_jit"}:
+        raise ValueError(
+            "hot-pod CPU autoscaling source must be container_cpu or thread_stats_excluding_jit"
+        )
+    aggregation = str(_hpa_value(hot_pod, "aggregation", "aggregation", "max")).strip().lower()
+    if aggregation not in {"max", "average"}:
+        raise ValueError("hot-pod CPU autoscaling aggregation must be max or average")
     cpu_request = _cpu_cores(((resources.get("requests") or {}).get("cpu")))
-    pod_pattern = re.escape(name) + "-.+"
-    query = (
-        "max(max_over_time((100 * sum by (pod) (rate(container_cpu_usage_seconds_total"
-        f'{{namespace="{namespace}", container="demo", pod=~"{pod_pattern}"}}[{averaging_window}])) '
-        f"/ {cpu_request:g})[{observation_window}:{query_step}]))"
+    # Kubernetes resource names are DNS labels. Keeping the hyphen literal avoids
+    # invalid PromQL string escapes such as \"\\-\" in the generated query.
+    pod_pattern = f"{name}-.+"
+    container_cpu = (
+        "sum by (pod) (rate(container_cpu_usage_seconds_total"
+        f'{{namespace="{namespace}", container="demo", pod=~"{pod_pattern}"}}[{averaging_window}]))'
     )
+    if source == "thread_stats_excluding_jit":
+        thread_stats_cpu = (
+            "sum by (pod) (rate(thread_stats_cpu_seconds_total"
+            f'{{namespace="{namespace}", pod=~"{pod_pattern}", group!="native-jit"}}[{averaging_window}]))'
+        )
+        if strategy == "replica_demand":
+            # A new JVM needs two Thread Stats samples before rate() is useful.
+            # Keep missing data missing: zero would invite a false scale-down.
+            cpu_signal = thread_stats_cpu.replace("sum by (pod)", "sum", 1)
+        else:
+            # Thread Stats is the primary source. A temporarily unavailable
+            # actuator scrape falls back per pod, not for the whole deployment.
+            cpu_signal = f"(({thread_stats_cpu}) or on (pod) ({container_cpu}))"
+    else:
+        cpu_signal = container_cpu
+    window_function = "avg_over_time" if aggregation == "average" else "max_over_time"
+    if strategy == "replica_demand":
+        target_utilization = float(_hpa_value(
+            hot_pod, "target_utilization_percentage", "targetUtilizationPercentage", 75
+        ))
+        if not 0 < target_utilization <= 100:
+            raise ValueError("replica-demand CPU autoscaling target utilization must be between 0 and 100")
+        requested_cpu_at_target = cpu_request * target_utilization / 100
+        # AverageValue distributes total CPU across replicas inside HPA.
+        # Sum rates first, then smooth deployment CPU including its real history
+        # across replica changes. rate() still runs before aggregation so each
+        # underlying counter's resets are handled independently.
+        total_cpu = cpu_signal if source == "thread_stats_excluding_jit" else f"sum({cpu_signal})"
+        query = f"{window_function}(({total_cpu})[{observation_window}:{query_step}])"
+        metric_threshold = f"{requested_cpu_at_target:g}"
+    else:
+        normalized_signal = f"(100 * {cpu_signal} / {cpu_request:g})"
+        query = f"max({window_function}(({normalized_signal})[{observation_window}:{query_step}]))"
+        metric_threshold = f"{threshold:g}"
     scale_down_seconds = int(_hpa_value(
         values, "scale_down_stabilization_window_seconds", "scaleDownStabilizationWindowSeconds", 300
     ))
+    scale_up = hot_pod.get("scale_up") or hot_pod.get("scaleUp") or {}
+    scale_down = hot_pod.get("scale_down") or hot_pod.get("scaleDown") or {}
+    if scale_down:
+        scale_down_seconds = int(_hpa_value(
+            scale_down,
+            "stabilization_window_seconds",
+            "stabilizationWindowSeconds",
+            scale_down_seconds,
+        ))
+    scale_down_behavior: dict[str, Any] = {"stabilizationWindowSeconds": scale_down_seconds}
+    if scale_down:
+        scale_down_behavior["policies"] = [{
+            "type": "Pods",
+            "value": int(_hpa_value(scale_down, "max_pods", "maxPods", 1)),
+            "periodSeconds": int(_hpa_value(scale_down, "period_seconds", "periodSeconds", 60)),
+        }]
+    behavior = {
+        "scaleUp": {
+            # KEDA's CRD models tolerance as an integer/string union; keep
+            # fractional tolerances as a string so the manifest is accepted.
+            "tolerance": str(_hpa_value(scale_up, "tolerance", "tolerance", 0)),
+            "stabilizationWindowSeconds": int(_hpa_value(
+                scale_up, "stabilization_window_seconds", "stabilizationWindowSeconds", 0
+            )),
+            "policies": [{
+                "type": "Pods",
+                "value": int(_hpa_value(scale_up, "max_pods", "maxPods", 2)),
+                "periodSeconds": int(_hpa_value(scale_up, "period_seconds", "periodSeconds", 60)),
+            }],
+        },
+        "scaleDown": scale_down_behavior,
+    }
+    triggers: list[dict[str, Any]] = []
+    if not bool(_hpa_value(hot_pod, "replace_cpu_trigger", "replaceCpuTrigger", False)):
+        triggers.append({
+            "type": "cpu",
+            "metricType": "Utilization",
+            "metadata": {"value": str(int(_hpa_value(
+                values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
+            )))},
+        })
+    triggers.append({
+        "type": "prometheus",
+        "name": "total-effective-cpu" if strategy == "replica_demand" else "hot-pod-cpu",
+        "metricType": "AverageValue" if strategy == "replica_demand" else "Value",
+        "metadata": {
+            "serverAddress": metrics_url.rstrip("/"),
+            "query": query,
+            "threshold": metric_threshold,
+            "activationThreshold": "0",
+            "ignoreNullValues": "false",
+        },
+    })
     return {
         "apiVersion": "keda.sh/v1alpha1",
         "kind": "ScaledObject",
@@ -417,31 +516,8 @@ def _combined_autoscaler(
             "pollingInterval": int(_hpa_value(hot_pod, "polling_interval_seconds", "pollingIntervalSeconds", 15)),
             "minReplicaCount": int(_hpa_value(values, "min_replicas", "minReplicas", 1)),
             "maxReplicaCount": int(_hpa_value(values, "max_replicas", "maxReplicas", 1)),
-            "advanced": {"horizontalPodAutoscalerConfig": {"behavior": {
-                "scaleUp": {"tolerance": 0},
-                "scaleDown": {"stabilizationWindowSeconds": scale_down_seconds},
-            }}},
-            "triggers": [
-                {
-                    "type": "cpu",
-                    "metricType": "Utilization",
-                    "metadata": {"value": str(int(_hpa_value(
-                        values, "target_cpu_utilization_percentage", "targetCPUUtilizationPercentage", 70
-                    )))},
-                },
-                {
-                    "type": "prometheus",
-                    "name": "hot-pod-cpu",
-                    "metricType": "Value",
-                    "metadata": {
-                        "serverAddress": metrics_url.rstrip("/"),
-                        "query": query,
-                        "threshold": f"{threshold:g}",
-                        "activationThreshold": "0",
-                        "ignoreNullValues": "false",
-                    },
-                },
-            ],
+            "advanced": {"horizontalPodAutoscalerConfig": {"behavior": behavior}},
+            "triggers": triggers,
         },
     }
 

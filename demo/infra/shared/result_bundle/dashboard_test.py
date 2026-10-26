@@ -58,6 +58,25 @@ class DashboardTest(unittest.TestCase):
         self.assertTrue(all('service="kafka"' in expression and 'role="producer"' in expression for expression in producer_expressions))
         self.assertTrue(any("ckc_load_test_producer_records_acked_total" in expression for expression in producer_expressions))
 
+    def test_total_message_throughput_always_overlays_application_pods(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        panel = next(panel for panel in dashboard["panels"] if panel.get("title") == "Total Message Throughput")
+
+        targets = {target["refId"]: target for target in panel["targets"]}
+        self.assertIn("demo_ckc_record_process_duration_seconds_count", targets["A"]["expr"])
+        self.assertIn("kafka_topic_partition_current_offset", targets["B"]["expr"])
+        self.assertIn("last_over_time(container_memory_working_set_bytes", targets["C"]["expr"])
+        self.assertEqual("application pods", targets["C"]["legendFormat"])
+        override = next(
+            override for override in panel["fieldConfig"]["overrides"]
+            if override["matcher"] == {"id": "byFrameRefID", "options": "C"}
+        )
+        properties = {property_["id"]: property_["value"] for property_ in override["properties"]}
+        self.assertEqual("right", properties["custom.axisPlacement"])
+        self.assertEqual("Application pods", properties["custom.axisLabel"])
+        self.assertEqual("short", properties["unit"])
+
     def test_detects_parallel_consumer_targets_from_run_metadata(self) -> None:
         self.assertTrue(has_parallel_consumer_target([
             {"application": {"run_profile": "spring-kafka"}},
@@ -207,11 +226,13 @@ class DashboardTest(unittest.TestCase):
         panels = {panel["title"]: panel for panel in row["panels"]}
 
         self.assertIn("sum(rate(container_cpu_usage_seconds_total", panels["Application Container CPU — Total"]["targets"][0]["expr"])
-        cpu_by_pod = panels["Application Container CPU — By Pod"]
+        cpu_by_pod = panels["Application CPU — Container vs Thread Stats by Pod"]
         self.assertIn(
             "sum by (pod) (rate(container_cpu_usage_seconds_total",
             cpu_by_pod["targets"][0]["expr"],
         )
+        self.assertIn("thread_stats_cpu_seconds_total", cpu_by_pod["targets"][1]["expr"])
+        self.assertIn('group!="native-jit"', cpu_by_pod["targets"][2]["expr"])
         self.assertEqual(["min", "mean", "max", "lastNotNull"], cpu_by_pod["options"]["legend"]["calcs"])
         self.assertIn("sum(container_memory_working_set_bytes", panels["Application Container Working Set — Total"]["targets"][0]["expr"])
         self.assertIn("avg(container_memory_working_set_bytes", panels["Application Container Working Set — Average per Pod"]["targets"][0]["expr"])

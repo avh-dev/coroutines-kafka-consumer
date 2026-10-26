@@ -123,6 +123,9 @@ class UpdateLabSyncTest(unittest.TestCase):
         rebuild = (SCRIPT.parents[1] / "assets/libexec/rebuild-images.sh").read_text(encoding="utf-8")
 
         self.assertIn("worker_image_is_current", script)
+        self.assertIn("k3s_image_cache_is_current", script)
+        self.assertIn("K3S_IMAGE_CACHE_CURRENT", script)
+        self.assertIn("import-k3s-images --check", script)
         self.assertIn("systemctl is-active --quiet k3s-agent", script)
         self.assertIn("LAB_APPLICATION_TARGET", rebuild)
         self.assertIn("import-k3s-images", rebuild)
@@ -135,6 +138,9 @@ class UpdateLabSyncTest(unittest.TestCase):
         )
         self.assertIn("docker save ${all_image_names}", rebuild)
         self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
+        self.assertIn('REBUILD_ARGS+=("demo=${DEMO_FINGERPRINT}")', script)
+        self.assertIn('K3s image cache is incomplete after import.', script)
+        self.assertIn('Usage: $0 [--check]', (SCRIPT.parents[1] / "scripts/bootstrap-host.sh").read_text(encoding="utf-8"))
 
     def test_syncs_only_the_canonical_experiment_catalog(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
@@ -195,6 +201,17 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn(
             '--load-test-selector "app.kubernetes.io/name=ckc-load-test,ckc.dev/test-run-id=${RUN_ID}"',
             script,
+        )
+
+    def test_target_runner_passes_prometheus_to_load_only_rendering(self) -> None:
+        script = TARGET_RUNNER.read_text(encoding="utf-8")
+
+        load_render_start = script.index("LOAD_RENDER_ARGS=(")
+        load_render_end = script.index('python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py"', load_render_start)
+        load_render = script[load_render_start:load_render_end]
+        self.assertIn(
+            "--autoscaling-metrics-url http://ckc-prometheus.ckc-perf.svc.cluster.local:9090",
+            load_render,
         )
 
 

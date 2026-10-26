@@ -299,7 +299,7 @@ class DeploymentPlanTest(unittest.TestCase):
         scaler = next(item for item in manifests if item["kind"] == "ScaledObject")
         self.assertEqual(1, scaler["spec"]["minReplicaCount"])
         self.assertEqual(12, scaler["spec"]["maxReplicaCount"])
-        self.assertEqual(0, scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]["scaleUp"]["tolerance"])
+        self.assertEqual("0", scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]["scaleUp"]["tolerance"])
         cpu, hot_pod = scaler["spec"]["triggers"]
         self.assertEqual(("cpu", "85"), (cpu["type"], cpu["metadata"]["value"]))
         self.assertEqual(("prometheus", "Value"), (hot_pod["type"], hot_pod["metricType"]))
@@ -308,6 +308,126 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertIn("[30s]", hot_pod["metadata"]["query"])
         self.assertIn("[2m:15s]", hot_pod["metadata"]["query"])
         self.assertIn("/ 0.85", hot_pod["metadata"]["query"])
+
+    def test_thread_stats_replica_demand_excludes_jit_and_uses_requested_cpu(self) -> None:
+        plan = {
+            "target": {"name": "thread-stats-hot-pod", "implementation": "ckc"},
+            "application": {
+                "configuration": {
+                    "replicas": 1,
+                    "resources": {"requests": {"cpu": "400m", "memory": "512Mi"}},
+                    "hpa": {
+                        "enabled": True,
+                        "min_replicas": 1,
+                        "max_replicas": 12,
+                        "hot_pod_cpu": {
+                            "source": "thread_stats_excluding_jit",
+                            "strategy": "replica_demand",
+                            "replace_cpu_trigger": True,
+                            "target_utilization_percentage": 75,
+                            "averaging_window": "30s",
+                            "observation_window": "1m",
+                            "query_step": "15s",
+                            "aggregation": "average",
+                            "scale_up": {"max_pods": 2, "period_seconds": 60},
+                        },
+                    },
+                },
+                "runtime": {"env": {}},
+                "planner": {"topics": []},
+                "generated_values": {},
+            },
+            "workload": {"load": {}},
+        }
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="thread-stats-hot-pod",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka:9092",
+            redis_host="redis",
+            audit_host="audit",
+            application_namespace="ckc-perf",
+            autoscaling_metrics_url="http://ckc-prometheus.ckc-perf.svc.cluster.local:9090",
+        ))
+        scaler = next(item for item in manifests if item["kind"] == "ScaledObject")
+        self.assertEqual(1, len(scaler["spec"]["triggers"]))
+        trigger = scaler["spec"]["triggers"][0]
+        self.assertEqual(("prometheus", "AverageValue", "0.3"), (
+            trigger["type"], trigger["metricType"], trigger["metadata"]["threshold"],
+        ))
+        query = trigger["metadata"]["query"]
+        self.assertIn('group!="native-jit"', query)
+        self.assertNotIn("or on (pod)", query)
+        self.assertNotIn("count(", query)
+        self.assertNotIn("vector(0)", query)
+        self.assertNotIn("and on (pod)", query)
+        self.assertNotIn("sum by (pod)", query)
+        self.assertTrue(query.startswith("avg_over_time((sum (rate("))
+        self.assertEqual("false", trigger["metadata"]["ignoreNullValues"])
+        behavior = scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]
+        self.assertEqual({"type": "Pods", "value": 2, "periodSeconds": 60}, behavior["scaleUp"]["policies"][0])
+        self.assertEqual("0", behavior["scaleUp"]["tolerance"])
+        self.assertEqual(300, behavior["scaleDown"]["stabilizationWindowSeconds"])
+
+    def test_materializes_local_thread_stats_autoscaling_comparison(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-thread-stats-autoscaling-10k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "thread-stats-autoscaling"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            ["ckc.thread-stats-no-jit", "ckc.cpu-hpa-85"],
+            [target.target.name for target in targets],
+        )
+        plans = {
+            target.target.name: yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+            for target in targets
+        }
+        self.assertEqual(10000, plans["ckc.thread-stats-no-jit"]["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            "0 -> (5m, normal-ramp-1) -> 1 -> (5m, normal-ramp-2) -> 6 -> "
+            "(5m, normal-ramp-3) -> 28 -> (5m, normal-ramp-4) -> 73 -> "
+            "(5m, normal-ramp-5) -> 100 -> (10m, steady) -> 100 -> "
+            "(5m, normal-cool-down-1) -> 73 -> (5m, normal-cool-down-2) -> 28 -> "
+            "(5m, normal-cool-down-3) -> 6 -> (5m, normal-cool-down-4) -> 1 -> "
+            "(5m, normal-cool-down-5) -> 0",
+            plans["ckc.thread-stats-no-jit"]["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            {"cpu": "400m", "memory": "512Mi"},
+            plans["ckc.thread-stats-no-jit"]["application"]["configuration"]["resources"]["requests"],
+        )
+
+        bindings = DeploymentBindings(
+            run_id="thread-stats-comparison",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka:9094",
+            kafka_security_protocol="SSL",
+            redis_host="redis",
+            audit_host="audit",
+            application_namespace="ckc-perf",
+            autoscaling_metrics_url="http://ckc-prometheus.ckc-perf.svc.cluster.local:9090",
+        )
+        classic = render_project_manifests(plans["ckc.cpu-hpa-85"], bindings)
+        custom = render_project_manifests(plans["ckc.thread-stats-no-jit"], bindings)
+        hpa = next(item for item in classic if item["kind"] == "HorizontalPodAutoscaler")
+        scaler = next(item for item in custom if item["kind"] == "ScaledObject")
+        self.assertEqual(85, hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"])
+        self.assertEqual(1, len(scaler["spec"]["triggers"]))
+        self.assertIn(
+            'group!="native-jit"',
+            scaler["spec"]["triggers"][0]["metadata"]["query"],
+        )
+        self.assertEqual("0.34", scaler["spec"]["triggers"][0]["metadata"]["threshold"])
+        self.assertEqual("AverageValue", scaler["spec"]["triggers"][0]["metricType"])
+        self.assertTrue(scaler["spec"]["triggers"][0]["metadata"]["query"].startswith("avg_over_time((sum (rate("))
+        scale_down = scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]["scaleDown"]
+        self.assertEqual("0.1", scaler["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"]["scaleUp"]["tolerance"])
+        self.assertEqual(60, scale_down["stabilizationWindowSeconds"])
+        self.assertEqual({"type": "Pods", "value": 1, "periodSeconds": 60}, scale_down["policies"][0])
 
     def test_materializes_per_topic_autoscaling_aws_spring_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-spring-keda-50k-ramp.yaml"

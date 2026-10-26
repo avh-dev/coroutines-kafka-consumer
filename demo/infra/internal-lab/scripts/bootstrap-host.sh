@@ -238,12 +238,29 @@ chmod 0644 /etc/ckc-lab/host.env
 cat > /usr/local/libexec/ckc-lab/import-k3s-images <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$#" -ne 0 ]]; then
-  echo "import-k3s-images does not accept arguments." >&2
-  exit 2
-fi
 # shellcheck disable=SC1091
 source /etc/ckc-lab/host.env
+image_names=(
+  docker.io/ckc-perf/demo:latest
+  docker.io/ckc-perf/demo-stubs:latest
+  docker.io/ckc-perf/load-test:latest
+  docker.io/ckc-perf/kafka-network-exporter:latest
+)
+
+if [[ "$#" -eq 1 && "$1" == "--check" ]]; then
+  available_images="$(k3s ctr --namespace k8s.io images ls -q)"
+  for image_name in "${image_names[@]}"; do
+    if ! grep -Fx -- "${image_name}" <<<"${available_images}" >/dev/null; then
+      echo "K3s image is missing: ${image_name}" >&2
+      exit 1
+    fi
+  done
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "Usage: $0 [--check]" >&2
+  exit 2
+fi
 archive="${LAB_ROOT}/state/images/ckc-lab-images.tar"
 if [[ ! -f "${archive}" ]]; then
   echo "Image archive was not found: ${archive}" >&2
@@ -347,7 +364,7 @@ echo "CKC CPU performance lease released and the previous policy restored."
 EOF
 chmod 0755 /usr/local/libexec/ckc-lab/cpu-performance-release
 cat > /etc/sudoers.d/ckc-lab <<EOF
-${RUNTIME_USER} ALL=(root) NOPASSWD: /usr/local/libexec/ckc-lab/import-k3s-images "", /usr/local/libexec/ckc-lab/cpu-performance-acquire "", /usr/local/libexec/ckc-lab/cpu-performance-release ""
+${RUNTIME_USER} ALL=(root) NOPASSWD: /usr/local/libexec/ckc-lab/import-k3s-images "", /usr/local/libexec/ckc-lab/import-k3s-images --check, /usr/local/libexec/ckc-lab/cpu-performance-acquire "", /usr/local/libexec/ckc-lab/cpu-performance-release ""
 EOF
 chmod 0440 /etc/sudoers.d/ckc-lab
 visudo -cf /etc/sudoers.d/ckc-lab >/dev/null
