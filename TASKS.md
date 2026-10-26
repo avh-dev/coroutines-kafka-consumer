@@ -477,7 +477,8 @@
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
 | [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | DONE |
-| [INFRA-312](#infra-312) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
+| [INFRA-312](#infra-312) | Refine the single-node internal-lab report topology. | DONE |
+| [INFRA-313](#infra-313) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5599,7 +5600,16 @@ defaults cannot OOM-kill it during the smoke workload.
 Do not launch the smoke automatically.
 
 <a id="infra-312"></a>
-### INFRA-312 - Preserve target metrics and guard hot pods
+### INFRA-312 - Refine the single-node internal-lab report topology
+
+_Date: 2026-10-23_
+
+Bring the single-node internal-lab topology diagram to the same 1280-pixel-wide, readable layout and typography used by the AWS and two-node report variants.
+Separate support and application workloads, expand resource details, align telemetry grids, and route data-flow arrows around the resulting boundaries.
+Report capacity for the displayed physical host rather than unused cluster nodes, and regenerate the latest completed single-node report from saved evidence for visual validation.
+
+<a id="infra-313"></a>
+### INFRA-313 - Preserve target metrics and guard hot pods
 
 _Date: 2026-10-23_
 
