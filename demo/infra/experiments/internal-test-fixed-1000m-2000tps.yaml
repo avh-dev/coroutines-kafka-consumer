@@ -14,7 +14,7 @@ workload:
     workers: 2
     base_tps: 2000
     producer_capacity_tps: {order: 2000, batch: 2000, telemetry: 2000}
-    load_profile: 0 -> (90s, warmup-to-200) -> 10 -> (180s, 2000-tps-step) -> 100 -> (1s, finish) -> 0
+    load_profile: 0 -> (90s, warmup-to-200) -> 10 -> (1s, step-to-2000) -> 100 -> (180s, hold-2000) -> 100
     cauldron_count: 32
     min_orders_per_batch: 3
     max_orders_per_batch: 6
