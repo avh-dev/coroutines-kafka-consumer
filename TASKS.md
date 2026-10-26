@@ -5635,14 +5635,15 @@ contract, and materialization tests pass; Python compilation, Bash syntax,
 experiment validation, and whitespace checks pass.
 
 <a id="infra-314"></a>
-### INFRA-314 - Add a fixed 500m internal-lab load-step experiment
+### INFRA-314 - Add a fixed 1000m internal-lab load-step experiment
 
 _Date: 2026-10-26_
 
 Add a short CKC experiment with one fixed application pod and no autoscaling.
 Ramp from zero to 200 messages per second over ninety seconds, step immediately
 to 2,000 messages per second for three minutes, then stop the workload.
-Keep the application pod fixed at 500 millicores and do not launch the experiment automatically.
+Keep the application pod request fixed at 1,000 millicores without a CPU limit,
+use 500 CKC workers per topic, and do not launch the experiment automatically.
 Verification: the canonical experiment validates for internal-lab, the resolved
-target has one replica, disabled HPA, and matching 500m CPU request/limit, and
-the installed lab copy matches the repository file byte-for-byte.
+target has one replica, disabled HPA, a 1000m CPU request with no CPU limit, and
+500 workers per topic; the installed lab copy matches the repository file.

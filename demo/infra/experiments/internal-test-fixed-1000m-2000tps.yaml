@@ -1,7 +1,7 @@
 schema_version: 2
-name: internal-test-fixed-500m-2000tps
+name: internal-test-fixed-1000m-2000tps
 description: >-
-  Run one fixed 500m CKC pod through a short 200 to 2,000 messages-per-second
+  Run one fixed 1000m CKC pod through a short 200 to 2,000 messages-per-second
   load step on the internal lab.
 workload:
   stubs:
@@ -29,13 +29,13 @@ workload:
     batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
 targets:
-- name: ckc-fixed-500m
+- name: ckc-fixed-1000m
   implementation: ckc
   application:
     replicas: 1
     resources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {cpu: 500m, memory: 1Gi}
+      requests: {cpu: 1000m, memory: 512Mi}
+      limits: {memory: 1Gi}
     hpa: {enabled: false}
   runtime:
     env:
@@ -46,9 +46,9 @@ targets:
       WORKER_DISPATCHER_THREADS: 2
     planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
     topics:
-      order: {partitions: 2, workers: 2, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      batch: {partitions: 2, workers: 2, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      telemetry: {partitions: 2, workers: 2, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
+      order: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
 environments:
   internal-lab:
     lab:
