@@ -479,6 +479,7 @@
 | [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | DONE |
 | [INFRA-312](#infra-312) | Refine the single-node internal-lab report topology. | DONE |
 | [INFRA-313](#infra-313) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
+| [INFRA-314](#infra-314) | Add a short fixed-resource internal-lab load-step experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5632,3 +5633,16 @@ remove the hottest-pod trigger from replica-demand mode.
 Verification: focused orchestration and internal-lab tests pass; dashboard,
 contract, and materialization tests pass; Python compilation, Bash syntax,
 experiment validation, and whitespace checks pass.
+
+<a id="infra-314"></a>
+### INFRA-314 - Add a fixed 500m internal-lab load-step experiment
+
+_Date: 2026-10-26_
+
+Add a short CKC experiment with one fixed application pod and no autoscaling.
+Ramp from zero to 200 messages per second over ninety seconds, step immediately
+to 2,000 messages per second for three minutes, then stop the workload.
+Keep the application pod fixed at 500 millicores and do not launch the experiment automatically.
+Verification: the canonical experiment validates for internal-lab, the resolved
+target has one replica, disabled HPA, and matching 500m CPU request/limit, and
+the installed lab copy matches the repository file byte-for-byte.
