@@ -192,6 +192,15 @@ class AwsSessionTest(unittest.TestCase):
             r'verbs: \["get", "update"\]',
         )
 
+    def test_cluster_autoscaler_has_kubernetes_1_35_resource_capacity_permissions(self) -> None:
+        script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
+        self.assertRegex(
+            script,
+            r'apiGroups: \["resource\.k8s\.io"\]\s+'
+            r'resources: \["resourceclaims", "resourceslices", "deviceclasses"\]\s+'
+            r'verbs: \["watch", "list", "get"\]',
+        )
+
     def test_cluster_autoscaler_role_uses_a_bounded_name_prefix(self) -> None:
         terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
         self.assertIn(
@@ -200,6 +209,17 @@ class AwsSessionTest(unittest.TestCase):
         )
         rendered_prefix = "ckc-ca-" + hashlib.sha256(b"s-998561dd7c").hexdigest()[:12] + "-"
         self.assertLessEqual(len(rendered_prefix), 38)
+
+    def test_eks_tooling_uses_the_same_supported_minor_version(self) -> None:
+        variables = (AWS_ROOT / "assets/terraform/load-lab/variables.tf").read_text(encoding="utf-8")
+        runner_bootstrap = (AWS_ROOT / "terraform/runner/user_data.sh.tftpl").read_text(encoding="utf-8")
+
+        self.assertIn('default     = "1.35"', variables)
+        self.assertIn(
+            'registry.k8s.io/autoscaling/cluster-autoscaler:v1.35.2',
+            variables,
+        )
+        self.assertIn('https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl', runner_bootstrap)
 
     def test_msk_security_group_admits_plaintext_and_tls_listeners(self) -> None:
         terraform = (AWS_ROOT / "assets/terraform/load-lab/main.tf").read_text(encoding="utf-8")
@@ -217,7 +237,7 @@ class AwsSessionTest(unittest.TestCase):
         def kubectl_json(command: list[str]) -> dict[str, object]:
             commands.append(command)
             if command[1] == "version":
-                return {"serverVersion": {"gitVersion": "v1.33"}}
+                return {"serverVersion": {"gitVersion": "v1.35"}}
             if command[1:4] == ["get", "nodes", "-o"]:
                 return {"items": []}
             if any("app.kubernetes.io/instance=" in value for value in command):
@@ -320,6 +340,16 @@ class AwsSessionTest(unittest.TestCase):
         self.assertNotIn("grafana_dashboard_provider_config", user_data)
         self.assertIn("runner_user_data_bytes_upper_bound <= 16384", runner_terraform)
 
+    def test_runner_grafana_uses_session_scoped_anonymous_access(self) -> None:
+        runner_terraform = (AWS_ROOT / "terraform/runner/main.tf").read_text(encoding="utf-8")
+        compose = (AWS_ROOT / "terraform/runner/templates/docker-compose.yml.tftpl").read_text(encoding="utf-8")
+
+        self.assertIn('grafana_cookie_name       = "ckc_${replace(var.session_id, "-", "_")}"', runner_terraform)
+        self.assertIn("GF_SECURITY_COOKIE_NAME: ${grafana_cookie_name}", compose)
+        self.assertIn('GF_AUTH_ANONYMOUS_ENABLED: "true"', compose)
+        self.assertIn("GF_AUTH_ANONYMOUS_ORG_ROLE: Editor", compose)
+        self.assertIn('GF_AUTH_DISABLE_LOGIN_FORM: "true"', compose)
+
     def test_aws_cloudwatch_exporter_captures_dependency_capacity(self) -> None:
         script = (AWS_ROOT / "runner-assets/bin/create-lab.sh").read_text(encoding="utf-8")
         outputs = (AWS_ROOT / "assets/terraform/load-lab/outputs.tf").read_text(encoding="utf-8")
@@ -366,6 +396,8 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn('HELM_EVIDENCE_DIR="${LAB_EVIDENCE_DIR}/helm"', create_script)
         self.assertIn('KAFKA_VALUES_FILE="${HELM_EVIDENCE_DIR}/kafka-values.yaml"', create_script)
         self.assertIn('REDIS_VALUES_FILE="${HELM_EVIDENCE_DIR}/redis-values.yaml"', create_script)
+        self.assertIn("memory: 512Mi", create_script)
+        self.assertIn("memory: 1Gi", create_script)
         self.assertIn('"${HELM_EVIDENCE_DIR}/commands.log"', create_script)
         self.assertIn('cp -a "${RUNNER_HOME}/config/lab-evidence"', export_script)
 
@@ -499,7 +531,9 @@ class AwsSessionTest(unittest.TestCase):
         self.assertIn("demo/infra/shared/kafka_warmup/run.py", command)
         self.assertIn("'--backend', 'kubernetes'", command)
         self.assertNotIn("--grafana-url", command)
-        self.assertIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
+        self.assertNotIn("find /opt/ckc-runner/prometheus -mindepth 1 -delete", command)
+        self.assertNotIn("docker stop", command)
+        self.assertIn("curl -fsS http://127.0.0.1:8428/health", command)
         self.assertNotIn("warmup_completed", command)
         self.assertEqual("completed", controller.state["kafka_warmup"]["status"])
 

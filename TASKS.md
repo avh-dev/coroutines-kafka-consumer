@@ -476,7 +476,9 @@
 | [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | DONE |
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
 | [INFRA-310](#infra-310) | Keep the complete internal-lab image set available during partial rebuilds. | DONE |
+| [INFRA-311](#infra-311) | Upgrade AWS experiments from EKS 1.33 extended support to EKS 1.35. | DONE |
 | [INFRA-312](#infra-312) | Refine the single-node internal-lab report topology. | DONE |
+| [INFRA-313](#infra-313) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5577,6 +5579,26 @@ Package and import the complete internal-lab application image set whenever any 
 Keep partial source rebuilds fast while making the resulting archive sufficient to recover an empty k3s/containerd image store on both lab nodes.
 Fail explicitly if a required image is missing from the controller Docker store instead of installing an incomplete runtime image set.
 
+<a id="infra-311"></a>
+### INFRA-311 - Upgrade AWS experiments to EKS 1.35
+
+_Date: 2026-10-23_
+
+Move provisioned AWS experiment clusters from EKS 1.33 extended support to
+EKS 1.35 standard support, keeping kubectl and Cluster Autoscaler on the same
+minor version. Update every maintained AWS experiment, Terraform defaults,
+examples, and contract tests together.
+Add a short AWS autoscaling smoke because the existing minimal smoke does not
+exercise a dedicated application node group, HPA, or Cluster Autoscaler. Use
+the smallest production-like provisioned MSK topology instead of spending test
+time on an in-cluster Kafka implementation. Verify TLS network-counter
+collection and cleanup through the normal evidence path. Keep the Terraform
+Kafka transport contract aligned with the selected deployment mode: plaintext
+in-cluster Kafka and dual-listener MSK.
+Give the disposable Kubernetes Redis explicit memory headroom so the chart
+defaults cannot OOM-kill it during the smoke workload.
+Do not launch the smoke automatically.
+
 <a id="infra-312"></a>
 ### INFRA-312 - Refine the single-node internal-lab report topology
 
@@ -5585,3 +5607,28 @@ _Date: 2026-10-23_
 Bring the single-node internal-lab topology diagram to the same 1280-pixel-wide, readable layout and typography used by the AWS and two-node report variants.
 Separate support and application workloads, expand resource details, align telemetry grids, and route data-flow arrows around the resulting boundaries.
 Report capacity for the displayed physical host rather than unused cluster nodes, and regenerate the latest completed single-node report from saved evidence for visual validation.
+
+<a id="infra-313"></a>
+### INFRA-313 - Preserve target metrics and guard hot pods
+
+_Date: 2026-10-23_
+
+Keep the shared VictoriaMetrics history when a later target recreates and warms
+MSK so every target remains available to the combined experiment report.
+Extend combined-application autoscaling with an optional KEDA Prometheus guard
+that complements average CPU utilization with sustained hottest-pod CPU.
+Keep Grafana annotations visible throughout live and restored evidence sessions
+by using anonymous editor access with per-session/per-port cookie names.
+Keep AWS report packaging anchored to the primary checkout when the lab is
+updated from a temporary linked worktree, and diagnose stale result roots.
+Prepare Spring and CKC requalification with the fixed fleet generator; use 500
+CKC workers per topic and retain autoscaling up to the existing safety maximum.
+Do not launch the qualification automatically.
+
+Local follow-up (2026-10-25): compare ordinary HPA with a single total Thread
+Stats CPU signal excluding native-jit. Smooth the total after summation and
+remove the hottest-pod trigger from replica-demand mode.
+
+Verification: focused orchestration and internal-lab tests pass; dashboard,
+contract, and materialization tests pass; Python compilation, Bash syntax,
+experiment validation, and whitespace checks pass.

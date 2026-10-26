@@ -702,6 +702,10 @@ rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
     verbs: ["watch", "list", "get"]
+  # Kubernetes 1.35 exposes these resource-capacity APIs to the autoscaler.
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims", "resourceslices", "deviceclasses"]
+    verbs: ["watch", "list", "get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1207,10 +1211,22 @@ auth:
 master:
   persistence:
     enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
 replica:
   replicaCount: ${REDIS_REPLICA_COUNT}
   persistence:
     enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
 EOF
   printf '%s\n' 'helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f redis-values.yaml' >> "${HELM_EVIDENCE_DIR}/commands.log"
   helm upgrade --install ckc-redis bitnami/redis --namespace ckc-app --create-namespace -f "${REDIS_VALUES_FILE}"
@@ -1280,6 +1296,7 @@ context = {
     "registry": "${REGISTRY}",
     "prometheus_bridge_enabled": False,
     "remote_write_url": "${REMOTE_WRITE_URL}",
+    "autoscaling_metrics_url": "http://${RUNNER_PRIVATE_IP}:8428",
     "audit_tcp_host": "${AUDIT_TCP_HOST}",
     "audit_tcp_port": 5170,
     "kafka_exporter_enabled": True,

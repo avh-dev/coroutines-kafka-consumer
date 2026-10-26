@@ -87,7 +87,7 @@ environments:
   aws:
     region: eu-central-1
     lab:
-      kubernetes_version: '1.33'
+      kubernetes_version: '1.35'
       network:
         vpc_cidr: 10.42.0.0/16
         availability_zones:

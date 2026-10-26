@@ -1703,6 +1703,7 @@ LOAD_RENDER_ARGS=(
   --namespace ckc-perf
   --load-test-namespace ckc-perf
   --pull-policy IfNotPresent
+  --autoscaling-metrics-url http://ckc-prometheus.ckc-perf.svc.cluster.local:9090
   --test-definition "$(basename "${TEST_DEFINITION}" .yaml)"
   --started-at "${RUN_STARTED_AT}"
   --active-deadline-seconds 86400

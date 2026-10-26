@@ -4,6 +4,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../../.." && pwd)"
+# AWS experiment results live in the primary checkout. A lab update may be run
+# from a linked worktree, but recording that ephemeral path would make report
+# packaging lose AWS results as soon as the worktree is removed.
+GIT_COMMON_DIR="$(git -C "${REPO_ROOT}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [[ "$(basename -- "${GIT_COMMON_DIR}")" == ".git" && -d "$(dirname -- "${GIT_COMMON_DIR}")" ]]; then
+  REPORT_REPOSITORY_ROOT="$(dirname -- "${GIT_COMMON_DIR}")"
+else
+  REPORT_REPOSITORY_ROOT="${REPO_ROOT}"
+fi
 STATE_DIR="${REPO_ROOT}/.demo-infra/internal-lab"
 DEFAULT_LAB_ROOT="/opt/ckc-lab"
 LEGACY_LAB_ROOT="/opt/ckc-internal-lab"
@@ -129,6 +138,15 @@ worker_image_is_current() {
     "test \"\$(cat '${LAB_ROOT}/state/fingerprints/images/${service}.fingerprint' 2>/dev/null || true)\" = '${fingerprint}'"
 }
 
+k3s_image_cache_is_current() {
+  ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "${LAB_TARGET}" \
+    "sudo -n /usr/local/libexec/ckc-lab/import-k3s-images --check" || return 1
+  if [[ -n "${LAB_APPLICATION_TARGET:-}" ]]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "${LAB_APPLICATION_TARGET}" \
+      "sudo -n /usr/local/libexec/ckc-lab/import-k3s-images --check" || return 1
+  fi
+}
+
 remote_fingerprint_matches() {
   local name="$1"
   local fingerprint="$2"
@@ -203,7 +221,7 @@ sync_internal_lab_assets() {
   local repository_env="${STATE_DIR}/repository.env"
 
   mkdir -p "$(dirname -- "${repository_env}")"
-  printf 'CKC_REPOSITORY_ROOT=%q\n' "${REPO_ROOT}" > "${repository_env}"
+  printf 'CKC_REPOSITORY_ROOT=%q\n' "${REPORT_REPOSITORY_ROOT}" > "${repository_env}"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/bin" "${LAB_ROOT}/bin"
   sync_path "${REPO_ROOT}/demo/infra/internal-lab/assets/libexec" "${LAB_ROOT}/libexec"
   ssh "${LAB_TARGET}" "mkdir -p '${LAB_ROOT}/helpers'"
@@ -329,7 +347,10 @@ THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT="$({
   fi
 } | sha256sum | awk '{ print $1 }')"
 DEMO_FINGERPRINT="$(printf '%s\n%s\n' "${DEMO_FINGERPRINT}" "${THREAD_STATS_LOCAL_RUNTIME_FINGERPRINT}" | sha256sum | awk '{ print $1 }')"
-ASSETS_SYNC_FINGERPRINT="$(fingerprint_paths "assets-sync" demo/infra/internal-lab/assets)"
+ASSETS_SYNC_FINGERPRINT="$({
+  fingerprint_paths "assets-sync" demo/infra/internal-lab/assets
+  printf '%s\n' "${REPORT_REPOSITORY_ROOT}"
+} | sha256sum | awk '{ print $1 }')"
 RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/audit \
   demo/infra/shared/audit_windows.py \
@@ -397,15 +418,20 @@ REMOTE_PROBE="$(ssh "${LAB_TARGET}" "
   printf '|'
   if test -x '${LAB_ROOT}/bin/run-experiment.sh' && test -f '${LAB_ROOT}/thread-stats/thread-stats-agent.jar'; then printf 'complete'; else printf 'incomplete'; fi
 ")"
+K3S_IMAGE_CACHE_CURRENT=1
+if ! k3s_image_cache_is_current; then
+  K3S_IMAGE_CACHE_CURRENT=0
+  echo "One or more required lab images are absent from the K3s cache; they will be re-imported."
+fi
 if [[ "${REMOTE_PROBE}" == active\|* ]]; then
   echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
   echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
   exit 0
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]]; then
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]]; then
   record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
   record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
   record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -590,6 +616,11 @@ if [[ "${BASE_DEPLOY_CHANGED}" -eq 1 ]]; then
 fi
 
 REBUILD_ARGS=()
+if [[ "${K3S_IMAGE_CACHE_CURRENT}" -eq 0 ]]; then
+  # rebuild-images saves and imports the complete image set. Rebuilding one
+  # lightweight image is enough to restore a garbage-collected K3s cache.
+  REBUILD_ARGS+=("demo=${DEMO_FINGERPRINT}")
+fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("demo=${DEMO_FINGERPRINT}")
 fi
@@ -604,6 +635,10 @@ if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
+  if ! k3s_image_cache_is_current; then
+    echo "K3s image cache is incomplete after import." >&2
+    exit 1
+  fi
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   if ssh "${LAB_TARGET}" "KUBECONFIG=\"\$HOME/.kube/config\" kubectl -n ckc-perf get deploy -l ckc.dev/component=application -o name | grep -q ."; then
