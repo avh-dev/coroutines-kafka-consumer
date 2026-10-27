@@ -34,7 +34,7 @@ targets:
   application:
     replicas: 1
     resources:
-      requests: {cpu: 1000m, memory: 512Mi}
+      requests: {cpu: 2000m, memory: 512Mi}
       limits: {memory: 1Gi}
     hpa: {enabled: false}
   runtime:
@@ -43,13 +43,14 @@ targets:
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
-      WORKER_DISPATCHER_THREADS: 1
+      WORKER_DISPATCHER_THREADS: 2
     planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
     topics:
-      order: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      batch: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      telemetry: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
+      order: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
 environments:
   internal-lab:
     lab:
       profile: installed
+      kafka_topology: single
