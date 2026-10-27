@@ -151,6 +151,20 @@ class ExperimentReportTest(unittest.TestCase):
         )
         self.assertIn("SLA misses appeared", reversed_cells[1])
 
+    def test_sla_compliance_keeps_invalid_timestamps_out_of_target_misses(self) -> None:
+        cells = e2e_compliance_cells(
+            [{"processed": 1000, "e2e_latency": {"count": 340, "exceeded": 0}}],
+            denominator="processed",
+            primary_label="within SLA",
+            complement_label="outside SLA",
+            comparison_noun="SLA misses",
+            zero_note="no observed SLA misses",
+        )
+
+        self.assertIn("100.00% within SLA · 340 measured", cells[0])
+        self.assertIn("0.00% outside SLA · 0 messages", cells[0])
+        self.assertIn("660 unmeasured (invalid or unavailable timestamps)", cells[0])
+
     def test_application_resources_are_averaged_after_summing_live_pods(self) -> None:
         cpu_query = STANDARD_MEASUREMENTS["cpu_average_cores"]
         memory_query = STANDARD_MEASUREMENTS["application_memory_average_mib"]
@@ -2218,7 +2232,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Processed duplicates", markdown)
             self.assertIn("Processed within E2E limit", markdown)
             self.assertNotIn("Published with on-time processed outcome", markdown)
-            self.assertIn(">100.00% within target<", markdown)
+            self.assertIn("100.00% within target · 1 measured", markdown)
             self.assertIn(
                 'Published<span class="metric-source source-a" title="Audit records">A</span></th><td>1</td>',
                 markdown,

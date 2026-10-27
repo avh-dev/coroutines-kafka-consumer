@@ -480,6 +480,7 @@
 | [INFRA-312](#infra-312) | Refine the single-node internal-lab report topology. | DONE |
 | [INFRA-313](#infra-313) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
 | [INFRA-314](#infra-314) | Add a short fixed-resource internal-lab load-step experiment. | DONE |
+| [INFRA-315](#infra-315) | Synchronize internal-lab node clocks and guard cross-node E2E evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5647,3 +5648,18 @@ use 500 CKC workers per topic, and do not launch the experiment automatically.
 Verification: the canonical experiment validates for internal-lab, the resolved
 target has one replica, disabled HPA, a 1000m CPU request with no CPU limit, and
 500 workers per topic; the installed lab copy matches the repository file.
+
+<a id="infra-315"></a>
+### INFRA-315 - Synchronize internal-lab node clocks and guard cross-node E2E evidence
+
+_Date: 2026-10-26_
+
+Install and configure `chrony` during internal-lab bootstrap. The controller
+follows the Ubuntu NTP pool and serves the application worker, which uses the
+controller as its sole NTP source. Document the topology, verification commands,
+and the 5 ms operational offset threshold for cross-node E2E measurements.
+
+Correct report compliance rows so only valid E2E measurements contribute to SLA
+misses; timestamp-invalid samples are shown separately as unmeasured. Verified
+on the split lab: both chrony services are active and the worker selects the
+controller at `10.10.20.2` with a microsecond-scale last offset.
