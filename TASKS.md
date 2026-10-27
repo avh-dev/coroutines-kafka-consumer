@@ -5644,7 +5644,8 @@ Add short 2,000 and 5,000 TPS CKC experiments with one fixed application pod
 and no autoscaling. Ramp to ten percent over ninety seconds, step to full load
 in one second, hold it for three minutes, then stop the workload.
 Keep the application pod request fixed at 1,000 millicores without a CPU limit,
-use 500 CKC workers per topic, and do not launch the experiment automatically.
+use 500 CKC workers per topic with one fixed dispatcher thread, and do not launch
+the experiment automatically.
 Verification: the canonical experiment validates for internal-lab, the resolved
 target has one replica, disabled HPA, a 1000m CPU request with no CPU limit, and
 500 workers per topic; the installed lab copy matches the repository file.

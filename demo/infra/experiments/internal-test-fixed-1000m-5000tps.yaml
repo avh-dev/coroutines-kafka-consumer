@@ -43,7 +43,7 @@ targets:
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
       PROCESSING_DISPATCHER_TYPE: FIXED
-      WORKER_DISPATCHER_THREADS: 2
+      WORKER_DISPATCHER_THREADS: 1
     planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
     topics:
       order: {partitions: 2, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
