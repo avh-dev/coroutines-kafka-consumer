@@ -95,7 +95,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y \
   ca-certificates curl ethtool gnupg iproute2 iptables lsb-release \
-  linux-tools-common linux-tools-generic openssh-server
+  linux-tools-common linux-tools-generic openssh-server chrony
 
 if [[ "${NODE_ROLE}" == "server" ]]; then
   if ! command -v helm >/dev/null 2>&1; then
@@ -123,6 +123,37 @@ systemctl enable --now ssh
 if [[ "${NODE_ROLE}" == "server" ]]; then
   systemctl enable --now docker
 fi
+
+# E2E evidence compares a Kafka record timestamp created on the controller with
+# a terminal audit timestamp created by the application node. k3s does not
+# synchronize host clocks, so use one local clock hierarchy for split labs.
+CHRONY_CONFIG=/etc/chrony/chrony.conf
+if [[ "${NODE_ROLE}" == "server" ]]; then
+  cat > "${CHRONY_CONFIG}" <<EOF
+# Managed by CKC internal-lab bootstrap.
+driftfile /var/lib/chrony/chrony.drift
+pool ntp.ubuntu.com iburst maxsources 4
+makestep 0.1 3
+rtcsync
+logdir /var/log/chrony
+EOF
+  if [[ -n "${NETWORK_PEER_ADDRESS}" ]]; then
+    printf 'allow %s\n' "${NETWORK_PEER_ADDRESS}" >> "${CHRONY_CONFIG}"
+  fi
+else
+  cat > "${CHRONY_CONFIG}" <<EOF
+# Managed by CKC internal-lab bootstrap.
+driftfile /var/lib/chrony/chrony.drift
+server ${SERVER_ADDRESS} iburst prefer
+makestep 0.1 3
+rtcsync
+logdir /var/log/chrony
+EOF
+fi
+chmod 0644 "${CHRONY_CONFIG}"
+systemctl disable --now systemd-timesyncd >/dev/null 2>&1 || true
+systemctl enable --now chrony
+systemctl restart chrony
 
 if ! id "${RUNTIME_USER}" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "/var/lib/${RUNTIME_USER}" --shell /bin/bash "${RUNTIME_USER}"

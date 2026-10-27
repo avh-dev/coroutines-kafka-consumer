@@ -194,6 +194,29 @@ the run and restores the exact previous minimum, maximum, and governor in
 frequency is 2,000,000 kHz; set `runtime.performance_cpu_khz: 0` in `lab.yaml` to
 disable tuning. Turbo state is never modified.
 
+### Clock synchronization and cross-node E2E evidence
+
+K3s does not synchronize host clocks. In a split lab, the load generator and
+Kafka run on the controller while the application runs on the worker; E2E audit
+latency therefore depends on their clocks being aligned. `lab.sh bootstrap`
+installs `chrony` on both hosts and configures the controller as the worker's
+sole local NTP source. The controller follows the Ubuntu NTP pool and permits
+NTP only from the configured worker address.
+
+Inspect synchronization before an E2E-sensitive experiment:
+
+```bash
+chronyc tracking
+chronyc sources -v
+ssh alexey@optilab2 'chronyc tracking; chronyc sources -v'
+```
+
+The worker's selected source must be the controller address, and `Last offset`
+must remain well below the shortest latency being evaluated (use 5 ms as the
+operational maximum). A report labels timestamp-invalid samples as unmeasured;
+they are not SLA misses. A run with such samples is unsuitable for a cross-node
+E2E conclusion and should be repeated after synchronization is healthy.
+
 After the final target drains, the runner deletes the application HPA and scales
 both `ckc-demo` and `ckc-demo-stubs` to zero. This cleanup also runs after a
 failed or explicitly stopped experiment and before its terminal notification.

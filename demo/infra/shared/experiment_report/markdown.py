@@ -173,16 +173,19 @@ def e2e_compliance_stats(data: dict[str, Any], denominator: str) -> dict[str, fl
     total = int(data.get(denominator) or 0)
     if total <= 0:
         return None
-    measured = max(0, int(e2e.get("count") or 0))
+    measured = min(total, max(0, int(e2e.get("count") or 0)))
     exceeded = max(0, int(e2e.get("exceeded") or 0))
-    within = min(total, max(0, measured - exceeded))
-    outside = total - within
+    within = max(0, measured - exceeded)
+    outside = min(measured, exceeded)
+    unmeasured = total - measured
     return {
         "total": total,
+        "measured": measured,
+        "unmeasured": unmeasured,
         "within": within,
         "outside": outside,
-        "within_percent": 100 * within / total,
-        "outside_percent": 100 * outside / total,
+        "within_percent": 100 * within / measured if measured else None,
+        "outside_percent": 100 * outside / measured if measured else None,
     }
 
 
@@ -198,21 +201,29 @@ def e2e_compliance_cells(
 ) -> list[str]:
     stats = [e2e_compliance_stats(value, denominator) for value in data]
     baseline = stats[0] if compare and stats else None
-    available = [float(value["outside_percent"]) for value in stats if value is not None]
+    available = [float(value["outside_percent"]) for value in stats if value is not None and value["outside_percent"] is not None]
     best = min(available) if available else None
     cells = []
     for index, value in enumerate(stats):
         if value is None:
             cells.append("—")
             continue
-        outside_percent = float(value["outside_percent"])
+        outside_percent = value["outside_percent"]
         outside_count = int(value["outside"])
+        measured = int(value["measured"])
+        unmeasured = int(value["unmeasured"])
+        if outside_percent is None:
+            cells.append(f"—<br><span class=\"delta\">no valid E2E measurements · {number(unmeasured, 0)} unmeasured messages</span>")
+            continue
+        outside_percent = float(outside_percent)
         message_word = "message" if outside_count == 1 else "messages"
-        primary = f'{number(value["within_percent"], 2)}% {primary_label}'
+        primary = f'{number(value["within_percent"], 2)}% {primary_label} · {number(measured, 0)} measured'
         complement = (
             f'{number(outside_percent, 2)}% {complement_label} · '
             f'{number(outside_count, 0)} {message_word}'
         )
+        if unmeasured:
+            complement += f' · {number(unmeasured, 0)} unmeasured (invalid or unavailable timestamps)'
         if baseline is None:
             note = ""
         elif index == 0:
