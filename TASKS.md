@@ -5640,9 +5640,9 @@ experiment validation, and whitespace checks pass.
 
 _Date: 2026-10-26_
 
-Add short 2,000 and 5,000 TPS CKC experiments with one fixed application pod
-and no autoscaling. Ramp to ten percent over ninety seconds, step to full load
-in one second, hold it for three minutes, then stop the workload.
+Add short fixed-resource CKC experiments with one application pod and no
+autoscaling. Include 2,000 and 5,000 TPS step profiles plus an immediate 5,000
+TPS profile held for four minutes.
 Keep the application pod request fixed at 1,000 millicores without a CPU limit,
 use 500 CKC workers per topic with one fixed dispatcher thread, and do not launch
 the experiment automatically.
