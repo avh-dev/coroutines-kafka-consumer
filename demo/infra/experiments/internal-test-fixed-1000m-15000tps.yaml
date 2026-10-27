@@ -1,0 +1,56 @@
+schema_version: 2
+name: internal-test-fixed-1000m-15000tps
+description: >-
+  Run one fixed 1000m CKC pod through a short 300 to 15,000 messages-per-second
+  load step on the internal lab.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    flavour: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    workers: 2
+    base_tps: 15000
+    producer_capacity_tps: {order: 15000, batch: 15000, telemetry: 15000}
+    load_profile: 0 -> (90s, warmup-to-300) -> 2 -> (1s, step-to-15000) -> 100 -> (180s, hold-15000) -> 100
+    cauldron_count: 32
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 5
+    consumer_drain_required: false
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 35, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
+targets:
+- name: ckc-fixed-1000m
+  implementation: ckc
+  application:
+    replicas: 1
+    resources:
+      requests: {cpu: 2000m, memory: 512Mi}
+      limits: {memory: 1Gi}
+    hpa: {enabled: false}
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 2
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+    topics:
+      order: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 2, workers: 1000, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_DROP_OLDEST}
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka_topology: single
