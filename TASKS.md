@@ -482,6 +482,7 @@
 | [INFRA-313](#infra-313) | Preserve metrics across AWS targets and evaluate CKC total-CPU autoscaling. | DONE |
 | [INFRA-314](#infra-314) | Add a short fixed-resource internal-lab load-step experiment. | DONE |
 | [INFRA-315](#infra-315) | Synchronize internal-lab node clocks and guard cross-node E2E evidence. | DONE |
+| [INFRA-316](#infra-316) | Add a triangular 10k autoscaling experiment for the internal lab. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5687,3 +5688,15 @@ pipelines so a revoked partition cannot start stale local work or receive stale
 completion updates. Drain ordinary revoke and shutdown tails before final commits,
 recover lost assignments without an application restart, and expose lifecycle state
 and terminal failures to direct users and the Spring Boot starter.
+
+<a id="infra-316"></a>
+### INFRA-316 - Add a triangular 10k autoscaling experiment
+
+_Date: 2026-10-28_
+
+Add a separate internal-lab autoscaling experiment based on the existing CKC
+Thread Stats comparison. Keep its targets and environment unchanged while
+ramping linearly from zero to 10,000 TPS over ten minutes and back to zero over
+the following ten minutes. Split reporting into ramp-up and ramp-down windows.
+Verification: the experiment validates for internal-lab, and its target, runtime,
+and lab configuration match the source experiment. Do not launch it automatically.
