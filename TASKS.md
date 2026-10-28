@@ -490,6 +490,7 @@
 | [DOC-5](#doc-5) | Remove the alternatives and related-projects section from the main README while OSS positioning is still being refined. | DONE |
 | [DOC-6](#doc-6) | Update the main README module list so it matches the current repository modules. | DONE |
 | [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
+| [DOC-8](#doc-8) | Document replay after failures and the scope of ordered at-least-once processing guarantees. | DONE |
 
 ## Task Details
 
@@ -5664,3 +5665,13 @@ Correct report compliance rows so only valid E2E measurements contribute to SLA
 misses; timestamp-invalid samples are shown separately as unmeasured. Verified
 on the split lab: both chrony services are active and the worker selects the
 controller at `10.10.20.2` with a microsecond-scale last offset.
+
+<a id="doc-8"></a>
+### DOC-8 - Document replay and ordering after failures
+
+_Date: 2026-10-27_
+
+Explain the processing-to-commit failure window and how commit metadata reduces replay.
+Illustrate ordered replay with `A -> B -> failure -> A -> B` and distinguish it
+from protection against application state regression or repeated external effects.
+Document the absence of transactions and exactly-once guarantees without changing runtime behavior.
