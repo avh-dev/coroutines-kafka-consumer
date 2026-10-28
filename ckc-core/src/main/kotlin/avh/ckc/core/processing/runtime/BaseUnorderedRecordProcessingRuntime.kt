@@ -11,9 +11,12 @@ import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -28,7 +31,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
-    private val processedRecordTracker: ProcessedRecordTracker,
+    protected val processedRecordTracker: ProcessedRecordTracker,
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null
 ) : RecordProcessingRuntime<K, V> {
@@ -38,6 +41,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
     private val runtimeStats = ConsumerRuntimeStatsTracker(
@@ -60,13 +64,30 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                 while (true) {
                     val record = workChannel.receiveCatching().getOrNull() ?: break
                     runtimeStats.onWorkDequeued()
+                    if (!processedRecordTracker.tryStart(record)) {
+                        metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+                        processedRecordTracker.discard(record)
+                        continue
+                    }
                     runtimeStats.onWorkerStarted()
                     try {
                         if (recordDropPolicy?.shouldDrop(record) != true) {
-                            recordProcessor.process(record)
+                            supervisorScope {
+                                val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(record) }
+                                processedRecordTracker.attach(record, pipeline)
+                                pipeline.start()
+                                try {
+                                    pipeline.await()
+                                } catch (error: kotlinx.coroutines.CancellationException) {
+                                    if (!processedRecordTracker.isCancellationRequested(record)) throw error
+                                    // A lost assignment cancels only this child pipeline; the worker stays
+                                    // available for valid assignments after recovery.
+                                }
+                            }
                         }
                     } finally {
                         runtimeStats.onWorkerFinished()
+                        processedRecordTracker.finish(record)
                     }
                 }
             }.also { job ->
@@ -85,12 +106,16 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
+            processedRecordTracker.discard(record)
             return true
         }
 
+        // Account before publication: a worker may receive the element before trySend returns.
+        // Failed non-suspending sends never invoke the channel's undelivered-element callback.
+        runtimeStats.onWorkEnqueued()
         val result = workChannel.trySend(record)
-        if (result.isSuccess) {
-            runtimeStats.onWorkEnqueued()
+        if (!result.isSuccess) {
+            runtimeStats.onWorkDequeued()
         }
         return result.isSuccess
     }

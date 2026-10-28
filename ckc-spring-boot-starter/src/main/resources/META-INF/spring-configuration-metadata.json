@@ -81,6 +81,12 @@
       "defaultValue": "30s"
     },
     {
+      "name": "ckc.lifecycle.terminal-failure-action",
+      "type": "avh.ckc.spring.CkcConsumerProperties$TerminalFailureAction",
+      "description": "Action taken after a CKC consumer reaches terminal failure.",
+      "defaultValue": "EXIT_PROCESS"
+    },
+    {
       "name": "ckc.health.enabled",
       "type": "java.lang.Boolean",
       "description": "Enables CKC Spring Boot Actuator health indicator when Actuator is on the classpath.",
@@ -316,6 +322,36 @@
       "name": "ckc.consumers.*.freshness-max-record-age",
       "type": "java.time.Duration",
       "description": "Maximum Kafka record age accepted by freshness-first processing modes before the record is dropped instead of handled."
+    },
+    {
+      "name": "ckc.consumers.*.partition-handoff-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum time to drain active work during a normal partition revoke.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.consumers.*.shutdown-drain-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum graceful local drain time requested from the CKC core.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.consumers.*.processing-cancellation-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum wait after cancellation of processing owned by a lost assignment.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.consumers.*.recovery-timeout",
+      "type": "java.time.Duration",
+      "description": "Overall automatic recovery deadline after an assignment is lost.",
+      "defaultValue": "120s"
+    },
+    {
+      "name": "ckc.consumers.*.recovery-retry-backoff",
+      "type": "java.time.Duration",
+      "description": "Delay between Kafka client recreation attempts during recovery.",
+      "defaultValue": "1s"
     },
     {
       "name": "ckc.consumers.*.processing-dispatcher",

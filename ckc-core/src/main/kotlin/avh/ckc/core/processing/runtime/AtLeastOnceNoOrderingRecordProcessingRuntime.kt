@@ -45,6 +45,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 runtimeStats.onWorkDequeued()
+                processedRecordTracker.discard(it)
             }
         )
 }

@@ -66,6 +66,7 @@
 | [CORE-61](#core-61) | Recover the same consumer after a single Kafka broker is killed and restarted.                                                                                                                                      | DONE |
 | [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | IN_PROGRESS |
 | [CORE-63](#core-63) | Optionally bind native Kafka consumer client metrics through the Micrometer adapter.                                                                                                                              | DONE |
+| [CORE-64](#core-64) | Make partition handoff generation-safe, drain graceful shutdown correctly, recover consumers after lost assignments, and surface terminal failures through the Spring starter. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5675,3 +5676,14 @@ Explain the processing-to-commit failure window and how commit metadata reduces 
 Illustrate ordered replay with `A -> B -> failure -> A -> B` and distinguish it
 from protection against application state regression or repeated external effects.
 Document the absence of transactions and exactly-once guarantees without changing runtime behavior.
+
+<a id="core-64"></a>
+### CORE-64 - Make partition handoff and recovery lifecycle-safe
+
+_Date: 2026-10-28_
+
+Introduce per-assignment ownership generations through the poll and processing
+pipelines so a revoked partition cannot start stale local work or receive stale
+completion updates. Drain ordinary revoke and shutdown tails before final commits,
+recover lost assignments without an application restart, and expose lifecycle state
+and terminal failures to direct users and the Spring Boot starter.

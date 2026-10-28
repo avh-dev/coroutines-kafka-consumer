@@ -6,8 +6,8 @@ import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import kotlin.time.Duration
 
 /**
  * Record processing pipeline executed by worker coroutines.
@@ -23,6 +23,10 @@ internal class RecordProcessor<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit,
+    private val awaitRetryPermission: suspend (ConsumerRecord<K, V>, Duration) -> Boolean = { _, delay ->
+        if (delay.isPositive()) kotlinx.coroutines.delay(delay)
+        true
+    },
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val currentTimeMillis: () -> Long = System::currentTimeMillis
 ) {
@@ -45,9 +49,10 @@ internal class RecordProcessor<K, V>(
         val value = record.value()
         try {
             try {
-                executeWithRetry(record, key, value) {
+                val completed = executeWithRetry(record, key, value) {
                     handler.process(record)
                 }
+                if (!completed) return
             } catch (error: Throwable) {
                 if (error.isCancellation()) {
                     throw error
@@ -96,13 +101,13 @@ internal class RecordProcessor<K, V>(
         key: K?,
         value: V?,
         block: suspend () -> Unit
-    ) {
+    ): Boolean {
         var retries = 0
 
         while (true) {
             try {
                 block()
-                return
+                return true
             } catch (error: Throwable) {
                 if (error.isCancellation()) {
                     throw error
@@ -113,11 +118,11 @@ internal class RecordProcessor<K, V>(
                     throw error
                 }
 
+                // Revoke closes retry admission without treating the record as processed or failed.
+                // The next owner will replay it from Kafka's committed offset.
+                if (!awaitRetryPermission(record, rule.delay)) return false
                 retries++
                 metrics.onRetry(key = key, value = value, record = record, attempt = retries, error = error)
-                if (rule.delay.isPositive()) {
-                    delay(rule.delay)
-                }
             }
         }
     }

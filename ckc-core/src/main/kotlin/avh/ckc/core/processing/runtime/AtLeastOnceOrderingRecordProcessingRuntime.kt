@@ -12,15 +12,18 @@ import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -50,6 +53,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
     private val runtimeStats = ConsumerRuntimeStatsTracker(
@@ -59,12 +63,15 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     private val admissionBudget = AdmissionBudget(workChannelCapacity, runtimeStats)
     private val states = ConcurrentHashMap<OrderingKey, KeyState<K, V>>()
     private val acceptingRecords = AtomicBoolean(true)
+    // Set only for terminal/lifecycle cancellation. A graceful stop must still report worker failures.
+    private val lifecycleCancellationRequested = AtomicBoolean(false)
     private val inputChannel by lazy {
         Channel<ConsumerRecord<K, V>>(
             capacity = workChannelCapacity,
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 admissionBudget.release()
+                processedRecordTracker.discard(it)
             }
         )
     }
@@ -79,7 +86,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             runScheduler()
         }.also { job ->
             job.invokeOnCompletion { cause ->
-                if (cause != null && cause !is CancellationException) {
+                if (cause != null && !lifecycleCancellationRequested.get()) {
                     close(cause)
                     onFailure(cause)
                 }
@@ -91,7 +98,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
                 runWorker()
             }.also { job ->
                 job.invokeOnCompletion { cause ->
-                    if (cause != null && cause !is CancellationException) {
+                    if (cause != null && !lifecycleCancellationRequested.get()) {
                         close(cause)
                         onFailure(cause)
                     }
@@ -105,6 +112,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
+            processedRecordTracker.discard(record)
             return true
         }
         if (!acceptingRecords.get() || !admissionBudget.tryAcquire()) {
@@ -119,6 +127,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     }
 
     override fun close(cause: Throwable?) {
+        lifecycleCancellationRequested.set(true)
         acceptingRecords.set(false)
         inputChannel.close(cause)
         workerChannel.close(cause)
@@ -172,6 +181,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         } catch (error: Throwable) {
             releaseDispatchedRecord(workItem.key)
             admissionBudget.release()
+            processedRecordTracker.discard(workItem.record)
             throw error
         }
     }
@@ -180,12 +190,31 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         while (currentCoroutineContext().isActive) {
             var workItem = workerChannel.receiveCatching().getOrNull() ?: break
             while (true) {
+                if (!processedRecordTracker.tryStart(workItem.record)) {
+                    metrics.onRecordDropped(workItem.record, RecordDropReason.LIFECYCLE)
+                    processedRecordTracker.discard(workItem.record)
+                    admissionBudget.release()
+                    val nextRecord = nextRecordFor(workItem.key) ?: break
+                    workItem = WorkItem(workItem.key, nextRecord)
+                    continue
+                }
                 runtimeStats.onWorkerStarted()
                 try {
-                    recordProcessor.process(workItem.record)
+                    supervisorScope {
+                        val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(workItem.record) }
+                        processedRecordTracker.attach(workItem.record, pipeline)
+                        pipeline.start()
+                        try {
+                            pipeline.await()
+                        } catch (error: CancellationException) {
+                            if (!processedRecordTracker.isCancellationRequested(workItem.record)) throw error
+                            // Lost-generation cancellation is local to this record pipeline.
+                        }
+                    }
                 } finally {
                     runtimeStats.onWorkerFinished()
                     admissionBudget.release()
+                    processedRecordTracker.finish(workItem.record)
                 }
 
                 val nextRecord = nextRecordFor(workItem.key) ?: break
@@ -231,10 +260,10 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             states.compute(key) { _, state ->
                 if (state != null) {
                     repeat(state.queue.size) {
+                        processedRecordTracker.discard(state.queue.removeFirst())
                         admissionBudget.release()
                         runtimeStats.onOrderingWorkDequeued()
                     }
-                    state.queue.clear()
                 }
                 null
             }

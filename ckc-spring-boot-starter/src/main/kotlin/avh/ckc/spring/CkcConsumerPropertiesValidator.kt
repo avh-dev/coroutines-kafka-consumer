@@ -82,6 +82,17 @@ internal fun validateConsumerProperties(
     require(!consumerProperties.commitInterval.isNegative && !consumerProperties.commitInterval.isZero) {
         "ckc.consumers.$consumerName.commit-interval must be > 0"
     }
+    listOf(
+        "partition-handoff-timeout" to consumerProperties.partitionHandoffTimeout,
+        "shutdown-drain-timeout" to consumerProperties.shutdownDrainTimeout,
+        "processing-cancellation-timeout" to consumerProperties.processingCancellationTimeout,
+        "recovery-timeout" to consumerProperties.recoveryTimeout,
+        "recovery-retry-backoff" to consumerProperties.recoveryRetryBackoff
+    ).forEach { (name, timeout) ->
+        require(!timeout.isNegative && !timeout.isZero) {
+            "ckc.consumers.$consumerName.$name must be > 0"
+        }
+    }
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG)
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.GROUP_ID_CONFIG)
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG)

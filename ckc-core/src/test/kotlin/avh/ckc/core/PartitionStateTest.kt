@@ -1,12 +1,33 @@
 package avh.ckc.core
 
 import avh.ckc.core.polling.partition.PartitionState
+import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 
 class PartitionStateTest {
+
+    @Test
+    fun `when revoke occurs during retry backoff then retry permission is denied immediately`() = runBlocking {
+        val state = PartitionState(TopicPartition("t", 0))
+        val lease = state.activate()
+        val permission = async(start = CoroutineStart.UNDISPATCHED) {
+            state.awaitRetryPermission(lease, 30.seconds)
+        }
+
+        state.revoke()
+
+        assertFalse(withTimeout(2_000) { permission.await() })
+    }
 
     @Test
     fun `when initialized from sentinel then tracker is reset`() {
@@ -163,6 +184,59 @@ class PartitionStateTest {
 
         assertNull(ps.advanceAndGetCommitData())
         assertEquals(10L, ps.lastCommittedOffset)
+    }
+
+    @Test
+    fun `when generation is revoked then completion admitted before revoke is accepted`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+        val lease = ps.activate()
+        assertTrue(ps.tryStart(lease))
+
+        ps.revoke()
+        ps.markProcessed(lease, 10L)
+        ps.finish(lease)
+
+        assertEquals(10L, ps.advanceAndGetCommitData()?.offset)
+    }
+
+    @Test
+    fun `when final commit is forced with unchanged frontier then metadata is retained`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+
+        val data = ps.advanceAndGetCommitData(forceMetadata = true)
+
+        assertNotNull(data)
+        assertEquals(9L, data!!.offset)
+        assertEquals(0L, data.advancedOffsetsCount)
+    }
+
+    @Test
+    fun `when terminal gate closes then previously admitted record cannot start`() {
+        val registry = PartitionRegistry()
+        registry.onPartitionsAssigned(listOf(TopicPartition("t", 0)))
+        val record = ConsumerRecord("t", 0, 10L, "key", "value")
+        registry.observe(record)
+
+        registry.cancelAllActive()
+
+        assertFalse(registry.tryStart(record))
+    }
+
+    @Test
+    fun `when job attaches after terminal cancellation snapshot then job is cancelled`() {
+        val registry = PartitionRegistry()
+        registry.onPartitionsAssigned(listOf(TopicPartition("t", 0)))
+        val record = ConsumerRecord("t", 0, 10L, "key", "value")
+        registry.observe(record)
+        assertTrue(registry.tryStart(record))
+
+        registry.cancelAllActive()
+        val lateJob = Job()
+        registry.attach(record, lateJob)
+
+        assertTrue(lateJob.isCancelled)
     }
 
     @Test

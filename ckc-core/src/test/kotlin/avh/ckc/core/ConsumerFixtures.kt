@@ -2,6 +2,7 @@ package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -9,6 +10,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 
 internal fun <K, V> createTestConsumer(
     records: List<ConsumerRecord<K, V>>,
@@ -39,16 +41,18 @@ internal fun <K, V> createTestConsumer(
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,
-        pollLoopFactory = { _, context, _, _, _, _, _, _, _, _, recordSink, _ ->
-            FakePollLoopControl(context, recordSink, records)
+        pollLoopFactory = { _, context, processingMode, _, _, _, _, _, _, _, recordSink, registry ->
+            FakePollLoopControl(context, processingMode, recordSink, records, registry)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
 internal class FakePollLoopControl<K, V>(
     coroutineContext: kotlin.coroutines.CoroutineContext,
+    private val processingMode: ProcessingMode,
     private val recordSink: PolledRecordSink<K, V>,
-    private val records: List<ConsumerRecord<K, V>>
+    private val records: List<ConsumerRecord<K, V>>,
+    private val partitionRegistry: PartitionRegistry
 ) : ConsumerPollLoopControl {
     private val scope = CoroutineScope(coroutineContext)
     private val stopSignal = CompletableDeferred<Unit>()
@@ -61,7 +65,13 @@ internal class FakePollLoopControl<K, V>(
         started = true
         running = true
         try {
+            // Mirror the production admission path so ownership-gated runtimes receive valid leases.
+            val recordsByPartition = records.groupBy { TopicPartition(it.topic(), it.partition()) }
+            partitionRegistry.onPartitionsAssigned(recordsByPartition.keys).forEach { state ->
+                state.init(recordsByPartition.getValue(state.topicPartition).minOf { it.offset() })
+            }
             for (record in records) {
+                partitionRegistry.observe(record, observeOffset = processingMode.tracksProcessedOffsets())
                 recordSink.tryEmit(record)
             }
             stopSignal.await()

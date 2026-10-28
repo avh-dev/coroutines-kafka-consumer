@@ -28,6 +28,12 @@ internal const val PAUSE_RESUME = "pause.resume"
 internal const val PAUSE_RESUME_PARTITIONS = "pause.resume.partitions"
 
 internal const val FAILURE = "failure"
+internal const val TERMINAL_FAILURE = "terminal.failure"
+internal const val PARTITION_HANDOFF_DURATION = "partition.handoff.duration"
+internal const val SHUTDOWN_DURATION = "shutdown.duration"
+internal const val RECOVERY_ATTEMPT = "recovery.attempt"
+internal const val RECOVERY_DURATION = "recovery.duration"
+internal const val RECOVERY_ACTIVE = "recovery.active"
 
 internal const val WORKERS = "workers"
 internal const val WORKERS_ACTIVE = "workers.active"

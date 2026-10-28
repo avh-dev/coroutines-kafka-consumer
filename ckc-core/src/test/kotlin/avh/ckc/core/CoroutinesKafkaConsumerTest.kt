@@ -427,7 +427,9 @@ class CoroutinesKafkaConsumerTest {
         }
 
         assertEquals(expected.message, thrown.message)
-        assertEquals(listOf(expected), metrics.consumerFailures)
+        assertEquals(1, metrics.consumerFailures.size)
+        assertInstanceOf(UnsupportedOperationException::class.java, metrics.consumerFailures.single())
+        assertEquals(expected.message, metrics.consumerFailures.single().message)
     }
 
     @Suppress("UNCHECKED_CAST")

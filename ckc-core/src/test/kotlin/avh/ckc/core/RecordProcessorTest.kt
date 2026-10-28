@@ -20,6 +20,36 @@ import kotlin.time.Duration.Companion.milliseconds
 class RecordProcessorTest {
 
     @Test
+    fun `when retry permission is revoked then record remains unprocessed without failure handling`() = runBlocking {
+        val attempts = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val processedCalls = AtomicInteger()
+        val metrics = RecordingMetrics<String, String>()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> {
+                attempts.incrementAndGet()
+                throw IOException("transient")
+            },
+            retryPolicy = retryPolicy {
+                retry<IOException> { maxRetries = 3 }
+            },
+            metrics = metrics,
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            onRecordProcessed = { processedCalls.incrementAndGet() },
+            awaitRetryPermission = { _, _ -> false }
+        )
+
+        processor.process(typedTestRecord(offset = 9L))
+
+        assertEquals(1, attempts.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertEquals(0, processedCalls.get())
+        assertEquals(emptyList<Int>(), metrics.retries.map { it.attempt })
+        assertEquals(0, metrics.failed.size)
+        assertEquals(0, metrics.processed.size)
+    }
+
+    @Test
     fun `when retry policy matches then worker retries and eventually succeeds`() = runBlocking {
         val attempts = AtomicInteger()
         val processed = CompletableDeferred<String>()
@@ -264,6 +294,10 @@ class RecordProcessorTest {
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {},
+        awaitRetryPermission: suspend (ConsumerRecord<K, V>, kotlin.time.Duration) -> Boolean = { _, delay ->
+            if (delay.isPositive()) kotlinx.coroutines.delay(delay)
+            true
+        },
         recordProcessingContext: RecordProcessingContext<K, V>? = null,
         currentTimeMillis: () -> Long = System::currentTimeMillis
     ): RecordProcessor<K, V> = RecordProcessor(
@@ -272,6 +306,7 @@ class RecordProcessorTest {
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = onRecordProcessed,
+        awaitRetryPermission = awaitRetryPermission,
         recordProcessingContext = recordProcessingContext,
         currentTimeMillis = currentTimeMillis
     )

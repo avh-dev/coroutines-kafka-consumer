@@ -1,5 +1,9 @@
 package avh.ckc.spring
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.springframework.beans.factory.DisposableBean
@@ -23,6 +27,14 @@ class CkcConsumersLifecycle internal constructor(
         resolveConsumerRuntimes(applicationContext, dispatcherRegistry)
     }
     private val runningConsumerNames = linkedSetOf<String>()
+    private val terminalFailureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val terminalFailureCoordinator by lazy {
+        CkcTerminalFailureCoordinator(
+            applicationContext,
+            applicationContext.getBean(CkcTerminalFailureExitHandler::class.java),
+            applicationContext.getBean(CkcTerminalFailureHaltHandler::class.java)
+        )
+    }
     private val properties: CkcConsumerProperties
         get() = applicationContext.getBean(CkcConsumerProperties::class.java)
 
@@ -31,6 +43,9 @@ class CkcConsumersLifecycle internal constructor(
 
     @Volatile
     private var running = false
+
+    @Volatile
+    private var shutdownRequested = false
 
     @Volatile
     internal var lifecycleStarted = false
@@ -42,6 +57,7 @@ class CkcConsumersLifecycle internal constructor(
                 return
             }
             logStartupBanner()
+            shutdownRequested = false
             val autoStartupRuntimes = consumerRuntimes.filter { it.autoStartup }
             logger.info(
                 "Starting ${autoStartupRuntimes.size} auto-startup CKC consumer(s); " +
@@ -55,6 +71,7 @@ class CkcConsumersLifecycle internal constructor(
 
     override fun stop() {
         synchronized(this) {
+            shutdownRequested = true
             if (!lifecycleStarted && runningConsumerNames.isEmpty()) {
                 return
             }
@@ -149,8 +166,25 @@ class CkcConsumersLifecycle internal constructor(
         }
         logger.info("Starting CKC consumer '${runtime.name}'")
         runtime.consumer.start()
+        observeTerminalFailure(runtime)
         runningConsumerNames += runtime.name
         logger.info("Started CKC consumer '${runtime.name}'")
+    }
+
+    private fun observeTerminalFailure(runtime: NamedConsumerRuntime) {
+        terminalFailureScope.launch {
+            try {
+                runtime.consumer.awaitTermination()
+            } catch (failure: Throwable) {
+                if (shutdownRequested) return@launch
+                logger.severe("CKC consumer '${runtime.name}' reached terminal failure: ${failure.message}")
+                if (properties.lifecycle.terminalFailureAction == CkcConsumerProperties.TerminalFailureAction.EXIT_PROCESS &&
+                    !shutdownRequested
+                ) {
+                    terminalFailureCoordinator.trigger()
+                }
+            }
+        }
     }
 
     private fun stopRuntimes(
@@ -187,6 +221,7 @@ class CkcConsumersLifecycle internal constructor(
     private fun requireConsumerRuntime(name: String): NamedConsumerRuntime =
         consumerRuntimes.firstOrNull { it.name == name }
             ?: error("No CKC consumer named '$name' is registered")
+
 }
 
 internal data class CkcConsumerStateSnapshot(

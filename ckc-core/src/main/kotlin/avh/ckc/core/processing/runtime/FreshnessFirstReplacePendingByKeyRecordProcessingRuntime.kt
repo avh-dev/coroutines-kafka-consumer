@@ -12,15 +12,19 @@ import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -57,6 +61,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
     private val recordDropPolicy = FreshnessRecordAgeDropPolicy(freshnessMaxRecordAge, metrics)
@@ -67,6 +72,8 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     private val admissionBudget = AdmissionBudget(workChannelCapacity, runtimeStats)
     private val states = ConcurrentHashMap<RecordKeyIdentity, KeyState<K, V>>()
     private val acceptingRecords = AtomicBoolean(true)
+    // Set only for terminal/lifecycle cancellation. Graceful draining keeps failure reporting enabled.
+    private val lifecycleCancellationRequested = AtomicBoolean(false)
     private val workChannel by lazy {
         Channel<Envelope<K, V>>(
             capacity = workChannelCapacity,
@@ -83,7 +90,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
                 runWorker()
             }.also { job ->
                 job.invokeOnCompletion { cause ->
-                    if (cause != null && cause !is CancellationException) {
+                    if (cause != null && !lifecycleCancellationRequested.get()) {
                         close(cause)
                         onFailure(cause)
                     }
@@ -97,6 +104,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
+            processedRecordTracker.discard(record)
             return true
         }
         if (!acceptingRecords.get()) {
@@ -132,9 +140,11 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
 
         replacedRecord?.let {
             metrics.onRecordDropped(it, RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD)
+            processedRecordTracker.discard(it)
         }
         if (dropIncoming) {
             metrics.onRecordDropped(record, RecordDropReason.NEW_KEY_QUEUE_FULL)
+            processedRecordTracker.discard(record)
             return true
         }
 
@@ -151,6 +161,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     }
 
     override fun close(cause: Throwable?) {
+        lifecycleCancellationRequested.set(true)
         acceptingRecords.set(false)
         workChannel.close(cause)
         releaseAllQueuedEnvelopes()
@@ -161,6 +172,11 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     override suspend fun stop() {
         acceptingRecords.set(false)
         try {
+            // Do not close the hand-off channel while an in-flight key still owns a queued
+            // successor: finish() must be able to schedule that successor before workers exit.
+            while (states.values.any { it.inFlight || it.queued != null }) {
+                delay(1)
+            }
             workChannel.close()
             workerJobs.joinAll()
         } finally {
@@ -173,13 +189,30 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         while (currentCoroutineContext().isActive) {
             val envelope = workChannel.receiveCatching().getOrNull() ?: break
             val record = claim(envelope) ?: continue
+            if (!processedRecordTracker.tryStart(record)) {
+                metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+                processedRecordTracker.discard(record)
+                finish(envelope.key)
+                continue
+            }
             runtimeStats.onWorkerStarted()
             try {
                 if (!recordDropPolicy.shouldDrop(record)) {
-                    recordProcessor.process(record)
+                    supervisorScope {
+                        val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(record) }
+                        processedRecordTracker.attach(record, pipeline)
+                        pipeline.start()
+                        try {
+                            pipeline.await()
+                        } catch (error: CancellationException) {
+                            if (!processedRecordTracker.isCancellationRequested(record)) throw error
+                            // Lost-generation cancellation is local to this record pipeline.
+                        }
+                    }
                 }
             } finally {
                 runtimeStats.onWorkerFinished()
+                processedRecordTracker.finish(record)
                 finish(envelope.key)
             }
         }
@@ -231,6 +264,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
             }
         }
         if (released) {
+            processedRecordTracker.discard(envelope.record)
             admissionBudget.release()
         }
     }
@@ -239,6 +273,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         states.forEach { (key, _) ->
             states.compute(key) { _, state ->
                 if (state != null && state.queued != null) {
+                    processedRecordTracker.discard(state.queued!!.record)
                     state.queued = null
                     admissionBudget.release()
                 }
