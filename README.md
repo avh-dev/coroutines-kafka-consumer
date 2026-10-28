@@ -78,6 +78,36 @@ Tracked at-least-once modes attempt a commit when either `commitRecordsThreshold
 are pending within a poll loop or `commitIntervalMs` elapses. The record threshold keeps commit cadence
 responsive under high traffic, while the interval remains the low-traffic fallback.
 
+### Replay and Ordering After Failures
+
+CKC does not support Kafka transactions or exactly-once processing. In tracked
+at-least-once modes, successful processing and committing its progress are
+separate operations. Commit metadata preserves processed offsets beyond the
+contiguous frontier so they can be skipped on recovery. Records whose completion
+was not included in a successful commit can still be processed again after a
+failure, including an abrupt process termination or an interrupted shutdown.
+
+Key ordering serializes records of the same key during normal processing; it
+does not prevent replay of an already processed tail after recovery. For example,
+two records for the same key may produce this sequence of handler invocations:
+
+```text
+A -> B -> failure before progress is committed -> A -> B
+```
+
+The replay follows the original order, but an application that unconditionally
+writes the state carried by each record can temporarily restore an older state.
+Replaying through the latest record can restore the latest state for such
+handlers; it does not undo repeated external side effects. Partition ordering
+has the same replay limitation. Successful graceful draining and committing
+preserve completed progress; an incomplete drain or failed commit can leave
+records eligible for replay.
+
+This is an intentional at-least-once trade-off. Applications that cannot tolerate
+repeated effects or temporary state regression must provide appropriate atomic
+deduplication or version-checked updates at the destination. CKC's ordering modes
+do not provide that application-level guarantee.
+
 ## Modules
 
 - `ckc-core` contains the consumer runtime and public Kotlin DSL.
