@@ -52,6 +52,7 @@ internal class FreshnessFirstDropOldestRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
             onUndeliveredElement = { record ->
                 runtimeStats.onWorkDequeued()
+                processedRecordTracker.discard(record)
                 if (acceptingRecords.get()) {
                     metrics.onRecordDropped(record, RecordDropReason.QUEUE_OVERFLOW)
                 }

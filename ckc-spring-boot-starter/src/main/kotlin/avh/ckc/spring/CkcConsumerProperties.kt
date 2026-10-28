@@ -31,8 +31,14 @@ data class CkcConsumerProperties(
      */
     data class Lifecycle(
         var phase: Int = 0,
-        var shutdownTimeout: Duration = Duration.ofSeconds(30)
+        var shutdownTimeout: Duration = Duration.ofSeconds(30),
+        var terminalFailureAction: TerminalFailureAction = TerminalFailureAction.EXIT_PROCESS
     )
+
+    enum class TerminalFailureAction {
+        EXIT_PROCESS,
+        REPORT_ONLY
+    }
 
     /**
      * Actuator health indicator settings for CKC consumers.
@@ -136,6 +142,11 @@ data class CkcConsumerProperties(
         var commitRecordsThreshold: Int = 1_000,
         var workChannelCapacity: Int = 1024,
         var freshnessMaxRecordAge: Duration? = null,
+        var partitionHandoffTimeout: Duration = Duration.ofSeconds(30),
+        var shutdownDrainTimeout: Duration = Duration.ofSeconds(30),
+        var processingCancellationTimeout: Duration = Duration.ofSeconds(30),
+        var recoveryTimeout: Duration = Duration.ofSeconds(120),
+        var recoveryRetryBackoff: Duration = Duration.ofSeconds(1),
         var processingDispatcher: String? = null,
         var metrics: ConsumerMetricsProperties = ConsumerMetricsProperties(),
         var retrySchema: String? = null,

@@ -24,6 +24,7 @@ import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.KafkaException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -33,6 +34,7 @@ import org.mockito.Mockito.never
 import org.mockito.Mockito.timeout
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argThat
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.doNothing
 import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.eq
@@ -41,6 +43,8 @@ import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -446,7 +450,7 @@ class ConsumerPollLoopTest {
             state.trackerRefForTest().markProcessed(101L)
             listenerRef.get()!!.onPartitionsRevoked(listOf(fixture.topicPartition))
 
-            fixture.awaitCommit(101L)
+            fixture.awaitDeadlineBoundedCommit(101L)
             awaitFor(2_000L, 10L) { metrics.commits.firstOrNull() }
             assertEquals(true, metrics.commits.single().success)
             assertEquals(1L, metrics.commits.single().offsetsCount)
@@ -703,6 +707,210 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when shutdown performs final commit then remaining drain deadline is used`() = runBlocking {
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 10L,
+                pollAnswer = { emptyRecords() }
+            )
+            fixture.loop.configureShutdownDrainTimeout(kotlin.time.Duration.parse("2s"))
+            val job = fixture.start()
+            fixture.awaitAssignedState(lastCommittedOffset = 9L)
+
+            withTimeout(2_000) { fixture.loop.prepareForShutdown().await() }
+            withTimeout(2_000) { fixture.loop.finalizeShutdown().await() }
+            job.join()
+
+            verify(fixture.consumer).commitSync(
+                any<Map<TopicPartition, OffsetAndMetadata>>(),
+                any<Duration>()
+            )
+        }
+
+        @Test
+        fun `when finalization starts after poll then pending wakeup does not interrupt final commit`() = runBlocking {
+            val pendingWakeup = AtomicBoolean(false)
+            val pollCalls = AtomicInteger(0)
+            val initialPollEntered = CountDownLatch(1)
+            val releaseInitialPoll = CountDownLatch(1)
+            val finalizationWindowEntered = CountDownLatch(1)
+            val releaseFinalizationWindow = CountDownLatch(1)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 10L,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 1_000,
+                pollAnswer = {
+                    when (pollCalls.incrementAndGet()) {
+                        1 -> {
+                            initialPollEntered.countDown()
+                            check(releaseInitialPoll.await(2, TimeUnit.SECONDS)) {
+                                "Timed out waiting to release the initial poll"
+                            }
+                        }
+                        3 -> {
+                            finalizationWindowEntered.countDown()
+                            check(releaseFinalizationWindow.await(2, TimeUnit.SECONDS)) {
+                                "Timed out waiting to release the finalization window"
+                            }
+                        }
+                    }
+                    if (pendingWakeup.compareAndSet(true, false)) {
+                        throw org.apache.kafka.common.errors.WakeupException()
+                    }
+                    emptyRecords()
+                }
+            )
+            doAnswer {
+                pendingWakeup.set(true)
+                null
+            }.whenever(fixture.consumer).wakeup()
+            doAnswer {
+                if (pendingWakeup.compareAndSet(true, false)) {
+                    throw org.apache.kafka.common.errors.WakeupException()
+                }
+                null
+            }.whenever(fixture.consumer).commitSync(
+                any<Map<TopicPartition, OffsetAndMetadata>>(),
+                any<Duration>()
+            )
+
+            val job = fixture.start()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 9L)
+            assertTrue(initialPollEntered.await(2, TimeUnit.SECONDS))
+            state.markProcessed(10L)
+
+            try {
+                val readyForShutdown = fixture.loop.prepareForShutdown()
+                releaseInitialPoll.countDown()
+                withTimeout(2_000) { readyForShutdown.await() }
+                assertTrue(finalizationWindowEntered.await(2, TimeUnit.SECONDS))
+
+                val finalized = fixture.loop.finalizeShutdown()
+                releaseFinalizationWindow.countDown()
+                withTimeout(2_000) { finalized.await() }
+                withTimeout(2_000) { job.join() }
+            } finally {
+                releaseInitialPoll.countDown()
+                releaseFinalizationWindow.countDown()
+            }
+
+            assertFalse(job.isCancelled)
+            verify(fixture.consumer, times(1)).wakeup()
+            verify(fixture.consumer).commitSync(
+                argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                    get(fixture.topicPartition)?.let { committed ->
+                        committed.offset() == 11L && committed.metadata().isNotEmpty()
+                    } == true
+                },
+                any<Duration>()
+            )
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when recovery initializes assignment then deadline and reason are preserved`() = runBlocking {
+            val listener = AtomicReference<ConsumerRebalanceListener?>()
+            val polls = AtomicInteger(0)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 10L,
+                listenerRef = listener,
+                pollAnswer = {
+                    when (polls.incrementAndGet()) {
+                        2 -> listener.get()!!.onPartitionsLost(setOf(topicPartition))
+                        3 -> listener.get()!!.onPartitionsAssigned(setOf(topicPartition))
+                    }
+                    emptyRecords()
+                }
+            )
+            val job = fixture.start()
+
+            awaitFor(2_000L, 10L) {
+                fixture.loop.stateSnapshot().takeIf {
+                    !it.recovering && it.lastRecoveryReason?.startsWith("partitions lost") == true
+                }
+            }
+
+            verify(fixture.consumer, timeout(2_000)).committed(
+                any<Set<TopicPartition>>(),
+                any<Duration>()
+            )
+            verify(fixture.consumer, timeout(2_000)).position(eq(fixture.topicPartition), any<Duration>())
+
+            job.cancel()
+            job.join()
+        }
+
+        @Test
+        fun `when recovery backoff exceeds deadline then backoff and client close are bounded`() = runBlocking {
+            val listener = AtomicReference<ConsumerRebalanceListener?>()
+            val triggerLoss = AtomicBoolean(false)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 10L,
+                listenerRef = listener,
+                pollAnswer = {
+                    if (triggerLoss.compareAndSet(true, false)) {
+                        listener.get()!!.onPartitionsLost(setOf(topicPartition))
+                    }
+                    emptyRecords()
+                }
+            )
+            fixture.loop.configureRecovery(
+                timeout = kotlin.time.Duration.parse("25ms"),
+                retryBackoff = kotlin.time.Duration.parse("30s")
+            )
+            val job = fixture.start()
+            fixture.awaitAssignedState(lastCommittedOffset = 9L)
+
+            triggerLoss.set(true)
+            withTimeout(2_000) { job.join() }
+
+            assertTrue(job.isCancelled)
+            verify(fixture.consumer).close(any<Duration>())
+        }
+
+        @Test
+        fun `when lost callback timeout is wrapped then failure is terminal and consumer is not recreated`() = runBlocking {
+            val listener = AtomicReference<ConsumerRebalanceListener?>()
+            val triggerLoss = AtomicBoolean(false)
+            val lossTriggered = AtomicBoolean(false)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 10L,
+                listenerRef = listener,
+                pollAnswer = {
+                    if (triggerLoss.get() && lossTriggered.compareAndSet(false, true)) {
+                        try {
+                            listener.get()!!.onPartitionsLost(setOf(topicPartition))
+                        } catch (error: Throwable) {
+                            throw KafkaException("rebalance callback failed", error)
+                        }
+                    }
+                    emptyRecords()
+                }
+            )
+            fixture.loop.configureProcessingCancellationTimeout(kotlin.time.Duration.parse("1ms"))
+            val job = fixture.start()
+            fixture.awaitAssignedState(lastCommittedOffset = 9L)
+            val record = record(offset = 10L)
+            fixture.registry.observe(record)
+            assertTrue(fixture.registry.tryStart(record))
+
+            triggerLoss.set(true)
+            withTimeout(2_000) { job.join() }
+
+            assertTrue(job.isCancelled)
+            verify(fixture.consumer, times(1)).subscribe(eq(listOf("topic-a")), any<ConsumerRebalanceListener>())
+        }
+
+        @Test
         fun `kafka client metrics follow poll loop lifecycle`() = runBlocking {
             val metrics = RecordingMetrics<ByteArray, ByteArray>()
             val fixture = PollLoopFixture(
@@ -795,7 +1003,11 @@ private class PollLoopFixture(
         whenever(consumer.position(any<TopicPartition>())).thenAnswer { invocation ->
             assignmentPositions.getValue(invocation.getArgument(0))
         }
+        whenever(consumer.position(any<TopicPartition>(), any<Duration>())).thenAnswer { invocation ->
+            assignmentPositions.getValue(invocation.getArgument(0))
+        }
         whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
+        whenever(consumer.committed(any<Set<TopicPartition>>(), any<Duration>())).thenReturn(committedOffsets)
         whenever(consumer.assignment()).thenReturn(assignmentPositions.keys)
         whenever(consumer.close()).then { }
 
@@ -836,6 +1048,16 @@ private class PollLoopFixture(
                 val committed = get(topicPartition)
                 committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
             }
+        )
+    }
+
+    fun awaitDeadlineBoundedCommit(offset: Long) {
+        verify(consumer, timeout(2_000)).commitSync(
+            argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                val committed = get(topicPartition)
+                committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
+            },
+            any<Duration>()
         )
     }
 

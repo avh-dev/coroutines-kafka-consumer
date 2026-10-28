@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataCompression
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.LifecycleOutcome
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -266,6 +267,29 @@ class MicrometerConsumerMetricsSchemaTest {
                 .counter()
                 .count()
         )
+    }
+
+    @Test
+    fun `when lifecycle and recovery callbacks run then timers counters and active gauge are exposed`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        )
+
+        metrics.onPartitionHandoff(TimeUnit.MILLISECONDS.toNanos(12), LifecycleOutcome.SUCCESS)
+        metrics.onShutdown(TimeUnit.MILLISECONDS.toNanos(20), LifecycleOutcome.TIMEOUT)
+        metrics.onRecoveryAttempt()
+        metrics.onRecoveryStateChanged(true)
+        metrics.onRecoveryCompleted(TimeUnit.MILLISECONDS.toNanos(30), LifecycleOutcome.FAILURE)
+
+        assertEquals(1L, registry.get("test.ckc.partition.handoff.duration").tag("outcome", "success").timer().count())
+        assertEquals(1L, registry.get("test.ckc.shutdown.duration").tag("outcome", "timeout").timer().count())
+        assertEquals(1.0, registry.get("test.ckc.recovery.attempt").counter().count())
+        assertEquals(1.0, registry.get("test.ckc.recovery.active").gauge().value())
+        assertEquals(1L, registry.get("test.ckc.recovery.duration").tag("outcome", "failure").timer().count())
+
+        metrics.onRecoveryStateChanged(false)
+        assertEquals(0.0, registry.get("test.ckc.recovery.active").gauge().value())
     }
 
     @Test

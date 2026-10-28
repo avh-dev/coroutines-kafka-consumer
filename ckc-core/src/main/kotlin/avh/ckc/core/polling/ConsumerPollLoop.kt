@@ -6,6 +6,7 @@ import avh.ckc.core.PollLoopStateSnapshot
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.polling.partition.OffsetCommitData
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
@@ -18,6 +19,9 @@ import org.apache.kafka.clients.consumer.*
 import org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.AuthenticationException
+import org.apache.kafka.common.errors.AuthorizationException
+import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.errors.WakeupException
 import org.slf4j.LoggerFactory
 import java.time.Duration
@@ -26,6 +30,7 @@ import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.toKotlinDuration
 
 /**
@@ -64,6 +69,37 @@ internal class ConsumerPollLoop<K, V>(
             KafkaConsumer(it)
         },
 ) : ConsumerPollLoopControl {
+    private var activeStash: ArrayDeque<ConsumerRecord<K, V>>? = null
+
+    @Volatile
+    private var partitionHandoffTimeoutNanos = PARTITION_HANDOFF_TIMEOUT_NANOS
+
+    @Volatile
+    private var processingCancellationTimeoutNanos = PARTITION_HANDOFF_TIMEOUT_NANOS
+
+    @Volatile
+    private var shutdownDrainTimeoutNanos = PARTITION_HANDOFF_TIMEOUT_NANOS
+
+    @Volatile
+    private var shutdownDeadlineNanos: Long? = null
+
+    @Volatile
+    private var recoveryTimeoutNanos = RECOVERY_TIMEOUT_NANOS
+
+    @Volatile
+    private var recoveryRetryBackoffMillis = RECOVERY_RETRY_BACKOFF_MILLIS
+
+    @Volatile
+    private var recoveryDeadlineNanos: Long? = null
+
+    @Volatile
+    private var recoveringLostAssignment = false
+
+    @Volatile
+    private var lastRecoveryReason: String? = null
+
+    private var recoveryStartedNanos: Long? = null
+    private var recoveryMetricActive = false
     /** Dedicated poll thread (KafkaConsumer thread-safety). */
     private val dispatcher = Executors
         .newSingleThreadExecutor { r -> Thread(r, "kafka-poll-$id").apply { isDaemon = true } }
@@ -120,6 +156,13 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
+    private val finalizedShutdownSignal = CompletableDeferred<Unit>()
+
+    @Volatile
+    private var finalizationRequested = false
+
+    @Volatile
+    private var shutdownPaused = false
 
     private val consumerGroupId: String by lazy {
         requireNotNull(consumerConfigAdapter.getString(GROUP_ID_CONFIG)) {
@@ -139,9 +182,21 @@ internal class ConsumerPollLoop<K, V>(
      * Phase 2: loop completes [readyForShutdownSignal] once stash drained and poll returns empty.
      */
     override fun prepareForShutdown(): Deferred<Unit> {
+        return prepareForShutdown(System.nanoTime() + shutdownDrainTimeoutNanos)
+    }
+
+    override fun prepareForShutdown(deadlineNanos: Long): Deferred<Unit> {
+        shutdownDeadlineNanos = deadlineNanos
         shutdownRequested = true
         consumerRef?.wakeup()
         return readyForShutdownSignal
+    }
+
+    override fun finalizeShutdown(): Deferred<Unit> {
+        finalizationRequested = true
+        // The drained loop rechecks this flag after its short empty-poll delay. A wakeup here could
+        // remain pending when the loop exits and interrupt the final commit instead of a poll.
+        return finalizedShutdownSignal
     }
 
     override fun stateSnapshot(): PollLoopStateSnapshot =
@@ -154,39 +209,87 @@ internal class ConsumerPollLoop<K, V>(
             lastPollEpochMillis = lastPollEpochMillis,
             lastPollRecordCount = lastPollRecordCount,
             lastCommitAttemptEpochMillis = lastCommitAttemptEpochMillis,
-            lastCommitSucceeded = lastCommitSucceeded
+            lastCommitSucceeded = lastCommitSucceeded,
+            recovering = recoveringLostAssignment,
+            lastRecoveryReason = lastRecoveryReason
         )
+
+    override fun configurePartitionHandoffTimeout(timeout: kotlin.time.Duration) {
+        partitionHandoffTimeoutNanos = timeout.inWholeNanoseconds
+    }
+
+    override fun configureProcessingCancellationTimeout(timeout: kotlin.time.Duration) {
+        processingCancellationTimeoutNanos = timeout.inWholeNanoseconds
+    }
+
+    override fun configureShutdownDrainTimeout(timeout: kotlin.time.Duration) {
+        shutdownDrainTimeoutNanos = timeout.inWholeNanoseconds
+    }
+
+    override fun configureRecovery(timeout: kotlin.time.Duration, retryBackoff: kotlin.time.Duration) {
+        recoveryTimeoutNanos = timeout.inWholeNanoseconds
+        recoveryRetryBackoffMillis = retryBackoff.inWholeMilliseconds.coerceAtLeast(1L)
+    }
 
     private suspend fun runLoop() {
         running = true
-        var consumer: KafkaConsumer<K, V>? = null
-        var kafkaClientMetricsBound = false
         try {
-            consumer = kafkaConsumerFactory(consumerProperties)
-            consumerRef = consumer
-            metrics.bindKafkaClientMetrics(id, consumer)
-            kafkaClientMetricsBound = true
-            subscribe(consumer)
-            consumerLoop(consumer)
-        } finally {
-            running = false
-            assignedPartitionSnapshot = emptyList()
-            consumerRef = null
-            withContext(NonCancellable) {
+            while (!shutdownRequested) {
+                var consumer: KafkaConsumer<K, V>? = null
+                var kafkaClientMetricsBound = false
                 try {
-                    if (kafkaClientMetricsBound) {
-                        metrics.unbindKafkaClientMetrics(id)
+                    if (recoveryDeadlineNanos == null) recoveringLostAssignment = false
+                    if (recoveringLostAssignment) {
+                        ensureRecoveryTimeRemaining("before creating a Kafka client")
+                        metrics.onRecoveryAttempt()
                     }
+                    consumer = kafkaConsumerFactory(consumerProperties)
+                    consumerRef = consumer
+                    metrics.bindKafkaClientMetrics(id, consumer)
+                    kafkaClientMetricsBound = true
+                    subscribe(consumer)
+                    consumerLoop(consumer)
+                    break
+                } catch (_: LostAssignmentException) {
+                    if (shutdownRequested) break
+                    // The old generation was closed before this point. Recreate the non-thread-safe
+                    // Kafka client rather than requiring the application to call start() again.
+                    ensureRecoveryDeadline()
+                    delayRecoveryBackoff()
+                } catch (error: Throwable) {
+                    if (error.hasCause<PartitionHandoffTimeoutException>() || error.hasCause<RecoveryTimeoutException>() ||
+                        !recoveringLostAssignment || error is CancellationException || error.isFatalKafkaError()
+                    ) {
+                        throw error
+                    }
+                    ensureRecoveryDeadline()
+                    log.warn("Kafka consumer #$id recovery attempt failed; retrying", error)
+                    delayRecoveryBackoff()
                 } finally {
-                    try {
-                        consumer?.close()
-                    } catch (_: Exception) {
+                    consumerRef = null
+                    withContext(NonCancellable) {
+                        try {
+                            if (kafkaClientMetricsBound) metrics.unbindKafkaClientMetrics(id)
+                        } finally {
+                            try {
+                                if (recoveringLostAssignment) {
+                                    consumer?.close(remainingRecoveryCloseTimeout())
+                                } else {
+                                    consumer?.close()
+                                }
+                            } catch (_: Exception) { }
+                        }
                     }
                 }
             }
+        } finally {
+            if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
+            running = false
+            assignedPartitionSnapshot = emptyList()
             // A terminal loop failure cannot perform the graceful drain handshake,
             // but it is already safe for the owner to join the completed job.
             readyForShutdownSignal.complete(Unit)
+            finalizedShutdownSignal.complete(Unit)
         }
     }
 
@@ -207,18 +310,7 @@ internal class ConsumerPollLoop<K, V>(
     private fun createRebalanceListener(
         consumer: KafkaConsumer<K, V>,
         processingMode: ProcessingMode
-    ): ConsumerRebalanceListener =
-        if (processingMode.tracksProcessedOffsets())
-            atLeastOnceRebalanceListener(consumer)
-        else
-            noOpRebalanceListener()
-
-    private fun noOpRebalanceListener(): ConsumerRebalanceListener =
-        object : ConsumerRebalanceListener {
-            override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
-
-            override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) = Unit
-        }
+    ): ConsumerRebalanceListener = atLeastOnceRebalanceListener(consumer)
 
     private fun atLeastOnceRebalanceListener(consumer: KafkaConsumer<K, V>): ConsumerRebalanceListener =
         object : ConsumerRebalanceListener {
@@ -227,6 +319,11 @@ internal class ConsumerPollLoop<K, V>(
 
             override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) =
                 handlePartitionsAssigned(consumer, partitions)
+
+            override fun onPartitionsLost(partitions: Collection<TopicPartition>) {
+                handlePartitionsLost(partitions)
+                throw LostAssignmentException()
+            }
         }
 
     /**
@@ -244,21 +341,67 @@ internal class ConsumerPollLoop<K, V>(
         consumer: KafkaConsumer<K, V>,
         partitions: Collection<TopicPartition>
     ) {
-        val revokedPartitionStates = mutableSetOf<PartitionState>()
+        val startedAt = System.nanoTime()
+        var outcome = LifecycleOutcome.SUCCESS
+        try {
+        // Closing admission happens before removing any queued records. A worker racing with
+        // this callback either registered before the close and is awaited below, or cannot start.
+        val revokedPartitionStates = partitionStateRegistry.revoke(partitions).toMutableSet()
+        discardStashedRecords(partitions)
         for (tp in partitions) {
             val partitionState = partitionStateRegistry.partitionStateFor(tp)
             if (partitionState == null) {
                 log.warn("Kafka consumer #$id: revoking unassigned partition $tp")
             } else {
-                revokedPartitionStates += partitionState
                 assignedPartitions.remove(partitionState)
             }
         }
         refreshAssignedPartitionSnapshot()
-        commitReadyOffsets(consumer, revokedPartitionStates)
-        revokedPartitionStates.forEach {
-            metrics.unbindPartitionMetrics(it.topic, it.partition)
+        val deadline = System.nanoTime() + partitionHandoffTimeoutNanos
+        if (revokedPartitionStates.any { !it.awaitPipelines(deadline) }) {
+            throw PartitionHandoffTimeoutException("Timed out waiting for revoked partitions: $partitions")
         }
+        // Force metadata emission: snapshots can change even when the contiguous frontier does not.
+        if (processingMode.tracksProcessedOffsets()) {
+            val result = commitReadyOffsets(
+                consumer = consumer,
+                partitionStates = revokedPartitionStates,
+                forceMetadata = true,
+                deadlineNanos = deadline
+            )
+            if (result != CommitAttemptResult.SUCCEEDED && revokedPartitionStates.isNotEmpty()) {
+                throw PartitionHandoffCommitException("Final commit failed for revoked partitions: $partitions")
+            }
+        }
+            revokedPartitionStates.forEach {
+                metrics.unbindPartitionMetrics(it.topic, it.partition)
+            }
+        } catch (error: Throwable) {
+            outcome = if (error.hasCause<PartitionHandoffTimeoutException>()) {
+                LifecycleOutcome.TIMEOUT
+            } else {
+                LifecycleOutcome.FAILURE
+            }
+            throw error
+        } finally {
+            metrics.onPartitionHandoff(System.nanoTime() - startedAt, outcome)
+        }
+    }
+
+    private fun handlePartitionsLost(partitions: Collection<TopicPartition>) {
+        val lostStates = partitionStateRegistry.revoke(partitions)
+        discardStashedRecords(partitions)
+        assignedPartitions.removeAll(lostStates.toSet())
+        refreshAssignedPartitionSnapshot()
+        startRecovery("partitions lost: ${partitions.joinToString()}")
+        recoveryDeadlineNanos = System.nanoTime() + recoveryTimeoutNanos
+        partitionStateRegistry.cancelActive(partitions)
+        val deadline = System.nanoTime() + processingCancellationTimeoutNanos
+        if (lostStates.any { !it.awaitPipelines(deadline) }) {
+            throw PartitionHandoffTimeoutException("Timed out waiting for lost partitions: $partitions")
+        }
+        // Never commit a lost generation. Kafka will re-deliver from the authoritative group offset.
+        lostStates.forEach { metrics.unbindPartitionMetrics(it.topic, it.partition) }
     }
 
     /**
@@ -274,18 +417,89 @@ internal class ConsumerPollLoop<K, V>(
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
-        val committedOffsets = consumer.committed(partitions.toSet())
+        val recoveryCallTimeout = remainingRecoveryCallTimeout()
+        val committedOffsets = if (recoveryCallTimeout == null) {
+            consumer.committed(partitions.toSet())
+        } else {
+            consumer.committed(partitions.toSet(), recoveryCallTimeout)
+        }
         assignedPartitionStates.forEach {
             val committed = committedOffsets[it.topicPartition]
             if (committed == null) {
-                it.init(consumer.position(it.topicPartition))
+                val positionTimeout = remainingRecoveryCallTimeout()
+                val position = if (positionTimeout == null) {
+                    consumer.position(it.topicPartition)
+                } else {
+                    consumer.position(it.topicPartition, positionTimeout)
+                }
+                it.init(position, forceReset = true)
             } else {
                 initPartitionState(it, committed)
             }
             metrics.bindPartitionMetrics(it)
         }
         assignedPartitions += assignedPartitionStates
+        if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
+    }
+
+    private fun remainingRecoveryCallTimeout(): Duration? {
+        if (!recoveringLostAssignment) return null
+        val deadline = recoveryDeadlineNanos
+            ?: throw RecoveryTimeoutException("Kafka consumer #$id has no active recovery deadline")
+        val remaining = deadline - System.nanoTime()
+        if (remaining <= 0L) {
+            throw RecoveryTimeoutException("Kafka consumer #$id exceeded the recovery deadline during assignment")
+        }
+        return Duration.ofNanos(remaining)
+    }
+
+    // One absolute deadline belongs to the whole recovery cycle; retries must never refresh it.
+    private fun ensureRecoveryDeadline(): Long = recoveryDeadlineNanos
+        ?: (System.nanoTime() + recoveryTimeoutNanos).also { recoveryDeadlineNanos = it }
+
+    private fun ensureRecoveryTimeRemaining(operation: String): Long {
+        val remaining = ensureRecoveryDeadline() - System.nanoTime()
+        if (remaining <= 0L) {
+            throw RecoveryTimeoutException("Kafka consumer #$id exceeded the recovery deadline $operation")
+        }
+        return remaining
+    }
+
+    private suspend fun delayRecoveryBackoff() {
+        val remaining = ensureRecoveryTimeRemaining("before retry backoff")
+        val backoffNanos = recoveryRetryBackoffMillis * 1_000_000L
+        delay(minOf(remaining, backoffNanos).nanoseconds)
+        ensureRecoveryTimeRemaining("during retry backoff")
+    }
+
+    private fun remainingRecoveryCloseTimeout(): Duration {
+        val deadline = recoveryDeadlineNanos ?: return Duration.ZERO
+        return Duration.ofNanos((deadline - System.nanoTime()).coerceAtLeast(0L))
+    }
+
+    private fun startRecovery(reason: String) {
+        recoveringLostAssignment = true
+        lastRecoveryReason = reason
+        recoveryStartedNanos = System.nanoTime()
+        if (!recoveryMetricActive) {
+            recoveryMetricActive = true
+            metrics.onRecoveryStateChanged(true)
+        }
+    }
+
+    private fun finishRecovery(outcome: LifecycleOutcome) {
+        val startedAt = recoveryStartedNanos
+        if (startedAt != null) {
+            metrics.onRecoveryCompleted(System.nanoTime() - startedAt, outcome)
+        }
+        if (recoveryMetricActive) {
+            recoveryMetricActive = false
+            metrics.onRecoveryStateChanged(false)
+        }
+        recoveringLostAssignment = false
+        recoveryDeadlineNanos = null
+        recoveryStartedNanos = null
     }
 
     private fun refreshAssignedPartitionSnapshot() {
@@ -300,7 +514,7 @@ internal class ConsumerPollLoop<K, V>(
     ) {
         val metadata = committed.metadata()
         if (metadata.isNullOrEmpty()) {
-            partitionState.init(committed.offset())
+            partitionState.init(committed.offset(), forceReset = true)
             return
         }
         try {
@@ -309,14 +523,15 @@ internal class ConsumerPollLoop<K, V>(
                 snapshot = OffsetTrackerMetadata.decode(
                     metadata = metadata,
                     context = metadataContext(partitionState.topicPartition, committed.offset())
-                )
+                ),
+                forceReset = true
             )
         } catch (e: Exception) {
             log.warn(
                 "Kafka consumer #$id: failed to restore offset metadata for ${partitionState.topicPartition}",
                 e
             )
-            partitionState.init(committed.offset())
+            partitionState.init(committed.offset(), forceReset = true)
         }
     }
 
@@ -334,9 +549,18 @@ internal class ConsumerPollLoop<K, V>(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (processingMode.tracksProcessedOffsets()) {
-            // Final best-effort commit on shutdown.
-            commitReadyOffsets(consumer, assignedPartitions)
+        if (processingMode.tracksProcessedOffsets() && !recoveringLostAssignment) {
+            // Final commit happens only after the owner has drained workers; preserve metadata even
+            // when the contiguous offset frontier itself did not move.
+            val result = commitReadyOffsets(
+                consumer = consumer,
+                partitionStates = assignedPartitions,
+                forceMetadata = true,
+                deadlineNanos = shutdownDeadlineNanos
+            )
+            if (result == CommitAttemptResult.FAILED) {
+                throw IllegalStateException("Final offset commit failed for Kafka consumer #$id")
+            }
             assignedPartitions.forEach {
                 metrics.unbindPartitionMetrics(it.topic, it.partition)
             }
@@ -347,13 +571,15 @@ internal class ConsumerPollLoop<K, V>(
     /** Commit contiguous-ready offsets only (PartitionState encapsulates readiness). */
     private fun commitReadyOffsets(
         consumer: KafkaConsumer<K, V>,
-        partitionStates: Set<PartitionState>
+        partitionStates: Set<PartitionState>,
+        forceMetadata: Boolean = false,
+        deadlineNanos: Long? = null
     ): CommitAttemptResult {
         val offsets = mutableMapOf<TopicPartition, OffsetAndMetadata>()
         val commitDataByPartition = mutableMapOf<PartitionState, OffsetCommitData>()
         var offsetsCount = 0L
         for (partitionState in partitionStates) {
-            val commitData = partitionState.advanceAndGetCommitData()
+            val commitData = partitionState.advanceAndGetCommitData(forceMetadata)
             if (commitData != null) {
                 commitDataByPartition[partitionState] = commitData
                 val kafkaOffset = commitData.offset + 1
@@ -375,7 +601,13 @@ internal class ConsumerPollLoop<K, V>(
             val startedAt = System.nanoTime()
             lastCommitAttemptEpochMillis = System.currentTimeMillis()
             try {
-                consumer.commitSync(offsets)
+                if (deadlineNanos == null) {
+                    consumer.commitSync(offsets)
+                } else {
+                    val remainingNanos = deadlineNanos - System.nanoTime()
+                    if (remainingNanos <= 0L) return CommitAttemptResult.FAILED
+                    consumer.commitSync(offsets, Duration.ofNanos(remainingNanos))
+                }
                 commitDataByPartition.forEach { (partitionState, commitData) ->
                     partitionState.markCommitted(commitData.offset)
                 }
@@ -429,6 +661,7 @@ internal class ConsumerPollLoop<K, V>(
 
         // Bounded spill queue for records already fetched when channel is saturated.
         val stash = ArrayDeque<ConsumerRecord<K, V>>(maxPollRecords)
+        activeStash = stash
 
         // Time remains the low-traffic fallback; the record threshold can trigger an earlier commit.
         var lastCommitAt = System.currentTimeMillis()
@@ -436,7 +669,19 @@ internal class ConsumerPollLoop<K, V>(
 
         var state = State.ACTIVE
 
-        while (currentCoroutineContext().isActive) {
+        try {
+            while (currentCoroutineContext().isActive) {
+
+            if (recoveringLostAssignment) {
+                val deadline = recoveryDeadlineNanos
+                if (deadline != null && System.nanoTime() >= deadline) {
+                    throw RecoveryTimeoutException("Kafka consumer #$id did not receive an assignment before the recovery deadline")
+                }
+            }
+
+            if (state == State.TAIL_DRAINED && finalizationRequested) {
+                break
+            }
 
             /**
              * Shutdown gate:
@@ -517,12 +762,15 @@ internal class ConsumerPollLoop<K, V>(
                     else -> Unit
                 }
             }
+            }
+        } finally {
+            activeStash = null
         }
     }
 
     /** Marks offsets Kafka skipped before a record while leaving the delivered record pending for a worker. */
     private fun observeRecordOffset(record: ConsumerRecord<K, V>) {
-        partitionStateRegistry.partitionStateFor(record)?.observe(record.offset())
+        partitionStateRegistry.observe(record, observeOffset = processingMode.tracksProcessedOffsets())
     }
 
     private fun advanceAndCountPendingOffsets(): Long {
@@ -570,6 +818,18 @@ internal class ConsumerPollLoop<K, V>(
         return true
     }
 
+    private fun discardStashedRecords(partitions: Collection<TopicPartition>) {
+        val revoked = partitions.toHashSet()
+        val stash = activeStash ?: return
+        val retained = stash.filterTo(ArrayDeque()) { record ->
+            val discard = TopicPartition(record.topic(), record.partition()) in revoked
+            if (discard) partitionStateRegistry.discard(record)
+            !discard
+        }
+        stash.clear()
+        stash.addAll(retained)
+    }
+
     /** Pause all assigned partitions (best-effort). */
     private fun pause(
         consumer: KafkaConsumer<K, V>,
@@ -608,14 +868,31 @@ internal class ConsumerPollLoop<K, V>(
      */
     private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<K, V>) {
         while (currentCoroutineContext().isActive) {
+            if (recoveringLostAssignment) {
+                val deadline = recoveryDeadlineNanos
+                if (deadline != null && System.nanoTime() >= deadline) {
+                    throw RecoveryTimeoutException("Kafka consumer #$id did not receive an assignment before the recovery deadline")
+                }
+            }
             if (shutdownRequested) {
+                if (!shutdownPaused) {
+                    pause(consumer, recordBackpressureMetric = false)
+                    shutdownPaused = true
+                }
                 readyForShutdownSignal.complete(Unit)
-                break
+                // Keep the group member/client alive while the runtime drains accepted records.
+                // No new records are admitted once shutdown starts.
+                if (finalizationRequested) break
+                pollRecords(consumer, State.DRAINING_TAIL).forEach { record ->
+                    metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE)
+                }
+                continue
             }
 
             val records = pollRecords(consumer, State.ACTIVE)
 
             for (record in records) {
+                observeRecordOffset(record)
                 recordSink.tryEmit(record)
             }
         }
@@ -643,5 +920,31 @@ internal class ConsumerPollLoop<K, V>(
         NO_OFFSETS,
         SUCCEEDED,
         FAILED
+    }
+
+    private class PartitionHandoffTimeoutException(message: String) : RuntimeException(message)
+
+    private class PartitionHandoffCommitException(message: String) : RuntimeException(message)
+
+    private class LostAssignmentException : RuntimeException()
+
+    private class RecoveryTimeoutException(message: String) : RuntimeException(message)
+
+    private fun Throwable.isFatalKafkaError(): Boolean =
+        this is AuthenticationException || this is AuthorizationException || this is InvalidConfigurationException
+
+    private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is T) return true
+            current = current.cause
+        }
+        return false
+    }
+
+    private companion object {
+        const val PARTITION_HANDOFF_TIMEOUT_NANOS = 30_000_000_000L
+        const val RECOVERY_RETRY_BACKOFF_MILLIS = 1_000L
+        const val RECOVERY_TIMEOUT_NANOS = 120_000_000_000L
     }
 }

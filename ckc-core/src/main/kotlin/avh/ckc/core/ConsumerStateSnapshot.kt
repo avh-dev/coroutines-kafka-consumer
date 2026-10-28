@@ -17,10 +17,20 @@ data class ConsumerStateSnapshot(
     val consumerPollLoopConcurrency: Int,
     val workChannelCapacity: Int,
     val processing: ProcessingRuntimeStateSnapshot,
-    val pollLoops: List<PollLoopStateSnapshot>
+    val pollLoops: List<PollLoopStateSnapshot>,
+    val lifecycleState: ConsumerLifecycleState,
+    val lastRecoveryOrFailureReason: String?
 ) {
     val assignedPartitionCount: Int
         get() = pollLoops.sumOf { it.assignedPartitions.size }
+}
+
+enum class ConsumerLifecycleState {
+    RUNNING,
+    RECOVERING,
+    STOPPING,
+    STOPPED,
+    FAILED
 }
 
 data class ProcessingRuntimeStateSnapshot(
@@ -42,7 +52,9 @@ data class PollLoopStateSnapshot(
     val lastPollEpochMillis: Long?,
     val lastPollRecordCount: Int?,
     val lastCommitAttemptEpochMillis: Long?,
-    val lastCommitSucceeded: Boolean?
+    val lastCommitSucceeded: Boolean?,
+    val recovering: Boolean = false,
+    val lastRecoveryReason: String? = null
 )
 
 data class AssignedPartitionSnapshot(

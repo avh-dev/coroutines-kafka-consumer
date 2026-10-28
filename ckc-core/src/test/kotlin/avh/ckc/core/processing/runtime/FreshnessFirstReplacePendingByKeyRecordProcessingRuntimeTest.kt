@@ -10,9 +10,12 @@ import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.typedTestRecord
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -25,6 +28,33 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class FreshnessFirstReplacePendingByKeyRecordProcessingRuntimeTest {
+    @Test
+    fun `when handler fails during graceful drain then runtime failure is reported`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val failure = CompletableDeferred<Throwable>()
+        val runtime = freshnessByKeyRuntime(
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            metrics = RecordingMetrics(),
+            handler = KafkaRecordHandler {
+                entered.complete(Unit)
+                release.await()
+                throw CancellationException("failed while draining")
+            }
+        )
+        runtime.start { failure.complete(it) }
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "key-a")))
+        withTimeout(2_000) { entered.await() }
+
+        // UNDISPATCHED reaches stop()'s drain wait before the handler is released.
+        val stop = launch(start = CoroutineStart.UNDISPATCHED) { runtime.stop() }
+        release.complete(Unit)
+
+        assertEquals("failed while draining", withTimeout(2_000) { failure.await() }.message)
+        withTimeout(2_000) { stop.join() }
+    }
+
     @Test
     fun `when same key successor is queued then another worker waits for the in-flight record`() = runBlocking {
         val firstStarted = CompletableDeferred<Unit>()

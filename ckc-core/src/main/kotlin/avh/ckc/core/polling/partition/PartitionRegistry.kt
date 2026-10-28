@@ -3,8 +3,11 @@ package avh.ckc.core.polling.partition
 import avh.ckc.core.VisibleForTesting
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
+import java.util.IdentityHashMap
+import kotlinx.coroutines.Job
 import kotlin.arrayOfNulls
 import kotlin.math.max
+import kotlin.time.Duration
 
 /**
  * Lock-free registry for mapping Kafka (topic, partition) to a [PartitionState].
@@ -35,6 +38,12 @@ import kotlin.math.max
  *   may allocate extra space; this is typically acceptable for Kafka partitioning patterns.
  */
 internal class PartitionRegistry {
+    private val recordLeases = IdentityHashMap<ConsumerRecord<*, *>, PartitionLease>()
+    private val activeJobs = IdentityHashMap<ConsumerRecord<*, *>, Job>()
+    private val cancellationRequested = IdentityHashMap<ConsumerRecord<*, *>, Boolean>()
+
+    @Volatile
+    private var terminal = false
 
     /**
      * Volatile snapshot: topic -> partition state array.
@@ -78,6 +87,7 @@ internal class PartitionRegistry {
                    partitionState = PartitionState(tp)
                    partitionStates[partition] = partitionState
                 }
+                partitionState.activate()
                 assignedPartitionStates += partitionState
             }
             topicPartitionStateMap = newTopicPartitionStateMap
@@ -100,6 +110,92 @@ internal class PartitionRegistry {
      */
     fun partitionStateFor(topicPartition: TopicPartition): PartitionState? =
         partitionStateFor(topicPartition.topic(), topicPartition.partition());
+
+    /** Captures the current assignment generation at poll admission time. */
+    fun observe(record: ConsumerRecord<*, *>, observeOffset: Boolean = true): PartitionLease? {
+        if (terminal) return null
+        val state = partitionStateFor(record) ?: return null
+        val lease = state.currentLease() ?: return null
+        if (observeOffset) state.observe(record.offset())
+        synchronized(recordLeases) { recordLeases[record] = lease }
+        return lease
+    }
+
+    fun tryStart(record: ConsumerRecord<*, *>): Boolean {
+        if (terminal) return false
+        val lease = synchronized(recordLeases) { recordLeases[record] } ?: return false
+        if (terminal) return false
+        return partitionStateFor(lease.topicPartition)?.tryStart(lease) == true
+    }
+
+    fun finish(record: ConsumerRecord<*, *>) {
+        val lease = synchronized(recordLeases) {
+            activeJobs.remove(record)
+            cancellationRequested.remove(record)
+            recordLeases.remove(record)
+        } ?: return
+        partitionStateFor(lease.topicPartition)?.finish(lease)
+    }
+
+    fun markProcessed(record: ConsumerRecord<*, *>) {
+        val lease = synchronized(recordLeases) { recordLeases[record] } ?: return
+        partitionStateFor(lease.topicPartition)?.markProcessed(lease, record.offset())
+    }
+
+    fun discard(record: ConsumerRecord<*, *>) {
+        synchronized(recordLeases) {
+            activeJobs.remove(record)
+            cancellationRequested.remove(record)
+            recordLeases.remove(record)
+        }
+    }
+
+    fun attach(record: ConsumerRecord<*, *>, job: Job) {
+        synchronized(recordLeases) {
+            if (!recordLeases.containsKey(record) || cancellationRequested.containsKey(record)) {
+                job.cancel()
+            } else {
+                activeJobs[record] = job
+            }
+        }
+    }
+
+    fun isCancellationRequested(record: ConsumerRecord<*, *>): Boolean =
+        synchronized(recordLeases) { cancellationRequested.containsKey(record) }
+
+    suspend fun awaitRetryPermission(record: ConsumerRecord<*, *>, retryDelay: Duration): Boolean {
+        val lease = synchronized(recordLeases) { recordLeases[record] } ?: return false
+        return partitionStateFor(lease.topicPartition)?.awaitRetryPermission(lease, retryDelay) == true
+    }
+
+    fun cancelActive(partitions: Collection<TopicPartition>) {
+        val target = partitions.toSet()
+        val jobs = synchronized(recordLeases) {
+            recordLeases.keys
+                .filter { record -> TopicPartition(record.topic(), record.partition()) in target }
+                .forEach { cancellationRequested[it] = true }
+            activeJobs.entries
+                .filter { (record, _) -> TopicPartition(record.topic(), record.partition()) in target }
+                .map { it.value }
+        }
+        jobs.forEach { it.cancel() }
+    }
+
+    fun cancelAllActive() {
+        // This is the terminal gate: it is closed before inspecting jobs, so neither a
+        // queued record nor a worker racing between tryStart/attach can start user code.
+        terminal = true
+        val jobs = synchronized(recordLeases) {
+            recordLeases.keys.forEach { cancellationRequested[it] = true }
+            activeJobs.values.toList()
+        }
+        topicPartitionStateMap.values.forEach { states -> states.filterNotNull().forEach { it.revoke() } }
+        jobs.forEach { it.cancel() }
+    }
+
+    fun revoke(partitions: Collection<TopicPartition>): List<PartitionState> = partitions.mapNotNull { tp ->
+        partitionStateFor(tp)?.also { it.revoke() }
+    }
 
     /**
      * Builds a new snapshot based on the current one and ensures capacity for the given topics.

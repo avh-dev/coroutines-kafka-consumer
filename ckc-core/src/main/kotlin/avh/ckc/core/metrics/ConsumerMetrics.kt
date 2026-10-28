@@ -129,6 +129,21 @@ interface ConsumerMetrics<K, V> {
      */
     fun onBackpressurePauseResume(action: BackpressureAction, partitionsCount: Int) = Unit
 
+    /** Records a normal partition handoff, including timeout and failed final commit outcomes. */
+    fun onPartitionHandoff(durationNanos: Long, outcome: LifecycleOutcome) = Unit
+
+    /** Records the complete user-requested shutdown drain and finalization sequence. */
+    fun onShutdown(durationNanos: Long, outcome: LifecycleOutcome) = Unit
+
+    /** Records one Kafka client recovery attempt after an assignment was lost. */
+    fun onRecoveryAttempt() = Unit
+
+    /** Records the duration and outcome of one recovery cycle. */
+    fun onRecoveryCompleted(durationNanos: Long, outcome: LifecycleOutcome) = Unit
+
+    /** Updates recovery activity for a poll loop; adapters aggregate loops per consumer. */
+    fun onRecoveryStateChanged(active: Boolean) = Unit
+
     /**
      * Records an unrecoverable consumer-level failure.
      */
@@ -145,10 +160,18 @@ enum class BackpressureAction {
     RESUME
 }
 
+enum class LifecycleOutcome {
+    SUCCESS,
+    FAILURE,
+    TIMEOUT
+}
+
 enum class RecordDropReason {
     ALREADY_PROCESSED,
     QUEUE_OVERFLOW,
     REPLACED_BY_NEWER_KEY_RECORD,
     NEW_KEY_QUEUE_FULL,
-    STALE_AGE
+    STALE_AGE,
+    /** A record queued under a revoked/lost assignment generation. */
+    LIFECYCLE
 }

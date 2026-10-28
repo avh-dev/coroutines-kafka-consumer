@@ -4,7 +4,10 @@ import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
 import avh.ckc.core.VisibleForTesting
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.common.TopicPartition
+import kotlin.time.Duration
 
 /**
  * Per-partition state used by the backpressure pipeline.
@@ -21,6 +24,10 @@ internal class PartitionState(
     private var offsetTracker: OffsetTracker = OffsetTracker(-1)
     private var initialized = false
     private var nextObservedOffset = 0L
+    private var generation = 0L
+    private var accepting = false
+    private var activePipelines = 0
+    private var revokeSignal = CompletableDeferred<Unit>().apply { complete(Unit) }
 
     /** Last offset whose Kafka commit completed successfully. */
     internal var lastCommittedOffset: Long = -1
@@ -39,9 +46,9 @@ internal class PartitionState(
      * Initializes (or resets) the tracker if [initialPosition] is not the next offset
      * after the last committed one.
      */
-    fun init(initialPosition: Long) {
+    fun init(initialPosition: Long, forceReset: Boolean = false) {
         val committedOffset = initialPosition - 1
-        if (!initialized || committedOffset != lastCommittedOffset) {
+        if (forceReset || !initialized || committedOffset != lastCommittedOffset) {
             offsetTracker = OffsetTracker(committedOffset)
             nextObservedOffset = initialPosition
         }
@@ -56,9 +63,9 @@ internal class PartitionState(
      * If the in-memory tracker already matches Kafka's committed offset, keep it: workers may have marked
      * additional offsets processed while the rebalance was in progress.
      */
-    fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot) {
+    fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot, forceReset: Boolean = false) {
         val lastCommittedOffset = committedOffset - 1
-        if (!initialized || lastCommittedOffset != this.lastCommittedOffset) {
+        if (forceReset || !initialized || lastCommittedOffset != this.lastCommittedOffset) {
             offsetTracker = OffsetTracker(initialProcessedOffset = lastCommittedOffset, snapshot = snapshot)
             nextObservedOffset = committedOffset
         }
@@ -72,16 +79,16 @@ internal class PartitionState(
         return offsetTracker.lastProcessedOffset - lastCommittedOffset
     }
 
-    fun advanceAndGetCommitData(): OffsetCommitData? {
+    fun advanceAndGetCommitData(forceMetadata: Boolean = false): OffsetCommitData? {
         offsetTracker.advanceProcessedFrontier()
         val offset = offsetTracker.lastProcessedOffset
-        if (offset <= lastCommittedOffset) return null
+        if (offset <= lastCommittedOffset && !forceMetadata) return null
         if (offsetTracker.bitCapacity > COMPACTION_CHECK_THRESHOLD_BITS) {
             offsetTracker.compact()
         }
         return OffsetCommitData(
             offset = offset,
-            advancedOffsetsCount = offset - lastCommittedOffset,
+            advancedOffsetsCount = (offset - lastCommittedOffset).coerceAtLeast(0),
             offsetTrackerSnapshot = offsetTracker.snapshot()
         )
     }
@@ -120,6 +127,92 @@ internal class PartitionState(
     fun isProcessed(offset: Long): Boolean =
         offsetTracker.isProcessed(offset)
 
+    /** Opens a new assignment generation. A record from an older generation can never start work. */
+    @Synchronized
+    fun activate(): PartitionLease {
+        generation++
+        accepting = true
+        revokeSignal = CompletableDeferred()
+        return PartitionLease(topicPartition, generation)
+    }
+
+    /** Closes admission for this generation before revoke/loss cleanup begins. */
+    @Synchronized
+    fun revoke(): PartitionLease? {
+        if (!accepting) return null
+        accepting = false
+        revokeSignal.complete(Unit)
+        return PartitionLease(topicPartition, generation)
+    }
+
+    @Synchronized
+    fun currentLease(): PartitionLease? =
+        if (accepting) PartitionLease(topicPartition, generation) else null
+
+    /** Atomically validates ownership and registers the whole processing pipeline as in-flight. */
+    @Synchronized
+    fun tryStart(lease: PartitionLease): Boolean {
+        if (!accepting || lease.generation != generation || lease.topicPartition != topicPartition) return false
+        activePipelines++
+        return true
+    }
+
+    /**
+     * Waits for retry backoff while allowing revoke to interrupt it. The final synchronized check is
+     * the admission point for the next attempt, just as [tryStart] is for the whole pipeline.
+     */
+    suspend fun awaitRetryPermission(lease: PartitionLease, retryDelay: Duration): Boolean {
+        val signal = synchronized(this) {
+            if (!accepting || lease.generation != generation || lease.topicPartition != topicPartition) {
+                null
+            } else {
+                revokeSignal
+            }
+        } ?: return false
+
+        if (retryDelay.isPositive()) {
+            val revoked = withTimeoutOrNull(retryDelay) {
+                signal.await()
+                true
+            } == true
+            if (revoked) return false
+        }
+
+        return synchronized(this) {
+            accepting && lease.generation == generation && lease.topicPartition == topicPartition
+        }
+    }
+
+    @Synchronized
+    fun finish(lease: PartitionLease) {
+        if (lease.generation == generation && activePipelines > 0) {
+            activePipelines--
+            if (activePipelines == 0) (this as java.lang.Object).notifyAll()
+        }
+    }
+
+    @Synchronized
+    fun markProcessed(lease: PartitionLease, offset: Long) {
+        // Revoke closes only new admission. Completion from a pipeline registered before
+        // the close belongs to this generation and must reach the final handoff commit.
+        if (lease.generation == generation && lease.topicPartition == topicPartition) {
+            offsetTracker.markProcessed(offset)
+        }
+    }
+
+    /** Poll-thread revoke wait. Workers never need the poll thread to make progress. */
+    @Synchronized
+    fun awaitPipelines(deadlineNanos: Long): Boolean {
+        while (activePipelines > 0) {
+            val remaining = deadlineNanos - System.nanoTime()
+            if (remaining <= 0L) return false
+            val millis = remaining / 1_000_000L
+            val nanos = (remaining % 1_000_000L).toInt()
+            (this as java.lang.Object).wait(millis, nanos)
+        }
+        return true
+    }
+
     @VisibleForTesting
     internal fun trackerRefForTest() = offsetTracker
 
@@ -127,3 +220,9 @@ internal class PartitionState(
         const val COMPACTION_CHECK_THRESHOLD_BITS = 8 * 1_024
     }
 }
+
+/** Immutable ownership identity captured when a record is admitted from Kafka. */
+internal data class PartitionLease(
+    val topicPartition: TopicPartition,
+    val generation: Long
+)

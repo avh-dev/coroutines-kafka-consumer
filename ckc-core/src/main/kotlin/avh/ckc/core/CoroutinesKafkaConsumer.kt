@@ -2,6 +2,7 @@ package avh.ckc.core
 
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
@@ -29,6 +30,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
@@ -38,6 +41,7 @@ import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
@@ -106,6 +110,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val commitRecordsThreshold: Int,
     private val workChannelCapacity: Int,
     private val freshnessMaxRecordAge: Duration?,
+    private val partitionHandoffTimeout: Duration = 30.seconds,
+    private val shutdownDrainTimeout: Duration = 30.seconds,
+    private val processingCancellationTimeout: Duration = 30.seconds,
+    private val recoveryTimeout: Duration = 120.seconds,
+    private val recoveryRetryBackoff: Duration = 1.seconds,
     private val processingDispatcher: CoroutineDispatcher,
     private val consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
@@ -122,15 +131,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
     private val terminalFailureSignal = CompletableDeferred<Unit>()
+    private val termination = CompletableDeferred<Throwable?>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
     private val partitionRegistry = PartitionRegistry()
-    private val processedRecordTracker: ProcessedRecordTracker = when (processingMode) {
-        ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
-        ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
-        ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> PartitionProcessedRecordTracker(partitionRegistry)
-        ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
-        ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> NoopProcessedRecordTracker
-    }
+    // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
+    private val processedRecordTracker: ProcessedRecordTracker = PartitionProcessedRecordTracker(
+        partitionRegistry = partitionRegistry,
+        trackOffsets = processingMode.tracksProcessedOffsets()
+    )
     private val scope = CoroutineScope(
         SupervisorJob(parentContext[Job]) +
                 parentContext.minusKey(Job) +
@@ -189,6 +197,23 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 "freshnessMaxRecordAge is supported only for freshness-first processing modes"
             }
         }
+        listOf(
+            "partitionHandoffTimeout" to partitionHandoffTimeout,
+            "shutdownDrainTimeout" to shutdownDrainTimeout,
+            "processingCancellationTimeout" to processingCancellationTimeout,
+            "recoveryTimeout" to recoveryTimeout,
+            "recoveryRetryBackoff" to recoveryRetryBackoff
+        ).forEach { (name, value) -> require(value.isPositive()) { "$name must be > 0" } }
+        val effectiveMaxPollIntervalMs = consumerProperties["max.poll.interval.ms"]?.toString()?.toLongOrNull() ?: 300_000L
+        require(partitionHandoffTimeout.inWholeMilliseconds < effectiveMaxPollIntervalMs) {
+            "partitionHandoffTimeout must be less than effective max.poll.interval.ms"
+        }
+        pollLoops.forEach {
+            it.configurePartitionHandoffTimeout(partitionHandoffTimeout)
+            it.configureShutdownDrainTimeout(shutdownDrainTimeout)
+            it.configureProcessingCancellationTimeout(processingCancellationTimeout)
+            it.configureRecovery(recoveryTimeout, recoveryRetryBackoff)
+        }
         require((topics == null) != (topicsPattern == null)) {
             "Exactly one of topics or topicsPattern must be specified"
         }
@@ -214,6 +239,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         commitRecordsThreshold: Int = 1_000,
         workChannelCapacity: Int = 1024,
         freshnessMaxRecordAge: Duration? = null,
+        partitionHandoffTimeout: Duration = 30.seconds,
+        shutdownDrainTimeout: Duration = 30.seconds,
+        processingCancellationTimeout: Duration = 30.seconds,
+        recoveryTimeout: Duration = 120.seconds,
+        recoveryRetryBackoff: Duration = 1.seconds,
         processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         @Suppress("UNCHECKED_CAST")
@@ -232,6 +262,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         commitRecordsThreshold = commitRecordsThreshold,
         workChannelCapacity = workChannelCapacity,
         freshnessMaxRecordAge = freshnessMaxRecordAge,
+        partitionHandoffTimeout = partitionHandoffTimeout,
+        shutdownDrainTimeout = shutdownDrainTimeout,
+        processingCancellationTimeout = processingCancellationTimeout,
+        recoveryTimeout = recoveryTimeout,
+        recoveryRetryBackoff = recoveryRetryBackoff,
         processingDispatcher = processingDispatcher,
         consumerProperties = consumerProperties,
         handler = handler,
@@ -272,8 +307,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         failure.get()?.let { throw it }
     }
 
+    /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
+    suspend fun awaitTermination() {
+        termination.await()?.let { throw it }
+    }
+
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
+        val loopSnapshots = pollLoops.map { it.stateSnapshot() }
         return ConsumerStateSnapshot(
             started = started,
             stopped = stopped,
@@ -285,7 +326,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             workChannelCapacity = workChannelCapacity,
             processing = processingRuntime.stateSnapshot(),
-            pollLoops = pollLoops.map { it.stateSnapshot() }
+            pollLoops = loopSnapshots,
+            lifecycleState = when {
+                currentFailure != null -> ConsumerLifecycleState.FAILED
+                stopped && stopDeferred?.isCompleted == false -> ConsumerLifecycleState.STOPPING
+                stopped -> ConsumerLifecycleState.STOPPED
+                loopSnapshots.any { it.recovering } -> ConsumerLifecycleState.RECOVERING
+                else -> ConsumerLifecycleState.RUNNING
+            },
+            lastRecoveryOrFailureReason = currentFailure?.message
+                ?: loopSnapshots.firstNotNullOfOrNull { it.lastRecoveryReason }
         )
     }
 
@@ -300,8 +350,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private fun handleFailure(cause: Throwable) {
         if (failure.compareAndSet(null, cause)) {
             metrics.onConsumerFailure(cause)
+            partitionRegistry.cancelAllActive()
             processingLifecycle.close(cause)
             terminalFailureSignal.complete(Unit)
+            termination.complete(cause)
             pollLoopJobs.forEach { it.cancel() }
         }
     }
@@ -312,18 +364,34 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 return@withLock
             }
             stopped = true
+            val shutdownStartedAt = System.nanoTime()
+            var shutdownOutcome = LifecycleOutcome.SUCCESS
 
             try {
                 if (failure.get() == null) {
-                    val readySignals = pollLoops.map { it.prepareForShutdown() }
-                    for (readySignal in readySignals) {
-                        select {
-                            readySignal.onAwait { }
-                            terminalFailureSignal.onAwait { }
+                    try {
+                        val shutdownDeadlineNanos = System.nanoTime() + shutdownDrainTimeout.inWholeNanoseconds
+                        withTimeout(shutdownDrainTimeout) {
+                            val readySignals = pollLoops.map { it.prepareForShutdown(shutdownDeadlineNanos) }
+                            for (readySignal in readySignals) {
+                                select {
+                                    readySignal.onAwait { }
+                                    terminalFailureSignal.onAwait { }
+                                }
+                                if (terminalFailureSignal.isCompleted) {
+                                    break
+                                }
+                            }
+                            if (!terminalFailureSignal.isCompleted) {
+                                // Stash is now in the runtime. Closing it drains accepted work and waits for
+                                // handlers, retries, and failure handlers before Kafka final commit.
+                                processingLifecycle.stop()
+                                pollLoops.map { it.finalizeShutdown() }.forEach { it.await() }
+                            }
                         }
-                        if (terminalFailureSignal.isCompleted) {
-                            break
-                        }
+                    } catch (timeout: TimeoutCancellationException) {
+                        handleFailure(timeout)
+                        throw timeout
                     }
                 }
 
@@ -334,9 +402,22 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                         job.join()
                     }
                 }
-
-                processingLifecycle.stop()
+                if (failure.get() != null) {
+                    processingLifecycle.stop()
+                }
+            } catch (error: Throwable) {
+                shutdownOutcome = if (error is TimeoutCancellationException) {
+                    LifecycleOutcome.TIMEOUT
+                } else {
+                    LifecycleOutcome.FAILURE
+                }
+                throw error
             } finally {
+                if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
+                    shutdownOutcome = LifecycleOutcome.FAILURE
+                }
+                metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
+                termination.complete(failure.get())
             }
         }
     }

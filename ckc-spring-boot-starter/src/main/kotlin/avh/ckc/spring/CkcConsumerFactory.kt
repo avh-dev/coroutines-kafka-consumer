@@ -27,6 +27,11 @@ internal fun buildConsumer(
         commitRecordsThreshold = consumerProperties.commitRecordsThreshold
         workChannelCapacity = consumerProperties.workChannelCapacity
         freshnessMaxRecordAge = consumerProperties.freshnessMaxRecordAge?.toKotlinDuration()
+        partitionHandoffTimeout = consumerProperties.partitionHandoffTimeout.toKotlinDuration()
+        shutdownDrainTimeout = consumerProperties.shutdownDrainTimeout.toKotlinDuration()
+        processingCancellationTimeout = consumerProperties.processingCancellationTimeout.toKotlinDuration()
+        recoveryTimeout = consumerProperties.recoveryTimeout.toKotlinDuration()
+        recoveryRetryBackoff = consumerProperties.recoveryRetryBackoff.toKotlinDuration()
         processingDispatcher = dispatcherRegistry.processingDispatcher(consumerName, consumerProperties)
         retryPolicy = retryPolicy(properties, consumerName, consumerProperties.retrySchema)
         this.metrics = metrics

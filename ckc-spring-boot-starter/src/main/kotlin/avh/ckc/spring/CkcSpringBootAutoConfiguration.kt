@@ -23,4 +23,14 @@ class CkcSpringBootAutoConfiguration {
     @ConditionalOnMissingBean
     fun ckcConsumersLifecycle(applicationContext: ApplicationContext): CkcConsumersLifecycle =
         CkcConsumersLifecycle(applicationContext)
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun ckcTerminalFailureExitHandler(): CkcTerminalFailureExitHandler =
+        CkcTerminalFailureExitHandler { status -> System.exit(status) }
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun ckcTerminalFailureHaltHandler(): CkcTerminalFailureHaltHandler =
+        CkcTerminalFailureHaltHandler { status -> Runtime.getRuntime().halt(status) }
 }

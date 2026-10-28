@@ -4,30 +4,128 @@ import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.RetryPolicy
+import avh.ckc.core.RetryRule
 import avh.ckc.core.awaitFor
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.typedTestRecord
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.seconds
 
 class AtLeastOnceOrderingRecordProcessingRuntimeTest {
+    @Test
+    fun `when revoke follows failed attempt then next retry is not started or marked processed`() = runBlocking {
+        val registry = PartitionRegistry()
+        val topicPartition = TopicPartition("topic", 0)
+        val state = registry.onPartitionsAssigned(listOf(topicPartition)).single().also { it.init(0L) }
+        val record = typedTestRecord(topic = topicPartition.topic(), offset = 0L, key = "key-a")
+        registry.observe(record)
+        val attemptStarted = CompletableDeferred<Unit>()
+        val releaseAttempt = CompletableDeferred<Unit>()
+        val runtimeFailure = CompletableDeferred<Throwable>()
+        val attempts = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            processedRecordTracker = PartitionProcessedRecordTracker(registry),
+            retryPolicy = RetryPolicy.of(RetryRule.of<IOException>(maxRetries = 3, delay = 30.seconds)),
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            handler = KafkaRecordHandler {
+                attempts.incrementAndGet()
+                attemptStarted.complete(Unit)
+                releaseAttempt.await()
+                throw IOException("transient")
+            }
+        )
+        runtime.start { runtimeFailure.complete(it) }
+        assertTrue(runtime.tryEmit(record))
+        withTimeout(2_000) { attemptStarted.await() }
+
+        registry.revoke(listOf(topicPartition))
+        releaseAttempt.complete(Unit)
+
+        assertTrue(state.awaitPipelines(System.nanoTime() + 2.seconds.inWholeNanoseconds))
+        assertEquals(1, attempts.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertFalse(runtimeFailure.isCompleted)
+        assertEquals(null, state.advanceAndGetCommitData())
+        runtime.stop()
+    }
+
+    @Test
+    fun `when handler fails during graceful drain then runtime failure is reported`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val failure = CompletableDeferred<Throwable>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            handler = KafkaRecordHandler {
+                entered.complete(Unit)
+                release.await()
+                throw CancellationException("failed while draining")
+            }
+        )
+        runtime.start { failure.complete(it) }
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "key-a")))
+        withTimeout(2_000) { entered.await() }
+
+        // UNDISPATCHED runs stop() through its first suspension, which closes admission and
+        // establishes that the handler failure below happens during the graceful drain.
+        val stop = launch(start = CoroutineStart.UNDISPATCHED) { runtime.stop() }
+        release.complete(Unit)
+
+        assertEquals("failed while draining", withTimeout(2_000) { failure.await() }.message)
+        withTimeout(2_000) { stop.join() }
+    }
+
+    @Test
+    fun `when handler times out then failure is not treated as lifecycle cancellation`() = runBlocking {
+        val failure = CompletableDeferred<Throwable>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            handler = KafkaRecordHandler {
+                withTimeout(1) { delay(1_000) }
+            }
+        )
+        runtime.start { failure.complete(it) }
+
+        assertTrue(runtime.tryEmit(typedTestRecord(offset = 1L, key = "key-a")))
+
+        assertTrue(withTimeout(2_000) { failure.await() } is TimeoutCancellationException)
+        runtime.stop()
+    }
+
     @Test
     fun `when ordered by key then records with same key are processed sequentially in poll order`() = runBlocking {
         val processedOffsets = CopyOnWriteArrayList<Long>()
@@ -293,6 +391,8 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         workChannelCapacity: Int,
         metrics: ConsumerMetrics<String, String> = noopMetrics(),
         processedRecordTracker: ProcessedRecordTracker = NoopProcessedRecordTracker,
+        retryPolicy: RetryPolicy = RetryPolicy.none(),
+        processingFailureHandler: ProcessingFailureHandler<String, String> = ProcessingFailureHandler.skip(),
         handler: KafkaRecordHandler<String, String>
     ): AtLeastOnceOrderingRecordProcessingRuntime<String, String> {
         return AtLeastOnceOrderingRecordProcessingRuntime(
@@ -303,8 +403,8 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             metrics = metrics,
             handler = handler,
-            retryPolicy = RetryPolicy.none(),
-            processingFailureHandler = ProcessingFailureHandler.skip(),
+            retryPolicy = retryPolicy,
+            processingFailureHandler = processingFailureHandler,
             recordProcessingContext = null,
             processedRecordTracker = processedRecordTracker
         )

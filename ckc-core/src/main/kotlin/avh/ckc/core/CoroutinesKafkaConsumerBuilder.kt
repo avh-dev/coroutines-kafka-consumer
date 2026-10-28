@@ -7,6 +7,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Builder for the public Kotlin DSL used to create [CoroutinesKafkaConsumer] instances.
@@ -60,6 +61,17 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
      * only by freshness-first processing modes because dropping by age would violate at-least-once semantics.
      */
     var freshnessMaxRecordAge: Duration? = null
+
+    /** Maximum time a normal rebalance callback may wait for active partition work. */
+    var partitionHandoffTimeout: Duration = 30.seconds
+    /** Maximum time stop may drain accepted local work. */
+    var shutdownDrainTimeout: Duration = 30.seconds
+    /** Maximum time to wait after cancelling work owned by a lost assignment. */
+    var processingCancellationTimeout: Duration = 30.seconds
+    /** Overall deadline for automatic Kafka-client recovery after membership loss. */
+    var recoveryTimeout: Duration = 120.seconds
+    /** Delay between recoverable Kafka-client recreation attempts. */
+    var recoveryRetryBackoff: Duration = 1.seconds
 
     /**
      * Dispatcher used for the main user-defined record handler.
@@ -152,6 +164,11 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             commitRecordsThreshold = commitRecordsThreshold,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
+            partitionHandoffTimeout = partitionHandoffTimeout,
+            shutdownDrainTimeout = shutdownDrainTimeout,
+            processingCancellationTimeout = processingCancellationTimeout,
+            recoveryTimeout = recoveryTimeout,
+            recoveryRetryBackoff = recoveryRetryBackoff,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
             metrics = metrics,

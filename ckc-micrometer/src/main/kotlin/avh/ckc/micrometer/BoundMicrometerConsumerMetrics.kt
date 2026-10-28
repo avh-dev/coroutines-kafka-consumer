@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.LifecycleOutcome
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge
@@ -17,6 +18,7 @@ import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class BoundMicrometerConsumerMetrics<K, V>(
     private val schema: MicrometerConsumerMetricsSchema,
@@ -27,6 +29,13 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val kafkaClientMetrics = mutableMapOf<Int, KafkaClientMetrics>()
     private val runtimeMeters = mutableListOf<Meter>()
     private val partitionMeters = mutableMapOf<Pair<String, Int>, Meter>()
+    private val recoveringPollLoops = AtomicInteger(0)
+    private val recoveryActiveGauge: Gauge = Gauge.builder(
+        schema.metricName(RECOVERY_ACTIVE),
+        recoveringPollLoops
+    ) { if (it.get() > 0) 1.0 else 0.0 }
+        .tags(consumerTags)
+        .register(schema.meterRegistry)
 
     override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) {
         if (!schema.kafkaClientMetricsEnabled) {
@@ -176,7 +185,35 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
 
     override fun onConsumerFailure(error: Throwable) {
         counter(FAILURE, tags("error" to error::class.java.simpleName)).increment()
+        counter(TERMINAL_FAILURE, tags("error" to error::class.java.simpleName)).increment()
     }
+
+    override fun onPartitionHandoff(durationNanos: Long, outcome: LifecycleOutcome) {
+        timer(PARTITION_HANDOFF_DURATION, lifecycleTags(outcome)).record(durationNanos, TimeUnit.NANOSECONDS)
+    }
+
+    override fun onShutdown(durationNanos: Long, outcome: LifecycleOutcome) {
+        timer(SHUTDOWN_DURATION, lifecycleTags(outcome)).record(durationNanos, TimeUnit.NANOSECONDS)
+    }
+
+    override fun onRecoveryAttempt() {
+        counter(RECOVERY_ATTEMPT).increment()
+    }
+
+    override fun onRecoveryCompleted(durationNanos: Long, outcome: LifecycleOutcome) {
+        timer(RECOVERY_DURATION, lifecycleTags(outcome)).record(durationNanos, TimeUnit.NANOSECONDS)
+    }
+
+    override fun onRecoveryStateChanged(active: Boolean) {
+        if (active) {
+            recoveringPollLoops.incrementAndGet()
+        } else {
+            recoveringPollLoops.getAndUpdate { current -> if (current > 0) current - 1 else 0 }
+        }
+    }
+
+    private fun lifecycleTags(outcome: LifecycleOutcome): Tags =
+        tags("outcome" to outcome.name.lowercase())
 
     private fun timer(suffix: String, tags: Iterable<Tag> = consumerTags): Timer =
         schema.timer(suffix, tags)
