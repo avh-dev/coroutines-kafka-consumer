@@ -2585,6 +2585,40 @@ class ExperimentReportTest(unittest.TestCase):
             )
             self.assertNotIn("FAIL ·", markdown)
 
+    def test_when_lifecycle_handoff_is_reprocessed_then_report_renders_neutral_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            audit_path = root / "results/runs/run-a/audit/summary.yaml"
+            audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit["audit"]["totals"].update({
+                "dropped": 1,
+                "dropped_by_reason": {"lifecycle": 1},
+                "lifecycle_handoff_reprocessed": 1,
+                "conflicting_terminal_outcomes": 0,
+                "unexpected_terminal_outcomes": 0,
+            })
+            audit["audit"]["topics"] = {
+                "order.events.v1": dict(audit["audit"]["totals"]),
+            }
+            self.write_yaml(audit_path, audit)
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+
+            self.assertIn("Lifecycle handoff · reprocessed", markdown)
+            self.assertIn(
+                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td>1</td>',
+                markdown,
+            )
+            self.assertNotIn("Conflicting terminal outcomes", markdown)
+            self.assertNotIn(
+                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'title="Audit records">A</span></th><td><span class="champion">',
+                markdown,
+            )
+
     def test_report_omits_network_analysis_without_configured_capture_steps(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

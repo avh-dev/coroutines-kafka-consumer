@@ -565,6 +565,9 @@ def render_markdown(report: ExperimentReport) -> str:
             return 0
         return max(0, int(total) - replay_drop_reason(data, "already_processed"))
 
+    def lifecycle_handoff_reprocessed(data: dict[str, Any]) -> int:
+        return int(data.get("lifecycle_handoff_reprocessed") or 0)
+
     def unexpected_terminal_conflicts(data: dict[str, Any]) -> int:
         unexpected = data.get("unexpected_terminal_outcomes")
         if unexpected is not None:
@@ -1344,6 +1347,10 @@ def render_markdown(report: ExperimentReport) -> str:
             [replay_drop_reason(delivery, "already_processed") for delivery in deliveries],
         )
         optional_plain_count_row(
+            "Lifecycle handoff · reprocessed",
+            [lifecycle_handoff_reprocessed(delivery) for delivery in deliveries],
+        )
+        optional_plain_count_row(
             "Replay dropped · freshness policy",
             [freshness_replay_drops(delivery) for delivery in deliveries],
         )
@@ -1605,6 +1612,10 @@ def render_markdown(report: ExperimentReport) -> str:
                 [replay_drop_reason(value, "already_processed") for value in values],
             )
             optional_plain_count_row(
+                "Lifecycle handoff · reprocessed",
+                [lifecycle_handoff_reprocessed(value) for value in values],
+            )
+            optional_plain_count_row(
                 "Replay dropped · freshness policy",
                 [freshness_replay_drops(value) for value in values],
             )
@@ -1654,6 +1665,10 @@ def render_markdown(report: ExperimentReport) -> str:
         optional_plain_count_row(
             "Replay dropped · already processed",
             [replay_drop_reason(target.delivery, "already_processed") for target in targets],
+        )
+        optional_plain_count_row(
+            "Lifecycle handoff · reprocessed",
+            [lifecycle_handoff_reprocessed(target.delivery) for target in targets],
         )
         optional_plain_count_row(
             "Replay dropped · freshness policy",
