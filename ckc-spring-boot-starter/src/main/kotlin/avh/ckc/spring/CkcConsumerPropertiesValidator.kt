@@ -70,6 +70,13 @@ internal fun validateConsumerProperties(
     validatePositive(consumerName, "worker-concurrency", consumerProperties.workerConcurrency)
     validatePositive(consumerName, "consumer-poll-loop-concurrency", consumerProperties.consumerPollLoopConcurrency)
     validatePositive(consumerName, "commit-records-threshold", consumerProperties.commitRecordsThreshold)
+    require(
+        consumerProperties.maxTrackedOffsetsPerPartition >= 128 &&
+            (consumerProperties.maxTrackedOffsetsPerPartition and
+                (consumerProperties.maxTrackedOffsetsPerPartition - 1)) == 0
+    ) {
+        "ckc.consumers.$consumerName.max-tracked-offsets-per-partition must be a power of two and >= 128"
+    }
     validatePositive(consumerName, "work-channel-capacity", consumerProperties.workChannelCapacity)
     consumerProperties.freshnessMaxRecordAge?.let { maxRecordAge ->
         require(!maxRecordAge.isNegative && !maxRecordAge.isZero) {

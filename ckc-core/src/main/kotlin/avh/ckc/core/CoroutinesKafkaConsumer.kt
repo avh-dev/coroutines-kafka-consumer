@@ -110,6 +110,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val consumerPollLoopConcurrency: Int,
     private val commitIntervalMs: Long,
     private val commitRecordsThreshold: Int,
+    private val maxTrackedOffsetsPerPartition: Int = 1_048_576,
     private val workChannelCapacity: Int,
     private val freshnessMaxRecordAge: Duration?,
     private val partitionHandoffTimeout: Duration = 30.seconds,
@@ -137,7 +138,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val termination = CompletableDeferred<Throwable?>()
     private val shutdownCompletion = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
-    private val partitionRegistry = PartitionRegistry()
+    private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition)
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
     private val processedRecordTracker: ProcessedRecordTracker = PartitionProcessedRecordTracker(
         partitionRegistry = partitionRegistry,
@@ -205,6 +206,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(consumerPollLoopConcurrency > 0) { "consumerPollLoopConcurrency must be > 0" }
         require(commitIntervalMs > 0) { "commitIntervalMs must be > 0" }
         require(commitRecordsThreshold > 0) { "commitRecordsThreshold must be > 0" }
+        require(
+            maxTrackedOffsetsPerPartition >= 128 &&
+                maxTrackedOffsetsPerPartition and (maxTrackedOffsetsPerPartition - 1) == 0
+        ) {
+            "maxTrackedOffsetsPerPartition must be a power of two and >= 128"
+        }
         require(workChannelCapacity > 0) { "workChannelCapacity must be > 0" }
         freshnessMaxRecordAge?.let {
             require(it.isPositive()) { "freshnessMaxRecordAge must be > 0" }
@@ -247,6 +254,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency: Int,
         commitIntervalMs: Long,
         commitRecordsThreshold: Int = 1_000,
+        maxTrackedOffsetsPerPartition: Int = 1_048_576,
         workChannelCapacity: Int = 1024,
         freshnessMaxRecordAge: Duration? = null,
         partitionHandoffTimeout: Duration = 30.seconds,
@@ -270,6 +278,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         consumerPollLoopConcurrency = consumerPollLoopConcurrency,
         commitIntervalMs = commitIntervalMs,
         commitRecordsThreshold = commitRecordsThreshold,
+        maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition,
         workChannelCapacity = workChannelCapacity,
         freshnessMaxRecordAge = freshnessMaxRecordAge,
         partitionHandoffTimeout = partitionHandoffTimeout,

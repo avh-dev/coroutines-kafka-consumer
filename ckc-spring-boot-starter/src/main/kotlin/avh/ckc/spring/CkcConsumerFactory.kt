@@ -25,6 +25,7 @@ internal fun buildConsumer(
         consumerPollLoopConcurrency = consumerProperties.consumerPollLoopConcurrency
         commitIntervalMs = consumerProperties.commitInterval.toMillis()
         commitRecordsThreshold = consumerProperties.commitRecordsThreshold
+        maxTrackedOffsetsPerPartition = consumerProperties.maxTrackedOffsetsPerPartition
         workChannelCapacity = consumerProperties.workChannelCapacity
         freshnessMaxRecordAge = consumerProperties.freshnessMaxRecordAge?.toKotlinDuration()
         partitionHandoffTimeout = consumerProperties.partitionHandoffTimeout.toKotlinDuration()

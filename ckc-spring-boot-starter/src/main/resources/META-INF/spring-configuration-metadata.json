@@ -313,6 +313,12 @@
       "defaultValue": 1000
     },
     {
+      "name": "ckc.consumers.*.max-tracked-offsets-per-partition",
+      "type": "java.lang.Integer",
+      "description": "Maximum uncompressed offset-tracker ring capacity per partition, in bits. Must be a power of two and at least 128.",
+      "defaultValue": 1048576
+    },
+    {
       "name": "ckc.consumers.*.work-channel-capacity",
       "type": "java.lang.Integer",
       "description": "Bounded work-channel capacity used by the selected processing runtime.",

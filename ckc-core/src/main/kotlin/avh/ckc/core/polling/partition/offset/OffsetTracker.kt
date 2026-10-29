@@ -11,11 +11,18 @@ import kotlin.math.max
  */
 internal class OffsetTracker(
     initialProcessedOffset: Long,
-    initialCapacity: Int = 128
+    initialCapacity: Int = 128,
+    private val maxCapacityBits: Int = 1_048_576
 ) {
 
     /** Smallest capacity compaction may retain, independent from a restored snapshot's current size. */
     private val minimumCapacityBits = ceilPow2(max(128, initialCapacity))
+
+    init {
+        require(maxCapacityBits >= minimumCapacityBits && maxCapacityBits.isPowerOfTwo()) {
+            "Offset tracker maximum capacity must be a power of two and >= $minimumCapacityBits"
+        }
+    }
 
     /** Highest contiguous offset known to be fully processed. */
     var lastProcessedOffset: Long = max(-1, initialProcessedOffset)
@@ -51,14 +58,18 @@ internal class OffsetTracker(
     constructor(
         initialProcessedOffset: Long,
         snapshot: OffsetTrackerSnapshot,
-        initialCapacity: Int = 128
-    ) : this(initialProcessedOffset, initialCapacity) {
+        initialCapacity: Int = 128,
+        maxCapacityBits: Int = 1_048_576
+    ) : this(initialProcessedOffset, initialCapacity, maxCapacityBits) {
         val snapshotWords = snapshot.words
         require(snapshotWords.size >= 2) { "Offset tracker snapshot must contain at least two words" }
         require(snapshotWords.size.isPowerOfTwo()) { "Offset tracker snapshot word count must be a power of two" }
         require(snapshot.headWordIndex in snapshotWords.indices) { "Offset tracker snapshot head index is out of bounds" }
         require(snapshot.headWordOffset <= this.lastProcessedOffset + 1) {
             "Offset tracker snapshot head is ahead of the first uncommitted offset"
+        }
+        require(snapshotWords.size.toLong() * 64L <= maxCapacityBits) {
+            "Offset tracker snapshot exceeds configured maximum capacity"
         }
         words = snapshotWords
         capacityBits = words.size shl 6
@@ -76,7 +87,10 @@ internal class OffsetTracker(
         synchronized(this) {
             if (offset <= lastProcessedOffset) return
 
-            val bitIndex = (offset - headWordOffset).toInt()
+            val bitIndex = bitIndex(offset)
+            require(bitIndex < maxCapacityBits) {
+                "Offset $offset exceeds the configured tracking window starting at $headWordOffset"
+            }
             if (bitIndex >= capacityBits) {
                 extendCapacity(bitIndex)
             }
@@ -118,6 +132,48 @@ internal class OffsetTracker(
             }
         }
     }
+
+    /** Whether [offset] fits in the current bounded tracking window without exceeding its maximum ring size. */
+    fun canTrack(offset: Long): Boolean =
+        synchronized(this) {
+            if (offset <= lastProcessedOffset) return true
+            val index = offset - headWordOffset
+            index in 0 until maxCapacityBits.toLong()
+        }
+
+    /**
+     * Skips an observed Kafka offset gap without materializing it when it starts at the processed frontier.
+     * Existing processed bits beyond the new head are rebased and preserved.
+     */
+    fun skipContiguousProcessedRange(fromInclusive: Long, toExclusive: Long): Boolean =
+        synchronized(this) {
+            if (fromInclusive >= toExclusive) return true
+            if (fromInclusive > lastProcessedOffset + 1) return false
+            if (toExclusive <= lastProcessedOffset + 1) return true
+
+            val rebasedWords = LongArray(words.size)
+            for (logicalWordIndex in words.indices) {
+                val physicalWordIndex = (headWordIndex + logicalWordIndex) and wordMask
+                var marked = words[physicalWordIndex]
+                while (marked != 0L) {
+                    val bitInWord = marked.countTrailingZeroBits()
+                    val oldBitIndex = logicalWordIndex.toLong() * 64L + bitInWord
+                    val offset = headWordOffset + oldBitIndex
+                    val newBitIndex = offset - toExclusive
+                    if (newBitIndex in 0 until capacityBits.toLong()) {
+                        val newWordIndex = (newBitIndex ushr 6).toInt()
+                        rebasedWords[newWordIndex] = rebasedWords[newWordIndex] or (1L shl newBitIndex.toInt())
+                    }
+                    marked = marked and (marked - 1)
+                }
+            }
+
+            lastProcessedOffset = toExclusive - 1
+            words = rebasedWords
+            headWordOffset = toExclusive
+            headWordIndex = 0
+            true
+        }
 
     /**
      * Returns whether [offset] is already known as processed.
@@ -262,6 +318,9 @@ internal class OffsetTracker(
      */
     private fun extendCapacity(bitIndex: Int) {
         val newSize = ceilPow2((bitIndex ushr 6) + 1)
+        require(newSize.toLong() * 64L <= maxCapacityBits) {
+            "Offset tracker capacity would exceed configured maximum of $maxCapacityBits bits"
+        }
         val newWords = LongArray(newSize)
 
         // The current storage is a ring. To grow it, we "unwrap" the ring into a linear layout
