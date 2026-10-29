@@ -39,8 +39,8 @@ import kotlin.time.Duration
  * only while [admissionBudget] has room. In-flight records are never replaced under a worker; if a newer same-key
  * record arrives while the previous one is being processed, it becomes the single queued successor.
  *
- * Offset tracking is intentionally disabled by the consumer wiring for this runtime. Drops rely on Kafka
- * auto-commit semantics, matching the broader freshness-first contract.
+ * Processing-completion tracking is intentionally disabled for this runtime. The poll loop explicitly commits
+ * its latest accepted position, so replaced and dropped records remain part of freshness-first progress.
  */
 internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     private val workerConcurrency: Int,

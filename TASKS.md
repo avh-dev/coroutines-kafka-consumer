@@ -68,6 +68,7 @@
 | [CORE-63](#core-63) | Optionally bind native Kafka consumer client metrics through the Micrometer adapter.                                                                                                                              | DONE |
 | [CORE-64](#core-64) | Make partition handoff generation-safe, drain graceful shutdown correctly, recover consumers after lost assignments, and surface terminal failures through the Spring starter. | DONE |
 | [CORE-65](#core-65) | Report ownership handoff separately from terminal record drops in core metrics and audit evidence. | DONE |
+| [CORE-66](#core-66) | Unify explicit time- and record-triggered offset commits across all processing modes. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5741,3 +5742,19 @@ demo audit logs, and treat it as non-terminal evidence in the analyzer and repor
 Continue reading historical `D(lifecycle)` records as legacy handoffs.
 Verification: core, Micrometer, and demo regression tests pass; analyzer tests
 cover explicit and legacy handoff records, including unresolved handoffs.
+
+<a id="core-66"></a>
+### CORE-66 - Unify commit management across processing modes
+
+_Date: 2026-10-29_
+
+Require explicit Kafka offset management for every processing mode and drive
+commits by either elapsed time or accepted-record count. Preserve completion-based
+offset selection for at-least-once modes while allowing freshness-first modes to
+commit their latest accepted positions, including intentionally dropped records.
+Keep failed commit state retryable and distinguish final revoke/shutdown commits
+from assignment loss. Add core, integration, and Spring regressions for both
+triggers, failed retry state, explicit auto-commit rejection, and final commits.
+Verification: core, Micrometer, and Spring starter unit tests pass. The full core
+integration suite has one pre-existing failure in the active-offset-hole rebalance
+scenario; the same isolated test also fails on the parent `master` commit.

@@ -127,7 +127,7 @@ object DemoConsumers {
         val properties = baseProperties + mapOf(
             ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
             ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to CauldronTelemetryEventDeserializer::class.java,
-            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to true
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false
         )
 
         return coroutinesKafkaConsumer(properties) {

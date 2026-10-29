@@ -280,18 +280,16 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST with auto commit then consumer processes produced record`() = runBlocking {
+    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then consumer processes produced record`() = runBlocking {
         val topic = "FRESHNESS_FIRST_DROP_OLDEST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
 
         val processed = CompletableDeferred<String?>()
-        val consumer = coroutinesKafkaConsumer<String, String>(
-            consumerProperties = consumerProperties(groupId) + mapOf(
-                "enable.auto.commit" to "true"
-            )
-        ) {
+        val consumer = coroutinesKafkaConsumer<String, String>(consumerProperties(groupId)) {
             processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
             topics(topic)
             handle { record ->
                 processed.complete(record.value())
@@ -303,6 +301,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "FRESHNESS_FIRST_DROP_OLDEST-key", "FRESHNESS_FIRST_DROP_OLDEST-payload")
 
             assertEquals("FRESHNESS_FIRST_DROP_OLDEST-payload", withTimeout(15_000) { processed.await() })
+            awaitFor(timeoutMillis = 15_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 1L }
+            }
         } finally {
             consumer.stop()
         }
@@ -316,14 +317,12 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
         val metrics = RecordingMetrics<String, String>()
         val processed = CopyOnWriteArrayList<String>()
-        val consumer = coroutinesKafkaConsumer<String, String>(
-            consumerProperties = consumerProperties(groupId) + mapOf(
-                "enable.auto.commit" to "true"
-            )
-        ) {
+        val consumer = coroutinesKafkaConsumer<String, String>(consumerProperties(groupId)) {
             processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
             workerConcurrency = 1
             workChannelCapacity = 1
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
             this.metrics = metrics
             topics(topic)
             handle { record ->
@@ -340,6 +339,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
             awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
                 processed.takeIf { it.isNotEmpty() }
+            }
+            awaitFor(timeoutMillis = 20_000, pauseMillis = 50) {
+                committedOffset(groupId, topic)?.takeIf { it.offset() == 20L }
             }
 
             assertFalse(processed.isEmpty())

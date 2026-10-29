@@ -161,7 +161,7 @@ class PartitionStateTest {
 
         val restored = OffsetTracker(
             initialProcessedOffset = commitData.offset,
-            snapshot = commitData.offsetTrackerSnapshot
+            snapshot = requireNotNull(commitData.offsetTrackerSnapshot)
         )
         assertTrue(restored.isProcessed(12L))
     }
@@ -184,6 +184,39 @@ class PartitionStateTest {
 
         assertNull(ps.advanceAndGetCommitData())
         assertEquals(10L, ps.lastCommittedOffset)
+    }
+
+    @Test
+    fun `freshness commit data follows accepted records without processing completion`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(10L)
+
+        ps.accept(10L)
+        ps.accept(12L)
+
+        val commitData = requireNotNull(ps.getAcceptedCommitData())
+        assertEquals(12L, commitData.offset)
+        assertEquals(2L, commitData.advancedOffsetsCount)
+        assertNull(commitData.offsetTrackerSnapshot)
+        assertEquals(2L, ps.acceptedRecordsPendingCommit())
+        assertFalse(ps.isProcessed(10L))
+        assertFalse(ps.isProcessed(12L))
+    }
+
+    @Test
+    fun `freshness commit data remains pending until successful commit is confirmed`() {
+        val ps = PartitionState(TopicPartition("t", 0))
+        ps.init(20L)
+        ps.accept(20L)
+
+        assertEquals(20L, ps.getAcceptedCommitData()?.offset)
+        assertEquals(1L, ps.acceptedRecordsPendingCommit())
+
+        ps.markCommitted(20L)
+
+        assertNull(ps.getAcceptedCommitData())
+        assertEquals(0L, ps.acceptedRecordsPendingCommit())
+        assertEquals(20L, ps.lastCommittedOffset)
     }
 
     @Test
@@ -253,7 +286,7 @@ class PartitionStateTest {
 
         assertEquals(16_384L, commitData.offset)
         assertEquals(128, ps.offsetTrackerBitCapacity)
-        assertEquals(2, commitData.offsetTrackerSnapshot.words.size)
+        assertEquals(2, requireNotNull(commitData.offsetTrackerSnapshot).words.size)
     }
 
     @Test
@@ -270,6 +303,6 @@ class PartitionStateTest {
 
         assertEquals(4_096L, commitData.offset)
         assertEquals(8_192, ps.offsetTrackerBitCapacity)
-        assertEquals(128, commitData.offsetTrackerSnapshot.words.size)
+        assertEquals(128, requireNotNull(commitData.offsetTrackerSnapshot).words.size)
     }
 }

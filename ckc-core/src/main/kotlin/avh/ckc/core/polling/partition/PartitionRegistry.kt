@@ -112,11 +112,16 @@ internal class PartitionRegistry {
         partitionStateFor(topicPartition.topic(), topicPartition.partition());
 
     /** Captures the current assignment generation at poll admission time. */
-    fun observe(record: ConsumerRecord<*, *>, observeOffset: Boolean = true): PartitionLease? {
+    fun observe(
+        record: ConsumerRecord<*, *>,
+        observeOffset: Boolean = true,
+        acceptOffset: Boolean = false
+    ): PartitionLease? {
         if (terminal) return null
         val state = partitionStateFor(record) ?: return null
         val lease = state.currentLease() ?: return null
         if (observeOffset) state.observe(record.offset())
+        if (acceptOffset) state.accept(record.offset())
         synchronized(recordLeases) { recordLeases[record] = lease }
         return lease
     }

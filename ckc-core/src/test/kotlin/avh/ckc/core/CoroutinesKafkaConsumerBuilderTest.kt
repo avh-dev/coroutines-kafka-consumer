@@ -85,31 +85,9 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST and auto commit disabled then build fails`() {
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            coroutinesKafkaConsumer<String, String>(
-                stringSerdeProperties() + mapOf(
-                    ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "false"
-                )
-            ) {
-                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
-                topics("topic-a")
-                handle { }
-            }
-        }
-
-        assertEquals(
-            "Kafka property '${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}' must be true when processingMode=FRESHNESS_FIRST_DROP_OLDEST",
-            error.message
-        )
-    }
-
-    @Test
-    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST and auto commit enabled then consumer is created`() {
+    fun `when freshness-first mode has auto commit disabled then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(
-            stringSerdeProperties() + mapOf(
-                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
-            )
+            stringSerdeProperties() + (ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "false")
         ) {
             processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
             topics("topic-a")
@@ -120,37 +98,31 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY and auto commit disabled then build fails`() {
+    fun `when freshness-first mode explicitly enables auto commit then build fails`() {
+        assertAutoCommitRejected(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
+    }
+
+    @Test
+    fun `when at-least-once mode explicitly enables auto commit then build fails`() {
+        assertAutoCommitRejected(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
+    }
+
+    private fun assertAutoCommitRejected(processingMode: ProcessingMode) {
         val error = assertThrows(IllegalArgumentException::class.java) {
             coroutinesKafkaConsumer<String, String>(
                 stringSerdeProperties() + mapOf(
-                    ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "false"
+                    ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
                 )
             ) {
-                processingMode = ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+                this.processingMode = processingMode
                 topics("topic-a")
                 handle { }
             }
         }
 
         assertEquals(
-            "Kafka property '${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}' must be true when processingMode=FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY",
+            "Kafka property '${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}' must not be true; CKC manages commits explicitly",
             error.message
         )
-    }
-
-    @Test
-    fun `when processing mode is FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY and auto commit enabled then consumer is created`() {
-        val consumer = coroutinesKafkaConsumer<String, String>(
-            stringSerdeProperties() + mapOf(
-                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "true"
-            )
-        ) {
-            processingMode = ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
-            topics("topic-a")
-            handle { }
-        }
-
-        assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
     }
 }

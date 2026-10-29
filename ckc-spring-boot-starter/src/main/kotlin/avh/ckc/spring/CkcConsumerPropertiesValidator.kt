@@ -97,6 +97,16 @@ internal fun validateConsumerProperties(
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.GROUP_ID_CONFIG)
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG)
     requireKafkaProperty(consumerName, kafkaProperties, ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG)
+    val autoCommit = kafkaProperties[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG]
+    val autoCommitEnabled = when (autoCommit) {
+        is Boolean -> autoCommit
+        is String -> autoCommit.equals("true", ignoreCase = true)
+        else -> false
+    }
+    require(!autoCommitEnabled) {
+        "ckc.consumers.$consumerName.kafka-properties.${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG} " +
+            "must not be true; CKC manages commits explicitly"
+    }
     consumerProperties.retrySchema?.takeIf { it.isNotBlank() }?.let { schemaName ->
         require(schemaName in properties.retrySchemas) {
             "CKC consumer '$consumerName' references unknown retry schema '$schemaName'"

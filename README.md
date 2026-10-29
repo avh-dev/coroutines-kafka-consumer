@@ -27,10 +27,9 @@ CKC supports tracked at-least-once modes and lossy freshness-first modes.
 safe contiguous frontier.
 
 `FRESHNESS_FIRST_DROP_OLDEST` and `FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY`
-intentionally trade reliability for throughput and freshness. They require Kafka auto-commit and do not use CKC
-offset tracking. Dropped records are not processed by the current consumer
-instance and may be redelivered only if partition ownership changes before Kafka
-commits past them.
+intentionally trade reliability for throughput and freshness. CKC explicitly commits the latest position accepted
+from each partition without waiting for processing completion, including records intentionally dropped by the
+freshness policy. They do not use processed-offset tracking.
 
 Freshness-first modes can also be configured with `freshnessMaxRecordAge`.
 When set, a worker drops records older than that duration before invoking the
@@ -74,9 +73,10 @@ offset 9 still running
 
 A consumer runtime must not commit past offsets `8` and `9` just because later records completed first. CKC tracks processed-but-not-yet-committable offsets and advances the commit frontier only when it is safe for the selected processing mode.
 
-Tracked at-least-once modes attempt a commit when either `commitRecordsThreshold` contiguous offsets
-are pending within a poll loop or `commitIntervalMs` elapses. The record threshold keeps commit cadence
-responsive under high traffic, while the interval remains the low-traffic fallback.
+Every mode attempts an explicit commit when either `commitRecordsThreshold` commit-ready records are pending
+within a poll loop or `commitIntervalMs` elapses. At-least-once modes select only the safe contiguous processed
+frontier; freshness-first modes select the latest accepted position. Kafka auto-commit is always disabled, and an
+explicit `enable.auto.commit=true` property is rejected.
 
 ### Replay and Ordering After Failures
 

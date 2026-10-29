@@ -44,6 +44,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -85,6 +86,178 @@ class ConsumerPollLoopTest {
             verify(fixture.consumer)
                 .subscribe(eq(listOf("topic-a")), any<ConsumerRebalanceListener>())
             verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when freshness commit interval elapses then latest accepted position is committed before processing`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 16,
+                commitIntervalMs = 25L,
+                commitRecordsThreshold = 1_000,
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(topicPartition, record(offset = 123L))
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+
+            fixture.awaitFreshnessCommit(123L)
+            assertEquals(123L, fixture.workChannel.tryReceive().getOrNull()?.offset())
+
+            job.cancel()
+            job.join()
+        }
+
+        @Test
+        fun `when freshness record threshold is reached then intentionally dropped records are committed`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 1,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 3,
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(
+                            topicPartition,
+                            record(offset = 101L),
+                            record(offset = 102L),
+                            record(offset = 103L)
+                        )
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+
+            fixture.awaitFreshnessCommit(103L)
+            assertEquals(103L, withTimeout(2_000) { fixture.workChannel.receive() }.offset())
+
+            job.cancel()
+            job.join()
+        }
+
+        @Test
+        fun `when freshness commit fails then accepted position is retried`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 4,
+                commitIntervalMs = 25L,
+                commitRecordsThreshold = 1,
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(topicPartition, record(offset = 77L))
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+            doThrow(IllegalStateException("commit failed"))
+                .doNothing()
+                .whenever(fixture.consumer)
+                .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            val job = fixture.start()
+
+            verify(fixture.consumer, timeout(2_000).times(2)).commitSync(
+                argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                    get(fixture.topicPartition)?.offset() == 78L
+                }
+            )
+            awaitFor(2_000L, 10L) {
+                fixture.registry.partitionStateFor(fixture.topicPartition)
+                    ?.lastCommittedOffset
+                    ?.takeIf { it == 77L }
+            }
+
+            job.cancel()
+            job.join()
+        }
+
+        @Test
+        fun `when freshness commits keep failing then retry requires another full record threshold`() = runBlocking {
+            val batches = ConcurrentLinkedQueue<ConsumerRecords<ByteArray, ByteArray>>()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 16,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 3,
+                pollAnswer = { batches.poll() ?: emptyRecords() }
+            )
+            batches += recordsOf(
+                fixture.topicPartition,
+                record(offset = 0L),
+                record(offset = 1L),
+                record(offset = 2L)
+            )
+            doThrow(IllegalStateException("first commit failed"))
+                .doThrow(IllegalStateException("second commit failed"))
+                .whenever(fixture.consumer)
+                .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            val job = fixture.start()
+            fixture.awaitCommitAttempts(1)
+
+            batches += recordsOf(
+                fixture.topicPartition,
+                record(offset = 3L),
+                record(offset = 4L)
+            )
+            awaitFor(2_000L, 10L) {
+                fixture.registry.partitionStateFor(fixture.topicPartition)
+                    ?.acceptedRecordsPendingCommit()
+                    ?.takeIf { it == 5L }
+            }
+            verify(fixture.consumer, times(1)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            batches += recordsOf(fixture.topicPartition, record(offset = 5L))
+            fixture.awaitCommitAttempts(2)
+
+            batches += recordsOf(fixture.topicPartition, record(offset = 6L))
+            awaitFor(2_000L, 10L) {
+                fixture.registry.partitionStateFor(fixture.topicPartition)
+                    ?.acceptedRecordsPendingCommit()
+                    ?.takeIf { it == 7L }
+            }
+            verify(fixture.consumer, times(2)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            job.cancel()
+            job.join()
+        }
+
+        @Test
+        fun `when freshness loop shuts down then accepted position receives a final commit`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 4,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 1_000,
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(topicPartition, record(offset = 88L))
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+            val job = fixture.start()
+            withTimeout(2_000) { fixture.workChannel.receive() }
+
+            withTimeout(2_000) { fixture.loop.prepareForShutdown().await() }
+            fixture.loop.finalizeShutdown()
+            withTimeout(2_000) { job.join() }
+
+            fixture.awaitDeadlineBoundedFreshnessCommit(88L)
         }
 
         @Test
@@ -625,7 +798,7 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `when commit fails then unchanged processed frontier is retried`() = runBlocking {
+        fun `when commit fails then unchanged processed frontier and threshold are retried`() = runBlocking {
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
                 workChannelCapacity = 4,
@@ -663,6 +836,45 @@ class ConsumerPollLoopTest {
             job.join()
 
             verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when commits keep failing then retry requires another full record threshold`() = runBlocking {
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                assignmentPosition = 300L,
+                commitIntervalMs = 60_000L,
+                commitRecordsThreshold = 3,
+                pollAnswer = { emptyRecords() }
+            )
+            doThrow(IllegalStateException("first commit failed"))
+                .doThrow(IllegalStateException("second commit failed"))
+                .whenever(fixture.consumer)
+                .commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            val job = fixture.start()
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 299L)
+
+            state.markProcessed(300L)
+            state.markProcessed(301L)
+            state.markProcessed(302L)
+            fixture.awaitCommitAttempts(1)
+
+            state.markProcessed(303L)
+            state.markProcessed(304L)
+            delay(100L)
+            verify(fixture.consumer, times(1)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            state.markProcessed(305L)
+            fixture.awaitCommitAttempts(2)
+
+            state.markProcessed(306L)
+            delay(100L)
+            verify(fixture.consumer, times(2)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
+
+            job.cancel()
+            job.join()
         }
 
         @Test
@@ -1013,9 +1225,7 @@ private class PollLoopFixture(
 
         whenever(consumer.poll(any<Duration>()))
             .thenAnswer {
-                if (processingMode.tracksProcessedOffsets() &&
-                    assignedOnce.compareAndSet(false, true)
-                ) {
+                if (assignedOnce.compareAndSet(false, true)) {
                     listenerRef.get()?.onPartitionsAssigned(assignmentPositions.keys)
                 }
                 pollAnswer()
@@ -1051,11 +1261,30 @@ private class PollLoopFixture(
         )
     }
 
+    fun awaitFreshnessCommit(offset: Long) {
+        verify(consumer, timeout(2_000)).commitSync(
+            argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                val committed = get(topicPartition)
+                committed?.offset() == offset + 1 && committed.metadata().isEmpty()
+            }
+        )
+    }
+
     fun awaitDeadlineBoundedCommit(offset: Long) {
         verify(consumer, timeout(2_000)).commitSync(
             argThat<Map<TopicPartition, OffsetAndMetadata>> {
                 val committed = get(topicPartition)
                 committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
+            },
+            any<Duration>()
+        )
+    }
+
+    fun awaitDeadlineBoundedFreshnessCommit(offset: Long) {
+        verify(consumer, timeout(2_000)).commitSync(
+            argThat<Map<TopicPartition, OffsetAndMetadata>> {
+                val committed = get(topicPartition)
+                committed?.offset() == offset + 1 && committed.metadata().isEmpty()
             },
             any<Duration>()
         )

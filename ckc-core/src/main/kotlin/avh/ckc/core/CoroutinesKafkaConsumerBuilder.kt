@@ -32,15 +32,16 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     var consumerPollLoopConcurrency: Int = 1
 
     /**
-     * Interval for periodic best-effort offset commits in tracked at-least-once modes.
+     * Interval for periodic best-effort explicit offset commits in every processing mode.
      *
      * The default matches Kafka's `auto.commit.interval.ms` default.
      */
     var commitIntervalMs: Long = 5_000L
 
     /**
-     * Number of contiguous processed records that triggers an offset commit in tracked at-least-once modes.
+     * Number of commit-ready records that triggers an offset commit.
      *
+     * At-least-once modes count the processed contiguous frontier; freshness-first modes count accepted records.
      * The time-based [commitIntervalMs] remains a fallback when traffic does not reach this threshold.
      */
     var commitRecordsThreshold: Int = 1_000

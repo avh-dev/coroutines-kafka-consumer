@@ -77,6 +77,7 @@ ckc:
       processing-dispatcher: shared-workers
       work-channel-capacity: 10000
       kafka-properties:
+        enable.auto.commit: false
         max.poll.records: 500
 ```
 
@@ -235,8 +236,10 @@ Map keys under `clusters`, `dispatchers`, `retry-schemas`, `metrics.micrometer.s
 raw Kafka properties, so they override values from `kafka-properties`.
 `freshness-max-record-age` is supported only for freshness-first processing
 modes and causes stale records to be dropped before the user handler runs.
-Tracked at-least-once modes commit when either `commit-records-threshold` contiguous offsets are
-pending within a poll loop or `commit-interval` elapses, whichever happens first.
+All modes use explicit commits and reject `enable.auto.commit=true`. A commit is attempted when either
+`commit-records-threshold` commit-ready records are pending within a poll loop or `commit-interval` elapses.
+At-least-once modes commit the safe processed frontier; freshness-first modes commit the latest accepted position,
+including records intentionally dropped by their freshness policy.
 
 ## Metrics
 

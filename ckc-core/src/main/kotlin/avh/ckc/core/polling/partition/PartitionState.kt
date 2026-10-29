@@ -24,6 +24,8 @@ internal class PartitionState(
     private var offsetTracker: OffsetTracker = OffsetTracker(-1)
     private var initialized = false
     private var nextObservedOffset = 0L
+    private var latestAcceptedOffset = -1L
+    private var acceptedRecordsSinceCommit = 0L
     private var generation = 0L
     private var accepting = false
     private var activePipelines = 0
@@ -51,6 +53,8 @@ internal class PartitionState(
         if (forceReset || !initialized || committedOffset != lastCommittedOffset) {
             offsetTracker = OffsetTracker(committedOffset)
             nextObservedOffset = initialPosition
+            latestAcceptedOffset = committedOffset
+            acceptedRecordsSinceCommit = 0L
         }
         lastCommittedOffset = committedOffset
         initialized = true
@@ -68,6 +72,8 @@ internal class PartitionState(
         if (forceReset || !initialized || lastCommittedOffset != this.lastCommittedOffset) {
             offsetTracker = OffsetTracker(initialProcessedOffset = lastCommittedOffset, snapshot = snapshot)
             nextObservedOffset = committedOffset
+            latestAcceptedOffset = lastCommittedOffset
+            acceptedRecordsSinceCommit = 0L
         }
         this.lastCommittedOffset = lastCommittedOffset
         initialized = true
@@ -78,6 +84,9 @@ internal class PartitionState(
         offsetTracker.advanceProcessedFrontier()
         return offsetTracker.lastProcessedOffset - lastCommittedOffset
     }
+
+    /** Returns records accepted since the last successful freshness-first commit. */
+    fun acceptedRecordsPendingCommit(): Long = acceptedRecordsSinceCommit
 
     fun advanceAndGetCommitData(forceMetadata: Boolean = false): OffsetCommitData? {
         offsetTracker.advanceProcessedFrontier()
@@ -93,13 +102,27 @@ internal class PartitionState(
         )
     }
 
+    /** Returns the latest accepted position without depending on processing completion. */
+    fun getAcceptedCommitData(): OffsetCommitData? {
+        if (latestAcceptedOffset <= lastCommittedOffset) return null
+        return OffsetCommitData(
+            offset = latestAcceptedOffset,
+            advancedOffsetsCount = acceptedRecordsSinceCommit,
+            offsetTrackerSnapshot = null
+        )
+    }
+
     /** Confirms that Kafka successfully committed [offset]. */
     fun markCommitted(offset: Long) {
-        require(offset <= offsetTracker.lastProcessedOffset) {
-            "Committed offset $offset is ahead of processed offset ${offsetTracker.lastProcessedOffset}"
+        val maximumCommittableOffset = maxOf(offsetTracker.lastProcessedOffset, latestAcceptedOffset)
+        require(offset <= maximumCommittableOffset) {
+            "Committed offset $offset is ahead of ready offset $maximumCommittableOffset"
         }
         if (offset > lastCommittedOffset) {
             lastCommittedOffset = offset
+        }
+        if (offset >= latestAcceptedOffset) {
+            acceptedRecordsSinceCommit = 0L
         }
     }
 
@@ -122,6 +145,13 @@ internal class PartitionState(
             offsetTracker.markProcessedRange(nextObservedOffset, offset)
         }
         nextObservedOffset = offset + 1
+    }
+
+    /** Records a position accepted from Kafka by a freshness-first runtime. */
+    fun accept(offset: Long) {
+        if (offset <= latestAcceptedOffset) return
+        latestAcceptedOffset = offset
+        acceptedRecordsSinceCommit++
     }
 
     fun isProcessed(offset: Long): Boolean =

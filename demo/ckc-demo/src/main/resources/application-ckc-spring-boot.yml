@@ -103,7 +103,7 @@ ckc:
       freshness-max-record-age: ${FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS:10}s
       commit-interval: ${KAFKA_CONSUMER_COMMIT_INTERVAL_MS:5000}ms
       kafka-properties:
-        enable.auto.commit: true
+        enable.auto.commit: false
         fetch.min.bytes: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES:${KAFKA_CONSUMER_FETCH_MIN_BYTES:1}}
         fetch.max.wait.ms: ${TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:${KAFKA_CONSUMER_FETCH_MAX_WAIT_MS:500}}
         max.poll.records: ${TELEMETRY_KAFKA_CONSUMER_MAX_POLL_RECORDS:${KAFKA_CONSUMER_MAX_POLL_RECORDS:500}}

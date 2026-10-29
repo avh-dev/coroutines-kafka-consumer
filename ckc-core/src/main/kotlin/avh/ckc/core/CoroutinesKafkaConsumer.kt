@@ -116,7 +116,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val recoveryTimeout: Duration = 120.seconds,
     private val recoveryRetryBackoff: Duration = 1.seconds,
     private val processingDispatcher: CoroutineDispatcher,
-    private val consumerProperties: Map<String, Any?>,
+    consumerProperties: Map<String, Any?>,
     private val handler: KafkaRecordHandler<K, V>,
     private val retryPolicy: RetryPolicy,
     private val metrics: ConsumerMetrics<K, V>,
@@ -128,11 +128,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
+    private val effectiveConsumerProperties = consumerProperties.withExplicitCommitManagement()
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
     private val terminalFailureSignal = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
-    private val consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties)
+    private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
     private val partitionRegistry = PartitionRegistry()
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
     private val processedRecordTracker: ProcessedRecordTracker = PartitionProcessedRecordTracker(
@@ -167,7 +168,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             commitIntervalMs,
             commitRecordsThreshold,
             metrics,
-            consumerProperties,
+            effectiveConsumerProperties,
             consumerConfigAdapter,
             topics,
             topicsPattern,
@@ -222,11 +223,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         }
         require(consumerProperties.containsKey(VALUE_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$VALUE_DESERIALIZER_CLASS_CONFIG' must be specified"
-        }
-        if (processingMode == ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST || processingMode == ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY) {
-            require(consumerConfigAdapter.getBoolean(ENABLE_AUTO_COMMIT_CONFIG) == true) {
-                "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must be true when processingMode=$processingMode"
-            }
         }
     }
 
@@ -421,6 +417,19 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             }
         }
     }
+}
+
+private fun Map<String, Any?>.withExplicitCommitManagement(): Map<String, Any?> {
+    val configured = this[ENABLE_AUTO_COMMIT_CONFIG]
+    val explicitlyEnabled = when (configured) {
+        is Boolean -> configured
+        is String -> configured.equals("true", ignoreCase = true)
+        else -> false
+    }
+    require(!explicitlyEnabled) {
+        "Kafka property '$ENABLE_AUTO_COMMIT_CONFIG' must not be true; CKC manages commits explicitly"
+    }
+    return this + (ENABLE_AUTO_COMMIT_CONFIG to false)
 }
 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
