@@ -143,8 +143,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         partitionRegistry = partitionRegistry,
         trackOffsets = processingMode.tracksProcessedOffsets()
     )
+    private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val scope = CoroutineScope(
-        SupervisorJob(parentContext[Job]) +
+        lifecycleJob +
                 parentContext.minusKey(Job) +
                 CoroutineName("CoroutinesKafkaConsumer")
     )
@@ -186,6 +187,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     @Volatile
     private var stopped = false
 
+    @Volatile
+    private var startCompleted = false
+
+    @Volatile
     private var pollLoopJobs: List<Job> = emptyList()
     private var stopDeferred: Deferred<Unit>? = null
 
@@ -284,15 +289,23 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         check(!started) { "Consumer already started" }
         started = true
 
-        processingLifecycle.start { handleFailure(it) }
+        try {
+            processingLifecycle.start { handleFailure(it) }
 
-        pollLoopJobs = pollLoops.map { loop ->
-            loop.start().also { observeFailure(it) }
-        }
-
-        // A processing worker may fail while poll loops are still being started.
-        if (failure.get() != null) {
-            pollLoopJobs.forEach { it.cancel() }
+            pollLoops.forEach { loop ->
+                val job = loop.start().also { observeFailure(it) }
+                pollLoopJobs = pollLoopJobs + job
+            }
+        } catch (error: Throwable) {
+            handleFailure(error)
+            throw error
+        } finally {
+            startCompleted = true
+            // A worker or already-started poll loop may fail while the remaining loops start.
+            if (failure.get() != null) {
+                pollLoopJobs.forEach { it.cancel() }
+                prepareForStop()
+            }
         }
     }
 
@@ -359,6 +372,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             terminalFailureSignal.complete(Unit)
             termination.complete(cause)
             pollLoopJobs.forEach { it.cancel() }
+            if (startCompleted) {
+                prepareForStop()
+            }
         }
     }
 
@@ -372,6 +388,15 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             var shutdownOutcome = LifecycleOutcome.SUCCESS
             var shutdownError: Throwable? = null
             var processingShutdownCompleted = false
+            fun recordShutdownError(error: Throwable) {
+                shutdownOutcome = LifecycleOutcome.FAILURE
+                val existingError = shutdownError
+                if (existingError == null) {
+                    shutdownError = error
+                } else {
+                    existingError.addSuppressed(error)
+                }
+            }
 
             try {
                 if (failure.get() == null) {
@@ -419,23 +444,35 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                             job.join()
                         }
                     }
+                } catch (error: Throwable) {
+                    recordShutdownError(error)
+                }
+
+                try {
                     if (!processingShutdownCompleted) {
                         processingLifecycle.stop()
                         processingShutdownCompleted = true
                     }
                 } catch (error: Throwable) {
-                    shutdownOutcome = LifecycleOutcome.FAILURE
-                    if (shutdownError == null) {
-                        shutdownError = error
-                    } else {
-                        shutdownError.addSuppressed(error)
+                    recordShutdownError(error)
+                }
+
+                pollLoops.forEach { loop ->
+                    try {
+                        loop.releaseResources()
+                    } catch (error: Throwable) {
+                        recordShutdownError(error)
                     }
-                } finally {
+                }
+
+                try {
                     if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
                         shutdownOutcome = LifecycleOutcome.FAILURE
                     }
                     metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
                     termination.complete(failure.get())
+                } finally {
+                    lifecycleJob.complete()
                     shutdownCompletion.complete(Unit)
                 }
             }

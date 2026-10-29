@@ -76,6 +76,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
     /**
      * Dispatcher used for the main user-defined record handler.
+     *
+     * The application retains ownership of this dispatcher and must close it when appropriate.
      */
     var processingDispatcher: CoroutineDispatcher = Dispatchers.Default
 

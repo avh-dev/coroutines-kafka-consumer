@@ -52,6 +52,34 @@ import java.util.concurrent.atomic.AtomicReference
 
 class ConsumerPollLoopTest {
 
+    @Test
+    fun `when poll loops are repeatedly created and released then dispatcher threads terminate`() = runBlocking {
+        val releasedThreads = mutableListOf<Thread>()
+
+        repeat(3) {
+            val pollThread = AtomicReference<Thread?>()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                workChannelCapacity = 1,
+                pollAnswer = {
+                    pollThread.compareAndSet(null, Thread.currentThread())
+                    emptyRecords()
+                }
+            )
+            val job = fixture.start()
+            val thread = awaitFor(2_000L, 10L) { pollThread.get() }
+
+            job.cancel()
+            job.join()
+            fixture.loop.releaseResources()
+            fixture.loop.releaseResources()
+            awaitFor(2_000L, 10L) { true.takeIf { !thread.isAlive } }
+            releasedThreads += thread
+        }
+
+        assertTrue(releasedThreads.none(Thread::isAlive))
+    }
+
     @Nested
     inner class FRESHNESS_FIRST_DROP_OLDEST {
 

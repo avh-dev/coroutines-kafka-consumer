@@ -11,6 +11,7 @@ import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRunt
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.seconds
 
@@ -307,6 +310,96 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
+    fun `when consumer stops repeatedly then every poll loop resource is released once`() = runBlocking {
+        val parentJob = Job()
+        val loops = mutableListOf<TrackingPollLoop>()
+        val consumer = lifecycleTestConsumer(
+            consumerPollLoopConcurrency = 2,
+            parentContext = parentJob + Dispatchers.Default
+        ) { _, context ->
+            TrackingPollLoop(context).also(loops::add)
+        }
+
+        consumer.start()
+        consumer.stop()
+        consumer.stop()
+
+        assertEquals(listOf(1, 1), loops.map { it.releaseCalls.get() })
+        assertTrue(loops.all { it.job?.isCompleted == true })
+        awaitFor(2_000, 10) { true.takeIf { parentJob.children.none() } }
+        assertTrue(parentJob.isActive)
+    }
+
+    @Test
+    fun `when poll loop startup fails then started and unstarted loop resources are released`() = runBlocking {
+        val failure = IllegalStateException("poll loop start failed")
+        val parentJob = Job()
+        val loops = mutableListOf<TrackingPollLoop>()
+        val consumer = lifecycleTestConsumer(
+            consumerPollLoopConcurrency = 2,
+            parentContext = parentJob + Dispatchers.Default
+        ) { id, context ->
+            TrackingPollLoop(context, startFailure = failure.takeIf { id == 1 }).also(loops::add)
+        }
+
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            consumer.start()
+        }
+        withTimeout(2_000) { consumer.awaitShutdownCompletion() }
+
+        assertSame(failure, thrown)
+        assertEquals(listOf(1, 1), loops.map { it.releaseCalls.get() })
+        assertTrue(loops.first().job?.isCompleted == true)
+        assertEquals(null, loops.last().job)
+        awaitFor(2_000, 10) { true.takeIf { parentJob.children.none() } }
+        assertTrue(parentJob.isActive)
+    }
+
+    @Test
+    fun `when poll loop fails terminally then resources are released without explicit stop`() = runBlocking {
+        val failure = IllegalStateException("terminal poll failure")
+        val parentJob = Job()
+        lateinit var loop: TrackingPollLoop
+        val consumer = lifecycleTestConsumer(parentContext = parentJob + Dispatchers.Default) { _, context ->
+            TrackingPollLoop(context).also { loop = it }
+        }
+        consumer.start()
+
+        loop.fail(failure)
+        withTimeout(2_000) { consumer.awaitShutdownCompletion() }
+
+        assertEquals(1, loop.releaseCalls.get())
+        assertTrue(loop.job?.isCompleted == true)
+        awaitFor(2_000, 10) { true.takeIf { parentJob.children.none() } }
+        assertTrue(parentJob.isActive)
+        assertSame(
+            failure,
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { consumer.awaitTermination() }
+            }
+        )
+    }
+
+    @Test
+    fun `when consumer stops then externally owned processing dispatcher remains usable`() = runBlocking {
+        val executor = Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        try {
+            val consumer = lifecycleTestConsumer(processingDispatcher = dispatcher) { _, context ->
+                TrackingPollLoop(context)
+            }
+
+            consumer.start()
+            consumer.stop()
+
+            assertFalse(executor.isShutdown)
+            assertEquals("still-usable", executor.submit<String> { "still-usable" }.get())
+        } finally {
+            dispatcher.close()
+        }
+    }
+
+    @Test
     fun `when processing then handler runs on processing dispatcher`() = runBlocking {
         val processedThread = CompletableDeferred<String>()
         val dispatcher = Executors.newSingleThreadExecutor { runnable ->
@@ -539,4 +632,68 @@ class CoroutinesKafkaConsumerTest {
             processingFailureHandler = ProcessingFailureHandler.skip(),
             processedRecordTracker = NoopProcessedRecordTracker
         )
+
+    @Suppress("UNCHECKED_CAST")
+    private fun lifecycleTestConsumer(
+        consumerPollLoopConcurrency: Int = 1,
+        processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+        parentContext: CoroutineContext = Dispatchers.Default,
+        pollLoopFactory: (Int, CoroutineContext) -> ConsumerPollLoopControl
+    ): CoroutinesKafkaConsumer<String, String> = CoroutinesKafkaConsumer(
+        processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+        workerConcurrency = 1,
+        consumerPollLoopConcurrency = consumerPollLoopConcurrency,
+        commitIntervalMs = 1_000L,
+        commitRecordsThreshold = 1_000,
+        workChannelCapacity = 16,
+        freshnessMaxRecordAge = null,
+        processingDispatcher = processingDispatcher,
+        consumerProperties = stringSerdeProperties(),
+        handler = KafkaRecordHandler { },
+        retryPolicy = RetryPolicy.none(),
+        metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+        recordProcessingContext = null,
+        processingFailureHandler = ProcessingFailureHandler.skip(),
+        parentContext = parentContext,
+        topics = listOf("topic-a"),
+        topicsPattern = null,
+        pollLoopFactory = { id, context, _, _, _, _, _, _, _, _, _, _ ->
+            pollLoopFactory(id, context)
+        },
+        processingRuntimeFactory = ::defaultProcessingRuntime
+    )
+
+    private class TrackingPollLoop(
+        private val parentContext: CoroutineContext,
+        private val startFailure: Throwable? = null
+    ) : ConsumerPollLoopControl {
+        private val terminalFailure = CompletableDeferred<Throwable?>()
+        val releaseCalls = AtomicInteger()
+        var job: Job? = null
+            private set
+
+        override fun start(): Job {
+            startFailure?.let { throw it }
+            return CoroutineScope(parentContext).launch {
+                terminalFailure.await()?.let { throw it }
+            }.also { job = it }
+        }
+
+        override fun prepareForShutdown() = CompletableDeferred(Unit)
+
+        override fun finalizeShutdown(): CompletableDeferred<Unit> {
+            terminalFailure.complete(null)
+            return CompletableDeferred(Unit)
+        }
+
+        override fun stateSnapshot(): PollLoopStateSnapshot = error("not needed by this test")
+
+        override suspend fun releaseResources() {
+            releaseCalls.incrementAndGet()
+        }
+
+        fun fail(error: Throwable) {
+            terminalFailure.complete(error)
+        }
+    }
 }
