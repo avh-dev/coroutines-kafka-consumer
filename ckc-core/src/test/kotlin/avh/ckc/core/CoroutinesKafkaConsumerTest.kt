@@ -684,6 +684,52 @@ class CoroutinesKafkaConsumerTest {
         assertEquals(expected.message, metrics.consumerFailures.single().message)
     }
 
+    @Test
+    fun `when handler throws fatal JVM error then consumer fails without retry or skip`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val expected = LinkageError("fatal handler failure")
+        val attempts = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 2L, key = "key", value = "value")),
+            consumerProperties = stringSerdeProperties(),
+            metrics = metrics,
+            retryPolicy = retryPolicy {
+                retry<Throwable> { maxRetries = 3 }
+            },
+            processingFailureHandler = ProcessingFailureHandler { _, _ ->
+                failureHandlerCalls.incrementAndGet()
+            },
+            handler = KafkaRecordHandler {
+                attempts.incrementAndGet()
+                throw expected
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) {
+            awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+                metrics.consumerFailures.firstOrNull()
+            }
+        }
+
+        val thrown = assertThrows(LinkageError::class.java) {
+            runBlocking {
+                withTimeout(2_000) { consumer.stop() }
+            }
+        }
+
+        assertEquals(expected.message, thrown.message)
+        assertEquals(1, attempts.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertEquals(0, metrics.retries.size)
+        assertEquals(0, metrics.failed.size)
+        assertEquals(0, metrics.processed.size)
+        assertEquals(1, metrics.consumerFailures.size)
+        assertInstanceOf(LinkageError::class.java, metrics.consumerFailures.single())
+        assertEquals(expected.message, metrics.consumerFailures.single().message)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun createDefaultProcessingRuntime(processingMode: ProcessingMode) =
         defaultProcessingRuntime(

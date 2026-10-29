@@ -75,6 +75,7 @@
 | [CORE-70](#core-70) | Make partition gauge registration and removal atomic across concurrent poll-loop ownership changes. | DONE |
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
+| [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5848,3 +5849,15 @@ size, ring-structure, metadata-budget, and reduced-limit fallback regressions; a
 23 core integration tests pass.
 Review follow-up also rejects ring heads outside the committed frontier word and
 missing processed-prefix bits, falling back before tracker backpressure is applied.
+
+<a id="core-73"></a>
+### CORE-73 - Handle fatal JVM errors
+
+_Date: 2026-10-29_
+
+Separate fatal JVM errors from ordinary handler failures and cancellation. Bypass
+retry policies and standard failure handlers, propagate the fatal error to terminal
+consumer failure, and leave the affected record unacknowledged.
+Verification: core, Micrometer, and Spring starter tests pass, including fatal-error
+classification, retry/skip bypass, unchanged ordinary-error semantics, and terminal
+consumer propagation regressions; all 23 core integration tests pass.
