@@ -190,7 +190,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
             val envelope = workChannel.receiveCatching().getOrNull() ?: break
             val record = claim(envelope) ?: continue
             if (!processedRecordTracker.tryStart(record)) {
-                metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+                metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
                 processedRecordTracker.discard(record)
                 finish(envelope.key)
                 continue

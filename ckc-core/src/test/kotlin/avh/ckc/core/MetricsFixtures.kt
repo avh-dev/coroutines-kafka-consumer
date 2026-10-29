@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
@@ -29,6 +30,11 @@ data class RecordFailedCall<K, V>(
 data class RecordDroppedCall<K, V>(
     val record: ConsumerRecord<K, V>,
     val reason: RecordDropReason
+)
+
+data class RecordHandedOffCall<K, V>(
+    val record: ConsumerRecord<K, V>,
+    val reason: RecordHandoffReason
 )
 
 data class RetryCall<K, V>(
@@ -63,6 +69,7 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val processed = CopyOnWriteArrayList<RecordProcessedCall<K, V>>()
     val failed = CopyOnWriteArrayList<RecordFailedCall<K, V>>()
     val dropped = CopyOnWriteArrayList<RecordDroppedCall<K, V>>()
+    val handedOff = CopyOnWriteArrayList<RecordHandedOffCall<K, V>>()
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
     val offsetCommitMetadata = CopyOnWriteArrayList<OffsetCommitMetadataStats>()
@@ -123,6 +130,10 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
 
     override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
         dropped += RecordDroppedCall(record, reason)
+    }
+
+    override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
+        handedOff += RecordHandedOffCall(record, reason)
     }
 
     override fun onRetry(key: K?, value: V?, record: ConsumerRecord<K, V>, attempt: Int, error: Throwable) {

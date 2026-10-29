@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
@@ -139,6 +140,13 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
                 "topic" to record.topic(),
                 "reason" to reason.name.lowercase()
             )
+        ).increment()
+    }
+
+    override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
+        counter(
+            RECORD_HANDED_OFF,
+            tags("topic" to record.topic(), "reason" to reason.name.lowercase())
         ).increment()
     }
 

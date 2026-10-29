@@ -67,6 +67,7 @@
 | [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | IN_PROGRESS |
 | [CORE-63](#core-63) | Optionally bind native Kafka consumer client metrics through the Micrometer adapter.                                                                                                                              | DONE |
 | [CORE-64](#core-64) | Make partition handoff generation-safe, drain graceful shutdown correctly, recover consumers after lost assignments, and surface terminal failures through the Spring starter. | DONE |
+| [CORE-65](#core-65) | Report ownership handoff separately from terminal record drops in core metrics and audit evidence. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5727,3 +5728,16 @@ plateau and measure ramp-up, the second half of the plateau, and ramp-down separ
 Verification: canonical internal-lab resolution produces one target, the expected
 25-minute profile and three windows, and 1,000 ms limits for all topics; all
 materialization tests pass. Do not launch the experiment automatically.
+
+<a id="core-65"></a>
+### CORE-65 - Report record handoff separately from terminal drops
+
+_Date: 2026-10-29_
+
+Introduce an explicit record-handoff lifecycle event for tracked at-least-once
+records released after revoke or assignment loss. Keep terminal drop metrics for
+records intentionally abandoned by processing policy, encode handoff as `H` in
+demo audit logs, and treat it as non-terminal evidence in the analyzer and report.
+Continue reading historical `D(lifecycle)` records as legacy handoffs.
+Verification: core, Micrometer, and demo regression tests pass; analyzer tests
+cover explicit and legacy handoff records, including unresolved handoffs.

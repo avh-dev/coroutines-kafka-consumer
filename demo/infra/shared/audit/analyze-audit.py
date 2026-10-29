@@ -32,6 +32,7 @@ PROCESSED_FLAG = 2
 FAILED_FLAG = 4
 DROPPED_FLAG = 8
 LIFECYCLE_DROPPED_FLAG = 16
+HANDED_OFF_FLAG = 32
 TERMINAL_FLAGS = PROCESSED_FLAG | FAILED_FLAG | DROPPED_FLAG
 OFFSET_PAGE_SIZE = 1 << 16
 KEY_ORDER_HEADER = struct.Struct("<HHiqcI")
@@ -148,6 +149,7 @@ class AuditRecord:
     message_key: str
     kafka_timestamp_ms: int | None = None
     drop_reason: str | None = None
+    handoff_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -620,6 +622,7 @@ class RecordState:
     processed: AuditRecord | None = None
     failed: AuditRecord | None = None
     dropped: AuditRecord | None = None
+    handed_off: AuditRecord | None = None
     processed_count: int = 0
     failed_count: int = 0
     dropped_count: int = 0
@@ -639,6 +642,7 @@ class ClosedRecordState:
     failed_seen: bool
     dropped_seen: bool
     lifecycle_dropped_seen: bool
+    handed_off_seen: bool
 
 
 @dataclass(slots=True)
@@ -670,6 +674,9 @@ class AuditStats:
     replay_dropped_after_processed: int = 0
     replay_dropped_after_processed_by_reason: dict[str, int] = field(default_factory=dict)
     lifecycle_handoff_reprocessed: int = 0
+    handoff_records: int = 0
+    handoff_unique: int = 0
+    handoff_by_reason: dict[str, int] = field(default_factory=dict)
     unexpected_terminal_outcomes: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
@@ -713,8 +720,14 @@ class AuditStats:
 
         if record.record_type == "P":
             self._add_published(record)
+        elif record.record_type == "D" and record.drop_reason == "lifecycle":
+            # Older producers encoded assignment handoff as a drop. Preserve wire
+            # compatibility while applying the new nonterminal semantics.
+            self._add_handoff(record)
         elif record.record_type in {"C", "F", "D"}:
             self._add_terminal(record)
+        elif record.record_type == "H":
+            self._add_handoff(record)
         elif record.record_type == "R":
             self.retry_attempt_records += 1
 
@@ -781,9 +794,10 @@ class AuditStats:
         if record.record_type == "C":
             if state.processed is None:
                 lifecycle_handoff = (
-                    state.failed is None
-                    and state.dropped is not None
-                    and state.dropped.drop_reason == "lifecycle"
+                    state.failed is None and (
+                        state.handed_off is not None
+                        or (state.dropped is not None and state.dropped.drop_reason == "lifecycle")
+                    )
                 )
                 if lifecycle_handoff:
                     self.lifecycle_handoff_reprocessed += 1
@@ -845,6 +859,40 @@ class AuditStats:
             state.conflict_counted = True
             self.conflicting_terminal_outcomes += 1
         self._close_if_complete(record.key)
+
+    def _add_handoff(self, record: AuditRecord) -> None:
+        self.handoff_records += 1
+        reason = record.handoff_reason or (
+            "assignment_ended" if record.drop_reason == "lifecycle" else "unknown"
+        )
+        self.handoff_by_reason[reason] = self.handoff_by_reason.get(reason, 0) + 1
+        if not self._valid_key(record):
+            return
+        flags = self.closed_offsets.get(record.key)
+        if flags:
+            if not flags & HANDED_OFF_FLAG:
+                self.handoff_unique += 1
+                if flags & PROCESSED_FLAG:
+                    self.lifecycle_handoff_reprocessed += 1
+                self.closed_offsets.set(record.key, flags | HANDED_OFF_FLAG)
+            return
+        closed = self.recent_closed_by_key.get(record.key)
+        if closed is not None:
+            if not closed.handed_off_seen:
+                closed.handed_off_seen = True
+                self.handoff_unique += 1
+                if closed.processed_seen:
+                    self.lifecycle_handoff_reprocessed += 1
+            return
+        state = self._state(record)
+        state.last_seen_ms = record.audit_timestamp_ms
+        if self.open_record_ttl_ms is not None:
+            self.open_expiry_queue.append((state.last_seen_ms, record.key))
+        if state.handed_off is None:
+            state.handed_off = record
+            self.handoff_unique += 1
+            if state.processed is not None:
+                self.lifecycle_handoff_reprocessed += 1
 
     def _add_terminal_to_closed(self, record: AuditRecord, closed: ClosedRecordState) -> None:
         closed.closed_ms = record.audit_timestamp_ms
@@ -996,6 +1044,8 @@ class AuditStats:
                 flags |= DROPPED_FLAG
                 if state.dropped.drop_reason == "lifecycle":
                     flags |= LIFECYCLE_DROPPED_FLAG
+            if state.handed_off is not None:
+                flags |= HANDED_OFF_FLAG
             self.closed_offsets.set(key, flags)
         else:
             self.recent_closed_by_key[key] = ClosedRecordState(
@@ -1006,6 +1056,7 @@ class AuditStats:
                 lifecycle_dropped_seen=(
                     state.dropped is not None and state.dropped.drop_reason == "lifecycle"
                 ),
+                handed_off_seen=state.handed_off is not None,
             )
             self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
@@ -1250,9 +1301,9 @@ def parse_record(value: str) -> AuditRecord:
             message_key=message_key,
         )
 
-    if record_type == "D":
+    if record_type in {"D", "H"}:
         if len(parts) not in {6, 7}:
-            raise ValueError(f"expected 6 or 7 drop audit fields, got {len(parts)}: {value!r}")
+            raise ValueError(f"expected 6 or 7 lifecycle audit fields, got {len(parts)}: {value!r}")
         _, topic_id, partition, offset, audit_ts, message_key, *detail = parts
         return AuditRecord(
             record_type=record_type,
@@ -1260,7 +1311,8 @@ def parse_record(value: str) -> AuditRecord:
             kafka_timestamp_ms=None,
             audit_timestamp_ms=int(audit_ts),
             message_key=message_key,
-            drop_reason=detail[0] if detail else None,
+            drop_reason=detail[0] if detail and record_type == "D" else None,
+            handoff_reason=detail[0] if detail and record_type == "H" else None,
         )
 
     raise ValueError(f"unexpected audit record type: {record_type}")
@@ -1460,6 +1512,9 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "replay_dropped_after_processed": stats.replay_dropped_after_processed,
             "replay_dropped_after_processed_by_reason": stats.replay_dropped_after_processed_by_reason,
             "lifecycle_handoff_reprocessed": stats.lifecycle_handoff_reprocessed,
+            "handoff_records": stats.handoff_records,
+            "handoff_unique": stats.handoff_unique,
+            "handoff_by_reason": stats.handoff_by_reason,
             "unexpected_terminal_outcomes": stats.unexpected_terminal_outcomes,
             "ordering": {
                 "by_partition": ordering_summary(stats.partition_order),
@@ -1633,6 +1688,8 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "conflicting_terminal_outcomes",
         "replay_dropped_after_processed",
         "lifecycle_handoff_reprocessed",
+        "handoff_records",
+        "handoff_unique",
         "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )
@@ -1641,6 +1698,8 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
             setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
         for reason, count in stats.dropped_by_reason.items():
             aggregate.dropped_by_reason[reason] = aggregate.dropped_by_reason.get(reason, 0) + count
+        for reason, count in stats.handoff_by_reason.items():
+            aggregate.handoff_by_reason[reason] = aggregate.handoff_by_reason.get(reason, 0) + count
         for reason, count in stats.replay_dropped_after_processed_by_reason.items():
             aggregate.replay_dropped_after_processed_by_reason[reason] = (
                 aggregate.replay_dropped_after_processed_by_reason.get(reason, 0) + count

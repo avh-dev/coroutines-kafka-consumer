@@ -296,11 +296,71 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
 
         self.assert_lifecycle_handoff(document)
 
+    def test_when_explicit_handoff_is_reprocessed_then_it_is_nonterminal_evidence(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "H|1|0|1|1100|order-a|assignment_ended",
+                "C|1|0|1|1200|order-a",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual(1, totals["handoff_unique"])
+        self.assertEqual({"assignment_ended": 1}, totals["handoff_by_reason"])
+        self.assertEqual(1, totals["lifecycle_handoff_reprocessed"])
+        self.assertEqual(0, totals["conflicting_terminal_outcomes"])
+        self.assertEqual(0, totals["missing_terminal"])
+
+    def test_when_explicit_handoff_has_no_later_terminal_then_record_remains_missing(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "H|1|0|1|1100|order-a|assignment_ended",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual(1, totals["missing_terminal"])
+
+    def test_when_lifecycle_discard_is_terminal_then_it_is_not_treated_as_legacy_handoff(self) -> None:
+        document = analyze(
+            [
+                "P|3|0|1|1000|1000|cauldron-a",
+                "D|3|0|1|1100|cauldron-a|lifecycle_discard",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["dropped"])
+        self.assertEqual({"lifecycle_discard": 1}, totals["dropped_by_reason"])
+        self.assertEqual(0, totals["handoff_records"])
+        self.assertEqual(0, totals["missing_terminal"])
+
+    def test_when_handoff_refreshes_bounded_ttl_then_unresolved_record_is_evicted(self) -> None:
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=100)
+        published = analyzer.parse_record("P|1|0|1|1000|1000|order-a")
+        accumulator.add(published)
+        accumulator.add(analyzer.parse_record("H|1|0|1|1100|order-a|assignment_ended"))
+        accumulator.add(analyzer.parse_record("P|1|0|2|2500|2500|order-b"))
+
+        topic_stats = accumulator.by_topic[1]
+        self.assertNotIn(published.key, topic_stats.open_by_key)
+        self.assertEqual(1, topic_stats.missing_terminal)
+        accumulator.finish()
+
     def assert_lifecycle_handoff(self, document: dict[str, object]) -> None:
         totals = document["audit"]["totals"]
         self.assertEqual(1, totals["processed"])
-        self.assertEqual(1, totals["dropped"])
-        self.assertEqual({"lifecycle": 1}, totals["dropped_by_reason"])
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual({}, totals["dropped_by_reason"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual({"assignment_ended": 1}, totals["handoff_by_reason"])
         self.assertEqual(1, totals["lifecycle_handoff_reprocessed"])
         self.assertEqual(0, totals["conflicting_terminal_outcomes"])
         self.assertEqual(0, totals["unexpected_terminal_outcomes"])

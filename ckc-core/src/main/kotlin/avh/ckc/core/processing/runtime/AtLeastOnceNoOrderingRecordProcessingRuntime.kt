@@ -34,7 +34,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     retryPolicy = retryPolicy,
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
-    processedRecordTracker = processedRecordTracker
+    processedRecordTracker = processedRecordTracker,
+    handoffOnAssignmentEnd = true
 ) {
     override fun createChannel(
         capacity: Int,
@@ -45,6 +46,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 runtimeStats.onWorkDequeued()
+                metrics.onRecordHandedOff(it, handoffReason())
                 processedRecordTracker.discard(it)
             }
         )

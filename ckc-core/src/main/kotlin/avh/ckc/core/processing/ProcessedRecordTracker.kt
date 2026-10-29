@@ -22,6 +22,9 @@ internal interface ProcessedRecordTracker {
 
     fun <K, V> isCancellationRequested(record: ConsumerRecord<K, V>): Boolean = false
 
+    /** True when ownership ended because the whole consumer failed, not because Kafka will replay it normally. */
+    fun isTerminallyClosed(): Boolean = false
+
     /** Waits for retry backoff and confirms that the next handler attempt may start. */
     suspend fun <K, V> awaitRetryPermission(record: ConsumerRecord<K, V>, retryDelay: Duration): Boolean {
         if (retryDelay.isPositive()) delay(retryDelay)
@@ -57,6 +60,8 @@ internal class PartitionProcessedRecordTracker(
 
     override fun <K, V> isCancellationRequested(record: ConsumerRecord<K, V>): Boolean =
         partitionRegistry.isCancellationRequested(record)
+
+    override fun isTerminallyClosed(): Boolean = partitionRegistry.isTerminallyClosed()
 
     override suspend fun <K, V> awaitRetryPermission(
         record: ConsumerRecord<K, V>,

@@ -79,6 +79,21 @@ class AuditLogTest {
     }
 
     @Test
+    fun `when record is handed off then audit payload uses nonterminal handoff type`() {
+        val encoded = encodeConsumerAuditRecord(
+            type = "H",
+            topic = DemoTopics.CAULDRON_EVENTS,
+            partition = 2,
+            offset = 99,
+            key = "cauldron-1",
+            auditTimestampMs = 9012,
+            detail = "assignment_ended"
+        )
+
+        assertEquals("H|3|2|99|9012|cauldron-1|assignment_ended", encoded)
+    }
+
+    @Test
     fun `audit helper can be skipped when audit is disabled`() {
         val properties = DemoApplicationProperties(audit = DemoApplicationProperties.Audit(enabled = false))
         val record = ConsumerRecord(DemoTopics.ORDER_EVENTS, 0, 1, "order-1", "value")

@@ -8,6 +8,7 @@ import avh.ckc.core.RetryRule
 import avh.ckc.core.awaitFor
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -50,6 +52,7 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         val runtimeFailure = CompletableDeferred<Throwable>()
         val attempts = AtomicInteger()
         val failureHandlerCalls = AtomicInteger()
+        val metrics = RecordingMetrics<String, String>()
         val runtime = orderedRuntime(
             ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
             workerConcurrency = 1,
@@ -57,6 +60,7 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
             processedRecordTracker = PartitionProcessedRecordTracker(registry),
             retryPolicy = RetryPolicy.of(RetryRule.of<IOException>(maxRetries = 3, delay = 30.seconds)),
             processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            metrics = metrics,
             handler = KafkaRecordHandler {
                 attempts.incrementAndGet()
                 attemptStarted.complete(Unit)
@@ -75,7 +79,41 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         assertEquals(1, attempts.get())
         assertEquals(0, failureHandlerCalls.get())
         assertFalse(runtimeFailure.isCompleted)
+        assertEquals(listOf(RecordHandoffReason.ASSIGNMENT_ENDED), metrics.handedOff.map { it.reason })
+        assertTrue(metrics.dropped.isEmpty())
         assertEquals(null, state.advanceAndGetCommitData())
+        runtime.stop()
+    }
+
+    @Test
+    fun `when consumer fails then cancelled tracked record is handed off instead of dropped`() = runBlocking {
+        val registry = PartitionRegistry()
+        val topicPartition = TopicPartition("topic", 0)
+        registry.onPartitionsAssigned(listOf(topicPartition)).single().init(0L)
+        val record = typedTestRecord(topic = topicPartition.topic(), offset = 0L, key = "key-a")
+        registry.observe(record)
+        val entered = CompletableDeferred<Unit>()
+        val metrics = RecordingMetrics<String, String>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            processedRecordTracker = PartitionProcessedRecordTracker(registry),
+            metrics = metrics,
+            handler = KafkaRecordHandler {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        )
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(record))
+        withTimeout(2_000) { entered.await() }
+
+        registry.cancelAllActive()
+
+        awaitFor(2_000L, 10L) { metrics.handedOff.firstOrNull() }
+        assertEquals(listOf(RecordHandoffReason.CONSUMER_FAILED), metrics.handedOff.map { it.reason })
+        assertTrue(metrics.dropped.isEmpty())
         runtime.stop()
     }
 

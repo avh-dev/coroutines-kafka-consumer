@@ -7,9 +7,11 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
@@ -71,6 +73,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 admissionBudget.release()
+                reportAssignmentEnd(it)
                 processedRecordTracker.discard(it)
             }
         )
@@ -191,7 +194,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             var workItem = workerChannel.receiveCatching().getOrNull() ?: break
             while (true) {
                 if (!processedRecordTracker.tryStart(workItem.record)) {
-                    metrics.onRecordDropped(workItem.record, RecordDropReason.LIFECYCLE)
+                    reportAssignmentEnd(workItem.record)
                     processedRecordTracker.discard(workItem.record)
                     admissionBudget.release()
                     val nextRecord = nextRecordFor(workItem.key) ?: break
@@ -205,9 +208,12 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
                         processedRecordTracker.attach(workItem.record, pipeline)
                         pipeline.start()
                         try {
-                            pipeline.await()
+                            if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                                reportAssignmentEnd(workItem.record)
+                            }
                         } catch (error: CancellationException) {
                             if (!processedRecordTracker.isCancellationRequested(workItem.record)) throw error
+                            reportAssignmentEnd(workItem.record)
                             // Lost-generation cancellation is local to this record pipeline.
                         }
                     }
@@ -260,7 +266,9 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             states.compute(key) { _, state ->
                 if (state != null) {
                     repeat(state.queue.size) {
-                        processedRecordTracker.discard(state.queue.removeFirst())
+                        val record = state.queue.removeFirst()
+                        reportAssignmentEnd(record)
+                        processedRecordTracker.discard(record)
                         admissionBudget.release()
                         runtimeStats.onOrderingWorkDequeued()
                     }
@@ -277,6 +285,15 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             }
             Ordering.BY_PARTITION -> OrderingKey.Partition(record.topic(), record.partition())
         }
+
+    private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
+        val reason = if (processedRecordTracker.isTerminallyClosed()) {
+            RecordHandoffReason.CONSUMER_FAILED
+        } else {
+            RecordHandoffReason.ASSIGNMENT_ENDED
+        }
+        metrics.onRecordHandedOff(record, reason)
+    }
 
     private class KeyState<K, V>(
         val queue: ArrayDeque<ConsumerRecord<K, V>> = ArrayDeque(),
