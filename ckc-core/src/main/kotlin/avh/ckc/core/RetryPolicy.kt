@@ -35,7 +35,8 @@ data class RetryRule(
 class RetryPolicy(
     private val rules: List<RetryRule> = emptyList()
 ) {
-    fun ruleFor(error: Throwable): RetryRule? = rules.firstOrNull { it.matches(error) }
+    fun ruleFor(error: Throwable): RetryRule? =
+        if (error.isFatalJvmError()) null else rules.firstOrNull { it.matches(error) }
 
     companion object {
         fun none(): RetryPolicy = RetryPolicy()

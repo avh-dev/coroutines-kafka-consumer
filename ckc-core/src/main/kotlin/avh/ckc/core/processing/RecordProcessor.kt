@@ -4,6 +4,7 @@ import avh.ckc.core.KafkaRecordHandler
 import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
+import avh.ckc.core.isFatalJvmError
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -54,7 +55,7 @@ internal class RecordProcessor<K, V>(
                 }
                 if (!completed) return RecordProcessingOutcome.HANDED_OFF
             } catch (error: Throwable) {
-                if (error.isCancellation()) {
+                if (error.isCancellation() || error.isFatalJvmError()) {
                     throw error
                 }
 
@@ -80,7 +81,7 @@ internal class RecordProcessor<K, V>(
             )
             return RecordProcessingOutcome.COMPLETED
         } catch (error: Throwable) {
-            if (error.isCancellation()) {
+            if (error.isCancellation() || error.isFatalJvmError()) {
                 throw error
             }
             metrics.onRecordFailed(
@@ -110,7 +111,7 @@ internal class RecordProcessor<K, V>(
                 block()
                 return true
             } catch (error: Throwable) {
-                if (error.isCancellation()) {
+                if (error.isCancellation() || error.isFatalJvmError()) {
                     throw error
                 }
 

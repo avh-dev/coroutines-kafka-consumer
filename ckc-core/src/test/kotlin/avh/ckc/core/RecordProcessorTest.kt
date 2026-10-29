@@ -10,6 +10,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.apache.kafka.common.record.TimestampType
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.IOException
@@ -18,6 +19,69 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
 class RecordProcessorTest {
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun `fatal JVM errors bypass retry failure handling and record acknowledgement`() {
+        listOf(
+            OutOfMemoryError("out of memory"),
+            ThreadDeath(),
+            LinkageError("linkage failed")
+        ).forEach { expected ->
+            val attempts = AtomicInteger()
+            val failureHandlerCalls = AtomicInteger()
+            val processedCalls = AtomicInteger()
+            val metrics = RecordingMetrics<String, String>()
+            val processor = createRecordProcessor(
+                handler = KafkaRecordHandler<String, String> {
+                    attempts.incrementAndGet()
+                    throw expected
+                },
+                retryPolicy = retryPolicy {
+                    retry<Throwable> { maxRetries = 3 }
+                },
+                metrics = metrics,
+                processingFailureHandler = ProcessingFailureHandler { _, _ ->
+                    failureHandlerCalls.incrementAndGet()
+                },
+                onRecordProcessed = { processedCalls.incrementAndGet() }
+            )
+
+            var thrown: Throwable? = null
+            try {
+                runBlocking { processor.process(typedTestRecord(offset = 8L)) }
+            } catch (error: Throwable) {
+                thrown = error
+            }
+
+            assertSame(expected, thrown)
+            assertEquals(1, attempts.get())
+            assertEquals(0, failureHandlerCalls.get())
+            assertEquals(0, processedCalls.get())
+            assertEquals(0, metrics.retries.size)
+            assertEquals(0, metrics.failed.size)
+            assertEquals(0, metrics.processed.size)
+        }
+    }
+
+    @Test
+    fun `non fatal error keeps configured retry semantics`() = runBlocking {
+        val attempts = AtomicInteger()
+        val processor = createRecordProcessor<String, String>(
+            handler = KafkaRecordHandler {
+                if (attempts.getAndIncrement() == 0) {
+                    throw AssertionError("retry assertion")
+                }
+            },
+            retryPolicy = retryPolicy {
+                retry<Throwable> { maxRetries = 1 }
+            }
+        )
+
+        processor.process(typedTestRecord(offset = 9L))
+
+        assertEquals(2, attempts.get())
+    }
 
     @Test
     fun `when retry permission is revoked then record remains unprocessed without failure handling`() = runBlocking {
