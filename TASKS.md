@@ -5811,4 +5811,5 @@ Synchronize the complete partition-gauge bind and unbind operations, including
 MeterRegistry registration and removal. Preserve exactly one live gauge set as
 partition ownership moves between concurrent poll loops.
 Verification: core, Micrometer, and Spring starter tests pass, including the
-concurrent partition-transfer regression; all 23 core integration tests pass.
+concurrent partition-transfer regression and transfer with the same stats instance;
+all 23 core integration tests pass.

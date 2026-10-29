@@ -584,6 +584,29 @@ class MicrometerConsumerMetricsSchemaTest {
     }
 
     @Test
+    fun `when partition moves with same stats instance then stale owner cannot remove gauge`() {
+        val registry = SimpleMeterRegistry()
+        val stats = MutablePartitionStats("orders", 2, 128)
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        ) {
+            consumerId = "telemetry"
+        }
+
+        metrics.bindPartitionMetrics(1, stats)
+        metrics.bindPartitionMetrics(2, stats)
+        metrics.unbindPartitionMetrics(1, stats)
+
+        val gauges = registry.find("test.ckc.offsettracker.capacity")
+            .tag("consumer_id", "telemetry")
+            .tag("topic", "orders")
+            .tag("partition", "2")
+            .gauges()
+        assertEquals(1, gauges.size)
+        assertEquals(128.0, gauges.single().value())
+    }
+
+    @Test
     fun `when record tag value provider is configured then custom tags are attached to record metrics`() {
         val eventTypeTag = "event_type"
         val registry = SimpleMeterRegistry()
