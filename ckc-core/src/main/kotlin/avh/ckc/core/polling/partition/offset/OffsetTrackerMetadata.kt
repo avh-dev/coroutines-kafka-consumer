@@ -111,6 +111,18 @@ internal object OffsetTrackerMetadata {
         require(snapshot.headWordOffset <= context.committedOffset) {
             "Offset tracker snapshot head is ahead of the first uncommitted offset"
         }
+        val committedDistance = context.committedOffset - snapshot.headWordOffset
+        require(committedDistance < Long.SIZE_BITS) {
+            "Offset tracker snapshot head is too far behind the committed offset"
+        }
+        val processedPrefixMask = if (committedDistance == 0L) {
+            0L
+        } else {
+            (1L shl committedDistance.toInt()) - 1L
+        }
+        require(snapshot.words[snapshot.headWordIndex] and processedPrefixMask == processedPrefixMask) {
+            "Offset tracker snapshot is missing processed offsets before the committed offset"
+        }
         return snapshot
     }
 

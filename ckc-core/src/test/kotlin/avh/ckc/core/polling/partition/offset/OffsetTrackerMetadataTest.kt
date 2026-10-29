@@ -152,6 +152,44 @@ class OffsetTrackerMetadataTest {
         }
     }
 
+    @Test
+    fun `snapshot head more than one word behind committed offset is rejected`() {
+        val metadataContext = context(committedOffset = 128L)
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = 0L,
+                    headWordIndex = 0,
+                    words = longArrayOf(0L, 0L)
+                ),
+                metadataContext
+            ).metadata
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(metadata, metadataContext, maxCapacityBits = 128)
+        }
+    }
+
+    @Test
+    fun `snapshot missing processed bits before committed offset is rejected`() {
+        val metadataContext = context(committedOffset = 10L)
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = 0L,
+                    headWordIndex = 0,
+                    words = longArrayOf(0b111L, 0L)
+                ),
+                metadataContext
+            ).metadata
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(metadata, metadataContext)
+        }
+    }
+
     private fun snapshot() = OffsetTrackerSnapshot(
         headWordOffset = 0L,
         headWordIndex = 0,

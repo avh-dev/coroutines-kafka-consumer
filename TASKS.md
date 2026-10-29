@@ -5846,3 +5846,5 @@ metadata.
 Verification: core, Micrometer, and Spring starter tests pass, including malformed
 size, ring-structure, metadata-budget, and reduced-limit fallback regressions; all
 23 core integration tests pass.
+Review follow-up also rejects ring heads outside the committed frontier word and
+missing processed-prefix bits, falling back before tracker backpressure is applied.

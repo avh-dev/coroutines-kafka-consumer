@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
+import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.ConsumerPollLoop
@@ -694,6 +695,52 @@ class ConsumerPollLoopTest {
             assertEquals(128, state.offsetTrackerBitCapacity)
             assertFalse(state.isProcessed(43L))
             assertEquals(41L, state.trackerRefForTest().lastProcessedOffset)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when restored ring contradicts committed frontier then fallback accepts committed offset`() = runBlocking {
+            val metadataContext = OffsetTrackerMetadataContext(
+                "test-group",
+                TopicPartition("topic-a", 0),
+                128L
+            )
+            val metadata = OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = 0L,
+                    headWordIndex = 0,
+                    words = longArrayOf(0L, 0L)
+                ),
+                metadataContext
+            ).metadata!!
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                maxTrackedOffsetsPerPartition = 128,
+                committedOffsets = mapOf(
+                    TopicPartition("topic-a", 0) to OffsetAndMetadata(128L, metadata)
+                ),
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(topicPartition, record(offset = 128L))
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+
+            val delivered = withTimeout(2_000) { fixture.workChannel.receive() }
+            assertEquals(128L, delivered.offset())
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 127L)
+            assertEquals(128, state.offsetTrackerBitCapacity)
+            assertFalse(state.isProcessed(128L))
 
             job.cancel()
             job.join()
