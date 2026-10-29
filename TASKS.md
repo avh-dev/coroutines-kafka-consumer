@@ -5797,5 +5797,6 @@ and complete library-owned lifecycle jobs on normal, startup-failure, and
 terminal-failure paths. Preserve idempotent stop behavior and leave externally
 provided processing dispatchers under application ownership.
 Verification: core, Micrometer, and Spring starter tests pass, including repeated
-poll-thread creation, startup-failure, terminal-failure, idempotent-stop, and
-external-dispatcher ownership regressions; all 23 core integration tests pass.
+poll-thread creation, parent cancellation before and during shutdown, startup-failure,
+terminal-failure, idempotent-stop, and external-dispatcher ownership regressions;
+all 23 core integration tests pass.

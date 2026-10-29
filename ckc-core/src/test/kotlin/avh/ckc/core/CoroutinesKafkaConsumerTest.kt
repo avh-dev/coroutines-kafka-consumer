@@ -3,6 +3,7 @@ package avh.ckc.core
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
@@ -25,6 +26,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecords
+import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -32,6 +35,10 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
@@ -307,6 +314,67 @@ class CoroutinesKafkaConsumerTest {
             parentJob.cancel()
         }
         Unit
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `when parent is cancelled before stop then shutdown still releases real poll thread`() = runBlocking {
+        val parentJob = Job()
+        val pollThread = CompletableDeferred<Thread>()
+        val kafkaConsumer = mock<KafkaConsumer<String, String>>()
+        whenever(kafkaConsumer.poll(any<Duration>())).thenAnswer {
+            pollThread.complete(Thread.currentThread())
+            ConsumerRecords.empty<String, String>()
+        }
+        val consumerProperties = stringSerdeProperties()
+        val consumer = CoroutinesKafkaConsumer(
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workerConcurrency = 1,
+            consumerPollLoopConcurrency = 1,
+            commitIntervalMs = 1_000L,
+            commitRecordsThreshold = 1_000,
+            workChannelCapacity = 16,
+            freshnessMaxRecordAge = null,
+            processingDispatcher = Dispatchers.Default,
+            consumerProperties = consumerProperties,
+            handler = KafkaRecordHandler<String, String> { },
+            retryPolicy = RetryPolicy.none(),
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+            recordProcessingContext = null,
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            parentContext = parentJob + Dispatchers.Default,
+            topics = listOf("topic-a"),
+            topicsPattern = null,
+            pollLoopFactory = { id, context, mode, interval, threshold, metrics, properties, config, topics, pattern, sink, registry ->
+                ConsumerPollLoop(
+                    id = id,
+                    parentContext = context,
+                    processingMode = mode,
+                    commitIntervalMs = interval,
+                    commitRecordsThreshold = threshold,
+                    metrics = metrics,
+                    consumerProperties = properties,
+                    consumerConfigAdapter = config,
+                    topics = topics,
+                    topicsPattern = pattern,
+                    recordSink = sink,
+                    partitionStateRegistry = registry,
+                    kafkaConsumerFactory = { kafkaConsumer }
+                )
+            },
+            processingRuntimeFactory = ::defaultProcessingRuntime
+        )
+
+        consumer.start()
+        val thread = withTimeout(2_000) { pollThread.await() }
+        parentJob.cancel()
+        withTimeout(2_000) { parentJob.join() }
+
+        runCatching { withTimeout(2_000) { consumer.stop() } }
+        withTimeout(2_000) { consumer.awaitShutdownCompletion() }
+        awaitFor(2_000, 10) { true.takeIf { !thread.isAlive } }
+
+        assertFalse(thread.isAlive)
     }
 
     @Test

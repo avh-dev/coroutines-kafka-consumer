@@ -149,6 +149,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 parentContext.minusKey(Job) +
                 CoroutineName("CoroutinesKafkaConsumer")
     )
+    private val shutdownLifecycleJob = SupervisorJob()
+    private val shutdownScope = CoroutineScope(
+        shutdownLifecycleJob +
+                parentContext.minusKey(Job) +
+                CoroutineName("CoroutinesKafkaConsumerShutdown")
+    )
     private val processingRuntime: RecordProcessingRuntime<K, V> = processingRuntimeFactory(
         scope,
         processingMode,
@@ -310,7 +316,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
-        stopDeferred ?: scope.launchStopSequence().also { stopDeferred = it }
+        stopDeferred ?: shutdownScope.launchStopSequence().also { stopDeferred = it }
     }
 
     suspend fun stop() {
@@ -473,6 +479,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                     termination.complete(failure.get())
                 } finally {
                     lifecycleJob.complete()
+                    shutdownLifecycleJob.complete()
                     shutdownCompletion.complete(Unit)
                 }
             }
