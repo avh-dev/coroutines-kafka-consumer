@@ -69,6 +69,7 @@
 | [CORE-64](#core-64) | Make partition handoff generation-safe, drain graceful shutdown correctly, recover consumers after lost assignments, and surface terminal failures through the Spring starter. | DONE |
 | [CORE-65](#core-65) | Report ownership handoff separately from terminal record drops in core metrics and audit evidence. | DONE |
 | [CORE-66](#core-66) | Unify explicit time- and record-triggered offset commits across all processing modes. | DONE |
+| [CORE-67](#core-67) | Align the active-offset-hole rebalance integration test with graceful revoke semantics. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5758,3 +5759,14 @@ triggers, failed retry state, explicit auto-commit rejection, and final commits.
 Verification: core, Micrometer, and Spring starter unit tests pass. The full core
 integration suite has one pre-existing failure in the active-offset-hole rebalance
 scenario; the same isolated test also fails on the parent `master` commit.
+
+<a id="core-67"></a>
+### CORE-67 - Fix active rebalance integration test
+
+_Date: 2026-10-29_
+
+Align the active-offset-hole rebalance scenario with graceful revoke semantics:
+observe that handoff has started, release blocked processing so revoke can drain,
+then verify final commits prevent duplicate delivery to the new owner.
+Verification: the isolated rebalance scenario, the core/Micrometer/Spring unit
+suite, and all 23 core integration tests pass.
