@@ -888,7 +888,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when partitions are revoked with active offset holes then unfinished records are redelivered`() = runBlocking {
+    fun `when partitions are revoked with active offset holes then handoff drains before reassignment`() = runBlocking {
         val topic = "rebalance-active-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         val partitions = 4
@@ -932,6 +932,11 @@ class CoroutinesKafkaConsumerIntegrationTest {
             }
 
             secondConsumer.start()
+            awaitFor(timeoutMillis = 20_000) {
+                assignedPartitions(firstConsumer).takeIf { it.size < partitions }
+            }
+            releaseBlockedRecords.complete(Unit)
+
             val assignments = awaitFor(timeoutMillis = 30_000) {
                 val firstAssigned = assignedPartitions(firstConsumer)
                 val secondAssigned = assignedPartitions(secondConsumer)
@@ -945,24 +950,6 @@ class CoroutinesKafkaConsumerIntegrationTest {
             val firstAssigned = assignments.first
             val secondAssigned = assignments.second
 
-            awaitFor(timeoutMillis = 30_000) {
-                secondCompleted.takeIf { completed ->
-                    secondAssigned.all { partition ->
-                        (0L..2L).all { offset -> completed.contains(partition to offset) }
-                    }
-                }
-            }
-            awaitFor(timeoutMillis = 20_000) {
-                groupOffsets(groupId, topic, partitions).takeIf { offsets ->
-                    secondAssigned.all { (offsets[it] ?: -1L) >= 3L }
-                }
-            }
-
-            val offsetsWhileFirstIsBlocked = groupOffsets(groupId, topic, partitions)
-            assertTrue(secondAssigned.all { offsetsWhileFirstIsBlocked[it] == 3L })
-            assertTrue(firstAssigned.all { (offsetsWhileFirstIsBlocked[it] ?: -1L) < 3L })
-
-            releaseBlockedRecords.complete(Unit)
             awaitFor(timeoutMillis = 20_000) {
                 firstCompleted.takeIf { completed ->
                     (0 until partitions).all { completed.contains(it to 0L) }
@@ -973,6 +960,13 @@ class CoroutinesKafkaConsumerIntegrationTest {
                     (0 until partitions).all { (offsets[it] ?: -1L) >= 3L }
                 }
             }
+            assertTrue(
+                secondCompleted.none { (partition, offset) ->
+                    partition in secondAssigned && offset in 0L..2L
+                }
+            )
+            assertTrue(firstAssigned.isNotEmpty())
+            assertTrue(secondAssigned.isNotEmpty())
 
             repeat(partitions) { partition ->
                 produce(topic, "after-key-$partition", "after-value-$partition", partition)
