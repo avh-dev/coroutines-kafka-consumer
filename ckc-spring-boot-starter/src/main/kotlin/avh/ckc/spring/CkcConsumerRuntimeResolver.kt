@@ -1,5 +1,7 @@
 package avh.ckc.spring
 
+import avh.ckc.core.ConsumerStateSnapshot
+import avh.ckc.core.CoroutinesKafkaConsumer
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.context.ApplicationContext
 import org.springframework.core.annotation.AnnotationUtils
@@ -19,8 +21,24 @@ internal data class NamedConsumerRuntime(
     val processingDispatcher: String,
     val retrySchema: String?,
     val metrics: String,
-    val consumer: avh.ckc.core.CoroutinesKafkaConsumer<Any?, Any?>
+    val consumer: ManagedCkcConsumer
 )
+
+internal interface ManagedCkcConsumer {
+    fun start()
+    suspend fun stop()
+    suspend fun awaitTermination()
+    fun stateSnapshot(): ConsumerStateSnapshot
+}
+
+private class CoreManagedCkcConsumer(
+    private val delegate: CoroutinesKafkaConsumer<Any?, Any?>
+) : ManagedCkcConsumer {
+    override fun start() = delegate.start()
+    override suspend fun stop() = delegate.stop()
+    override suspend fun awaitTermination() = delegate.awaitTermination()
+    override fun stateSnapshot(): ConsumerStateSnapshot = delegate.stateSnapshot()
+}
 
 internal data class AnnotatedConsumer(
     val beanName: String,
@@ -73,14 +91,16 @@ internal fun resolveConsumerRuntimes(
             processingDispatcher = resolvedProcessingDispatcherName(properties, consumerProperties),
             retrySchema = resolvedRetrySchemaName(properties, consumerProperties.retrySchema),
             metrics = resolvedMetricsDescription(properties, consumerName),
-            consumer = buildConsumer(
-                applicationContext,
-                dispatcherRegistry,
-                properties,
-                consumerName,
-                consumerBean,
-                consumerProperties,
-                resolvedCluster.kafkaProperties
+            consumer = CoreManagedCkcConsumer(
+                buildConsumer(
+                    applicationContext,
+                    dispatcherRegistry,
+                    properties,
+                    consumerName,
+                    consumerBean,
+                    consumerProperties,
+                    resolvedCluster.kafkaProperties
+                )
             )
         )
     }

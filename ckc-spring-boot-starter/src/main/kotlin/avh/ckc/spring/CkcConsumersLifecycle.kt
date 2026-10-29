@@ -1,14 +1,21 @@
 package avh.ckc.spring
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.context.ApplicationContext
 import org.springframework.context.SmartLifecycle
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Spring-managed lifecycle and registry implementation for starter-managed CKC consumers.
@@ -17,14 +24,15 @@ import org.springframework.context.SmartLifecycle
  * manual consumers are registered here and can be controlled through [CkcConsumerRegistry].
  */
 class CkcConsumersLifecycle internal constructor(
-    private val applicationContext: ApplicationContext
+    private val applicationContext: ApplicationContext,
+    private val providedConsumerRuntimes: List<NamedConsumerRuntime>? = null
 ) : SmartLifecycle, CkcConsumerRegistry, DisposableBean {
     private val dispatcherRegistryLazy = lazy {
         CkcDispatcherRegistry(applicationContext, properties)
     }
     private val dispatcherRegistry: CkcDispatcherRegistry by dispatcherRegistryLazy
     private val consumerRuntimes: List<NamedConsumerRuntime> by lazy {
-        resolveConsumerRuntimes(applicationContext, dispatcherRegistry)
+        providedConsumerRuntimes ?: resolveConsumerRuntimes(applicationContext, dispatcherRegistry)
     }
     private val runningConsumerNames = linkedSetOf<String>()
     private val terminalFailureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -75,16 +83,16 @@ class CkcConsumersLifecycle internal constructor(
             if (!lifecycleStarted && runningConsumerNames.isEmpty()) {
                 return
             }
-            try {
-                stopRuntimes(
-                    runtimes = consumerRuntimes.filter { it.name in runningConsumerNames }.asReversed(),
-                    timeout = properties.lifecycle.shutdownTimeout
-                )
-            } finally {
-                runningConsumerNames.clear()
-                running = false
+            val result = stopRuntimes(
+                runtimes = consumerRuntimes.filter { it.name in runningConsumerNames }.asReversed(),
+                timeout = properties.lifecycle.shutdownTimeout
+            )
+            runningConsumerNames.removeAll(result.completedConsumerNames)
+            running = runningConsumerNames.isNotEmpty()
+            if (!running) {
                 lifecycleStarted = false
             }
+            result.throwIfIncomplete()
         }
     }
 
@@ -127,12 +135,10 @@ class CkcConsumersLifecycle internal constructor(
             if (runtime.name !in runningConsumerNames) {
                 return
             }
-            try {
-                stopRuntimes(listOf(runtime), properties.lifecycle.shutdownTimeout)
-            } finally {
-                runningConsumerNames.remove(runtime.name)
-                running = runningConsumerNames.isNotEmpty()
-            }
+            val result = stopRuntimes(listOf(runtime), properties.lifecycle.shutdownTimeout)
+            runningConsumerNames.removeAll(result.completedConsumerNames)
+            running = runningConsumerNames.isNotEmpty()
+            result.throwIfIncomplete()
         }
     }
 
@@ -190,9 +196,9 @@ class CkcConsumersLifecycle internal constructor(
     private fun stopRuntimes(
         runtimes: List<NamedConsumerRuntime>,
         timeout: java.time.Duration
-    ) {
+    ): ConsumerShutdownResult {
         if (runtimes.isEmpty()) {
-            return
+            return ConsumerShutdownResult.EMPTY
         }
         require(!timeout.isNegative && !timeout.isZero) {
             "ckc.lifecycle.shutdown-timeout must be > 0"
@@ -200,28 +206,87 @@ class CkcConsumersLifecycle internal constructor(
         logger.info(
             "Stopping ${runtimes.size} CKC consumer(s) with shutdown timeout ${timeout.toMillis()}ms"
         )
+        val outcomes = ConcurrentHashMap<String, Result<Unit>>()
         runBlocking {
-            try {
-                withTimeout(timeout.toMillis()) {
-                    runtimes.forEach { runtime ->
-                        logger.info("Stopping CKC consumer '${runtime.name}'")
-                        runtime.consumer.stop()
-                        logger.info("Stopped CKC consumer '${runtime.name}'")
+            withTimeoutOrNull(timeout.toMillis()) {
+                coroutineScope {
+                    runtimes.map { runtime ->
+                        async(Dispatchers.Default) {
+                            logger.info("Stopping CKC consumer '${runtime.name}'")
+                            val outcome = try {
+                                runtime.consumer.stop()
+                                logger.info("Stopped CKC consumer '${runtime.name}'")
+                                Result.success(Unit)
+                            } catch (error: Throwable) {
+                                if (error is CancellationException && !currentCoroutineContext().isActive) {
+                                    throw error
+                                }
+                                logger.severe(
+                                    "Failed to stop CKC consumer '${runtime.name}': ${error.message}"
+                                )
+                                Result.failure(error)
+                            }
+                            outcomes[runtime.name] = outcome
+                        }
                     }
+                        .awaitAll()
                 }
-            } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
-                logger.warning(
-                    "Timed out after ${timeout.toMillis()}ms while stopping CKC consumer(s): " +
-                        runtimes.joinToString { it.name }
-                )
             }
         }
+        val unfinished = runtimes.mapTo(linkedSetOf()) { it.name } - outcomes.keys
+        if (unfinished.isNotEmpty()) {
+            logger.warning(
+                "Timed out after ${timeout.toMillis()}ms while stopping CKC consumer(s): " +
+                    unfinished.joinToString()
+            )
+        }
+        return ConsumerShutdownResult(
+            completedConsumerNames = outcomes.keys.toSet(),
+            failures = outcomes.mapNotNull { (name, outcome) ->
+                outcome.exceptionOrNull()?.let { name to it }
+            }.toMap(),
+            unfinishedConsumerNames = unfinished
+        )
     }
 
     private fun requireConsumerRuntime(name: String): NamedConsumerRuntime =
         consumerRuntimes.firstOrNull { it.name == name }
             ?: error("No CKC consumer named '$name' is registered")
 
+}
+
+/** Aggregates every completed failure and every consumer still stopping at the shared deadline. */
+class CkcConsumersShutdownException internal constructor(
+    val failures: Map<String, Throwable>,
+    val unfinishedConsumerNames: Set<String>
+) : IllegalStateException(
+    buildString {
+        append("CKC consumer shutdown did not complete cleanly")
+        if (failures.isNotEmpty()) append("; failures=${failures.keys.joinToString()}")
+        if (unfinishedConsumerNames.isNotEmpty()) {
+            append("; unfinished=${unfinishedConsumerNames.joinToString()}")
+        }
+    }
+) {
+    init {
+        failures.values.forEach(::addSuppressed)
+    }
+}
+
+private data class ConsumerShutdownResult(
+    val completedConsumerNames: Set<String>,
+    val failures: Map<String, Throwable>,
+    val unfinishedConsumerNames: Set<String>
+) {
+    fun throwIfIncomplete() {
+        if (failures.isNotEmpty() || unfinishedConsumerNames.isNotEmpty()) {
+            throw CkcConsumersShutdownException(failures, unfinishedConsumerNames)
+        }
+    }
+
+    companion object {
+        val EMPTY = ConsumerShutdownResult(emptySet(), emptyMap(), emptySet())
+    }
 }
 
 internal data class CkcConsumerStateSnapshot(
