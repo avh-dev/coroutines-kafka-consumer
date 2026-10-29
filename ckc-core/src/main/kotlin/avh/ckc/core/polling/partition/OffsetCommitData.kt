@@ -16,6 +16,6 @@ internal data class OffsetCommitData(
     /** Number of offset positions advanced since the last successfully committed offset. */
     val advancedOffsetsCount: Long,
 
-    /** Snapshot of processed-but-not-committed offsets to store in Kafka commit metadata. */
-    val offsetTrackerSnapshot: OffsetTrackerSnapshot
+    /** Snapshot for at-least-once metadata, or null for freshness-first commits. */
+    val offsetTrackerSnapshot: OffsetTrackerSnapshot?
 )

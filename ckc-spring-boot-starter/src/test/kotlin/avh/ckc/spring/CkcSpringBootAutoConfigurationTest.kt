@@ -157,7 +157,7 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
                 "ckc.consumers.orders.processing-mode=freshness-first-drop-oldest",
                 "ckc.consumers.orders.freshness-max-record-age=10s",
-                "ckc.consumers.orders.kafka-properties.${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}=true"
+                "ckc.consumers.orders.kafka-properties.${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}=false"
             )
             .run { context ->
                 assertThat(context).hasSingleBean(CkcConsumersLifecycle::class.java)
@@ -167,6 +167,29 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo(ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST)
                 assertThat(properties.consumers["orders"]?.freshnessMaxRecordAge)
                     .isEqualTo(java.time.Duration.ofSeconds(10))
+            }
+    }
+
+    @Test
+    fun `fails when consumer explicitly enables Kafka auto commit`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.kafka-properties.${ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG}=true"
+            )
+            .run { context ->
+                assertThat(context).hasFailed()
+                assertThat(context.startupFailure)
+                    .hasStackTraceContaining(
+                        "ckc.consumers.orders.kafka-properties.enable.auto.commit must not be true; " +
+                            "CKC manages commits explicitly"
+                    )
             }
     }
 

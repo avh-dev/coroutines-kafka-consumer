@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -32,6 +33,43 @@ import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.seconds
 
 class CoroutinesKafkaConsumerTest {
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `when auto commit is omitted then poll loop receives it disabled`() {
+        lateinit var receivedProperties: Map<String, Any?>
+
+        CoroutinesKafkaConsumer<String, String>(
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workerConcurrency = 1,
+            consumerPollLoopConcurrency = 1,
+            commitIntervalMs = 1_000L,
+            commitRecordsThreshold = 1_000,
+            workChannelCapacity = 16,
+            freshnessMaxRecordAge = null,
+            processingDispatcher = Dispatchers.Default,
+            consumerProperties = stringSerdeProperties(),
+            handler = KafkaRecordHandler { },
+            retryPolicy = RetryPolicy.none(),
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+            recordProcessingContext = null,
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            parentContext = EmptyCoroutineContext,
+            topics = listOf("topic-a"),
+            topicsPattern = null,
+            pollLoopFactory = { _, _, _, _, _, _, properties, _, _, _, _, _ ->
+                receivedProperties = properties
+                object : ConsumerPollLoopControl {
+                    override fun start() = error("not started")
+                    override fun prepareForShutdown() = CompletableDeferred(Unit)
+                    override fun stateSnapshot() = error("not started")
+                }
+            },
+            processingRuntimeFactory = ::defaultProcessingRuntime
+        )
+
+        assertEquals(false, receivedProperties[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
+    }
 
     @Test
     fun `when processing mode is AT_LEAST_ONCE_NO_ORDERING then default factory creates at least once runtime`() {

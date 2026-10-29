@@ -14,6 +14,7 @@ import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.isFreshnessFirst
 import avh.ckc.core.tracksProcessedOffsets
 import kotlinx.coroutines.*
 import org.apache.kafka.clients.consumer.*
@@ -44,8 +45,8 @@ import kotlin.time.toKotlinDuration
  * Processing modes:
  * - AT_LEAST_ONCE_NO_ORDERING: non-blocking dispatch via `trySend` + `pause/resume`
  *   with bounded local stash and explicit contiguous commits.
- * - Freshness-first modes: best-effort dispatch, intended for setups relying on
- *   runtime-level dropping and auto-commit.
+ * - Freshness-first modes: best-effort dispatch with explicit commits of the latest
+ *   accepted position, independent of processing completion.
  *
  * Invariants (AT_LEAST_ONCE_NO_ORDERING):
  * - Poll loop never suspends on dispatch.
@@ -305,8 +306,7 @@ internal class ConsumerPollLoop<K, V>(
     /**
      * Rebalance listener selection.
      *
-     * - AT_LEAST_ONCE_NO_ORDERING: requires rebalance hooks for partition state tracking + commit on revoke.
-     * - Freshness-first modes: do not maintain commit tracking; no-op listener is sufficient.
+     * Every mode maintains assignment state and commits on orderly revoke.
      */
     private fun createRebalanceListener(
         consumer: KafkaConsumer<K, V>,
@@ -363,16 +363,14 @@ internal class ConsumerPollLoop<K, V>(
             throw PartitionHandoffTimeoutException("Timed out waiting for revoked partitions: $partitions")
         }
         // Force metadata emission: snapshots can change even when the contiguous frontier does not.
-        if (processingMode.tracksProcessedOffsets()) {
-            val result = commitReadyOffsets(
-                consumer = consumer,
-                partitionStates = revokedPartitionStates,
-                forceMetadata = true,
-                deadlineNanos = deadline
-            )
-            if (result != CommitAttemptResult.SUCCEEDED && revokedPartitionStates.isNotEmpty()) {
-                throw PartitionHandoffCommitException("Final commit failed for revoked partitions: $partitions")
-            }
+        val result = commitOffsets(
+            consumer = consumer,
+            partitionStates = revokedPartitionStates,
+            forceMetadata = processingMode.tracksProcessedOffsets(),
+            deadlineNanos = deadline
+        )
+        if (result == CommitAttemptResult.FAILED) {
+            throw PartitionHandoffCommitException("Final commit failed for revoked partitions: $partitions")
         }
             revokedPartitionStates.forEach {
                 metrics.unbindPartitionMetrics(it.topic, it.partition)
@@ -434,8 +432,10 @@ internal class ConsumerPollLoop<K, V>(
                     consumer.position(it.topicPartition, positionTimeout)
                 }
                 it.init(position, forceReset = true)
-            } else {
+            } else if (processingMode.tracksProcessedOffsets()) {
                 initPartitionState(it, committed)
+            } else {
+                it.init(committed.offset(), forceReset = true)
             }
             metrics.bindPartitionMetrics(it)
         }
@@ -550,13 +550,13 @@ internal class ConsumerPollLoop<K, V>(
         log.error("Kafka consumer loop #$id failed", ex)
         throw ex
     } finally {
-        if (processingMode.tracksProcessedOffsets() && !recoveringLostAssignment) {
-            // Final commit happens only after the owner has drained workers; preserve metadata even
-            // when the contiguous offset frontier itself did not move.
-            val result = commitReadyOffsets(
+        if (shutdownRequested && !recoveringLostAssignment) {
+            // Final commit happens only after the owner has drained workers. At-least-once modes
+            // preserve tracker metadata; freshness-first modes commit their accepted frontier.
+            val result = commitOffsets(
                 consumer = consumer,
                 partitionStates = assignedPartitions,
-                forceMetadata = true,
+                forceMetadata = processingMode.tracksProcessedOffsets(),
                 deadlineNanos = shutdownDeadlineNanos
             )
             if (result == CommitAttemptResult.FAILED) {
@@ -569,8 +569,8 @@ internal class ConsumerPollLoop<K, V>(
         }
     }
 
-    /** Commit contiguous-ready offsets only (PartitionState encapsulates readiness). */
-    private fun commitReadyOffsets(
+    /** Commit the mode-specific ready position for every partition. */
+    private fun commitOffsets(
         consumer: KafkaConsumer<K, V>,
         partitionStates: Set<PartitionState>,
         forceMetadata: Boolean = false,
@@ -580,16 +580,25 @@ internal class ConsumerPollLoop<K, V>(
         val commitDataByPartition = mutableMapOf<PartitionState, OffsetCommitData>()
         var offsetsCount = 0L
         for (partitionState in partitionStates) {
-            val commitData = partitionState.advanceAndGetCommitData(forceMetadata)
+            val commitData = if (processingMode.tracksProcessedOffsets()) {
+                partitionState.advanceAndGetCommitData(forceMetadata)
+            } else {
+                partitionState.getAcceptedCommitData()
+            }
             if (commitData != null) {
                 commitDataByPartition[partitionState] = commitData
                 val kafkaOffset = commitData.offset + 1
-                val encodedMetadata = OffsetTrackerMetadata.encode(
-                    snapshot = commitData.offsetTrackerSnapshot,
-                    context = metadataContext(partitionState.topicPartition, kafkaOffset)
-                )
-                metrics.onOffsetCommitMetadataEncoded(encodedMetadata.toCommitMetadataStats(partitionState.topic))
-                val metadata = encodedMetadata.metadata
+                val snapshot = commitData.offsetTrackerSnapshot
+                val metadata = if (snapshot == null) {
+                    null
+                } else {
+                    val encodedMetadata = OffsetTrackerMetadata.encode(
+                        snapshot = snapshot,
+                        context = metadataContext(partitionState.topicPartition, kafkaOffset)
+                    )
+                    metrics.onOffsetCommitMetadataEncoded(encodedMetadata.toCommitMetadataStats(partitionState.topic))
+                    encodedMetadata.metadata
+                }
                 offsets[partitionState.topicPartition] = if (metadata == null) {
                     OffsetAndMetadata(kafkaOffset)
                 } else {
@@ -666,8 +675,7 @@ internal class ConsumerPollLoop<K, V>(
 
         // Time remains the low-traffic fallback; the record threshold can trigger an earlier commit.
         var lastCommitAt = System.currentTimeMillis()
-        var pendingOffsetsAtLastAttempt = 0L
-
+        var pendingRecordsAtLastAttempt = 0L
         var state = State.ACTIVE
 
         try {
@@ -694,22 +702,22 @@ internal class ConsumerPollLoop<K, V>(
                 pause(consumer, recordBackpressureMetric = false)
             }
 
-            val pendingOffsets = advanceAndCountPendingOffsets()
-            if (pendingOffsets < pendingOffsetsAtLastAttempt) {
-                pendingOffsetsAtLastAttempt = pendingOffsets
+            val pendingOffsets = countPendingCommitRecords()
+            if (pendingOffsets < pendingRecordsAtLastAttempt) {
+                pendingRecordsAtLastAttempt = pendingOffsets
             }
 
             val now = System.currentTimeMillis()
             val intervalReached = now - lastCommitAt >= commitIntervalMs
             val recordsThresholdReached =
-                pendingOffsets - pendingOffsetsAtLastAttempt >= commitRecordsThreshold.toLong()
+                pendingOffsets - pendingRecordsAtLastAttempt >= commitRecordsThreshold.toLong()
             if (intervalReached || recordsThresholdReached) {
-                val result = commitReadyOffsets(consumer, assignedPartitions)
+                val result = commitOffsets(consumer, assignedPartitions)
                 lastCommitAt = now
-                pendingOffsetsAtLastAttempt = when (result) {
-                    CommitAttemptResult.SUCCEEDED,
-                    CommitAttemptResult.NO_OFFSETS -> 0L
+                pendingRecordsAtLastAttempt = when (result) {
                     CommitAttemptResult.FAILED -> pendingOffsets
+                    CommitAttemptResult.NO_OFFSETS,
+                    CommitAttemptResult.SUCCEEDED -> 0L
                 }
             }
 
@@ -771,13 +779,21 @@ internal class ConsumerPollLoop<K, V>(
 
     /** Marks offsets Kafka skipped before a record while leaving the delivered record pending for a worker. */
     private fun observeRecordOffset(record: ConsumerRecord<K, V>) {
-        partitionStateRegistry.observe(record, observeOffset = processingMode.tracksProcessedOffsets())
+        partitionStateRegistry.observe(
+            record,
+            observeOffset = processingMode.tracksProcessedOffsets(),
+            acceptOffset = processingMode.isFreshnessFirst()
+        )
     }
 
-    private fun advanceAndCountPendingOffsets(): Long {
+    private fun countPendingCommitRecords(): Long {
         var total = 0L
         for (partitionState in assignedPartitions) {
-            val pending = partitionState.advanceAndGetPendingOffsetsCount()
+            val pending = if (processingMode.tracksProcessedOffsets()) {
+                partitionState.advanceAndGetPendingOffsetsCount()
+            } else {
+                partitionState.acceptedRecordsPendingCommit()
+            }
             total = if (Long.MAX_VALUE - total < pending) Long.MAX_VALUE else total + pending
         }
         return total
@@ -868,9 +884,11 @@ internal class ConsumerPollLoop<K, V>(
     /**
      * Freshness-first modes:
      * - Minimal poll-loop mode; uses best-effort dispatch into a runtime that may drop records.
-     * - Intended to be paired with client internal auto-commit.
+     * - Explicitly commits the latest accepted offsets by time or record count.
      */
     private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<K, V>) {
+        var lastCommitAt = System.currentTimeMillis()
+        var pendingRecordsAtLastAttempt = 0L
         while (currentCoroutineContext().isActive) {
             if (recoveringLostAssignment) {
                 val deadline = recoveryDeadlineNanos
@@ -891,6 +909,24 @@ internal class ConsumerPollLoop<K, V>(
                     metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
                 }
                 continue
+            }
+
+            val pendingRecords = countPendingCommitRecords()
+            if (pendingRecords < pendingRecordsAtLastAttempt) {
+                pendingRecordsAtLastAttempt = pendingRecords
+            }
+            val now = System.currentTimeMillis()
+            val intervalReached = now - lastCommitAt >= commitIntervalMs
+            val recordsThresholdReached =
+                pendingRecords - pendingRecordsAtLastAttempt >= commitRecordsThreshold.toLong()
+            if (intervalReached || recordsThresholdReached) {
+                val result = commitOffsets(consumer, assignedPartitions)
+                lastCommitAt = now
+                pendingRecordsAtLastAttempt = when (result) {
+                    CommitAttemptResult.FAILED -> pendingRecords
+                    CommitAttemptResult.NO_OFFSETS,
+                    CommitAttemptResult.SUCCEEDED -> 0L
+                }
             }
 
             val records = pollRecords(consumer, State.ACTIVE)
