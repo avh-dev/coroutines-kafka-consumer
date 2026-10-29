@@ -46,13 +46,16 @@ interface ConsumerMetrics<K, V> {
      * Binds partition-level gauges after a partition is assigned to the consumer.
      *
      * The supplied [stats] object is a live read-only view for the assigned partition.
+     * [pollLoopId] identifies its current owner so a later stale unbind can be ignored.
      */
-    fun bindPartitionMetrics(stats: ConsumerPartitionStats) = Unit
+    fun bindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) = Unit
 
     /**
-     * Unbinds partition-level gauges when a partition is revoked from the consumer.
+     * Unbinds partition-level gauges when a partition is revoked from [pollLoopId].
+     *
+     * Implementations must ignore a stale unbind after the same partition has moved to another poll loop.
      */
-    fun unbindPartitionMetrics(topic: String, partition: Int) = Unit
+    fun unbindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) = Unit
 
     /**
      * Records a Kafka poll attempt.

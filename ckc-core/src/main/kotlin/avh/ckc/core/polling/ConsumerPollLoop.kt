@@ -398,7 +398,7 @@ internal class ConsumerPollLoop<K, V>(
             throw PartitionHandoffCommitException("Final commit failed for revoked partitions: $partitions")
         }
             revokedPartitionStates.forEach {
-                metrics.unbindPartitionMetrics(it.topic, it.partition)
+                metrics.unbindPartitionMetrics(id, it)
             }
         } catch (error: Throwable) {
             outcome = if (error.hasCause<PartitionHandoffTimeoutException>()) {
@@ -425,7 +425,7 @@ internal class ConsumerPollLoop<K, V>(
             throw PartitionHandoffTimeoutException("Timed out waiting for lost partitions: $partitions")
         }
         // Never commit a lost generation. Kafka will re-deliver from the authoritative group offset.
-        lostStates.forEach { metrics.unbindPartitionMetrics(it.topic, it.partition) }
+        lostStates.forEach { metrics.unbindPartitionMetrics(id, it) }
     }
 
     /**
@@ -462,7 +462,7 @@ internal class ConsumerPollLoop<K, V>(
             } else {
                 it.init(committed.offset(), forceReset = true)
             }
-            metrics.bindPartitionMetrics(it)
+            metrics.bindPartitionMetrics(id, it)
         }
         assignedPartitions += assignedPartitionStates
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
@@ -588,7 +588,7 @@ internal class ConsumerPollLoop<K, V>(
                 throw IllegalStateException("Final offset commit failed for Kafka consumer #$id")
             }
             assignedPartitions.forEach {
-                metrics.unbindPartitionMetrics(it.topic, it.partition)
+                metrics.unbindPartitionMetrics(id, it)
             }
             assignedPartitions.clear()
         }

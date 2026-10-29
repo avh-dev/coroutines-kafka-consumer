@@ -29,7 +29,7 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
     private val kafkaClientMetrics = mutableMapOf<Int, KafkaClientMetrics>()
     private val runtimeMeters = mutableListOf<Meter>()
-    private val partitionMeters = mutableMapOf<Pair<String, Int>, Meter>()
+    private val partitionMeters = mutableMapOf<Pair<String, Int>, PartitionMeterBinding>()
     private val recoveringPollLoops = AtomicInteger(0)
     private val recoveryActiveGauge: Gauge = Gauge.builder(
         schema.metricName(RECOVERY_ACTIVE),
@@ -85,24 +85,35 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         runtimeMeters.clear()
     }
 
-    override fun bindPartitionMetrics(stats: ConsumerPartitionStats) {
+    override fun bindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) {
         val key = stats.topic to stats.partition
-        if (partitionMeters.containsKey(key)) {
-            return
-        }
+        synchronized(partitionMeters) {
+            val current = partitionMeters[key]
+            if (current?.pollLoopId == pollLoopId && current.stats === stats) return
+            if (current != null) {
+                partitionMeters.remove(key)
+                schema.meterRegistry.remove(current.meter)
+            }
 
-        partitionMeters[key] = Gauge.builder(schema.metricName(OFFSETTRACKER_CAPACITY), stats) {
-            it.offsetTrackerBitCapacity.toDouble()
+            val meter = Gauge.builder(schema.metricName(OFFSETTRACKER_CAPACITY), stats) {
+                it.offsetTrackerBitCapacity.toDouble()
+            }
+                .tags(consumerTags)
+                .tag("topic", stats.topic)
+                .tag("partition", stats.partition.toString())
+                .register(schema.meterRegistry)
+            partitionMeters[key] = PartitionMeterBinding(pollLoopId, stats, meter)
         }
-            .tags(consumerTags)
-            .tag("topic", stats.topic)
-            .tag("partition", stats.partition.toString())
-            .register(schema.meterRegistry)
     }
 
-    override fun unbindPartitionMetrics(topic: String, partition: Int) {
-        val meter = partitionMeters.remove(topic to partition) ?: return
-        schema.meterRegistry.remove(meter)
+    override fun unbindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) {
+        val key = stats.topic to stats.partition
+        synchronized(partitionMeters) {
+            val current = partitionMeters[key] ?: return
+            if (current.pollLoopId != pollLoopId || current.stats !== stats) return
+            partitionMeters.remove(key)
+            schema.meterRegistry.remove(current.meter)
+        }
     }
 
     override fun onPoll(recordsCount: Int, durationNanos: Long) {
@@ -246,4 +257,10 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
 
     private fun recordTags(record: ConsumerRecord<K, V>): Tags =
         schema.recordTags(consumerTags, recordDrivenTagExtractors, record)
+
+    private data class PartitionMeterBinding(
+        val pollLoopId: Int,
+        val stats: ConsumerPartitionStats,
+        val meter: Meter
+    )
 }

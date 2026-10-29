@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class MicrometerConsumerMetricsSchemaTest {
@@ -503,7 +505,7 @@ class MicrometerConsumerMetricsSchemaTest {
             consumerId = "telemetry"
         }
 
-        metrics.bindPartitionMetrics(stats)
+        metrics.bindPartitionMetrics(0, stats)
 
         assertEquals(
             128.0,
@@ -527,7 +529,7 @@ class MicrometerConsumerMetricsSchemaTest {
                 .value()
         )
 
-        metrics.unbindPartitionMetrics("orders", 2)
+        metrics.unbindPartitionMetrics(0, stats)
 
         assertTrue(
             registry.find("test.ckc.offsettracker.capacity")
@@ -537,6 +539,71 @@ class MicrometerConsumerMetricsSchemaTest {
                 .meters()
                 .isEmpty()
         )
+    }
+
+    @Test
+    fun `when partition moves between poll loops then concurrent stale unbind cannot remove new gauge`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        ) {
+            consumerId = "telemetry"
+        }
+        val executor = Executors.newFixedThreadPool(2)
+
+        try {
+            repeat(200) { iteration ->
+                val oldStats = MutablePartitionStats("orders", 2, 128)
+                val newStats = MutablePartitionStats("orders", 2, 512 + iteration)
+                metrics.bindPartitionMetrics(1, oldStats)
+                val start = CountDownLatch(1)
+
+                val bind = executor.submit {
+                    start.await()
+                    metrics.bindPartitionMetrics(2, newStats)
+                }
+                val staleUnbind = executor.submit {
+                    start.await()
+                    metrics.unbindPartitionMetrics(1, oldStats)
+                }
+                start.countDown()
+                bind.get(2, TimeUnit.SECONDS)
+                staleUnbind.get(2, TimeUnit.SECONDS)
+
+                val gauges = registry.find("test.ckc.offsettracker.capacity")
+                    .tag("consumer_id", "telemetry")
+                    .tag("topic", "orders")
+                    .tag("partition", "2")
+                    .gauges()
+                assertEquals(1, gauges.size)
+                assertEquals(newStats.offsetTrackerBitCapacity.toDouble(), gauges.single().value())
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `when partition moves with same stats instance then stale owner cannot remove gauge`() {
+        val registry = SimpleMeterRegistry()
+        val stats = MutablePartitionStats("orders", 2, 128)
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        ) {
+            consumerId = "telemetry"
+        }
+
+        metrics.bindPartitionMetrics(1, stats)
+        metrics.bindPartitionMetrics(2, stats)
+        metrics.unbindPartitionMetrics(1, stats)
+
+        val gauges = registry.find("test.ckc.offsettracker.capacity")
+            .tag("consumer_id", "telemetry")
+            .tag("topic", "orders")
+            .tag("partition", "2")
+            .gauges()
+        assertEquals(1, gauges.size)
+        assertEquals(128.0, gauges.single().value())
     }
 
     @Test

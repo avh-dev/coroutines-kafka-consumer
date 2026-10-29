@@ -72,6 +72,7 @@
 | [CORE-67](#core-67) | Align the active-offset-hole rebalance integration test with graceful revoke semantics. | DONE |
 | [CORE-68](#core-68) | Make Spring-managed multi-consumer shutdown concurrent, bounded, and failure-aware. | DONE |
 | [CORE-69](#core-69) | Release consumer-owned core executors and lifecycle jobs on normal shutdown, startup failure, and terminal failure. | DONE |
+| [CORE-70](#core-70) | Make partition gauge registration and removal atomic across concurrent poll-loop ownership changes. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5799,4 +5800,16 @@ provided processing dispatchers under application ownership.
 Verification: core, Micrometer, and Spring starter tests pass, including repeated
 poll-thread creation, parent cancellation before and during shutdown, startup-failure,
 terminal-failure, idempotent-stop, and external-dispatcher ownership regressions;
+all 23 core integration tests pass.
+
+<a id="core-70"></a>
+### CORE-70 - Make partition metrics thread-safe
+
+_Date: 2026-10-29_
+
+Synchronize the complete partition-gauge bind and unbind operations, including
+MeterRegistry registration and removal. Preserve exactly one live gauge set as
+partition ownership moves between concurrent poll loops.
+Verification: core, Micrometer, and Spring starter tests pass, including the
+concurrent partition-transfer regression and transfer with the same stats instance;
 all 23 core integration tests pass.
