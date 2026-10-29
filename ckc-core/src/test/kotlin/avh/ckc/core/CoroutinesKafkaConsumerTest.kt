@@ -13,11 +13,14 @@ import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingR
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -251,6 +254,56 @@ class CoroutinesKafkaConsumerTest {
 
         release.complete(Unit)
         withTimeout(2_000) { stopJob.await() }
+    }
+
+    @Test
+    fun `when parent is cancelled during stop then shutdown completion waits for handler cleanup`() = runBlocking {
+        val parentJob = Job()
+        val handlerStarted = CompletableDeferred<Unit>()
+        val cleanupStarted = CompletableDeferred<Unit>()
+        val releaseCleanup = CompletableDeferred<Unit>()
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 12L)),
+            consumerProperties = stringSerdeProperties(),
+            parentContext = parentJob + Dispatchers.Default,
+            handler = KafkaRecordHandler<String, String> {
+                try {
+                    handlerStarted.complete(Unit)
+                    awaitCancellation()
+                } finally {
+                    cleanupStarted.complete(Unit)
+                    withContext(NonCancellable) {
+                        releaseCleanup.await()
+                    }
+                }
+            }
+        )
+
+        consumer.start()
+        withTimeout(2_000) { handlerStarted.await() }
+        val stopJob = async { runCatching { consumer.stop() }.exceptionOrNull() }
+        val shutdownCompletionJob = async { consumer.awaitShutdownCompletion() }
+
+        try {
+            awaitFor(timeoutMillis = 2_000, pauseMillis = 10) {
+                consumer.stateSnapshot().takeIf { it.stopped }
+            }
+            parentJob.cancel()
+            withTimeout(2_000) { cleanupStarted.await() }
+
+            assertFalse(shutdownCompletionJob.isCompleted)
+
+            releaseCleanup.complete(Unit)
+            withTimeout(2_000) { shutdownCompletionJob.await() }
+            assertInstanceOf(
+                kotlinx.coroutines.CancellationException::class.java,
+                withTimeout(2_000) { stopJob.await() }
+            )
+        } finally {
+            releaseCleanup.complete(Unit)
+            parentJob.cancel()
+        }
+        Unit
     }
 
     @Test

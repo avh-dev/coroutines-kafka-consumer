@@ -70,6 +70,7 @@
 | [CORE-65](#core-65) | Report ownership handoff separately from terminal record drops in core metrics and audit evidence. | DONE |
 | [CORE-66](#core-66) | Unify explicit time- and record-triggered offset commits across all processing modes. | DONE |
 | [CORE-67](#core-67) | Align the active-offset-hole rebalance integration test with graceful revoke semantics. | DONE |
+| [CORE-68](#core-68) | Make Spring-managed multi-consumer shutdown concurrent, bounded, and failure-aware. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5770,3 +5771,17 @@ observe that handoff has started, release blocked processing so revoke can drain
 then verify final commits prevent duplicate delivery to the new owner.
 Verification: the isolated rebalance scenario, the core/Micrometer/Spring unit
 suite, and all 23 core integration tests pass.
+
+<a id="core-68"></a>
+### CORE-68 - Make Spring consumer shutdown reliable
+
+_Date: 2026-10-29_
+
+Initiate shutdown for every running starter-managed consumer independently,
+wait within one shared lifecycle deadline, and retain each consumer's failure.
+Keep lifecycle and registry state truthful when one or more consumers do not
+finish stopping, and update it automatically when a timed-out shutdown later
+completes its background work.
+Verification: core, Micrometer, and Spring starter tests pass, including new
+multi-consumer failure/timeout, delayed-completion lifecycle, and parent-job
+cancellation regressions; core integration tests remain green.

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
+import kotlin.coroutines.CoroutineContext
 
 internal fun <K, V> createTestConsumer(
     records: List<ConsumerRecord<K, V>>,
@@ -21,6 +22,7 @@ internal fun <K, V> createTestConsumer(
     metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
+    parentContext: CoroutineContext = kotlinx.coroutines.Dispatchers.Default,
     runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
@@ -37,7 +39,7 @@ internal fun <K, V> createTestConsumer(
         metrics = metrics,
         recordProcessingContext = null,
         processingFailureHandler = processingFailureHandler,
-        parentContext = kotlinx.coroutines.Dispatchers.Default,
+        parentContext = parentContext,
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,

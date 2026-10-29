@@ -24,14 +24,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
@@ -133,6 +135,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val failure = AtomicReference<Throwable?>(null)
     private val terminalFailureSignal = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
+    private val shutdownCompletion = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
     private val partitionRegistry = PartitionRegistry()
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
@@ -308,6 +311,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         termination.await()?.let { throw it }
     }
 
+    /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
+    suspend fun awaitShutdownCompletion() {
+        shutdownCompletion.await()
+    }
+
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
         val loopSnapshots = pollLoops.map { it.stateSnapshot() }
@@ -362,6 +370,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             stopped = true
             val shutdownStartedAt = System.nanoTime()
             var shutdownOutcome = LifecycleOutcome.SUCCESS
+            var shutdownError: Throwable? = null
+            var processingShutdownCompleted = false
 
             try {
                 if (failure.get() == null) {
@@ -382,6 +392,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                                 // Stash is now in the runtime. Closing it drains accepted work and waits for
                                 // handlers, retries, and failure handlers before Kafka final commit.
                                 processingLifecycle.stop()
+                                processingShutdownCompleted = true
                                 pollLoops.map { it.finalizeShutdown() }.forEach { it.await() }
                             }
                         }
@@ -390,31 +401,46 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                         throw timeout
                     }
                 }
-
-                pollLoopJobs.forEach { job ->
-                    if (job.isActive) {
-                        job.cancelAndJoin()
-                    } else {
-                        job.join()
-                    }
-                }
-                if (failure.get() != null) {
-                    processingLifecycle.stop()
-                }
             } catch (error: Throwable) {
+                shutdownError = error
                 shutdownOutcome = if (error is TimeoutCancellationException) {
                     LifecycleOutcome.TIMEOUT
                 } else {
                     LifecycleOutcome.FAILURE
                 }
-                throw error
-            } finally {
-                if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
-                    shutdownOutcome = LifecycleOutcome.FAILURE
-                }
-                metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
-                termination.complete(failure.get())
             }
+
+            withContext(NonCancellable) {
+                try {
+                    pollLoopJobs.forEach { job ->
+                        if (job.isActive) {
+                            job.cancelAndJoin()
+                        } else {
+                            job.join()
+                        }
+                    }
+                    if (!processingShutdownCompleted) {
+                        processingLifecycle.stop()
+                        processingShutdownCompleted = true
+                    }
+                } catch (error: Throwable) {
+                    shutdownOutcome = LifecycleOutcome.FAILURE
+                    if (shutdownError == null) {
+                        shutdownError = error
+                    } else {
+                        shutdownError.addSuppressed(error)
+                    }
+                } finally {
+                    if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
+                        shutdownOutcome = LifecycleOutcome.FAILURE
+                    }
+                    metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
+                    termination.complete(failure.get())
+                    shutdownCompletion.complete(Unit)
+                }
+            }
+
+            shutdownError?.let { throw it }
         }
     }
 }
