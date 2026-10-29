@@ -5783,5 +5783,5 @@ Keep lifecycle and registry state truthful when one or more consumers do not
 finish stopping, and update it automatically when a timed-out shutdown later
 completes its background work.
 Verification: core, Micrometer, and Spring starter tests pass, including new
-multi-consumer failure/timeout and delayed-completion lifecycle regressions;
-core integration tests remain green.
+multi-consumer failure/timeout, delayed-completion lifecycle, and parent-job
+cancellation regressions; core integration tests remain green.

@@ -24,14 +24,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
@@ -369,6 +371,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             val shutdownStartedAt = System.nanoTime()
             var shutdownOutcome = LifecycleOutcome.SUCCESS
             var shutdownError: Throwable? = null
+            var processingShutdownCompleted = false
 
             try {
                 if (failure.get() == null) {
@@ -389,6 +392,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                                 // Stash is now in the runtime. Closing it drains accepted work and waits for
                                 // handlers, retries, and failure handlers before Kafka final commit.
                                 processingLifecycle.stop()
+                                processingShutdownCompleted = true
                                 pollLoops.map { it.finalizeShutdown() }.forEach { it.await() }
                             }
                         }
@@ -406,31 +410,34 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 }
             }
 
-            try {
-                pollLoopJobs.forEach { job ->
-                    if (job.isActive) {
-                        job.cancelAndJoin()
-                    } else {
-                        job.join()
+            withContext(NonCancellable) {
+                try {
+                    pollLoopJobs.forEach { job ->
+                        if (job.isActive) {
+                            job.cancelAndJoin()
+                        } else {
+                            job.join()
+                        }
                     }
-                }
-                if (failure.get() != null) {
-                    processingLifecycle.stop()
-                }
-            } catch (error: Throwable) {
-                shutdownOutcome = LifecycleOutcome.FAILURE
-                if (shutdownError == null) {
-                    shutdownError = error
-                } else {
-                    shutdownError.addSuppressed(error)
-                }
-            } finally {
-                if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
+                    if (!processingShutdownCompleted) {
+                        processingLifecycle.stop()
+                        processingShutdownCompleted = true
+                    }
+                } catch (error: Throwable) {
                     shutdownOutcome = LifecycleOutcome.FAILURE
+                    if (shutdownError == null) {
+                        shutdownError = error
+                    } else {
+                        shutdownError.addSuppressed(error)
+                    }
+                } finally {
+                    if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
+                        shutdownOutcome = LifecycleOutcome.FAILURE
+                    }
+                    metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
+                    termination.complete(failure.get())
+                    shutdownCompletion.complete(Unit)
                 }
-                metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
-                termination.complete(failure.get())
-                shutdownCompletion.complete(Unit)
             }
 
             shutdownError?.let { throw it }
