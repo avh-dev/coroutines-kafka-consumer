@@ -1,9 +1,9 @@
 schema_version: 2
 name: ckc-thread-stats-autoscaling-10k-triangle-local
 description: >-
-  Compare ordinary CPU HPA with Thread Stats CPU excluding native JIT. Both CKC
-  targets run the same triangular profile, ramping from zero to 10k/s over ten
-  minutes and back to zero over ten minutes on deliberately small 400m pods.
+  Measure CKC autoscaling with Thread Stats CPU excluding native JIT under a
+  profile that ramps from zero to 10k/s over ten minutes, holds maximum load for
+  five minutes, and ramps back to zero over ten minutes on small 400m pods.
 workload:
   stubs:
     error_rate_percent: 0
@@ -22,7 +22,7 @@ workload:
     dispatcher_threads: 2
     base_tps: 10000
     producer_capacity_tps: {order: 10000, batch: 10000, telemetry: 10000}
-    load_profile: 0 -> (10m, linear-ramp-up) -> 100 -> (10m, linear-ramp-down) -> 0
+    load_profile: 0 -> (10m, linear-ramp-up) -> 100 -> (5m, steady) -> 100 -> (10m, linear-ramp-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -52,19 +52,21 @@ workload:
   - name: ramp-up
     start: 0m
     duration: 10m
+  - name: steady
+    start: 12m30s
+    duration: 2m30s
   - name: ramp-down
-    start: 10m
+    start: 15m
     duration: 10m
   topics:
-    order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
-    batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
-    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+    order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 1000}
 targets:
-- &ckc_target
-  name: ckc.thread-stats-no-jit
+- name: ckc.thread-stats-no-jit
   annotation_label: CKC · smoothed total Thread Stats CPU without JIT · local 10k
   implementation: ckc
-  application: &small_ckc_application
+  application:
     placement: worker
     replicas: 1
     resources:
@@ -88,7 +90,7 @@ targets:
         polling_interval_seconds: 15
         scale_up: {max_pods: 2, period_seconds: 60, tolerance: 0.1}
         scale_down: {max_pods: 1, period_seconds: 60, stabilization_window_seconds: 60}
-  runtime: &ckc_runtime
+  runtime:
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
@@ -110,18 +112,6 @@ targets:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
-- <<: *ckc_target
-  name: ckc.cpu-hpa-85
-  annotation_label: CKC · ordinary CPU HPA 85% · local 10k
-  application:
-    <<: *small_ckc_application
-    hpa:
-      enabled: true
-      min_replicas: 1
-      max_replicas: 12
-      target_cpu_utilization_percentage: 85
-      scale_down_stabilization_window_seconds: 300
-  runtime: *ckc_runtime
 environments:
   internal-lab:
     lab:
