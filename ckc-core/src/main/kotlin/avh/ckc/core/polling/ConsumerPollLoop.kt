@@ -4,6 +4,7 @@ import avh.ckc.core.AssignedPartitionSnapshot
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.PollLoopStateSnapshot
 import avh.ckc.core.ProcessingMode
+import avh.ckc.core.VisibleForTesting
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
@@ -78,6 +79,13 @@ internal class ConsumerPollLoop<K, V>(
     private var activeUnobservedRecords: MutableSet<ConsumerRecord<K, V>>? = null
     private var activeTrackerBlockedRecords: MutableSet<ConsumerRecord<K, V>>? = null
     private var activeTrackerPausedPartitions: MutableSet<TopicPartition>? = null
+
+    @Volatile
+    private var maximumObservedStashSize = 0
+
+    @VisibleForTesting
+    internal val maximumObservedStashSizeForTest: Int
+        get() = maximumObservedStashSize
 
     @Volatile
     private var partitionHandoffTimeoutNanos = PARTITION_HANDOFF_TIMEOUT_NANOS
@@ -699,8 +707,9 @@ internal class ConsumerPollLoop<K, V>(
 
         val maxPollRecords = consumerConfigAdapter.getInt(MAX_POLL_RECORDS_CONFIG)!!
 
-        // Bounded spill queue for records already fetched when channel is saturated.
-        val stash = ArrayDeque<ConsumerRecord<K, V>>(maxPollRecords)
+        // One poll batch may arrive after the retained half fills, so keep an explicit full-batch reserve.
+        val stashCapacity = Math.multiplyExact(maxPollRecords, 2)
+        val stash = ArrayDeque<ConsumerRecord<K, V>>(stashCapacity)
         val unobservedRecords = Collections.newSetFromMap(IdentityHashMap<ConsumerRecord<K, V>, Boolean>())
         val trackerBlockedRecords = Collections.newSetFromMap(IdentityHashMap<ConsumerRecord<K, V>, Boolean>())
         val trackerPausedPartitions = mutableSetOf<TopicPartition>()
@@ -768,7 +777,7 @@ internal class ConsumerPollLoop<K, V>(
                 while (iterator.hasNext()) {
                     val record = iterator.next()
                     if (!observeRecordOffset(record)) {
-                        stash.addLast(record)
+                        stash.addBounded(record, stashCapacity)
                         unobservedRecords += record
                         trackerBlockedRecords += record
                         pausePartition(consumer, record.topicPartition(), trackerPausedPartitions)
@@ -779,7 +788,7 @@ internal class ConsumerPollLoop<K, V>(
                     if (!accepted) {
                         // Processing runtime saturated -> pause Kafka and stash the rest of this poll batch.
                         state = State.PAUSED
-                        stash.addLast(record)
+                        stash.addBounded(record, stashCapacity)
                         pause(consumer)
                         break
                     }
@@ -789,7 +798,7 @@ internal class ConsumerPollLoop<K, V>(
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
                 val record = iterator.next()
-                stash.addLast(record)
+                stash.addBounded(record, stashCapacity)
                 unobservedRecords += record
             }
 
@@ -808,27 +817,27 @@ internal class ConsumerPollLoop<K, V>(
                 state = State.PAUSED
                 pause(consumer)
             }
-            resumeTrackerPartitions(
-                consumer,
-                trackerPausedPartitions,
-                trackerBlockedRecords,
-                allowResume = state == State.ACTIVE
-            )
-            if (queueAvailable && trackerBlockedRecords.isEmpty()) {
-                when (state) {
-                    State.PAUSED -> {
-                        state = State.ACTIVE
-                        resume(consumer, trackerPausedPartitions)
-                    }
-                    State.DRAINING_TAIL -> {
-                        // Tail drained: stash empty AND no new records in this poll.
-                        if (records.isEmpty) {
-                            state = State.TAIL_DRAINED
-                            readyForShutdownSignal.complete(Unit)
-                        }
-                    }
-                    else -> Unit
+            if (stash.size > maxPollRecords && state == State.ACTIVE) {
+                state = State.PAUSED
+                pause(consumer)
+            }
+            when (state) {
+                State.PAUSED -> if (queueAvailable && stash.size <= maxPollRecords) {
+                    state = State.ACTIVE
+                    resumeTrackerPartitions(
+                        consumer,
+                        trackerPausedPartitions,
+                        trackerBlockedRecords,
+                        invokeKafka = false
+                    )
+                    resume(consumer, trackerPausedPartitions)
                 }
+                State.DRAINING_TAIL -> if (queueAvailable && stash.isEmpty() && records.isEmpty) {
+                    state = State.TAIL_DRAINED
+                    readyForShutdownSignal.complete(Unit)
+                }
+                State.ACTIVE -> resumeTrackerPartitions(consumer, trackerPausedPartitions, trackerBlockedRecords)
+                State.TAIL_DRAINED -> Unit
             }
             }
         } finally {
@@ -915,6 +924,15 @@ internal class ConsumerPollLoop<K, V>(
 
     private fun ConsumerRecord<K, V>.topicPartition() = TopicPartition(topic(), partition())
 
+    private fun ArrayDeque<ConsumerRecord<K, V>>.addBounded(
+        record: ConsumerRecord<K, V>,
+        capacity: Int
+    ) {
+        check(size < capacity) { "Poll-loop stash exceeded its bounded capacity of $capacity records" }
+        addLast(record)
+        maximumObservedStashSize = maxOf(maximumObservedStashSize, size)
+    }
+
     private fun pausePartition(
         consumer: KafkaConsumer<K, V>,
         partition: TopicPartition,
@@ -934,12 +952,15 @@ internal class ConsumerPollLoop<K, V>(
         consumer: KafkaConsumer<K, V>,
         trackerPausedPartitions: MutableSet<TopicPartition>,
         trackerBlockedRecords: Set<ConsumerRecord<K, V>>,
-        allowResume: Boolean
+        invokeKafka: Boolean = true
     ) {
-        if (!allowResume) return
         val stillBlocked = trackerBlockedRecords.mapTo(mutableSetOf()) { it.topicPartition() }
         val resumable = trackerPausedPartitions - stillBlocked
         if (resumable.isEmpty()) return
+        if (!invokeKafka) {
+            trackerPausedPartitions.removeAll(resumable)
+            return
+        }
         try {
             consumer.resume(resumable)
             trackerPausedPartitions.removeAll(resumable)

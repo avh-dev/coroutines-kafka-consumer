@@ -143,14 +143,33 @@ internal class OffsetTracker(
 
     /**
      * Skips an observed Kafka offset gap without materializing it when it starts at the processed frontier.
-     * The caller must only use this before admitting later records, so no live bits can exist beyond the gap.
+     * Existing processed bits beyond the new head are rebased and preserved.
      */
     fun skipContiguousProcessedRange(fromInclusive: Long, toExclusive: Long): Boolean =
         synchronized(this) {
             if (fromInclusive >= toExclusive) return true
             if (fromInclusive > lastProcessedOffset + 1) return false
-            lastProcessedOffset = max(lastProcessedOffset, toExclusive - 1)
-            words.fill(0L)
+            if (toExclusive <= lastProcessedOffset + 1) return true
+
+            val rebasedWords = LongArray(words.size)
+            for (logicalWordIndex in words.indices) {
+                val physicalWordIndex = (headWordIndex + logicalWordIndex) and wordMask
+                var marked = words[physicalWordIndex]
+                while (marked != 0L) {
+                    val bitInWord = marked.countTrailingZeroBits()
+                    val oldBitIndex = logicalWordIndex.toLong() * 64L + bitInWord
+                    val offset = headWordOffset + oldBitIndex
+                    val newBitIndex = offset - toExclusive
+                    if (newBitIndex in 0 until capacityBits.toLong()) {
+                        val newWordIndex = (newBitIndex ushr 6).toInt()
+                        rebasedWords[newWordIndex] = rebasedWords[newWordIndex] or (1L shl newBitIndex.toInt())
+                    }
+                    marked = marked and (marked - 1)
+                }
+            }
+
+            lastProcessedOffset = toExclusive - 1
+            words = rebasedWords
             headWordOffset = toExclusive
             headWordIndex = 0
             true

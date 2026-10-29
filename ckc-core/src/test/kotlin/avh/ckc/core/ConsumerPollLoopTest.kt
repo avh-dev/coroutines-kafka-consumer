@@ -45,6 +45,7 @@ import org.mockito.kotlin.whenever
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -506,6 +507,97 @@ class ConsumerPollLoopTest {
 
             assertEquals(128L, withTimeout(2_000) { fixture.workChannel.receive() }.offset())
             verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(fixture.topicPartition)))
+
+            job.cancel()
+            job.join()
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `tracker stash stays bounded and reserve pause releases partitions without tracker pressure`() = runBlocking {
+            val firstPartition = TopicPartition("topic-a", 0)
+            val secondPartition = TopicPartition("topic-a", 1)
+            val pollNumber = AtomicInteger()
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 64,
+                maxTrackedOffsetsPerPartition = 128,
+                additionalAssignmentPositions = mapOf(secondPartition to 0L),
+                pollAnswer = {
+                    val partition = when (pollNumber.getAndIncrement()) {
+                        0 -> firstPartition
+                        1 -> secondPartition
+                        else -> null
+                    }
+                    if (partition == null) {
+                        emptyRecords()
+                    } else {
+                        ConsumerRecords(
+                            mapOf(
+                                partition to buildList {
+                                    add(record(partition = partition.partition(), offset = 0L))
+                                    for (offset in 127L..135L) {
+                                        add(record(partition = partition.partition(), offset = offset))
+                                    }
+                                }
+                            )
+                        )
+                    }
+                }
+            )
+
+            val job = fixture.start()
+            verify(fixture.consumer, timeout(2_000)).pause(eq(setOf(firstPartition, secondPartition)))
+            awaitFor(2_000L, 10L) {
+                fixture.loop.maximumObservedStashSizeForTest.takeIf { it == 16 }
+            }
+            assertTrue(fixture.loop.maximumObservedStashSizeForTest <= 20)
+
+            fixture.registry.partitionStateFor(firstPartition)!!.apply {
+                markProcessed(0L)
+                markProcessed(127L)
+            }
+
+            verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(firstPartition)))
+
+            job.cancel()
+            job.join()
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when queue frees then global pause releases partition without tracker pressure`() = runBlocking {
+            val blockedPartition = TopicPartition("topic-a", 0)
+            val unaffectedPartition = TopicPartition("topic-a", 1)
+            val firstPoll = AtomicBoolean(true)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 1,
+                maxTrackedOffsetsPerPartition = 128,
+                additionalAssignmentPositions = mapOf(unaffectedPartition to 0L),
+                initialChannelRecords = listOf(record(topic = "prefill", offset = 0L)),
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        recordsOf(
+                            blockedPartition,
+                            record(offset = 0L),
+                            record(offset = 127L),
+                            *Array(8) { index -> record(offset = 128L + index) }
+                        )
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+            verify(fixture.consumer, timeout(2_000)).pause(eq(setOf(blockedPartition, unaffectedPartition)))
+
+            assertEquals("prefill", withTimeout(2_000) { fixture.workChannel.receive() }.topic())
+            assertEquals(0L, withTimeout(2_000) { fixture.workChannel.receive() }.offset())
+            assertEquals(127L, withTimeout(2_000) { fixture.workChannel.receive() }.offset())
+
+            verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(unaffectedPartition)))
 
             job.cancel()
             job.join()
@@ -1278,6 +1370,7 @@ private class PollLoopFixture(
     )
 
     private val assignedOnce = AtomicBoolean(false)
+    private val pausedPartitions = ConcurrentHashMap.newKeySet<TopicPartition>()
 
     init {
         initialChannelRecords.forEach { workChannel.trySendBlocking(it) }
@@ -1296,6 +1389,14 @@ private class PollLoopFixture(
         whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
         whenever(consumer.committed(any<Set<TopicPartition>>(), any<Duration>())).thenReturn(committedOffsets)
         whenever(consumer.assignment()).thenReturn(assignmentPositions.keys)
+        doAnswer { invocation ->
+            pausedPartitions.addAll(invocation.getArgument<Collection<TopicPartition>>(0))
+            null
+        }.whenever(consumer).pause(any())
+        doAnswer { invocation ->
+            pausedPartitions.removeAll(invocation.getArgument<Collection<TopicPartition>>(0).toSet())
+            null
+        }.whenever(consumer).resume(any())
         whenever(consumer.close()).then { }
 
         whenever(consumer.poll(any<Duration>()))
@@ -1303,7 +1404,12 @@ private class PollLoopFixture(
                 if (assignedOnce.compareAndSet(false, true)) {
                     listenerRef.get()?.onPartitionsAssigned(assignmentPositions.keys)
                 }
-                pollAnswer()
+                val fetched = pollAnswer()
+                ConsumerRecords(
+                    fetched.partitions()
+                        .filterNot { it in pausedPartitions }
+                        .associateWith { fetched.records(it) }
+                )
             }
     }
 

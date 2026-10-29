@@ -184,6 +184,22 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     }
 
     @Test
+    fun `skipping gap at frontier preserves processed bits beyond new head`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L, maxCapacityBits = 128)
+        tracker.markProcessed(0L)
+        tracker.markProcessed(5L)
+        tracker.advanceProcessedFrontier()
+
+        assertTrue(tracker.skipContiguousProcessedRange(1L, 3L))
+        assertTrue(tracker.isProcessed(5L))
+        tracker.markProcessed(3L)
+        tracker.markProcessed(4L)
+        tracker.advanceProcessedFrontier()
+
+        assertEquals(5L, tracker.lastProcessedOffset)
+    }
+
+    @Test
     fun `processed range fills partial and complete ring words`() {
         val tracker = OffsetTracker(initialProcessedOffset = 9L)
 
