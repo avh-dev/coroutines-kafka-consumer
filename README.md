@@ -78,6 +78,11 @@ within a poll loop or `commitIntervalMs` elapses. At-least-once modes select onl
 frontier; freshness-first modes select the latest accepted position. Kafka auto-commit is always disabled, and an
 explicit `enable.auto.commit=true` property is rejected.
 
+The at-least-once tracker uses a small ring that grows on demand and is bounded by
+`maxTrackedOffsetsPerPartition` (1,048,576 bits, or 128 KiB per partition, by default).
+When its window fills, CKC pauses that partition without stopping polls or work already accepted from other
+partitions, and resumes it after the contiguous processed frontier releases tracker space.
+
 ### Replay and Ordering After Failures
 
 CKC does not support Kafka transactions or exactly-once processing. In tracked

@@ -37,7 +37,9 @@ import kotlin.time.Duration
  * - If a topic has a very sparse or extremely large partition id range, an array-based layout
  *   may allocate extra space; this is typically acceptable for Kafka partitioning patterns.
  */
-internal class PartitionRegistry {
+internal class PartitionRegistry(
+    private val maxTrackedOffsetsPerPartition: Int = 1_048_576
+) {
     private val recordLeases = IdentityHashMap<ConsumerRecord<*, *>, PartitionLease>()
     private val activeJobs = IdentityHashMap<ConsumerRecord<*, *>, Job>()
     private val cancellationRequested = IdentityHashMap<ConsumerRecord<*, *>, Boolean>()
@@ -84,7 +86,7 @@ internal class PartitionRegistry {
                 val partition = tp.partition()
                 var partitionState = partitionStates[partition]
                 if (partitionState == null) {
-                   partitionState = PartitionState(tp)
+                   partitionState = PartitionState(tp, maxTrackedOffsetsPerPartition)
                    partitionStates[partition] = partitionState
                 }
                 partitionState.activate()
@@ -120,7 +122,7 @@ internal class PartitionRegistry {
         if (terminal) return null
         val state = partitionStateFor(record) ?: return null
         val lease = state.currentLease() ?: return null
-        if (observeOffset) state.observe(record.offset())
+        if (observeOffset && !state.observe(record.offset())) return null
         if (acceptOffset) state.accept(record.offset())
         synchronized(recordLeases) { recordLeases[record] = lease }
         return lease

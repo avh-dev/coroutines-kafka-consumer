@@ -79,6 +79,20 @@ class PartitionStateTest {
     }
 
     @Test
+    fun `large observed gap waits for pending frontier then skips without growing ring`() {
+        val state = PartitionState(TopicPartition("t", 0), maxTrackedOffsets = 128)
+        state.init(0L)
+
+        assertTrue(state.observe(0L))
+        assertFalse(state.observe(1_000_000_000L))
+        state.markProcessed(0L)
+        state.advanceAndGetPendingOffsetsCount()
+
+        assertTrue(state.observe(1_000_000_000L))
+        assertEquals(128, state.offsetTrackerBitCapacity)
+    }
+
+    @Test
     fun `observed offset gap is completed without completing delivered records`() {
         val ps = PartitionState(TopicPartition("t", 0))
         ps.init(10L)

@@ -224,6 +224,7 @@ ckc:
       consumer-poll-loop-concurrency: 1
       commit-interval: 5s
       commit-records-threshold: 1000
+      max-tracked-offsets-per-partition: 1048576
       work-channel-capacity: 1024
       # freshness-max-record-age: 10s
       processing-dispatcher: shared-workers
@@ -244,6 +245,10 @@ All modes use explicit commits and reject `enable.auto.commit=true`. A commit is
 `commit-records-threshold` commit-ready records are pending within a poll loop or `commit-interval` elapses.
 At-least-once modes commit the safe processed frontier; freshness-first modes commit the latest accepted position,
 including records intentionally dropped by their freshness policy.
+At-least-once offset tracking starts with a small ring and grows only as needed, up to
+`max-tracked-offsets-per-partition` bits per partition (1,048,576 bits, or 128 KiB, by default).
+When a partition reaches that window, CKC pauses only that partition while continuing to poll and
+process already accepted work, then resumes it after the safe processed frontier advances.
 
 ## Metrics
 

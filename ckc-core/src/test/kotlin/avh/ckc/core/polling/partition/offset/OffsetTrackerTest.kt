@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     override fun createOffsetTracker(baseOffset: Long): AbstractOffsetTracker = object : AbstractOffsetTracker {
@@ -168,6 +169,18 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         val tracker = OffsetTracker(initialProcessedOffset = 9L, initialCapacity = 128)
 
         assertFalse(tracker.isProcessed(10_000L))
+    }
+
+    @Test
+    fun `ring never grows beyond configured maximum`() {
+        val tracker = OffsetTracker(initialProcessedOffset = -1L, maxCapacityBits = 128)
+
+        tracker.markProcessed(127L)
+
+        assertEquals(128, tracker.bitCapacity)
+        assertFalse(tracker.canTrack(128L))
+        assertFailsWith<IllegalArgumentException> { tracker.markProcessed(128L) }
+        assertEquals(128, tracker.bitCapacity)
     }
 
     @Test

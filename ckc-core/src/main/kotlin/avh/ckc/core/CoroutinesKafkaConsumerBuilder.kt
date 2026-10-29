@@ -46,6 +46,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
      */
     var commitRecordsThreshold: Int = 1_000
 
+    /** Maximum uncompressed offset-tracker ring size for one partition, in bits. */
+    var maxTrackedOffsetsPerPartition: Int = 1_048_576
+
     /**
      * Capacity of the internal work channel between poll loops and workers.
      *
@@ -165,6 +168,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             consumerPollLoopConcurrency = consumerPollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
             commitRecordsThreshold = commitRecordsThreshold,
+            maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
             partitionHandoffTimeout = partitionHandoffTimeout,

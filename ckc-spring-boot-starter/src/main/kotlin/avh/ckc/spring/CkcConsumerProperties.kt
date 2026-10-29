@@ -140,6 +140,7 @@ data class CkcConsumerProperties(
         var consumerPollLoopConcurrency: Int = 1,
         var commitInterval: Duration = Duration.ofSeconds(5),
         var commitRecordsThreshold: Int = 1_000,
+        var maxTrackedOffsetsPerPartition: Int = 1_048_576,
         var workChannelCapacity: Int = 1024,
         var freshnessMaxRecordAge: Duration? = null,
         var partitionHandoffTimeout: Duration = Duration.ofSeconds(30),

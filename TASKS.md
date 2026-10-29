@@ -73,6 +73,7 @@
 | [CORE-68](#core-68) | Make Spring-managed multi-consumer shutdown concurrent, bounded, and failure-aware. | DONE |
 | [CORE-69](#core-69) | Release consumer-owned core executors and lifecycle jobs on normal shutdown, startup failure, and terminal failure. | DONE |
 | [CORE-70](#core-70) | Make partition gauge registration and removal atomic across concurrent poll-loop ownership changes. | DONE |
+| [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5813,3 +5814,17 @@ partition ownership moves between concurrent poll loops.
 Verification: core, Micrometer, and Spring starter tests pass, including the
 concurrent partition-transfer regression and transfer with the same stats instance;
 all 23 core integration tests pass.
+
+<a id="core-71"></a>
+### CORE-71 - Bound offset tracking and apply backpressure
+
+_Date: 2026-10-29_
+
+Add a configurable per-partition offset-tracker limit with a small growing ring.
+Pause only partitions whose tracking window is full, retain already-polled records
+in a bounded stash, and resume them after the processed frontier frees capacity.
+Coordinate tracker pressure with existing processing-queue backpressure and handle
+large offset gaps without allocating for the entire gap.
+Verification: core, Micrometer, and Spring starter tests pass, including bounded
+growth, large-gap, multi-partition pause/resume, stash admission, configuration,
+and validation regressions; all 23 core integration tests pass.

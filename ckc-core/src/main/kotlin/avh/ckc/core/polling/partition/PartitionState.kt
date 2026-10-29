@@ -19,9 +19,10 @@ import kotlin.time.Duration
  * state without poll-loop/worker call sites changes.
  */
 internal class PartitionState(
-    val topicPartition: TopicPartition
+    val topicPartition: TopicPartition,
+    private val maxTrackedOffsets: Int = 1_048_576
 ) : ConsumerPartitionStats {
-    private var offsetTracker: OffsetTracker = OffsetTracker(-1)
+    private var offsetTracker: OffsetTracker = OffsetTracker(-1, maxCapacityBits = maxTrackedOffsets)
     private var initialized = false
     private var nextObservedOffset = 0L
     private var latestAcceptedOffset = -1L
@@ -51,7 +52,7 @@ internal class PartitionState(
     fun init(initialPosition: Long, forceReset: Boolean = false) {
         val committedOffset = initialPosition - 1
         if (forceReset || !initialized || committedOffset != lastCommittedOffset) {
-            offsetTracker = OffsetTracker(committedOffset)
+            offsetTracker = OffsetTracker(committedOffset, maxCapacityBits = maxTrackedOffsets)
             nextObservedOffset = initialPosition
             latestAcceptedOffset = committedOffset
             acceptedRecordsSinceCommit = 0L
@@ -70,7 +71,11 @@ internal class PartitionState(
     fun init(committedOffset: Long, snapshot: OffsetTrackerSnapshot, forceReset: Boolean = false) {
         val lastCommittedOffset = committedOffset - 1
         if (forceReset || !initialized || lastCommittedOffset != this.lastCommittedOffset) {
-            offsetTracker = OffsetTracker(initialProcessedOffset = lastCommittedOffset, snapshot = snapshot)
+            offsetTracker = OffsetTracker(
+                initialProcessedOffset = lastCommittedOffset,
+                snapshot = snapshot,
+                maxCapacityBits = maxTrackedOffsets
+            )
             nextObservedOffset = committedOffset
             latestAcceptedOffset = lastCommittedOffset
             acceptedRecordsSinceCommit = 0L
@@ -139,12 +144,19 @@ internal class PartitionState(
      * Kafka preserves offset order within a partition but may omit offsets removed by compaction, retention,
      * or filtering. The delivered record itself remains pending until a worker calls [markProcessed].
      */
-    fun observe(offset: Long) {
-        if (offset < nextObservedOffset) return
+    fun observe(offset: Long): Boolean {
+        if (offset < nextObservedOffset) return true
         if (offset > nextObservedOffset) {
-            offsetTracker.markProcessedRange(nextObservedOffset, offset)
+            if (offsetTracker.lastProcessedOffset >= nextObservedOffset - 1) {
+                offsetTracker.skipContiguousProcessedRange(nextObservedOffset, offset)
+            } else {
+                if (!offsetTracker.canTrack(offset)) return false
+                offsetTracker.markProcessedRange(nextObservedOffset, offset)
+            }
         }
+        if (!offsetTracker.canTrack(offset)) return false
         nextObservedOffset = offset + 1
+        return true
     }
 
     /** Records a position accepted from Kafka by a freshness-first runtime. */

@@ -53,6 +53,7 @@ class CkcSpringBootAutoConfigurationTest {
                 "ckc.consumers.orders.consumer-poll-loop-concurrency=2",
                 "ckc.consumers.orders.commit-interval=2s",
                 "ckc.consumers.orders.commit-records-threshold=750",
+                "ckc.consumers.orders.max-tracked-offsets-per-partition=262144",
                 "ckc.consumers.orders.work-channel-capacity=256",
                 "ckc.consumers.orders.kafka-properties.${ConsumerConfig.MAX_POLL_RECORDS_CONFIG}=500"
             )
@@ -80,6 +81,8 @@ class CkcSpringBootAutoConfigurationTest {
                     .isNull()
                 assertThat(properties.consumers["orders"]?.commitRecordsThreshold)
                     .isEqualTo(750)
+                assertThat(properties.consumers["orders"]?.maxTrackedOffsetsPerPartition)
+                    .isEqualTo(262_144)
                 assertThat(
                     properties.consumers["orders"]?.kafkaProperties(
                         properties.clusters.getValue("main").kafkaProperties
@@ -109,6 +112,27 @@ class CkcSpringBootAutoConfigurationTest {
                     context.getBean(CkcConsumerRegistry::class.java).consumerNames
                 }
                     .hasStackTraceContaining("ckc.consumers.orders.commit-records-threshold must be > 0")
+            }
+    }
+
+    @Test
+    fun `fails when maximum tracked offsets is not a supported ring size`() {
+        contextRunner
+            .withUserConfiguration(OrdersConsumerConfiguration::class.java)
+            .withPropertyValues(
+                "ckc.clusters.main.kafka-properties.${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG}=localhost:9092",
+                "ckc.consumers.orders.auto-startup=false",
+                "ckc.consumers.orders.topics[0]=orders.v1",
+                "ckc.consumers.orders.group-id=orders-service",
+                "ckc.consumers.orders.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer",
+                "ckc.consumers.orders.max-tracked-offsets-per-partition=1000"
+            )
+            .run { context ->
+                assertThatThrownBy { context.getBean(CkcConsumerRegistry::class.java).consumerNames }
+                    .hasStackTraceContaining(
+                        "ckc.consumers.orders.max-tracked-offsets-per-partition must be a power of two and >= 128"
+                    )
             }
     }
 
@@ -511,6 +535,7 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.consumers.*.processing-dispatcher")
             .contains("ckc.consumers.*.freshness-max-record-age")
             .contains("ckc.consumers.*.commit-records-threshold")
+            .contains("ckc.consumers.*.max-tracked-offsets-per-partition")
             .contains("ckc.metrics.micrometer.kafka-client-metrics-enabled")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
             .contains("ckc.consumers.*.retry-schema")

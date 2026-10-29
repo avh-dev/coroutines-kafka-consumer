@@ -27,6 +27,8 @@ import org.apache.kafka.common.errors.InvalidConfigurationException
 import org.apache.kafka.common.errors.WakeupException
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
@@ -51,7 +53,7 @@ import kotlin.time.toKotlinDuration
  *
  * Invariants (AT_LEAST_ONCE_NO_ORDERING):
  * - Poll loop never suspends on dispatch.
- * - Pause/resume applies to all assigned partitions.
+ * - Queue backpressure pauses all assigned partitions; tracker pressure pauses only the affected partition.
  * - Offsets are committed only when contiguous-ready (via [PartitionState]).
  */
 internal class ConsumerPollLoop<K, V>(
@@ -73,6 +75,9 @@ internal class ConsumerPollLoop<K, V>(
         },
 ) : ConsumerPollLoopControl {
     private var activeStash: ArrayDeque<ConsumerRecord<K, V>>? = null
+    private var activeUnobservedRecords: MutableSet<ConsumerRecord<K, V>>? = null
+    private var activeTrackerBlockedRecords: MutableSet<ConsumerRecord<K, V>>? = null
+    private var activeTrackerPausedPartitions: MutableSet<TopicPartition>? = null
 
     @Volatile
     private var partitionHandoffTimeoutNanos = PARTITION_HANDOFF_TIMEOUT_NANOS
@@ -696,7 +701,13 @@ internal class ConsumerPollLoop<K, V>(
 
         // Bounded spill queue for records already fetched when channel is saturated.
         val stash = ArrayDeque<ConsumerRecord<K, V>>(maxPollRecords)
+        val unobservedRecords = Collections.newSetFromMap(IdentityHashMap<ConsumerRecord<K, V>, Boolean>())
+        val trackerBlockedRecords = Collections.newSetFromMap(IdentityHashMap<ConsumerRecord<K, V>, Boolean>())
+        val trackerPausedPartitions = mutableSetOf<TopicPartition>()
         activeStash = stash
+        activeUnobservedRecords = unobservedRecords
+        activeTrackerBlockedRecords = trackerBlockedRecords
+        activeTrackerPausedPartitions = trackerPausedPartitions
 
         // Time remains the low-traffic fallback; the record threshold can trigger an earlier commit.
         var lastCommitAt = System.currentTimeMillis()
@@ -756,7 +767,13 @@ internal class ConsumerPollLoop<K, V>(
             if (state == State.ACTIVE) {
                 while (iterator.hasNext()) {
                     val record = iterator.next()
-                    observeRecordOffset(record)
+                    if (!observeRecordOffset(record)) {
+                        stash.addLast(record)
+                        unobservedRecords += record
+                        trackerBlockedRecords += record
+                        pausePartition(consumer, record.topicPartition(), trackerPausedPartitions)
+                        continue
+                    }
                     val accepted = recordSink.tryEmit(record)
 
                     if (!accepted) {
@@ -772,19 +789,36 @@ internal class ConsumerPollLoop<K, V>(
             // Always stash the remainder of the current poll batch.
             while (iterator.hasNext()) {
                 val record = iterator.next()
-                observeRecordOffset(record)
                 stash.addLast(record)
+                unobservedRecords += record
             }
 
             /**
              * Drain attempt:
              * If we can flush the entire stash, we can resume intake (or complete shutdown).
              */
-            if (drainStash(stash)) {
+            val queueAvailable = drainStash(
+                consumer,
+                stash,
+                unobservedRecords,
+                trackerBlockedRecords,
+                trackerPausedPartitions
+            )
+            if (!queueAvailable && state == State.ACTIVE) {
+                state = State.PAUSED
+                pause(consumer)
+            }
+            resumeTrackerPartitions(
+                consumer,
+                trackerPausedPartitions,
+                trackerBlockedRecords,
+                allowResume = state == State.ACTIVE
+            )
+            if (queueAvailable && trackerBlockedRecords.isEmpty()) {
                 when (state) {
                     State.PAUSED -> {
                         state = State.ACTIVE
-                        resume(consumer)
+                        resume(consumer, trackerPausedPartitions)
                     }
                     State.DRAINING_TAIL -> {
                         // Tail drained: stash empty AND no new records in this poll.
@@ -799,16 +833,19 @@ internal class ConsumerPollLoop<K, V>(
             }
         } finally {
             activeStash = null
+            activeUnobservedRecords = null
+            activeTrackerBlockedRecords = null
+            activeTrackerPausedPartitions = null
         }
     }
 
     /** Marks offsets Kafka skipped before a record while leaving the delivered record pending for a worker. */
-    private fun observeRecordOffset(record: ConsumerRecord<K, V>) {
-        partitionStateRegistry.observe(
+    private fun observeRecordOffset(record: ConsumerRecord<K, V>): Boolean {
+        return partitionStateRegistry.observe(
             record,
             observeOffset = processingMode.tracksProcessedOffsets(),
             acceptOffset = processingMode.isFreshnessFirst()
-        )
+        ) != null
     }
 
     private fun countPendingCommitRecords(): Long {
@@ -849,15 +886,67 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /** Drain stash to processing runtime; returns true if fully drained. */
-    private fun drainStash(stash: ArrayDeque<ConsumerRecord<K, V>>): Boolean {
-        while (stash.isNotEmpty()) {
-            val record = stash.first()
+    private fun drainStash(
+        consumer: KafkaConsumer<K, V>,
+        stash: ArrayDeque<ConsumerRecord<K, V>>,
+        unobservedRecords: MutableSet<ConsumerRecord<K, V>>,
+        trackerBlockedRecords: MutableSet<ConsumerRecord<K, V>>,
+        trackerPausedPartitions: MutableSet<TopicPartition>
+    ): Boolean {
+        repeat(stash.size) {
+            val record = stash.removeFirst()
+            if (record in unobservedRecords) {
+                if (!observeRecordOffset(record)) {
+                    trackerBlockedRecords += record
+                    pausePartition(consumer, record.topicPartition(), trackerPausedPartitions)
+                    stash.addLast(record)
+                    return@repeat
+                }
+                unobservedRecords.remove(record)
+                trackerBlockedRecords.remove(record)
+            }
             if (!recordSink.tryEmit(record)) {
+                stash.addFirst(record)
                 return false
             }
-            stash.removeFirst()
         }
         return true
+    }
+
+    private fun ConsumerRecord<K, V>.topicPartition() = TopicPartition(topic(), partition())
+
+    private fun pausePartition(
+        consumer: KafkaConsumer<K, V>,
+        partition: TopicPartition,
+        trackerPausedPartitions: MutableSet<TopicPartition>
+    ) {
+        if (!trackerPausedPartitions.add(partition)) return
+        try {
+            consumer.pause(setOf(partition))
+            metrics.onBackpressurePauseResume(BackpressureAction.PAUSE, 1)
+        } catch (e: Exception) {
+            trackerPausedPartitions.remove(partition)
+            log.warn("Error pausing partition $partition in manager #$id", e)
+        }
+    }
+
+    private fun resumeTrackerPartitions(
+        consumer: KafkaConsumer<K, V>,
+        trackerPausedPartitions: MutableSet<TopicPartition>,
+        trackerBlockedRecords: Set<ConsumerRecord<K, V>>,
+        allowResume: Boolean
+    ) {
+        if (!allowResume) return
+        val stillBlocked = trackerBlockedRecords.mapTo(mutableSetOf()) { it.topicPartition() }
+        val resumable = trackerPausedPartitions - stillBlocked
+        if (resumable.isEmpty()) return
+        try {
+            consumer.resume(resumable)
+            trackerPausedPartitions.removeAll(resumable)
+            metrics.onBackpressurePauseResume(BackpressureAction.RESUME, resumable.size)
+        } catch (e: Exception) {
+            log.warn("Error resuming tracker-limited partitions in manager #$id", e)
+        }
     }
 
     private fun discardStashedRecords(partitions: Collection<TopicPartition>) {
@@ -868,11 +957,14 @@ internal class ConsumerPollLoop<K, V>(
             if (discard) {
                 metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
                 partitionStateRegistry.discard(record)
+                activeUnobservedRecords?.remove(record)
+                activeTrackerBlockedRecords?.remove(record)
             }
             !discard
         }
         stash.clear()
         stash.addAll(retained)
+        activeTrackerPausedPartitions?.removeAll(revoked)
     }
 
     /** Pause all assigned partitions (best-effort). */
@@ -894,12 +986,12 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     /** Resume all assigned partitions (best-effort). */
-    private fun resume(consumer: KafkaConsumer<K, V>) {
+    private fun resume(consumer: KafkaConsumer<K, V>, excluded: Set<TopicPartition> = emptySet()) {
         try {
-            val assigned = consumer.assignment()
-            if (assigned.isNotEmpty()) {
-                consumer.resume(assigned)
-                metrics.onBackpressurePauseResume(BackpressureAction.RESUME, assigned.size)
+            val resumable = consumer.assignment() - excluded
+            if (resumable.isNotEmpty()) {
+                consumer.resume(resumable)
+                metrics.onBackpressurePauseResume(BackpressureAction.RESUME, resumable.size)
             }
         } catch (e: Exception) {
             log.warn("Error resuming consumer in manager #$id", e)

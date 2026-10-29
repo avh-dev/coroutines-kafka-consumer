@@ -450,6 +450,9 @@ class ConsumerPollLoopTest {
             assertEquals("topic-a", tail.topic())
             assertEquals(0, tail.partition())
             assertEquals(124L, tail.offset())
+            fixture.registry.markProcessed(drained)
+            fixture.registry.markProcessed(tail)
+            assertEquals(25L, fixture.registry.partitionStateFor(fixture.topicPartition)!!.advanceAndGetPendingOffsetsCount())
 
             fixture.awaitResume()
             assertEquals(
@@ -463,6 +466,49 @@ class ConsumerPollLoopTest {
             job.cancel()
             job.join()
 
+            verify(fixture.consumer).close()
+        }
+
+        @Test
+        fun `when one tracker window fills then only that partition pauses and resumes after frontier advances`() = runBlocking {
+            val firstPoll = AtomicBoolean(true)
+            val otherPartition = TopicPartition("topic-a", 1)
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 16,
+                maxTrackedOffsetsPerPartition = 128,
+                additionalAssignmentPositions = mapOf(otherPartition to 0L),
+                pollAnswer = {
+                    if (firstPoll.compareAndSet(true, false)) {
+                        ConsumerRecords(
+                            linkedMapOf(
+                                topicPartition to listOf(record(offset = 0L), record(offset = 127L), record(offset = 128L)),
+                                otherPartition to listOf(record(partition = 1, offset = 0L))
+                            )
+                        )
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+
+            val job = fixture.start()
+            verify(fixture.consumer, timeout(2_000)).pause(eq(setOf(fixture.topicPartition)))
+
+            val initiallyDelivered = List(3) { withTimeout(2_000) { fixture.workChannel.receive() } }
+            assertEquals(listOf(0L, 127L), initiallyDelivered.filter { it.partition() == 0 }.map { it.offset() })
+            assertEquals(listOf(0L), initiallyDelivered.filter { it.partition() == 1 }.map { it.offset() })
+
+            fixture.registry.partitionStateFor(fixture.topicPartition)!!.apply {
+                markProcessed(0L)
+                markProcessed(127L)
+            }
+
+            assertEquals(128L, withTimeout(2_000) { fixture.workChannel.receive() }.offset())
+            verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(fixture.topicPartition)))
+
+            job.cancel()
+            job.join()
             verify(fixture.consumer).close()
         }
 
@@ -1184,6 +1230,7 @@ private class PollLoopFixture(
     private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
     commitIntervalMs: Long = 5_000L,
     commitRecordsThreshold: Int = 1_000,
+    maxTrackedOffsetsPerPartition: Int = 1_048_576,
     private val additionalAssignmentPositions: Map<TopicPartition, Long> = emptyMap(),
     initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
     private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
@@ -1210,7 +1257,7 @@ private class PollLoopFixture(
             return workChannel.trySend(record).isSuccess
         }
     }
-    val registry = PartitionRegistry()
+    val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
     val topicPartition = TopicPartition("topic-a", 0)
     private val assignmentPositions = mapOf(topicPartition to assignmentPosition) + additionalAssignmentPositions
     private val consumerProperties = testConsumerProperties()

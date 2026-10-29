@@ -85,6 +85,19 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
+    fun `when maximum tracked offsets is not a supported ring size then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                maxTrackedOffsetsPerPartition = 1_000
+                topics("topic-a")
+                handle { }
+            }
+        }
+
+        assertEquals("maxTrackedOffsetsPerPartition must be a power of two and >= 128", error.message)
+    }
+
+    @Test
     fun `when freshness-first mode has auto commit disabled then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(
             stringSerdeProperties() + (ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to "false")
