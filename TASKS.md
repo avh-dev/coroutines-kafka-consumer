@@ -71,6 +71,7 @@
 | [CORE-66](#core-66) | Unify explicit time- and record-triggered offset commits across all processing modes. | DONE |
 | [CORE-67](#core-67) | Align the active-offset-hole rebalance integration test with graceful revoke semantics. | DONE |
 | [CORE-68](#core-68) | Make Spring-managed multi-consumer shutdown concurrent, bounded, and failure-aware. | DONE |
+| [CORE-69](#core-69) | Release consumer-owned core executors and lifecycle jobs on normal shutdown, startup failure, and terminal failure. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5785,3 +5786,17 @@ completes its background work.
 Verification: core, Micrometer, and Spring starter tests pass, including new
 multi-consumer failure/timeout, delayed-completion lifecycle, and parent-job
 cancellation regressions; core integration tests remain green.
+
+<a id="core-69"></a>
+### CORE-69 - Release core consumer resources
+
+_Date: 2026-10-29_
+
+Close consumer-owned poll-loop executors and dispatchers after final shutdown,
+and complete library-owned lifecycle jobs on normal, startup-failure, and
+terminal-failure paths. Preserve idempotent stop behavior and leave externally
+provided processing dispatchers under application ownership.
+Verification: core, Micrometer, and Spring starter tests pass, including repeated
+poll-thread creation, parent cancellation before and during shutdown, startup-failure,
+terminal-failure, idempotent-stop, and external-dispatcher ownership regressions;
+all 23 core integration tests pass.

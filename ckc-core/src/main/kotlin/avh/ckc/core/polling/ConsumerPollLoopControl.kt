@@ -25,4 +25,7 @@ internal interface ConsumerPollLoopControl {
     fun configureProcessingCancellationTimeout(timeout: Duration) = Unit
 
     fun configureRecovery(timeout: Duration, retryBackoff: Duration) = Unit
+
+    /** Releases resources owned by this poll loop after its job has terminated. */
+    suspend fun releaseResources() = Unit
 }

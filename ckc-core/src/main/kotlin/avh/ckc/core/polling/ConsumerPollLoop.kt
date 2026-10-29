@@ -28,6 +28,7 @@ import org.apache.kafka.common.errors.WakeupException
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
@@ -113,12 +114,15 @@ internal class ConsumerPollLoop<K, V>(
      * - SupervisorJob: failure in a sibling coroutine should not automatically cancel this loop.
      * - Inherits parent context (except Job) to preserve structured concurrency boundaries.
      */
+    private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val scope = CoroutineScope(
-        SupervisorJob(parentContext[Job]) +
+        lifecycleJob +
                 parentContext.minusKey(Job) +
                 dispatcher +
                 CoroutineName("ConsumerPollLoop-$id")
     )
+    private val resourceReleaseStarted = AtomicBoolean(false)
+    private val resourceReleaseCompletion = CompletableDeferred<Unit>()
 
     private var job: Job? = null
 
@@ -231,6 +235,27 @@ internal class ConsumerPollLoop<K, V>(
     override fun configureRecovery(timeout: kotlin.time.Duration, retryBackoff: kotlin.time.Duration) {
         recoveryTimeoutNanos = timeout.inWholeNanoseconds
         recoveryRetryBackoffMillis = retryBackoff.inWholeMilliseconds.coerceAtLeast(1L)
+    }
+
+    override suspend fun releaseResources() {
+        if (resourceReleaseStarted.compareAndSet(false, true)) {
+            try {
+                withContext(NonCancellable) {
+                    try {
+                        lifecycleJob.complete()
+                        lifecycleJob.join()
+                    } finally {
+                        dispatcher.close()
+                    }
+                }
+                resourceReleaseCompletion.complete(Unit)
+            } catch (error: Throwable) {
+                resourceReleaseCompletion.completeExceptionally(error)
+                throw error
+            }
+        } else {
+            resourceReleaseCompletion.await()
+        }
     }
 
     private suspend fun runLoop() {
