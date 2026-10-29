@@ -74,6 +74,7 @@
 | [CORE-69](#core-69) | Release consumer-owned core executors and lifecycle jobs on normal shutdown, startup failure, and terminal failure. | DONE |
 | [CORE-70](#core-70) | Make partition gauge registration and removal atomic across concurrent poll-loop ownership changes. | DONE |
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
+| [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5831,3 +5832,19 @@ and validation regressions; all 23 core integration tests pass.
 Review follow-up additionally covers restored processed ranges, independent release
 of global queue pressure, the explicit two-batch stash budget, and propagation of
 an active global pause to partitions added by a cooperative rebalance.
+
+<a id="core-72"></a>
+### CORE-72 - Safely restore offset metadata
+
+_Date: 2026-10-29_
+
+Validate declared snapshot sizes before decompression, use overflow-safe size
+arithmetic, and reject malformed ring structures or snapshots above the configured
+tracker limit. Fall back to Kafka committed offsets when metadata cannot be restored
+while preserving the independent 4 KiB metadata-string budget and commits without
+metadata.
+Verification: core, Micrometer, and Spring starter tests pass, including malformed
+size, ring-structure, metadata-budget, and reduced-limit fallback regressions; all
+23 core integration tests pass.
+Review follow-up also rejects ring heads outside the committed frontier word and
+missing processed-prefix bits, falling back before tracker backpressure is applied.

@@ -22,6 +22,9 @@ internal class PartitionState(
     val topicPartition: TopicPartition,
     private val maxTrackedOffsets: Int = 1_048_576
 ) : ConsumerPartitionStats {
+    internal val maxTrackedOffsetsPerPartition: Int
+        get() = maxTrackedOffsets
+
     private var offsetTracker: OffsetTracker = OffsetTracker(-1, maxCapacityBits = maxTrackedOffsets)
     private var initialized = false
     private var nextObservedOffset = 0L

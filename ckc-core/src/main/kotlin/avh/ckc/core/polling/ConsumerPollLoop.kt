@@ -571,7 +571,8 @@ internal class ConsumerPollLoop<K, V>(
                 committedOffset = committed.offset(),
                 snapshot = OffsetTrackerMetadata.decode(
                     metadata = metadata,
-                    context = metadataContext(partitionState.topicPartition, committed.offset())
+                    context = metadataContext(partitionState.topicPartition, committed.offset()),
+                    maxCapacityBits = partitionState.maxTrackedOffsetsPerPartition
                 ),
                 forceReset = true
             )

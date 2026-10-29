@@ -47,24 +47,50 @@ internal object OffsetTrackerSerializer {
         )
     }
 
-    fun deserialize(payload: ByteArray): OffsetTrackerSnapshot {
+    fun deserialize(
+        payload: ByteArray,
+        maxCapacityBits: Int = 1_048_576
+    ): OffsetTrackerSnapshot {
         require(payload.size >= HEADER_BYTES) { "Offset tracker snapshot payload is too short" }
+        require(maxCapacityBits >= 128 && maxCapacityBits.isPowerOfTwo()) {
+            "Offset tracker maximum capacity must be a power of two and >= 128"
+        }
 
         val header = ByteBuffer.wrap(payload, 0, HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
         val codec = header.get()
         val headWordOffset = header.long
         val headWordIndex = header.int
         val wordCount = header.int
-        require(wordCount >= 0) { "Offset tracker snapshot word count must be non-negative" }
+        require(headWordOffset >= 0L) { "Offset tracker snapshot head offset must be non-negative" }
+        require(wordCount >= 2) { "Offset tracker snapshot must contain at least two words" }
+        require(wordCount.isPowerOfTwo()) {
+            "Offset tracker snapshot word count must be a power of two"
+        }
+        require(wordCount <= maxCapacityBits / Long.SIZE_BITS) {
+            "Offset tracker snapshot exceeds configured maximum capacity"
+        }
+        require(headWordIndex in 0 until wordCount) {
+            "Offset tracker snapshot head index is out of bounds"
+        }
 
-        val body = payload.copyOfRange(HEADER_BYTES, payload.size)
+        val rawSizeBytes = Math.multiplyExact(wordCount, Long.SIZE_BYTES)
+        val encodedSizeBytes = payload.size - HEADER_BYTES
+
         val rawBytes = when (codec) {
-            RAW -> body
-            ZSTD -> Zstd.decompress(body, wordCount * Long.SIZE_BYTES)
+            RAW -> {
+                require(encodedSizeBytes == rawSizeBytes) {
+                    "Offset tracker snapshot contains $encodedSizeBytes raw bytes, expected $rawSizeBytes"
+                }
+                payload.copyOfRange(HEADER_BYTES, payload.size)
+            }
+            ZSTD -> {
+                require(encodedSizeBytes > 0) { "Compressed offset tracker snapshot payload is empty" }
+                Zstd.decompress(payload.copyOfRange(HEADER_BYTES, payload.size), rawSizeBytes)
+            }
             else -> error("Unsupported offset tracker snapshot codec: $codec")
         }
-        require(rawBytes.size == wordCount * Long.SIZE_BYTES) {
-            "Offset tracker snapshot decoded to ${rawBytes.size} bytes, expected ${wordCount * Long.SIZE_BYTES}"
+        require(rawBytes.size == rawSizeBytes) {
+            "Offset tracker snapshot decoded to ${rawBytes.size} bytes, expected $rawSizeBytes"
         }
         return OffsetTrackerSnapshot(
             headWordOffset = headWordOffset,
@@ -80,7 +106,7 @@ internal object OffsetTrackerSerializer {
         payload: ByteArray
     ): ByteArray {
         val buffer = ByteBuffer
-            .allocate(HEADER_BYTES + payload.size)
+            .allocate(Math.addExact(HEADER_BYTES, payload.size))
             .order(ByteOrder.LITTLE_ENDIAN)
         buffer.put(codec)
         buffer.putLong(snapshot.headWordOffset)
@@ -91,7 +117,7 @@ internal object OffsetTrackerSerializer {
     }
 
     private fun LongArray.toLittleEndianBytes(): ByteArray {
-        val bytes = ByteArray(size * Long.SIZE_BYTES)
+        val bytes = ByteArray(Math.multiplyExact(size, Long.SIZE_BYTES))
         for (wordIndex in indices) {
             var word = this[wordIndex]
             repeat(Long.SIZE_BYTES) { byteIndex ->
@@ -113,6 +139,8 @@ internal object OffsetTrackerSerializer {
         }
         return words
     }
+
+    private fun Int.isPowerOfTwo() = this > 0 && (this and (this - 1)) == 0
 }
 
 internal data class OffsetTrackerSerialization(

@@ -21,8 +21,9 @@ class OffsetTrackerMetadataTest {
             words = longArrayOf(0L, 0b101L, -1L, 0L)
         )
 
-        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot, context()).metadata)
-        val decoded = OffsetTrackerMetadata.decode(metadata, context())
+        val metadataContext = context(committedOffset = 64L)
+        val metadata = assertNotNull(OffsetTrackerMetadata.encode(snapshot, metadataContext).metadata)
+        val decoded = OffsetTrackerMetadata.decode(metadata, metadataContext)
 
         assertTrue(metadata.startsWith("ckc:v2:"))
         assertEquals(snapshot.headWordOffset, decoded.headWordOffset)
@@ -120,6 +121,72 @@ class OffsetTrackerMetadataTest {
     fun `metadata with unsupported CKC version is rejected`() {
         assertFailsWith<IllegalArgumentException> {
             OffsetTrackerMetadata.decode("ckc:v3:payload", context())
+        }
+    }
+
+    @Test
+    fun `metadata string larger than independent four kilobyte budget is rejected`() {
+        val oversized = OffsetTrackerMetadata.PREFIX +
+                "A".repeat(OffsetTrackerMetadata.DEFAULT_MAX_METADATA_BYTES)
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(oversized, context())
+        }
+    }
+
+    @Test
+    fun `snapshot head ahead of committed offset is rejected`() {
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = context().committedOffset + 1,
+                    headWordIndex = 0,
+                    words = longArrayOf(0L, 0L)
+                ),
+                context()
+            ).metadata
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(metadata, context())
+        }
+    }
+
+    @Test
+    fun `snapshot head more than one word behind committed offset is rejected`() {
+        val metadataContext = context(committedOffset = 128L)
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = 0L,
+                    headWordIndex = 0,
+                    words = longArrayOf(0L, 0L)
+                ),
+                metadataContext
+            ).metadata
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(metadata, metadataContext, maxCapacityBits = 128)
+        }
+    }
+
+    @Test
+    fun `snapshot missing processed bits before committed offset is rejected`() {
+        val metadataContext = context(committedOffset = 10L)
+        val metadata = assertNotNull(
+            OffsetTrackerMetadata.encode(
+                OffsetTrackerSnapshot(
+                    headWordOffset = 0L,
+                    headWordIndex = 0,
+                    words = longArrayOf(0b111L, 0L)
+                ),
+                metadataContext
+            ).metadata
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            OffsetTrackerMetadata.decode(metadata, metadataContext)
         }
     }
 
