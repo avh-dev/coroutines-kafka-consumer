@@ -94,6 +94,11 @@ interface ConsumerMetrics<K, V> {
     fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) = Unit
 
     /**
+     * Records an at-least-once record released without a terminal outcome so a Kafka owner can replay it.
+     */
+    fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) = Unit
+
+    /**
      * Records a retry of the user handler.
      *
      * [attempt] is one-based: the first retry after the initial failed attempt is reported as `1`.
@@ -172,6 +177,11 @@ enum class RecordDropReason {
     REPLACED_BY_NEWER_KEY_RECORD,
     NEW_KEY_QUEUE_FULL,
     STALE_AGE,
-    /** A record queued under a revoked/lost assignment generation. */
+    /** A record abandoned because the consumer lifecycle ended terminally. */
     LIFECYCLE
+}
+
+enum class RecordHandoffReason {
+    /** The local assignment generation ended before the record reached a terminal outcome. */
+    ASSIGNMENT_ENDED
 }

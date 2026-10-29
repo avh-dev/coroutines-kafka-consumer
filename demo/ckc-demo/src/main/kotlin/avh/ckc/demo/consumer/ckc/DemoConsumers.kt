@@ -5,11 +5,13 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.RetryRule
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
+import avh.ckc.demo.logHandedOff
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.logRetryAttempt
 import avh.ckc.demo.proto.BatchLifecycleEvent
@@ -183,6 +185,11 @@ object DemoConsumers {
             override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
                 delegate.onRecordDropped(record, reason)
                 logDropped(record, audit, reason.auditReason())
+            }
+
+            override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
+                delegate.onRecordHandedOff(record, reason)
+                logHandedOff(record, audit, reason.name.lowercase())
             }
         }
     }

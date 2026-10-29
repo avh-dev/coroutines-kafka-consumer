@@ -2,8 +2,10 @@ package avh.ckc.demo.consumer.ckcspringboot
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logDropped
+import avh.ckc.demo.logHandedOff
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.logRetryAttempt
@@ -180,6 +182,11 @@ class CkcSpringBootMetricsConfiguration {
             override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
                 delegate.onRecordDropped(record, reason)
                 logDropped(record, audit, reason.name.lowercase())
+            }
+
+            override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
+                delegate.onRecordHandedOff(record, reason)
+                logHandedOff(record, audit, reason.name.lowercase())
             }
         }
     }

@@ -163,6 +163,8 @@ internal class PartitionRegistry {
     fun isCancellationRequested(record: ConsumerRecord<*, *>): Boolean =
         synchronized(recordLeases) { cancellationRequested.containsKey(record) }
 
+    fun isTerminallyClosed(): Boolean = terminal
+
     suspend fun awaitRetryPermission(record: ConsumerRecord<*, *>, retryDelay: Duration): Boolean {
         val lease = synchronized(recordLeases) { recordLeases[record] } ?: return false
         return partitionStateFor(lease.topicPartition)?.awaitRetryPermission(lease, retryDelay) == true

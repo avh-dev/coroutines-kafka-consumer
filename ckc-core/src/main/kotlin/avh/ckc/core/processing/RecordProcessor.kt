@@ -33,17 +33,17 @@ internal class RecordProcessor<K, V>(
     /**
      * Processes a single Kafka record end-to-end.
      */
-    suspend fun process(record: ConsumerRecord<K, V>) {
-        if (recordProcessingContext == null) {
-            processDirect(record)
-        } else {
-            recordProcessingContext.withRecordContext(record) {
-                processDirect(record)
-            }
+    suspend fun process(record: ConsumerRecord<K, V>): RecordProcessingOutcome {
+        if (recordProcessingContext == null) return processDirect(record)
+
+        var outcome: RecordProcessingOutcome? = null
+        recordProcessingContext.withRecordContext(record) {
+            outcome = processDirect(record)
         }
+        return checkNotNull(outcome) { "Record processing context did not execute its block" }
     }
 
-    private suspend fun processDirect(record: ConsumerRecord<K, V>) {
+    private suspend fun processDirect(record: ConsumerRecord<K, V>): RecordProcessingOutcome {
         val startedAt = System.nanoTime()
         val key = record.key()
         val value = record.value()
@@ -52,7 +52,7 @@ internal class RecordProcessor<K, V>(
                 val completed = executeWithRetry(record, key, value) {
                     handler.process(record)
                 }
-                if (!completed) return
+                if (!completed) return RecordProcessingOutcome.HANDED_OFF
             } catch (error: Throwable) {
                 if (error.isCancellation()) {
                     throw error
@@ -67,7 +67,7 @@ internal class RecordProcessor<K, V>(
                     error = error,
                     durationNanos = System.nanoTime() - startedAt
                 )
-                return
+                return RecordProcessingOutcome.COMPLETED
             }
 
             onRecordProcessed(record)
@@ -78,6 +78,7 @@ internal class RecordProcessor<K, V>(
                 endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
                 durationNanos = System.nanoTime() - startedAt
             )
+            return RecordProcessingOutcome.COMPLETED
         } catch (error: Throwable) {
             if (error.isCancellation()) {
                 throw error
@@ -128,4 +129,9 @@ internal class RecordProcessor<K, V>(
     }
 
     private fun Throwable.isCancellation(): Boolean = this is CancellationException
+}
+
+internal enum class RecordProcessingOutcome {
+    COMPLETED,
+    HANDED_OFF
 }

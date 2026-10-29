@@ -296,11 +296,45 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
 
         self.assert_lifecycle_handoff(document)
 
+    def test_when_explicit_handoff_is_reprocessed_then_it_is_nonterminal_evidence(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "H|1|0|1|1100|order-a|assignment_ended",
+                "C|1|0|1|1200|order-a",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual(1, totals["handoff_unique"])
+        self.assertEqual({"assignment_ended": 1}, totals["handoff_by_reason"])
+        self.assertEqual(1, totals["lifecycle_handoff_reprocessed"])
+        self.assertEqual(0, totals["conflicting_terminal_outcomes"])
+        self.assertEqual(0, totals["missing_terminal"])
+
+    def test_when_explicit_handoff_has_no_later_terminal_then_record_remains_missing(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "H|1|0|1|1100|order-a|assignment_ended",
+            ]
+        )
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual(1, totals["missing_terminal"])
+
     def assert_lifecycle_handoff(self, document: dict[str, object]) -> None:
         totals = document["audit"]["totals"]
         self.assertEqual(1, totals["processed"])
-        self.assertEqual(1, totals["dropped"])
-        self.assertEqual({"lifecycle": 1}, totals["dropped_by_reason"])
+        self.assertEqual(0, totals["dropped"])
+        self.assertEqual({}, totals["dropped_by_reason"])
+        self.assertEqual(1, totals["handoff_records"])
+        self.assertEqual({"assignment_ended": 1}, totals["handoff_by_reason"])
         self.assertEqual(1, totals["lifecycle_handoff_reprocessed"])
         self.assertEqual(0, totals["conflicting_terminal_outcomes"])
         self.assertEqual(0, totals["unexpected_terminal_outcomes"])

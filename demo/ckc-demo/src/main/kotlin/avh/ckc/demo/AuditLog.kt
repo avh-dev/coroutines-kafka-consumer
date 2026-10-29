@@ -61,6 +61,23 @@ fun logDropped(
     )
 }
 
+fun logHandedOff(
+    record: ConsumerRecord<*, *>,
+    audit: DemoApplicationProperties.Audit,
+    reason: String
+) {
+    logRecord(
+        type = "H",
+        topic = record.topic(),
+        key = record.key()?.toString(),
+        partition = record.partition(),
+        offset = record.offset(),
+        kafkaTimestampMs = record.timestamp(),
+        audit = audit,
+        detail = reason
+    )
+}
+
 fun logDropped(
     topic: String,
     key: String?,

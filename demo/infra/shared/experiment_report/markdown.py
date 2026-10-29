@@ -568,6 +568,9 @@ def render_markdown(report: ExperimentReport) -> str:
     def lifecycle_handoff_reprocessed(data: dict[str, Any]) -> int:
         return int(data.get("lifecycle_handoff_reprocessed") or 0)
 
+    def handoff_records(data: dict[str, Any]) -> int:
+        return int(data.get("handoff_records") or 0)
+
     def unexpected_terminal_conflicts(data: dict[str, Any]) -> int:
         unexpected = data.get("unexpected_terminal_outcomes")
         if unexpected is not None:
@@ -1347,7 +1350,11 @@ def render_markdown(report: ExperimentReport) -> str:
             [replay_drop_reason(delivery, "already_processed") for delivery in deliveries],
         )
         optional_plain_count_row(
-            "Lifecycle handoff · reprocessed",
+            "Ownership handoff · observed",
+            [handoff_records(delivery) for delivery in deliveries],
+        )
+        optional_plain_count_row(
+            "Ownership handoff · reprocessed",
             [lifecycle_handoff_reprocessed(delivery) for delivery in deliveries],
         )
         optional_plain_count_row(
@@ -1612,7 +1619,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 [replay_drop_reason(value, "already_processed") for value in values],
             )
             optional_plain_count_row(
-                "Lifecycle handoff · reprocessed",
+                "Ownership handoff · reprocessed",
                 [lifecycle_handoff_reprocessed(value) for value in values],
             )
             optional_plain_count_row(
@@ -1667,7 +1674,7 @@ def render_markdown(report: ExperimentReport) -> str:
             [replay_drop_reason(target.delivery, "already_processed") for target in targets],
         )
         optional_plain_count_row(
-            "Lifecycle handoff · reprocessed",
+            "Ownership handoff · reprocessed",
             [lifecycle_handoff_reprocessed(target.delivery) for target in targets],
         )
         optional_plain_count_row(

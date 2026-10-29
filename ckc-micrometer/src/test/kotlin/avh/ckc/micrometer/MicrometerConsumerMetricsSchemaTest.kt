@@ -6,6 +6,7 @@ import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataCompression
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -195,6 +196,29 @@ class MicrometerConsumerMetricsSchemaTest {
                 .counter()
                 .count()
         )
+    }
+
+    @Test
+    fun `when record is handed off then handoff counter is recorded separately from drops`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        )
+
+        metrics.onRecordHandedOff(
+            testRecord(topic = "cauldrons", partition = 1),
+            RecordHandoffReason.ASSIGNMENT_ENDED
+        )
+
+        assertEquals(
+            1.0,
+            registry.get("test.ckc.record.handed.off")
+                .tag("topic", "cauldrons")
+                .tag("reason", "assignment_ended")
+                .counter()
+                .count()
+        )
+        assertTrue(registry.find("test.ckc.record.dropped").meters().isEmpty())
     }
 
     @Test

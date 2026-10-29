@@ -7,9 +7,11 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
@@ -33,7 +35,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     protected val processedRecordTracker: ProcessedRecordTracker,
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
-    private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null
+    private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null,
+    private val handoffOnAssignmentEnd: Boolean = false
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -65,7 +68,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                     val record = workChannel.receiveCatching().getOrNull() ?: break
                     runtimeStats.onWorkDequeued()
                     if (!processedRecordTracker.tryStart(record)) {
-                        metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+                        reportAssignmentEnd(record)
                         processedRecordTracker.discard(record)
                         continue
                     }
@@ -77,9 +80,12 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                                 processedRecordTracker.attach(record, pipeline)
                                 pipeline.start()
                                 try {
-                                    pipeline.await()
+                                    if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                                        reportAssignmentEnd(record)
+                                    }
                                 } catch (error: kotlinx.coroutines.CancellationException) {
                                     if (!processedRecordTracker.isCancellationRequested(record)) throw error
+                                    reportAssignmentEnd(record)
                                     // A lost assignment cancels only this child pipeline; the worker stays
                                     // available for valid assignments after recovery.
                                 }
@@ -132,6 +138,14 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
             workerJobs.joinAll()
         } finally {
             metrics.unbindRuntimeMetrics()
+        }
+    }
+
+    protected fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
+        if (handoffOnAssignmentEnd && !processedRecordTracker.isTerminallyClosed()) {
+            metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+        } else {
+            metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
         }
     }
 }

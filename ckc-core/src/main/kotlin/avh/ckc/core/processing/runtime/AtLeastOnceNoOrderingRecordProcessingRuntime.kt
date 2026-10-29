@@ -34,7 +34,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     retryPolicy = retryPolicy,
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
-    processedRecordTracker = processedRecordTracker
+    processedRecordTracker = processedRecordTracker,
+    handoffOnAssignmentEnd = true
 ) {
     override fun createChannel(
         capacity: Int,
@@ -45,6 +46,14 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 runtimeStats.onWorkDequeued()
+                if (processedRecordTracker.isTerminallyClosed()) {
+                    metrics.onRecordDropped(it, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE)
+                } else {
+                    metrics.onRecordHandedOff(
+                        it,
+                        avh.ckc.core.metrics.RecordHandoffReason.ASSIGNMENT_ENDED
+                    )
+                }
                 processedRecordTracker.discard(it)
             }
         )

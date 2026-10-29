@@ -7,6 +7,7 @@ import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.polling.partition.OffsetCommitData
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
@@ -823,7 +824,10 @@ internal class ConsumerPollLoop<K, V>(
         val stash = activeStash ?: return
         val retained = stash.filterTo(ArrayDeque()) { record ->
             val discard = TopicPartition(record.topic(), record.partition()) in revoked
-            if (discard) partitionStateRegistry.discard(record)
+            if (discard) {
+                metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+                partitionStateRegistry.discard(record)
+            }
             !discard
         }
         stash.clear()
