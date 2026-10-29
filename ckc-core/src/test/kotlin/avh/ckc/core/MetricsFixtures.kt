@@ -96,12 +96,12 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         unbindRuntimeMetricsCalls += Unit
     }
 
-    override fun bindPartitionMetrics(stats: ConsumerPartitionStats) {
+    override fun bindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) {
         boundPartitionStats += stats
     }
 
-    override fun unbindPartitionMetrics(topic: String, partition: Int) {
-        unboundPartitionMetrics += PartitionMetricsKey(topic, partition)
+    override fun unbindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) {
+        unboundPartitionMetrics += PartitionMetricsKey(stats.topic, stats.partition)
     }
 
     override fun onPoll(recordsCount: Int, durationNanos: Long) {
