@@ -483,6 +483,7 @@
 | [INFRA-314](#infra-314) | Add a short fixed-resource internal-lab load-step experiment. | DONE |
 | [INFRA-315](#infra-315) | Synchronize internal-lab node clocks and guard cross-node E2E evidence. | DONE |
 | [INFRA-316](#infra-316) | Add a triangular 10k autoscaling experiment for the internal lab. | DONE |
+| [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5700,3 +5701,16 @@ ramping linearly from zero to 10,000 TPS over ten minutes and back to zero over
 the following ten minutes. Split reporting into ramp-up and ramp-down windows.
 Verification: the experiment validates for internal-lab, and its target, runtime,
 and lab configuration match the source experiment. Do not launch it automatically.
+
+<a id="infra-317"></a>
+### INFRA-317 - Classify lifecycle handoff audit outcomes
+
+_Date: 2026-10-28_
+
+Treat a lifecycle-discard followed by successful processing of the same Kafka
+offset as a successful partition handoff rather than a conflicting terminal
+outcome. Preserve the lifecycle discard evidence, expose a dedicated neutral
+counter, and render it separately from genuine audit integrity failures.
+Added exact, bounded, open-record, and report rendering regressions. Reanalysis
+of both triangular autoscaling targets classified 112 and 32 lifecycle handoffs
+respectively, with no unexpected terminal outcomes.

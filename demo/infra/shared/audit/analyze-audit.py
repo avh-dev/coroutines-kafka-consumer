@@ -31,6 +31,7 @@ PUBLISHED_FLAG = 1
 PROCESSED_FLAG = 2
 FAILED_FLAG = 4
 DROPPED_FLAG = 8
+LIFECYCLE_DROPPED_FLAG = 16
 TERMINAL_FLAGS = PROCESSED_FLAG | FAILED_FLAG | DROPPED_FLAG
 OFFSET_PAGE_SIZE = 1 << 16
 KEY_ORDER_HEADER = struct.Struct("<HHiqcI")
@@ -637,6 +638,7 @@ class ClosedRecordState:
     processed_seen: bool
     failed_seen: bool
     dropped_seen: bool
+    lifecycle_dropped_seen: bool
 
 
 @dataclass(slots=True)
@@ -667,6 +669,7 @@ class AuditStats:
     conflicting_terminal_outcomes: int = 0
     replay_dropped_after_processed: int = 0
     replay_dropped_after_processed_by_reason: dict[str, int] = field(default_factory=dict)
+    lifecycle_handoff_reprocessed: int = 0
     unexpected_terminal_outcomes: int = 0
     open_by_key: dict[RecordKey, RecordState] = field(default_factory=dict)
     recent_closed_by_key: dict[RecordKey, ClosedRecordState] = field(default_factory=dict)
@@ -777,7 +780,14 @@ class AuditStats:
 
         if record.record_type == "C":
             if state.processed is None:
-                if state.failed is not None or state.dropped is not None:
+                lifecycle_handoff = (
+                    state.failed is None
+                    and state.dropped is not None
+                    and state.dropped.drop_reason == "lifecycle"
+                )
+                if lifecycle_handoff:
+                    self.lifecycle_handoff_reprocessed += 1
+                elif state.failed is not None or state.dropped is not None:
                     self.unexpected_terminal_outcomes += 1
                 state.processed = record
                 state.processed_count = 1
@@ -825,7 +835,13 @@ class AuditStats:
             1 for outcome in (state.processed, state.failed, state.dropped)
             if outcome is not None
         )
-        if terminal_outcomes > 1 and not state.conflict_counted:
+        lifecycle_handoff = (
+            state.processed is not None
+            and state.failed is None
+            and state.dropped is not None
+            and state.dropped.drop_reason == "lifecycle"
+        )
+        if terminal_outcomes > 1 and not lifecycle_handoff and not state.conflict_counted:
             state.conflict_counted = True
             self.conflicting_terminal_outcomes += 1
         self._close_if_complete(record.key)
@@ -837,9 +853,16 @@ class AuditStats:
                 self.duplicate_processed += 1
             else:
                 had_other_outcome = closed.failed_seen or closed.dropped_seen
+                lifecycle_handoff = (
+                    closed.dropped_seen
+                    and closed.lifecycle_dropped_seen
+                    and not closed.failed_seen
+                )
                 closed.processed_seen = True
                 self.processed_unique += 1
-                if had_other_outcome:
+                if lifecycle_handoff:
+                    self.lifecycle_handoff_reprocessed += 1
+                elif had_other_outcome:
                     self.conflicting_terminal_outcomes += 1
                     self.unexpected_terminal_outcomes += 1
         elif record.record_type == "F":
@@ -858,6 +881,7 @@ class AuditStats:
             else:
                 had_other_outcome = closed.processed_seen or closed.failed_seen
                 closed.dropped_seen = True
+                closed.lifecycle_dropped_seen = record.drop_reason == "lifecycle"
                 self.dropped_unique += 1
                 self._add_drop_reason(record)
                 if had_other_outcome:
@@ -873,6 +897,8 @@ class AuditStats:
             "F": FAILED_FLAG,
             "D": DROPPED_FLAG,
         }[record.record_type]
+        if record.record_type == "D" and record.drop_reason == "lifecycle":
+            outcome_flag |= LIFECYCLE_DROPPED_FLAG
         if flags & outcome_flag:
             if record.record_type == "C":
                 self.duplicate_processed += 1
@@ -883,10 +909,19 @@ class AuditStats:
             return
 
         if flags & TERMINAL_FLAGS:
-            self.conflicting_terminal_outcomes += 1
+            lifecycle_handoff = (
+                record.record_type == "C"
+                and bool(flags & DROPPED_FLAG)
+                and bool(flags & LIFECYCLE_DROPPED_FLAG)
+                and not bool(flags & FAILED_FLAG)
+            )
+            if lifecycle_handoff:
+                self.lifecycle_handoff_reprocessed += 1
+            else:
+                self.conflicting_terminal_outcomes += 1
             if record.record_type == "D" and flags & PROCESSED_FLAG:
                 self._add_replay_drop(record)
-            else:
+            elif not lifecycle_handoff:
                 self.unexpected_terminal_outcomes += 1
         if record.record_type == "C":
             self.processed_unique += 1
@@ -959,6 +994,8 @@ class AuditStats:
                 flags |= FAILED_FLAG
             if state.dropped is not None:
                 flags |= DROPPED_FLAG
+                if state.dropped.drop_reason == "lifecycle":
+                    flags |= LIFECYCLE_DROPPED_FLAG
             self.closed_offsets.set(key, flags)
         else:
             self.recent_closed_by_key[key] = ClosedRecordState(
@@ -966,6 +1003,9 @@ class AuditStats:
                 processed_seen=state.processed is not None,
                 failed_seen=state.failed is not None,
                 dropped_seen=state.dropped is not None,
+                lifecycle_dropped_seen=(
+                    state.dropped is not None and state.dropped.drop_reason == "lifecycle"
+                ),
             )
             self.recent_closed_expiry_queue.append((state.last_seen_ms, key))
 
@@ -1419,6 +1459,7 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             "conflicting_terminal_outcomes": stats.conflicting_terminal_outcomes,
             "replay_dropped_after_processed": stats.replay_dropped_after_processed,
             "replay_dropped_after_processed_by_reason": stats.replay_dropped_after_processed_by_reason,
+            "lifecycle_handoff_reprocessed": stats.lifecycle_handoff_reprocessed,
             "unexpected_terminal_outcomes": stats.unexpected_terminal_outcomes,
             "ordering": {
                 "by_partition": ordering_summary(stats.partition_order),
@@ -1591,6 +1632,7 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "dropped_without_publish",
         "conflicting_terminal_outcomes",
         "replay_dropped_after_processed",
+        "lifecycle_handoff_reprocessed",
         "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )

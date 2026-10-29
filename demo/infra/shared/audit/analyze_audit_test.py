@@ -262,6 +262,50 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         )
         self.assertEqual(1, totals["unexpected_terminal_outcomes"])
 
+    def test_when_lifecycle_drop_is_reprocessed_then_exact_matching_reports_handoff(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "D|1|0|1|1100|order-a|lifecycle",
+                "C|1|0|1|1200|order-a",
+            ]
+        )
+
+        self.assert_lifecycle_handoff(document)
+
+    def test_when_lifecycle_drop_is_reprocessed_then_bounded_matching_reports_handoff(self) -> None:
+        document = analyze(
+            [
+                "P|1|0|1|1000|1000|order-a",
+                "D|1|0|1|1100|order-a|lifecycle",
+                "C|1|0|1|1200|order-a",
+            ],
+            open_record_ttl_ms=60_000,
+        )
+
+        self.assert_lifecycle_handoff(document)
+
+    def test_when_lifecycle_drop_precedes_publish_then_open_record_reports_handoff(self) -> None:
+        document = analyze(
+            [
+                "D|1|0|1|1000|order-a|lifecycle",
+                "C|1|0|1|1100|order-a",
+                "P|1|0|1|1200|1200|order-a",
+            ]
+        )
+
+        self.assert_lifecycle_handoff(document)
+
+    def assert_lifecycle_handoff(self, document: dict[str, object]) -> None:
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(1, totals["dropped"])
+        self.assertEqual({"lifecycle": 1}, totals["dropped_by_reason"])
+        self.assertEqual(1, totals["lifecycle_handoff_reprocessed"])
+        self.assertEqual(0, totals["conflicting_terminal_outcomes"])
+        self.assertEqual(0, totals["unexpected_terminal_outcomes"])
+        self.assertEqual(0, totals["missing_terminal"])
+
     def test_bounded_matching_can_evict_long_delayed_terminal_records(self) -> None:
         document = analyze(
             [
