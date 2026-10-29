@@ -669,6 +669,39 @@ class ConsumerPollLoopTest {
         }
 
         @Test
+        fun `when restored metadata exceeds current tracker limit then committed offset is used`() = runBlocking {
+            val restoredTracker = OffsetTracker(
+                initialProcessedOffset = 41L,
+                initialCapacity = 256,
+                maxCapacityBits = 256
+            )
+            restoredTracker.markProcessed(43L)
+            val metadata = OffsetTrackerMetadata.encode(
+                restoredTracker.snapshot(),
+                OffsetTrackerMetadataContext("test-group", TopicPartition("topic-a", 0), 42L)
+            ).metadata!!
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workChannelCapacity = 4,
+                maxTrackedOffsetsPerPartition = 128,
+                committedOffsets = mapOf(TopicPartition("topic-a", 0) to OffsetAndMetadata(42L, metadata)),
+                pollAnswer = { emptyRecords() }
+            )
+
+            val job = fixture.start()
+
+            val state = fixture.awaitAssignedState(lastCommittedOffset = 41L)
+            assertEquals(128, state.offsetTrackerBitCapacity)
+            assertFalse(state.isProcessed(43L))
+            assertEquals(41L, state.trackerRefForTest().lastProcessedOffset)
+
+            job.cancel()
+            job.join()
+
+            verify(fixture.consumer).close()
+        }
+
+        @Test
         fun `when kafka omits offsets then only the missing range is marked processed`() = runBlocking {
             val pollCount = AtomicInteger()
             val fixture = PollLoopFixture(

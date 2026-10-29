@@ -45,7 +45,12 @@ internal object OffsetTrackerMetadata {
         val serialization = OffsetTrackerSerializer.serialize(snapshot)
         val serializedSnapshot = serialization.bytes
         val envelope = ByteBuffer
-            .allocate(ENVELOPE_HEADER_BYTES + serializedSnapshot.size + CHECKSUM_BYTES)
+            .allocate(
+                Math.addExact(
+                    Math.addExact(ENVELOPE_HEADER_BYTES, serializedSnapshot.size),
+                    CHECKSUM_BYTES
+                )
+            )
             .order(ByteOrder.LITTLE_ENDIAN)
             .putLong(context.committedOffset)
             .put(contextFingerprint(context))
@@ -66,8 +71,15 @@ internal object OffsetTrackerMetadata {
         )
     }
 
-    fun decode(metadata: String, context: OffsetTrackerMetadataContext): OffsetTrackerSnapshot {
+    fun decode(
+        metadata: String,
+        context: OffsetTrackerMetadataContext,
+        maxCapacityBits: Int = 1_048_576
+    ): OffsetTrackerSnapshot {
         require(metadata.startsWith(PREFIX)) { "Offset metadata is not in the supported CKC v2 format" }
+        require(metadata.length <= DEFAULT_MAX_METADATA_BYTES) {
+            "CKC offset metadata exceeds the $DEFAULT_MAX_METADATA_BYTES byte limit"
+        }
         val envelope = decoder.decode(metadata.substring(PREFIX.length))
         require(envelope.size >= ENVELOPE_HEADER_BYTES + CHECKSUM_BYTES) {
             "CKC offset metadata envelope is too short"
@@ -95,7 +107,11 @@ internal object OffsetTrackerMetadata {
         }
 
         val serializedSnapshot = envelope.copyOfRange(ENVELOPE_HEADER_BYTES, checksumOffset)
-        return OffsetTrackerSerializer.deserialize(serializedSnapshot)
+        val snapshot = OffsetTrackerSerializer.deserialize(serializedSnapshot, maxCapacityBits)
+        require(snapshot.headWordOffset <= context.committedOffset) {
+            "Offset tracker snapshot head is ahead of the first uncommitted offset"
+        }
+        return snapshot
     }
 
     private fun contextFingerprint(context: OffsetTrackerMetadataContext): ByteArray {
