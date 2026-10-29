@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.TimeoutCancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -81,6 +82,38 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         assertEquals(listOf(RecordHandoffReason.ASSIGNMENT_ENDED), metrics.handedOff.map { it.reason })
         assertTrue(metrics.dropped.isEmpty())
         assertEquals(null, state.advanceAndGetCommitData())
+        runtime.stop()
+    }
+
+    @Test
+    fun `when consumer fails then cancelled tracked record is handed off instead of dropped`() = runBlocking {
+        val registry = PartitionRegistry()
+        val topicPartition = TopicPartition("topic", 0)
+        registry.onPartitionsAssigned(listOf(topicPartition)).single().init(0L)
+        val record = typedTestRecord(topic = topicPartition.topic(), offset = 0L, key = "key-a")
+        registry.observe(record)
+        val entered = CompletableDeferred<Unit>()
+        val metrics = RecordingMetrics<String, String>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 4,
+            processedRecordTracker = PartitionProcessedRecordTracker(registry),
+            metrics = metrics,
+            handler = KafkaRecordHandler {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        )
+        runtime.start { throw it }
+        assertTrue(runtime.tryEmit(record))
+        withTimeout(2_000) { entered.await() }
+
+        registry.cancelAllActive()
+
+        awaitFor(2_000L, 10L) { metrics.handedOff.firstOrNull() }
+        assertEquals(listOf(RecordHandoffReason.CONSUMER_FAILED), metrics.handedOff.map { it.reason })
+        assertTrue(metrics.dropped.isEmpty())
         runtime.stop()
     }
 

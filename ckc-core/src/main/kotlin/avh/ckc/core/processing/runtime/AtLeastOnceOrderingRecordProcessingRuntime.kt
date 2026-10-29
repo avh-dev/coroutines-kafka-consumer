@@ -287,11 +287,12 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         }
 
     private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
-        if (processedRecordTracker.isTerminallyClosed()) {
-            metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+        val reason = if (processedRecordTracker.isTerminallyClosed()) {
+            RecordHandoffReason.CONSUMER_FAILED
         } else {
-            metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+            RecordHandoffReason.ASSIGNMENT_ENDED
         }
+        metrics.onRecordHandedOff(record, reason)
     }
 
     private class KeyState<K, V>(

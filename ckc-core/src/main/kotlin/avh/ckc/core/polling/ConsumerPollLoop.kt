@@ -888,7 +888,7 @@ internal class ConsumerPollLoop<K, V>(
                 // No new records are admitted once shutdown starts.
                 if (finalizationRequested) break
                 pollRecords(consumer, State.DRAINING_TAIL).forEach { record ->
-                    metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE)
+                    metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
                 }
                 continue
             }

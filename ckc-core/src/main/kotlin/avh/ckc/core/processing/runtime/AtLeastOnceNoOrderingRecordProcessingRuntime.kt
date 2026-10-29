@@ -46,14 +46,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 runtimeStats.onWorkDequeued()
-                if (processedRecordTracker.isTerminallyClosed()) {
-                    metrics.onRecordDropped(it, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE)
-                } else {
-                    metrics.onRecordHandedOff(
-                        it,
-                        avh.ckc.core.metrics.RecordHandoffReason.ASSIGNMENT_ENDED
-                    )
-                }
+                metrics.onRecordHandedOff(it, handoffReason())
                 processedRecordTracker.discard(it)
             }
         )

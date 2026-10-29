@@ -142,10 +142,17 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     }
 
     protected fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
-        if (handoffOnAssignmentEnd && !processedRecordTracker.isTerminallyClosed()) {
-            metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+        if (handoffOnAssignmentEnd) {
+            metrics.onRecordHandedOff(record, handoffReason())
         } else {
-            metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE)
+            metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
         }
     }
+
+    protected fun handoffReason(): RecordHandoffReason =
+        if (processedRecordTracker.isTerminallyClosed()) {
+            RecordHandoffReason.CONSUMER_FAILED
+        } else {
+            RecordHandoffReason.ASSIGNMENT_ENDED
+        }
 }

@@ -177,11 +177,13 @@ enum class RecordDropReason {
     REPLACED_BY_NEWER_KEY_RECORD,
     NEW_KEY_QUEUE_FULL,
     STALE_AGE,
-    /** A record abandoned because the consumer lifecycle ended terminally. */
-    LIFECYCLE
+    /** A lossy runtime intentionally discarded the record while its local lifecycle ended. */
+    LIFECYCLE_DISCARD
 }
 
 enum class RecordHandoffReason {
     /** The local assignment generation ended before the record reached a terminal outcome. */
-    ASSIGNMENT_ENDED
+    ASSIGNMENT_ENDED,
+    /** The consumer failed before reaching a terminal outcome; Kafka may replay the record. */
+    CONSUMER_FAILED
 }

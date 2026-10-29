@@ -886,6 +886,8 @@ class AuditStats:
             return
         state = self._state(record)
         state.last_seen_ms = record.audit_timestamp_ms
+        if self.open_record_ttl_ms is not None:
+            self.open_expiry_queue.append((state.last_seen_ms, record.key))
         if state.handed_off is None:
             state.handed_off = record
             self.handoff_unique += 1
