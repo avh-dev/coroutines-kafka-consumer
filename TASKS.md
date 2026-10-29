@@ -484,6 +484,7 @@
 | [INFRA-315](#infra-315) | Synchronize internal-lab node clocks and guard cross-node E2E evidence. | DONE |
 | [INFRA-316](#infra-316) | Add a triangular 10k autoscaling experiment for the internal lab. | DONE |
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
+| [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5714,3 +5715,15 @@ counter, and render it separately from genuine audit integrity failures.
 Added exact, bounded, open-record, and report rendering regressions. Reanalysis
 of both triangular autoscaling targets classified 112 and 32 lifecycle handoffs
 respectively, with no unexpected terminal outcomes.
+
+<a id="infra-318"></a>
+### INFRA-318 - Focus the triangular autoscaling experiment
+
+_Date: 2026-10-29_
+
+Keep only the Thread Stats autoscaling target and use a one-second E2E threshold
+for every topic. Extend the triangular profile with a five-minute maximum-load
+plateau and measure ramp-up, the second half of the plateau, and ramp-down separately.
+Verification: canonical internal-lab resolution produces one target, the expected
+25-minute profile and three windows, and 1,000 ms limits for all topics; all
+materialization tests pass. Do not launch the experiment automatically.

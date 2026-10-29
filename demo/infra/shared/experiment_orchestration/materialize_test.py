@@ -143,6 +143,36 @@ class MaterializeTest(unittest.TestCase):
             workload["chaos"][0]["steps"][0]["params"]["eta"]["percentiles"],
         )
 
+    def test_when_triangle_experiment_is_resolved_then_it_has_one_target_plateau_windows_and_one_second_limits(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-thread-stats-autoscaling-10k-triangle-local.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        resolve_experiment_definition(source, environment="internal-lab")
+
+        self.assertEqual(
+            ["ckc.thread-stats-no-jit"],
+            [target["name"] for target in candidate["targets"]],
+        )
+        self.assertEqual(
+            "0 -> (10m, linear-ramp-up) -> 100 -> (5m, steady) -> 100 -> "
+            "(10m, linear-ramp-down) -> 0",
+            candidate["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(
+            [
+                {"name": "ramp-up", "start": "0m", "duration": "10m"},
+                {"name": "steady", "start": "12m30s", "duration": "2m30s"},
+                {"name": "ramp-down", "start": "15m", "duration": "10m"},
+            ],
+            candidate["workload"]["measurement_windows"],
+        )
+        self.assertEqual(
+            {1000},
+            {
+                topic["max_e2e_latency_ms"]
+                for topic in candidate["workload"]["topics"].values()
+            },
+        )
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
