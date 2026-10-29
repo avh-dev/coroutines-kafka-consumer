@@ -5780,7 +5780,8 @@ _Date: 2026-10-29_
 Initiate shutdown for every running starter-managed consumer independently,
 wait within one shared lifecycle deadline, and retain each consumer's failure.
 Keep lifecycle and registry state truthful when one or more consumers do not
-finish stopping.
+finish stopping, and update it automatically when a timed-out shutdown later
+completes its background work.
 Verification: core, Micrometer, and Spring starter tests pass, including new
-multi-consumer failure/timeout lifecycle regressions; core integration tests
-remain green.
+multi-consumer failure/timeout and delayed-completion lifecycle regressions;
+core integration tests remain green.

@@ -35,7 +35,7 @@ class CkcConsumersLifecycle internal constructor(
         providedConsumerRuntimes ?: resolveConsumerRuntimes(applicationContext, dispatcherRegistry)
     }
     private val runningConsumerNames = linkedSetOf<String>()
-    private val terminalFailureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val lifecycleObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val terminalFailureCoordinator by lazy {
         CkcTerminalFailureCoordinator(
             applicationContext,
@@ -172,13 +172,14 @@ class CkcConsumersLifecycle internal constructor(
         }
         logger.info("Starting CKC consumer '${runtime.name}'")
         runtime.consumer.start()
-        observeTerminalFailure(runtime)
         runningConsumerNames += runtime.name
+        observeTerminalFailure(runtime)
+        observeShutdownCompletion(runtime)
         logger.info("Started CKC consumer '${runtime.name}'")
     }
 
     private fun observeTerminalFailure(runtime: NamedConsumerRuntime) {
-        terminalFailureScope.launch {
+        lifecycleObserverScope.launch {
             try {
                 runtime.consumer.awaitTermination()
             } catch (failure: Throwable) {
@@ -188,6 +189,19 @@ class CkcConsumersLifecycle internal constructor(
                     !shutdownRequested
                 ) {
                     terminalFailureCoordinator.trigger()
+                }
+            }
+        }
+    }
+
+    private fun observeShutdownCompletion(runtime: NamedConsumerRuntime) {
+        lifecycleObserverScope.launch {
+            runtime.consumer.awaitShutdownCompletion()
+            synchronized(this@CkcConsumersLifecycle) {
+                runningConsumerNames.remove(runtime.name)
+                running = runningConsumerNames.isNotEmpty()
+                if (!running && shutdownRequested) {
+                    lifecycleStarted = false
                 }
             }
         }
@@ -206,34 +220,43 @@ class CkcConsumersLifecycle internal constructor(
         logger.info(
             "Stopping ${runtimes.size} CKC consumer(s) with shutdown timeout ${timeout.toMillis()}ms"
         )
-        val outcomes = ConcurrentHashMap<String, Result<Unit>>()
+        val completedConsumerNames = ConcurrentHashMap.newKeySet<String>()
+        val failures = ConcurrentHashMap<String, Throwable>()
         runBlocking {
             withTimeoutOrNull(timeout.toMillis()) {
                 coroutineScope {
                     runtimes.map { runtime ->
                         async(Dispatchers.Default) {
                             logger.info("Stopping CKC consumer '${runtime.name}'")
-                            val outcome = try {
+                            var stopFailed = false
+                            try {
                                 runtime.consumer.stop()
-                                logger.info("Stopped CKC consumer '${runtime.name}'")
-                                Result.success(Unit)
                             } catch (error: Throwable) {
                                 if (error is CancellationException && !currentCoroutineContext().isActive) {
                                     throw error
                                 }
+                                stopFailed = true
+                                failures[runtime.name] = error
                                 logger.severe(
                                     "Failed to stop CKC consumer '${runtime.name}': ${error.message}"
                                 )
-                                Result.failure(error)
                             }
-                            outcomes[runtime.name] = outcome
+                            runtime.consumer.awaitShutdownCompletion()
+                            completedConsumerNames += runtime.name
+                            if (stopFailed) {
+                                logger.info(
+                                    "Shutdown completed for CKC consumer '${runtime.name}' after stop failure"
+                                )
+                            } else {
+                                logger.info("Stopped CKC consumer '${runtime.name}'")
+                            }
                         }
                     }
                         .awaitAll()
                 }
             }
         }
-        val unfinished = runtimes.mapTo(linkedSetOf()) { it.name } - outcomes.keys
+        val unfinished = runtimes.mapTo(linkedSetOf()) { it.name } - completedConsumerNames
         if (unfinished.isNotEmpty()) {
             logger.warning(
                 "Timed out after ${timeout.toMillis()}ms while stopping CKC consumer(s): " +
@@ -241,10 +264,8 @@ class CkcConsumersLifecycle internal constructor(
             )
         }
         return ConsumerShutdownResult(
-            completedConsumerNames = outcomes.keys.toSet(),
-            failures = outcomes.mapNotNull { (name, outcome) ->
-                outcome.exceptionOrNull()?.let { name to it }
-            }.toMap(),
+            completedConsumerNames = completedConsumerNames.toSet(),
+            failures = failures.toMap(),
             unfinishedConsumerNames = unfinished
         )
     }

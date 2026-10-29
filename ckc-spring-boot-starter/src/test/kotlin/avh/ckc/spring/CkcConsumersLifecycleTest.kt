@@ -17,8 +17,8 @@ class CkcConsumersLifecycleTest {
     @Test
     fun `when one consumer fails and another is slow then every stop starts within one timeout`() {
         val failure = IllegalStateException("failed stop")
-        val failed = TestManagedConsumer { throw failure }
-        val slow = TestManagedConsumer { awaitCancellation() }
+        val failed = TestManagedConsumer(completeShutdownOnStop = false) { throw failure }
+        val slow = TestManagedConsumer(completeShutdownOnStop = false) { awaitCancellation() }
         val successful = TestManagedConsumer { }
         val lifecycle = lifecycle(
             timeout = Duration.ofMillis(100),
@@ -40,12 +40,37 @@ class CkcConsumersLifecycleTest {
         assertTrue(successful.stopStarted.isCompleted)
         assertTrue(elapsedMillis < 1_000L, "shared timeout took ${elapsedMillis}ms")
         assertEquals(mapOf("failed" to failure), thrown.failures)
-        assertEquals(setOf("slow"), thrown.unfinishedConsumerNames)
-        assertFalse(lifecycle.isRunning("failed"))
+        assertEquals(setOf("failed", "slow"), thrown.unfinishedConsumerNames)
+        assertTrue(lifecycle.isRunning("failed"))
         assertTrue(lifecycle.isRunning("slow"))
         assertFalse(lifecycle.isRunning("successful"))
         assertTrue(lifecycle.isRunning)
         assertTrue(lifecycle.lifecycleStarted)
+    }
+
+    @Test
+    fun `when consumer completes after Spring timeout then running state updates automatically`() {
+        val consumer = TestManagedConsumer(completeShutdownOnStop = false) { awaitCancellation() }
+        val lifecycle = lifecycle(
+            timeout = Duration.ofMillis(100),
+            "slow" to consumer
+        )
+        lifecycle.start()
+
+        val thrown = assertThrows(CkcConsumersShutdownException::class.java) {
+            lifecycle.stop()
+        }
+
+        assertEquals(setOf("slow"), thrown.unfinishedConsumerNames)
+        assertTrue(lifecycle.isRunning("slow"))
+        assertTrue(lifecycle.isRunning)
+        assertTrue(lifecycle.lifecycleStarted)
+
+        consumer.completeShutdown()
+
+        waitUntil { !lifecycle.isRunning("slow") }
+        assertFalse(lifecycle.isRunning)
+        assertFalse(lifecycle.lifecycleStarted)
     }
 
     @Test
@@ -113,11 +138,23 @@ class CkcConsumersLifecycleTest {
         consumer = consumer
     )
 
+    private fun waitUntil(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos()
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) {
+                throw AssertionError("Condition was not met within 2 seconds")
+            }
+            Thread.sleep(10)
+        }
+    }
+
     private class TestManagedConsumer(
+        private val completeShutdownOnStop: Boolean = true,
         private val stopBlock: suspend () -> Unit
     ) : ManagedCkcConsumer {
         val stopStarted = CompletableDeferred<Unit>()
         private val termination = CompletableDeferred<Unit>()
+        private val shutdownCompletion = CompletableDeferred<Unit>()
 
         override fun start() = Unit
 
@@ -125,14 +162,21 @@ class CkcConsumersLifecycleTest {
             stopStarted.complete(Unit)
             try {
                 stopBlock()
-                termination.complete(Unit)
-            } catch (error: Throwable) {
-                termination.completeExceptionally(error)
-                throw error
+            } finally {
+                if (completeShutdownOnStop) {
+                    completeShutdown()
+                }
             }
         }
 
         override suspend fun awaitTermination() = termination.await()
+
+        override suspend fun awaitShutdownCompletion() = shutdownCompletion.await()
+
+        fun completeShutdown() {
+            termination.complete(Unit)
+            shutdownCompletion.complete(Unit)
+        }
 
         override fun stateSnapshot(): ConsumerStateSnapshot = error("not needed by this test")
     }

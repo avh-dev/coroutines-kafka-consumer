@@ -133,6 +133,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val failure = AtomicReference<Throwable?>(null)
     private val terminalFailureSignal = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
+    private val shutdownCompletion = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
     private val partitionRegistry = PartitionRegistry()
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
@@ -308,6 +309,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         termination.await()?.let { throw it }
     }
 
+    /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
+    suspend fun awaitShutdownCompletion() {
+        shutdownCompletion.await()
+    }
+
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
         val loopSnapshots = pollLoops.map { it.stateSnapshot() }
@@ -362,6 +368,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             stopped = true
             val shutdownStartedAt = System.nanoTime()
             var shutdownOutcome = LifecycleOutcome.SUCCESS
+            var shutdownError: Throwable? = null
 
             try {
                 if (failure.get() == null) {
@@ -390,7 +397,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                         throw timeout
                     }
                 }
+            } catch (error: Throwable) {
+                shutdownError = error
+                shutdownOutcome = if (error is TimeoutCancellationException) {
+                    LifecycleOutcome.TIMEOUT
+                } else {
+                    LifecycleOutcome.FAILURE
+                }
+            }
 
+            try {
                 pollLoopJobs.forEach { job ->
                     if (job.isActive) {
                         job.cancelAndJoin()
@@ -402,19 +418,22 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                     processingLifecycle.stop()
                 }
             } catch (error: Throwable) {
-                shutdownOutcome = if (error is TimeoutCancellationException) {
-                    LifecycleOutcome.TIMEOUT
+                shutdownOutcome = LifecycleOutcome.FAILURE
+                if (shutdownError == null) {
+                    shutdownError = error
                 } else {
-                    LifecycleOutcome.FAILURE
+                    shutdownError.addSuppressed(error)
                 }
-                throw error
             } finally {
                 if (failure.get() != null && shutdownOutcome == LifecycleOutcome.SUCCESS) {
                     shutdownOutcome = LifecycleOutcome.FAILURE
                 }
                 metrics.onShutdown(System.nanoTime() - shutdownStartedAt, shutdownOutcome)
                 termination.complete(failure.get())
+                shutdownCompletion.complete(Unit)
             }
+
+            shutdownError?.let { throw it }
         }
     }
 }

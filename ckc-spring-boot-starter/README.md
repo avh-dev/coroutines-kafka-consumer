@@ -128,7 +128,8 @@ relative to other lifecycle beans, and `ckc.lifecycle.shutdown-timeout` bounds h
 waits for all CKC consumers to stop gracefully under one shared deadline. Consumer stops are initiated
 independently so one failed or slow consumer does not prevent the others from stopping. Completed failures
 and consumers still stopping at the deadline are reported together through `CkcConsumersShutdownException`;
-unfinished consumers remain visible as running in lifecycle and registry state.
+unfinished consumers remain visible as running in lifecycle and registry state. If core shutdown finishes
+after the Spring deadline, lifecycle and registry state are updated automatically at actual completion.
 
 If Spring Boot Actuator is on the classpath, the starter contributes a `ckcHealthIndicator` bean.
 It reports starter lifecycle state and per-consumer configuration/state details: registered
