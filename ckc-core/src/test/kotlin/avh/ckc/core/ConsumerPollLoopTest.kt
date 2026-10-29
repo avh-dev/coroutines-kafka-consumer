@@ -514,9 +514,10 @@ class ConsumerPollLoopTest {
         }
 
         @Test
-        fun `tracker stash stays bounded and reserve pause releases partitions without tracker pressure`() = runBlocking {
+        fun `new assignment inherits reserve pause and stash stays bounded across cooperative rebalance`() = runBlocking {
             val firstPartition = TopicPartition("topic-a", 0)
             val secondPartition = TopicPartition("topic-a", 1)
+            val addedPartition = TopicPartition("topic-a", 2)
             val pollNumber = AtomicInteger()
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
@@ -527,6 +528,7 @@ class ConsumerPollLoopTest {
                     val partition = when (pollNumber.getAndIncrement()) {
                         0 -> firstPartition
                         1 -> secondPartition
+                        2 -> addedPartition.also { assignAdditional(it, 0L) }
                         else -> null
                     }
                     if (partition == null) {
@@ -558,7 +560,9 @@ class ConsumerPollLoopTest {
                 markProcessed(127L)
             }
 
-            verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(firstPartition)))
+            verify(fixture.consumer, timeout(2_000)).pause(eq(setOf(addedPartition)))
+            assertTrue(fixture.loop.maximumObservedStashSizeForTest <= 20)
+            verify(fixture.consumer, timeout(2_000)).resume(eq(setOf(firstPartition, addedPartition)))
 
             job.cancel()
             job.join()
@@ -1351,7 +1355,10 @@ private class PollLoopFixture(
     }
     val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
     val topicPartition = TopicPartition("topic-a", 0)
-    private val assignmentPositions = mapOf(topicPartition to assignmentPosition) + additionalAssignmentPositions
+    private val assignmentPositions = ConcurrentHashMap<TopicPartition, Long>().apply {
+        put(topicPartition, assignmentPosition)
+        putAll(additionalAssignmentPositions)
+    }
     private val consumerProperties = testConsumerProperties()
     val loop = ConsumerPollLoop<ByteArray, ByteArray>(
         id = 1,
@@ -1388,7 +1395,7 @@ private class PollLoopFixture(
         }
         whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
         whenever(consumer.committed(any<Set<TopicPartition>>(), any<Duration>())).thenReturn(committedOffsets)
-        whenever(consumer.assignment()).thenReturn(assignmentPositions.keys)
+        whenever(consumer.assignment()).thenAnswer { assignmentPositions.keys.toSet() }
         doAnswer { invocation ->
             pausedPartitions.addAll(invocation.getArgument<Collection<TopicPartition>>(0))
             null
@@ -1414,6 +1421,11 @@ private class PollLoopFixture(
     }
 
     fun start(): Job = loop.start()
+
+    fun assignAdditional(topicPartition: TopicPartition, position: Long) {
+        assignmentPositions[topicPartition] = position
+        checkNotNull(listenerRef.get()).onPartitionsAssigned(listOf(topicPartition))
+    }
 
     suspend fun awaitAssignedState(lastCommittedOffset: Long? = null): PartitionState =
         awaitFor(2_000L, 10L) {

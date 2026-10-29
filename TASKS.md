@@ -5829,4 +5829,5 @@ Verification: core, Micrometer, and Spring starter tests pass, including bounded
 growth, large-gap, multi-partition pause/resume, stash admission, configuration,
 and validation regressions; all 23 core integration tests pass.
 Review follow-up additionally covers restored processed ranges, independent release
-of global queue pressure, and the explicit two-batch stash budget.
+of global queue pressure, the explicit two-batch stash budget, and propagation of
+an active global pause to partitions added by a cooperative rebalance.

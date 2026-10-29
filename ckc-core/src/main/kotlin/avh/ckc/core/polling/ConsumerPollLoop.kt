@@ -83,6 +83,9 @@ internal class ConsumerPollLoop<K, V>(
     @Volatile
     private var maximumObservedStashSize = 0
 
+    @Volatile
+    private var globalPauseActive = false
+
     @VisibleForTesting
     internal val maximumObservedStashSizeForTest: Int
         get() = maximumObservedStashSize
@@ -478,6 +481,13 @@ internal class ConsumerPollLoop<K, V>(
             metrics.bindPartitionMetrics(id, it)
         }
         assignedPartitions += assignedPartitionStates
+        if (globalPauseActive || shutdownRequested) {
+            try {
+                consumer.pause(partitions.toSet())
+            } catch (e: Exception) {
+                log.warn("Error applying active pause to newly assigned partitions in manager #$id", e)
+            }
+        }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
     }
@@ -722,6 +732,7 @@ internal class ConsumerPollLoop<K, V>(
         var lastCommitAt = System.currentTimeMillis()
         var pendingRecordsAtLastAttempt = 0L
         var state = State.ACTIVE
+        globalPauseActive = false
 
         try {
             while (currentCoroutineContext().isActive) {
@@ -993,6 +1004,7 @@ internal class ConsumerPollLoop<K, V>(
         consumer: KafkaConsumer<K, V>,
         recordBackpressureMetric: Boolean = true
     ) {
+        globalPauseActive = true
         try {
             val assigned = consumer.assignment()
             if (assigned.isNotEmpty()) {
@@ -1014,6 +1026,7 @@ internal class ConsumerPollLoop<K, V>(
                 consumer.resume(resumable)
                 metrics.onBackpressurePauseResume(BackpressureAction.RESUME, resumable.size)
             }
+            globalPauseActive = false
         } catch (e: Exception) {
             log.warn("Error resuming consumer in manager #$id", e)
         }
