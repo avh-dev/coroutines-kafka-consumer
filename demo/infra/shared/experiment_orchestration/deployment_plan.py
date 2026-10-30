@@ -958,9 +958,11 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             "imagePullPolicy": bindings.image_pull_policy,
             "command": ["/bin/bash", "-ec"],
             "args": [
-                "until exec 3<>/dev/tcp/ckc-demo-warmup-recipient/8080; do sleep 1; done; "
-                "printf 'GET /actuator/health HTTP/1.1\\r\\nHost: ckc-demo-warmup-recipient\\r\\nConnection: close\\r\\n\\r\\n' >&3; "
-                "read -r status <&3; [[ \"${status}\" == *' 200 '* ]]"
+                "until { exec 3<>/dev/tcp/ckc-demo-warmup-recipient/8080 && "
+                "printf 'GET /internal/traffic-warmup/ready HTTP/1.1\\r\\n"
+                "Host: ckc-demo-warmup-recipient\\r\\nConnection: close\\r\\n\\r\\n' >&3 && "
+                "read -r status <&3 && exec 3>&- && [[ \"${status}\" == *' 200 '* ]]; }; "
+                "do exec 3>&- 2>/dev/null || true; sleep 1; done"
             ],
             "resources": {
                 "requests": {"cpu": "5m", "memory": "16Mi"},

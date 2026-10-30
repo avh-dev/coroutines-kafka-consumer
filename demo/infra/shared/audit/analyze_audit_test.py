@@ -136,6 +136,83 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
         self.assertEqual(0, window["totals"]["missing_terminal"])
         self.assertEqual(1, window["forwarding"]["unique_relations"])
 
+    def test_cohort_filter_does_not_report_excluded_forwarding_as_orphan(self) -> None:
+        inside = analyzer.RecordKey(1, 0, 7)
+        for outside_records in (
+            (
+                "W|session-1|order_events|1|0|8|101|0|12|1200",
+                "C|101|0|12|1300|order-b",
+            ),
+            (
+                "C|101|0|12|1200|order-b",
+                "W|session-1|order_events|1|0|8|101|0|12|1300",
+            ),
+        ):
+            with self.subTest(outside_records=outside_records):
+                accumulator = analyzer.AuditAccumulator(
+                    open_record_ttl_ms=None,
+                    cohort_keys={inside},
+                )
+                for line in (
+                    "P|1|0|7|1000|1000|order-a",
+                    "P|1|0|8|1000|1000|order-b",
+                    "W|session-1|order_events|1|0|7|101|0|11|1100",
+                    "C|101|0|11|1200|order-a",
+                    *outside_records,
+                ):
+                    accumulator.add(analyzer.parse_record(line))
+                accumulator.finish()
+
+                forwarding = analyzer.summary_document(accumulator, {})["audit"]["forwarding"]
+                self.assertEqual(1, forwarding["unique_relations"])
+                self.assertEqual(1, forwarding["cohort_excluded_relations"])
+                self.assertEqual(0, forwarding["orphan_warmup_outcomes"])
+
+    def test_bounded_forwarding_aggregates_completed_relations_and_marks_late_outcomes(self) -> None:
+        stats = analyzer.ForwardingStats(open_record_ttl_ms=100)
+        relation = analyzer.parse_record("W|session-1|order_events|1|0|7|101|0|11|1000")
+        outcome = analyzer.parse_record("C|101|0|11|1010|order-a")
+        self.assertIsInstance(relation, analyzer.ForwardingAuditRecord)
+        self.assertIsInstance(outcome, analyzer.AuditRecord)
+        stats.add_relation(relation)
+        stats.add_outcome(outcome)
+
+        stats.add_relation(
+            analyzer.parse_record("W|session-1|order_events|1|0|8|101|0|12|2200")
+        )
+        stats.add_outcome(analyzer.parse_record("C|101|0|11|2300|order-a"))
+
+        forwarding = stats.summary()
+        self.assertEqual(1, forwarding["relations"]["processed"])
+        self.assertEqual(1, forwarding["business_delivery"]["processed_sources"])
+        self.assertEqual(1, forwarding["bounded_ttl"]["late_outcomes_after_eviction"])
+
+    def test_bounded_forwarding_releases_per_record_correlation_state(self) -> None:
+        stats = analyzer.ForwardingStats(open_record_ttl_ms=100)
+        for offset in range(300):
+            timestamp = 1000 + offset * 10
+            stats.add_relation(analyzer.ForwardingAuditRecord(
+                session_id="session-1",
+                consumer_id="order_events",
+                source_key=analyzer.RecordKey(1, 0, offset),
+                destination_key=analyzer.RecordKey(101, 0, offset),
+                audit_timestamp_ms=timestamp,
+            ))
+            stats.add_outcome(analyzer.AuditRecord(
+                record_type="C",
+                key=analyzer.RecordKey(101, 0, offset),
+                audit_timestamp_ms=timestamp + 1,
+                message_key=f"order-{offset}",
+            ))
+        stats.add_relation(
+            analyzer.parse_record("W|session-1|order_events|1|0|999|101|0|999|10000")
+        )
+
+        forwarding = stats.summary()
+        self.assertLess(forwarding["bounded_ttl"]["active_destinations"], 10)
+        self.assertLess(len(stats.expired_destinations), 120)
+        self.assertEqual(301, forwarding["unique_relations"])
+
     def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
         accumulator = analyzer.MultiWindowAuditAccumulator(
             open_record_ttl_ms=None,

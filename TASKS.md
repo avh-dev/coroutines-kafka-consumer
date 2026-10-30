@@ -6019,3 +6019,10 @@ and projects recipient outcomes onto source publications for full-run and measur
 window delivery accounting. Existing broker-warm-up cleanup is verified not to touch
 the new topic or group namespace. Unit, schema, shell syntax, and experiment validation
 checks pass; no lab experiment was started during implementation.
+Review follow-up replaces the generic actuator check with a dedicated recipient
+readiness endpoint that remains unavailable until every assigned warm-up consumer
+has completed `awaitReady()`; the donor init container polls that endpoint before it
+can start. Cohort-filtered audit analysis now suppresses outcomes whose known source
+was excluded, regardless of log order. Bounded-TTL forwarding analysis aggregates
+completed relations, evicts per-record correlation state and bounded tombstones, and
+reports its explicit late-event policy and counters.

@@ -128,6 +128,15 @@ class DeploymentPlanTest(unittest.TestCase):
             for item in donor["spec"]["template"]["spec"]["initContainers"]
         ]
         self.assertIn("wait-for-warmup-recipient", init_names)
+        readiness_barrier = next(
+            item for item in donor["spec"]["template"]["spec"]["initContainers"]
+            if item["name"] == "wait-for-warmup-recipient"
+        )
+        self.assertIn(
+            "/internal/traffic-warmup/ready",
+            readiness_barrier["args"][0],
+        )
+        self.assertIn("until {", readiness_barrier["args"][0])
         donor_service = next(
             item for item in manifests
             if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo"
