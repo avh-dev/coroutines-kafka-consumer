@@ -498,6 +498,7 @@
 | [INFRA-316](#infra-316) | Add a triangular 10k autoscaling experiment for the internal lab. | DONE |
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
+| [INFRA-319](#infra-319) | Prepare the static real-traffic warm-up hop experiment, isolated Kafka resources, and forwarding-aware audit analysis. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -5996,3 +5997,32 @@ registry before any consumer starts when audit is enabled; custom topics remain
 available when audit is disabled. Demo session and consumer identifiers now reject
 the compact-record field separator so forwarding relations always retain their
 fixed column layout. Regression coverage exercises both validation boundaries.
+
+<a id="infra-319"></a>
+### INFRA-319 - Prepare the static real-traffic warm-up experiment
+
+_Date: 2026-10-30_
+
+Create and clean the pre-provisioned `ckc.traffic-warmup.v1.*` topics and isolated
+recipient groups without overlapping the existing broker-warm-up namespace. Extend
+the shared audit analyzer to retain multiple forwarding relations per source record,
+correlate relations and outcomes in either log order, and report unresolved or
+duplicate delivery explicitly. Add an internal-lab static donor/recipient comparison
+that measures the additional Kafka hop before coordinator work begins.
+Implemented a shared `static_traffic_warmup` deployment mode with separate recipient
+and donor pods, a recipient-readiness barrier, fixed one-partition traffic-warm-up
+topics, and cleanup of every namespaced recipient group. The comparison keeps the
+direct and 10% static-hop targets on one fixed lab configuration.
+The audit analyzer now preserves all forwarding relations, accepts relation and
+outcome records in either order, exposes unresolved and duplicate business delivery,
+and projects recipient outcomes onto source publications for full-run and measurement-
+window delivery accounting. Existing broker-warm-up cleanup is verified not to touch
+the new topic or group namespace. Unit, schema, shell syntax, and experiment validation
+checks pass; no lab experiment was started during implementation.
+Review follow-up replaces the generic actuator check with a dedicated recipient
+readiness endpoint that remains unavailable until every assigned warm-up consumer
+has completed `awaitReady()`; the donor init container polls that endpoint before it
+can start. Cohort-filtered audit analysis now suppresses outcomes whose known source
+was excluded, regardless of log order. Bounded-TTL forwarding analysis aggregates
+completed relations, evicts per-record correlation state and bounded tombstones, and
+reports its explicit late-event policy and counters.

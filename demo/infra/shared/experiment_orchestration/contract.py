@@ -489,8 +489,11 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
         if "placement" in application and application["placement"] not in {"controller", "worker"}:
             raise ValueError(f"{context}.application.placement must be controller or worker")
         deployment_mode = application.get("deployment_mode", "combined")
-        if deployment_mode not in {"combined", "per_topic"}:
-            raise ValueError(f"{context}.application.deployment_mode must be combined or per_topic")
+        if deployment_mode not in {"combined", "per_topic", "static_traffic_warmup"}:
+            raise ValueError(
+                f"{context}.application.deployment_mode must be combined, per_topic, "
+                "or static_traffic_warmup"
+            )
         if deployment_mode == "per_topic":
             workloads = require_mapping(application.get("workloads"), f"{context}.application.workloads")
             expected_workloads = {"order", "batch", "telemetry"}
@@ -523,6 +526,16 @@ def validate_target_configuration(value: Mapping[str, Any], context: str, *, def
                     )
         elif "workloads" in application:
             raise ValueError(f"{context}.application.workloads requires deployment_mode per_topic")
+        if deployment_mode == "static_traffic_warmup":
+            replicas = application.get("replicas", 1)
+            if replicas != 1:
+                raise ValueError(
+                    f"{context}.application.replicas must be 1 for static_traffic_warmup"
+                )
+            if "hpa" in application and (application.get("hpa") or {}).get("enabled"):
+                raise ValueError(
+                    f"{context}.application.hpa must be disabled for static_traffic_warmup"
+                )
     if "placement" in value:
         placement = require_mapping(value["placement"], f"{context}.placement")
         unknown_placement = sorted(set(placement) - {"application", "stubs", "generator"})

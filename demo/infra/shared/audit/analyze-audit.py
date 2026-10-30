@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import heapq
 import json
 import math
 import struct
@@ -19,7 +20,11 @@ TOPIC_NAMES = {
     1: "order.events.v1",
     2: "batch.events.v1",
     3: "cauldron.events.v1",
+    101: "ckc.traffic-warmup.v1.order.events",
+    102: "ckc.traffic-warmup.v1.batch.events",
+    103: "ckc.traffic-warmup.v1.cauldron.events",
 }
+WARMUP_TOPIC_IDS = frozenset({101, 102, 103})
 
 class RecordKey(NamedTuple):
     topic_id: int
@@ -150,6 +155,348 @@ class AuditRecord:
     kafka_timestamp_ms: int | None = None
     drop_reason: str | None = None
     handoff_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ForwardingAuditRecord:
+    session_id: str
+    consumer_id: str
+    source_key: RecordKey
+    destination_key: RecordKey
+    audit_timestamp_ms: int
+
+
+@dataclass(slots=True)
+class ForwardingStats:
+    cohort_keys: set[RecordKey] | None = None
+    open_record_ttl_ms: int | None = None
+    relation_records: int = 0
+    unique_relation_records: int = 0
+    relations_by_destination: dict[RecordKey, ForwardingAuditRecord] = field(default_factory=dict)
+    destinations_by_source: dict[RecordKey, list[RecordKey]] = field(default_factory=dict)
+    outcomes_by_destination: dict[RecordKey, list[AuditRecord]] = field(default_factory=dict)
+    source_relation_counts: dict[RecordKey, int] = field(default_factory=dict)
+    pending_source_outcomes: dict[RecordKey, list[int]] = field(default_factory=dict)
+    destination_last_seen_ms: dict[RecordKey, int] = field(default_factory=dict)
+    destination_expiry_queue: list[tuple[int, RecordKey]] = field(default_factory=list)
+    excluded_destinations: dict[RecordKey, int] = field(default_factory=dict)
+    expired_destinations: dict[RecordKey, int] = field(default_factory=dict)
+    expired_destination_queue: list[tuple[int, RecordKey]] = field(default_factory=list)
+    duplicate_relation_records: int = 0
+    sessions: set[str] = field(default_factory=set)
+    consumers: set[str] = field(default_factory=set)
+    watermark_ms: int = 0
+    last_eviction_ms: int = 0
+    eviction_interval_ms: int = 1_000
+    aggregated_relation_processed: int = 0
+    aggregated_relation_failed: int = 0
+    aggregated_relation_dropped: int = 0
+    aggregated_relation_conflicting: int = 0
+    aggregated_relation_unresolved: int = 0
+    aggregated_forwarded_sources: int = 0
+    aggregated_sources_with_multiple_relations: int = 0
+    aggregated_source_processed: int = 0
+    aggregated_source_failed: int = 0
+    aggregated_source_dropped: int = 0
+    aggregated_source_unresolved: int = 0
+    aggregated_sources_with_duplicate_processing: int = 0
+    aggregated_duplicate_processing_outcomes: int = 0
+    aggregated_orphan_outcomes: int = 0
+    late_relations_after_eviction: int = 0
+    late_outcomes_after_eviction: int = 0
+    cohort_excluded_relations: int = 0
+    unresolved_samples: list[dict[str, object]] = field(default_factory=list)
+
+    def add_relation(self, record: ForwardingAuditRecord) -> bool:
+        self._advance(record.audit_timestamp_ms)
+        if self.cohort_keys is not None and record.source_key not in self.cohort_keys:
+            self.cohort_excluded_relations += 1
+            self.outcomes_by_destination.pop(record.destination_key, None)
+            self.relations_by_destination.pop(record.destination_key, None)
+            self.destination_last_seen_ms.pop(record.destination_key, None)
+            self.excluded_destinations[record.destination_key] = record.audit_timestamp_ms
+            self._queue_destination(record.destination_key, record.audit_timestamp_ms)
+            return False
+        if record.destination_key in self.expired_destinations:
+            self.late_relations_after_eviction += 1
+            return False
+        self.relation_records += 1
+        existing = self.relations_by_destination.get(record.destination_key)
+        if existing is not None:
+            if (
+                existing.session_id == record.session_id
+                and existing.consumer_id == record.consumer_id
+                and existing.source_key == record.source_key
+            ):
+                self.duplicate_relation_records += 1
+                self._touch_destination(record.destination_key, record.audit_timestamp_ms)
+                return False
+            raise ValueError(
+                "warm-up destination is linked to multiple forwarding sources: "
+                f"{record.destination_key}"
+            )
+        self.excluded_destinations.pop(record.destination_key, None)
+        self.relations_by_destination[record.destination_key] = record
+        self.destinations_by_source.setdefault(record.source_key, []).append(record.destination_key)
+        self.source_relation_counts[record.source_key] = self.source_relation_counts.get(record.source_key, 0) + 1
+        self.unique_relation_records += 1
+        self.sessions.add(record.session_id)
+        self.consumers.add(record.consumer_id)
+        self._touch_destination(record.destination_key, record.audit_timestamp_ms)
+        return True
+
+    def add_outcome(self, record: AuditRecord) -> bool:
+        if record.key.topic_id not in WARMUP_TOPIC_IDS or record.record_type not in {"C", "F", "D"}:
+            return False
+        self._advance(record.audit_timestamp_ms)
+        if record.key in self.excluded_destinations:
+            self.excluded_destinations[record.key] = record.audit_timestamp_ms
+            self._queue_destination(record.key, record.audit_timestamp_ms)
+            return False
+        if record.key in self.expired_destinations:
+            self.late_outcomes_after_eviction += 1
+            return False
+        self.outcomes_by_destination.setdefault(record.key, []).append(record)
+        self._touch_destination(record.key, record.audit_timestamp_ms)
+        return True
+
+    def relation_for(self, destination: RecordKey) -> ForwardingAuditRecord | None:
+        return self.relations_by_destination.get(destination)
+
+    def outcomes_for(self, destination: RecordKey) -> tuple[AuditRecord, ...]:
+        return tuple(self.outcomes_by_destination.get(destination, ()))
+
+    def finish(self) -> None:
+        if self.open_record_ttl_ms is None:
+            return
+        for destination in list(self.destination_last_seen_ms):
+            self._evict_destination(destination, remember=False)
+        self.excluded_destinations.clear()
+        self.expired_destinations.clear()
+        self.destination_expiry_queue.clear()
+        self.expired_destination_queue.clear()
+
+    def summary(self) -> dict[str, object]:
+        relation_processed = self.aggregated_relation_processed
+        relation_failed = self.aggregated_relation_failed
+        relation_dropped = self.aggregated_relation_dropped
+        relation_conflicting = self.aggregated_relation_conflicting
+        relation_unresolved = self.aggregated_relation_unresolved
+        source_processed = self.aggregated_source_processed
+        source_failed = self.aggregated_source_failed
+        source_dropped = self.aggregated_source_dropped
+        source_unresolved = self.aggregated_source_unresolved
+        sources_with_duplicate_processing = self.aggregated_sources_with_duplicate_processing
+        duplicate_processing_outcomes = self.aggregated_duplicate_processing_outcomes
+        unresolved_samples = list(self.unresolved_samples)
+
+        for relation in self.relations_by_destination.values():
+            outcomes = self.outcomes_by_destination.get(relation.destination_key, ())
+            outcome_types = {outcome.record_type for outcome in outcomes}
+            if not outcome_types:
+                relation_unresolved += 1
+                if len(unresolved_samples) < 20:
+                    unresolved_samples.append(forwarding_relation_summary(relation))
+            else:
+                relation_processed += int("C" in outcome_types)
+                relation_failed += int("F" in outcome_types)
+                relation_dropped += int("D" in outcome_types)
+                relation_conflicting += int(len(outcome_types) > 1)
+
+        for source, destinations in self.destinations_by_source.items():
+            outcomes = [
+                outcome
+                for destination in destinations
+                for outcome in self.outcomes_by_destination.get(destination, ())
+            ]
+            pending = self.pending_source_outcomes.get(source, [0, 0, 0])
+            processed = pending[0] + sum(outcome.record_type == "C" for outcome in outcomes)
+            failed = pending[1] + sum(outcome.record_type == "F" for outcome in outcomes)
+            dropped = pending[2] + sum(outcome.record_type == "D" for outcome in outcomes)
+            classification = classify_forwarded_source(processed, failed, dropped)
+            source_processed += classification[0]
+            source_failed += classification[1]
+            source_dropped += classification[2]
+            source_unresolved += classification[3]
+            sources_with_duplicate_processing += classification[4]
+            duplicate_processing_outcomes += classification[5]
+
+        orphan_outcomes = self.aggregated_orphan_outcomes + sum(
+            len(outcomes)
+            for destination, outcomes in self.outcomes_by_destination.items()
+            if destination not in self.relations_by_destination
+        )
+        return {
+            "relation_records": self.relation_records,
+            "unique_relations": self.unique_relation_records,
+            "duplicate_relation_records": self.duplicate_relation_records,
+            "sessions": sorted(self.sessions),
+            "consumers": sorted(self.consumers),
+            "forwarded_sources": self.aggregated_forwarded_sources + len(self.destinations_by_source),
+            "sources_with_multiple_relations": self.aggregated_sources_with_multiple_relations + sum(
+                self.source_relation_counts.get(source, len(destinations)) > 1
+                for source, destinations in self.destinations_by_source.items()
+            ),
+            "relations": {
+                "processed": relation_processed,
+                "failed": relation_failed,
+                "dropped": relation_dropped,
+                "conflicting_terminal_outcomes": relation_conflicting,
+                "unresolved": relation_unresolved,
+            },
+            "business_delivery": {
+                "processed_sources": source_processed,
+                "failed_sources": source_failed,
+                "dropped_sources": source_dropped,
+                "unresolved_sources": source_unresolved,
+                "sources_with_duplicate_processing": sources_with_duplicate_processing,
+                "duplicate_processing_outcomes": duplicate_processing_outcomes,
+            },
+            "orphan_warmup_outcomes": orphan_outcomes,
+            "cohort_excluded_relations": self.cohort_excluded_relations,
+            "correlation": {
+                "mode": "bounded_ttl" if self.open_record_ttl_ms is not None else "exact",
+                "ttl_seconds": (
+                    round(self.open_record_ttl_ms / 1000, 3)
+                    if self.open_record_ttl_ms is not None
+                    else None
+                ),
+                "late_event_policy": (
+                    "Events for a destination retained in the post-eviction tombstone window "
+                    "are counted as late and are not re-correlated; after that bounded window, "
+                    "an unmatched outcome is counted as orphan."
+                    if self.open_record_ttl_ms is not None
+                    else "All forwarding relations and outcomes are retained for exact correlation."
+                ),
+            },
+            "bounded_ttl": {
+                "active_destinations": len(self.destination_last_seen_ms),
+                "late_relations_after_eviction": self.late_relations_after_eviction,
+                "late_outcomes_after_eviction": self.late_outcomes_after_eviction,
+            },
+            "unresolved_samples": unresolved_samples,
+        }
+
+    def _advance(self, timestamp_ms: int) -> None:
+        self.watermark_ms = max(self.watermark_ms, timestamp_ms)
+        if self.open_record_ttl_ms is None:
+            return
+        if self.watermark_ms - self.last_eviction_ms < self.eviction_interval_ms:
+            return
+        cutoff_ms = self.watermark_ms - self.open_record_ttl_ms
+        while self.destination_expiry_queue and self.destination_expiry_queue[0][0] < cutoff_ms:
+            last_seen_ms, destination = heapq.heappop(self.destination_expiry_queue)
+            if self.destination_last_seen_ms.get(destination) == last_seen_ms:
+                self._evict_destination(destination, remember=True)
+            elif self.excluded_destinations.get(destination) == last_seen_ms:
+                del self.excluded_destinations[destination]
+                self._remember_evicted(destination)
+        while self.expired_destination_queue and self.expired_destination_queue[0][0] < cutoff_ms:
+            evicted_ms, destination = heapq.heappop(self.expired_destination_queue)
+            if self.expired_destinations.get(destination) == evicted_ms:
+                del self.expired_destinations[destination]
+        self.last_eviction_ms = self.watermark_ms
+
+    def _touch_destination(self, destination: RecordKey, timestamp_ms: int) -> None:
+        last_seen_ms = max(self.destination_last_seen_ms.get(destination, timestamp_ms), timestamp_ms)
+        self.destination_last_seen_ms[destination] = last_seen_ms
+        self._queue_destination(destination, last_seen_ms)
+
+    def _queue_destination(self, destination: RecordKey, timestamp_ms: int) -> None:
+        if self.open_record_ttl_ms is not None:
+            heapq.heappush(self.destination_expiry_queue, (timestamp_ms, destination))
+
+    def _remember_evicted(self, destination: RecordKey) -> None:
+        self.expired_destinations[destination] = self.watermark_ms
+        heapq.heappush(self.expired_destination_queue, (self.watermark_ms, destination))
+
+    def _evict_destination(self, destination: RecordKey, *, remember: bool) -> None:
+        relation = self.relations_by_destination.pop(destination, None)
+        outcomes = self.outcomes_by_destination.pop(destination, [])
+        self.destination_last_seen_ms.pop(destination, None)
+        if relation is None:
+            self.aggregated_orphan_outcomes += len(outcomes)
+        else:
+            self._aggregate_relation(relation, outcomes)
+            source = relation.source_key
+            counts = self.pending_source_outcomes.setdefault(source, [0, 0, 0])
+            counts[0] += sum(outcome.record_type == "C" for outcome in outcomes)
+            counts[1] += sum(outcome.record_type == "F" for outcome in outcomes)
+            counts[2] += sum(outcome.record_type == "D" for outcome in outcomes)
+            destinations = self.destinations_by_source[source]
+            destinations.remove(destination)
+            if not destinations:
+                del self.destinations_by_source[source]
+                self._finalize_source(source)
+        if remember:
+            self._remember_evicted(destination)
+
+    def _aggregate_relation(
+        self,
+        relation: ForwardingAuditRecord,
+        outcomes: list[AuditRecord],
+    ) -> None:
+        outcome_types = {outcome.record_type for outcome in outcomes}
+        if not outcome_types:
+            self.aggregated_relation_unresolved += 1
+            if len(self.unresolved_samples) < 20:
+                self.unresolved_samples.append(forwarding_relation_summary(relation))
+            return
+        self.aggregated_relation_processed += int("C" in outcome_types)
+        self.aggregated_relation_failed += int("F" in outcome_types)
+        self.aggregated_relation_dropped += int("D" in outcome_types)
+        self.aggregated_relation_conflicting += int(len(outcome_types) > 1)
+
+    def _finalize_source(self, source: RecordKey) -> None:
+        processed, failed, dropped = self.pending_source_outcomes.pop(source, [0, 0, 0])
+        classification = classify_forwarded_source(processed, failed, dropped)
+        self.aggregated_source_processed += classification[0]
+        self.aggregated_source_failed += classification[1]
+        self.aggregated_source_dropped += classification[2]
+        self.aggregated_source_unresolved += classification[3]
+        self.aggregated_sources_with_duplicate_processing += classification[4]
+        self.aggregated_duplicate_processing_outcomes += classification[5]
+        self.aggregated_forwarded_sources += 1
+        self.aggregated_sources_with_multiple_relations += int(
+            self.source_relation_counts.pop(source, 0) > 1
+        )
+
+
+def classify_forwarded_source(
+    processed: int,
+    failed: int,
+    dropped: int,
+) -> tuple[int, int, int, int, int, int]:
+    return (
+        int(processed > 0),
+        int(processed == 0 and failed > 0),
+        int(processed == 0 and failed == 0 and dropped > 0),
+        int(processed == 0 and failed == 0 and dropped == 0),
+        int(processed > 1),
+        max(0, processed - 1),
+    )
+
+
+def forwarding_relation_summary(record: ForwardingAuditRecord) -> dict[str, object]:
+    return {
+        "session_id": record.session_id,
+        "consumer_id": record.consumer_id,
+        "source": list(record.source_key),
+        "destination": list(record.destination_key),
+    }
+
+
+def forwarded_source_outcome(
+    relation: ForwardingAuditRecord,
+    outcome: AuditRecord,
+) -> AuditRecord:
+    return AuditRecord(
+        record_type=outcome.record_type,
+        key=relation.source_key,
+        audit_timestamp_ms=outcome.audit_timestamp_ms,
+        message_key=outcome.message_key,
+        drop_reason=outcome.drop_reason,
+    )
 
 
 @dataclass(slots=True)
@@ -1118,11 +1465,31 @@ class AuditAccumulator:
         }
         self.record_count = 0
         self.cohort_keys = cohort_keys
+        self.forwarding = ForwardingStats(
+            cohort_keys=cohort_keys,
+            open_record_ttl_ms=open_record_ttl_ms,
+        )
 
-    def add(self, record: AuditRecord) -> None:
+    def add(self, record: AuditRecord | ForwardingAuditRecord) -> None:
+        if isinstance(record, ForwardingAuditRecord):
+            self.record_count += 1
+            if self.forwarding.add_relation(record):
+                for outcome in self.forwarding.outcomes_for(record.destination_key):
+                    self._add_delivery_record(forwarded_source_outcome(record, outcome))
+            return
+        if record.key.topic_id in WARMUP_TOPIC_IDS and record.record_type in {"C", "F", "D"}:
+            self.record_count += 1
+            self.forwarding.add_outcome(record)
+            relation = self.forwarding.relation_for(record.key)
+            if relation is not None:
+                self._add_delivery_record(forwarded_source_outcome(relation, record))
+            return
         if self.cohort_keys is not None and record.key not in self.cohort_keys:
             return
         self.record_count += 1
+        self._add_delivery_record(record)
+
+    def _add_delivery_record(self, record: AuditRecord) -> None:
         topic_stats = self.by_topic.get(record.key.topic_id)
         if topic_stats is None:
             topic_stats = self._new_topic_stats(record.key.topic_id)
@@ -1132,6 +1499,7 @@ class AuditAccumulator:
     def finish(self) -> None:
         for stats in self.by_topic.values():
             stats.finish()
+        self.forwarding.finish()
         if self.owns_key_order_spool and self.key_order_spool is not None:
             self.key_order_spool.finish()
 
@@ -1206,21 +1574,41 @@ class MultiWindowAuditAccumulator:
             for window in windows
         )
         self.pending_before_publish: dict[RecordKey, list[AuditRecord]] = {}
+        self.pending_forwarding_before_publish: dict[RecordKey, list[ForwardingAuditRecord]] = {}
 
     @property
     def record_count(self) -> int:
         return self.complete.record_count
 
-    def add(self, record: AuditRecord) -> None:
+    def add(self, record: AuditRecord | ForwardingAuditRecord) -> None:
         self.complete.add(record)
+        if isinstance(record, ForwardingAuditRecord):
+            matched = False
+            for _, accumulator in self.windows:
+                if accumulator.contains_key(record.source_key):
+                    self._add_forwarding_to_window(accumulator, record)
+                    matched = True
+            if not matched:
+                self.pending_forwarding_before_publish.setdefault(record.source_key, []).append(record)
+            return
+        if record.key.topic_id in WARMUP_TOPIC_IDS and record.record_type in {"C", "F", "D"}:
+            relation = self.complete.forwarding.relation_for(record.key)
+            if relation is not None:
+                for _, accumulator in self.windows:
+                    if accumulator.contains_key(relation.source_key):
+                        accumulator.add(record)
+            return
         if record.record_type == "P":
             pending = self.pending_before_publish.pop(record.key, ())
+            pending_forwarding = self.pending_forwarding_before_publish.pop(record.key, ())
             for window, accumulator in self.windows:
                 if not window.contains(record):
                     continue
                 for earlier in pending:
                     accumulator.add(earlier)
                 accumulator.add(record)
+                for relation in pending_forwarding:
+                    self._add_forwarding_to_window(accumulator, relation)
             return
 
         matched = False
@@ -1235,6 +1623,18 @@ class MultiWindowAuditAccumulator:
         if state is not None and state.published is None:
             self.pending_before_publish.setdefault(record.key, []).append(record)
 
+    def _add_forwarding_to_window(
+        self,
+        accumulator: AuditAccumulator,
+        relation: ForwardingAuditRecord,
+    ) -> None:
+        existing = accumulator.forwarding.relation_for(relation.destination_key)
+        accumulator.add(relation)
+        if existing is not None:
+            return
+        for outcome in self.complete.forwarding.outcomes_for(relation.destination_key):
+            accumulator.add(outcome)
+
     def finish(self) -> None:
         self.complete.finish()
         for _, accumulator in self.windows:
@@ -1242,6 +1642,7 @@ class MultiWindowAuditAccumulator:
         if self.key_order_spool is not None:
             self.key_order_spool.finish()
         self.pending_before_publish.clear()
+        self.pending_forwarding_before_publish.clear()
 
 
 def parse_args() -> argparse.Namespace:
@@ -1273,9 +1674,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_record(value: str) -> AuditRecord:
+def parse_record(value: str) -> AuditRecord | ForwardingAuditRecord:
     parts = value.rstrip("\n").split("|")
     record_type = parts[0] if parts else ""
+
+    if record_type == "W":
+        if len(parts) != 10:
+            raise ValueError(f"expected 10 forwarding audit fields, got {len(parts)}: {value!r}")
+        (
+            _, session_id, consumer_id,
+            source_topic_id, source_partition, source_offset,
+            destination_topic_id, destination_partition, destination_offset,
+            audit_ts,
+        ) = parts
+        if not session_id or not consumer_id:
+            raise ValueError(f"forwarding session and consumer identifiers must not be empty: {value!r}")
+        return ForwardingAuditRecord(
+            session_id=session_id,
+            consumer_id=consumer_id,
+            source_key=RecordKey(int(source_topic_id), int(source_partition), int(source_offset)),
+            destination_key=RecordKey(
+                int(destination_topic_id),
+                int(destination_partition),
+                int(destination_offset),
+            ),
+            audit_timestamp_ms=int(audit_ts),
+        )
 
     if record_type == "P":
         if len(parts) != 7:
@@ -1449,7 +1873,11 @@ def cohort_keys(args: argparse.Namespace) -> set[RecordKey] | None:
                 if not line.strip() or line.startswith("S|"):
                     continue
                 record = parse_record(line)
-                if record.record_type == "P" and args.published_from_ms <= record.audit_timestamp_ms < args.published_until_ms:
+                if (
+                    isinstance(record, AuditRecord)
+                    and record.record_type == "P"
+                    and args.published_from_ms <= record.audit_timestamp_ms < args.published_until_ms
+                ):
                     selected.add(record.key)
     return selected
 
@@ -1746,6 +2174,7 @@ def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
             TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
             for topic_id, topic_stats in accumulator.by_topic.items()
         },
+        "forwarding": accumulator.forwarding.summary(),
     }
 
 

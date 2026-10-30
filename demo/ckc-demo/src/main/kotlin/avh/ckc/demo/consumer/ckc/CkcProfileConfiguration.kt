@@ -53,7 +53,8 @@ class CkcProfileConfiguration {
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher
+        @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher,
+        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -63,7 +64,8 @@ class CkcProfileConfiguration {
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
-            workerDispatcher
+            workerDispatcher,
+            trafficWarmupRecipientReadiness
         )
 }
 
@@ -92,7 +94,8 @@ class CkcSyncProfileConfiguration {
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher
+        @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher,
+        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -102,7 +105,8 @@ class CkcSyncProfileConfiguration {
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
-            processingDispatcher
+            processingDispatcher,
+            trafficWarmupRecipientReadiness
         )
 }
 
@@ -114,7 +118,8 @@ private class CkcConsumerRuntime(
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-    private val processingDispatcher: CoroutineDispatcher
+    private val processingDispatcher: CoroutineDispatcher,
+    private val trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
 ) : SmartLifecycle {
     private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
@@ -179,8 +184,10 @@ private class CkcConsumerRuntime(
             runBlocking {
                 recipientConsumers.forEach { it.awaitReady() }
             }
+            trafficWarmupRecipientReadiness.markReady()
             running = true
         } catch (startupFailure: Throwable) {
+            trafficWarmupRecipientReadiness.markFailed()
             runBlocking {
                 startedConsumers.asReversed().forEach { consumer ->
                     runCatching { consumer.stop() }
@@ -197,6 +204,7 @@ private class CkcConsumerRuntime(
         if (!running) {
             return
         }
+        trafficWarmupRecipientReadiness.markStopped()
         try {
             runBlocking {
                 telemetryConsumer.stop()

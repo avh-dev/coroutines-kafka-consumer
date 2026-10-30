@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,13 @@ from .deployment_plan import (
 )
 from .planner import plan_target
 from .workload import write_resolved_test
+
+
+TRAFFIC_WARMUP_TOPICS = (
+    "ckc.traffic-warmup.v1.order.events",
+    "ckc.traffic-warmup.v1.batch.events",
+    "ckc.traffic-warmup.v1.cauldron.events",
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,20 @@ def materialize_target(
         target=target.definition,
         repo_dir=repo_dir,
     )
+
+    deployment_mode = str((target.definition.get("application") or {}).get("deployment_mode") or "combined")
+    if deployment_mode == "static_traffic_warmup":
+        warmup_topics = [{"name": topic, "partitions": 1} for topic in TRAFFIC_WARMUP_TOPICS]
+        for document in (plan, values):
+            lab = document.setdefault("lab", {})
+            topics = lab.setdefault("kafkaTopics", [])
+            existing = {str(topic.get("name")) for topic in topics}
+            topics.extend(topic for topic in copy.deepcopy(warmup_topics) if topic["name"] not in existing)
+        (target_dir / "run-plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        (target_dir / "run-plan-values.yaml").write_text(
+            yaml.safe_dump(values, sort_keys=False),
+            encoding="utf-8",
+        )
 
     target_kafka = ((target.definition.get("lab") or {}).get("kafka") or {})
     environment_kafka = (((experiment.environment_definition or {}).get("lab") or {}).get("kafka") or {})

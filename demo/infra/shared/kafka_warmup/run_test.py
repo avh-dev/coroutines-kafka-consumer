@@ -70,9 +70,15 @@ class KafkaWarmupTest(unittest.TestCase):
     def test_stale_warmup_topics_and_groups_are_removed_before_a_run(self) -> None:
         executor = Mock()
         executor.run.side_effect = [
-            SimpleNamespace(stdout="order.events.v1\nckc.warmup.v1.old\n"),
+            SimpleNamespace(
+                stdout="order.events.v1\nckc.warmup.v1.old\n"
+                "ckc.traffic-warmup.v1.order.events\n"
+            ),
             SimpleNamespace(stdout=""),
-            SimpleNamespace(stdout="ckc-demo\nckc-warmup-v1-old\n"),
+            SimpleNamespace(
+                stdout="ckc-demo\nckc-warmup-v1-old\n"
+                "ckc-traffic-warmup-v1-session-order-events\n"
+            ),
             SimpleNamespace(stdout=""),
         ]
 
@@ -81,6 +87,9 @@ class KafkaWarmupTest(unittest.TestCase):
         commands = [call.args for call in executor.run.call_args_list]
         self.assertIn("ckc.warmup.v1.old", commands[1])
         self.assertIn("ckc-warmup-v1-old", commands[3])
+        flattened = " ".join(argument for command in commands for argument in command)
+        self.assertNotIn("ckc.traffic-warmup.v1.order.events", flattened)
+        self.assertNotIn("ckc-traffic-warmup-v1-session-order-events", flattened)
 
 
 if __name__ == "__main__":
