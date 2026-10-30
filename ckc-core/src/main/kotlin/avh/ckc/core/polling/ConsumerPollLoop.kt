@@ -326,6 +326,9 @@ internal class ConsumerPollLoop<K, V>(
                     }
                 }
             }
+        } catch (error: Throwable) {
+            readinessSignal.completeExceptionally(error)
+            throw error
         } finally {
             if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
             running = false
@@ -478,6 +481,12 @@ internal class ConsumerPollLoop<K, V>(
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        if (partitions.isEmpty()) {
+            if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
+            refreshAssignedPartitionSnapshot()
+            readinessSignal.complete(Unit)
+            return
+        }
         val recoveryCallTimeout = remainingRecoveryCallTimeout()
         val committedOffsets = if (recoveryCallTimeout == null) {
             consumer.committed(partitions.toSet())
@@ -511,7 +520,7 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
-        if (partitions.isNotEmpty()) readinessSignal.complete(Unit)
+        readinessSignal.complete(Unit)
     }
 
     private fun remainingRecoveryCallTimeout(): Duration? {
