@@ -3,6 +3,13 @@ package avh.ckc.core
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
+import avh.ckc.core.warmup.WarmupConsumerId
+import avh.ckc.core.warmup.WarmupForwardingAcknowledgement
+import avh.ckc.core.warmup.WarmupForwardingConfiguration
+import avh.ckc.core.warmup.WarmupForwardingObserver
+import avh.ckc.core.warmup.WarmupForwardingProfile
+import avh.ckc.core.warmup.WarmupPartitionAssignment
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -50,6 +57,86 @@ import kotlin.time.Duration.Companion.milliseconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    fun `donor forwards selected source record to ready warm-up recipient without local handling`() = runBlocking {
+        val sourceTopic = "forward-source-${UUID.randomUUID()}"
+        val warmupTopic = "forward-target-${UUID.randomUUID()}"
+        val donorGroup = "ckc-it-donor-${UUID.randomUUID()}"
+        val recipientGroup = "ckc-it-recipient-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(warmupTopic)
+
+        val recipientProcessed = CompletableDeferred<Triple<String?, String?, Long>>()
+        val forwardingAcknowledged = CompletableDeferred<WarmupForwardingAcknowledgement>()
+        val donorHandlerCalls = AtomicInteger()
+        val recipient = coroutinesKafkaConsumer<String, String>(consumerProperties(recipientGroup)) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            assignedPartitionsAtEnd(TopicPartition(warmupTopic, 0))
+            handle { record ->
+                recipientProcessed.complete(Triple(record.key(), record.value(), record.offset()))
+            }
+        }
+        val donor = coroutinesKafkaConsumer<String, String>(consumerProperties(donorGroup)) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            commitIntervalMs = 100L
+            commitRecordsThreshold = 1
+            topics(sourceTopic)
+            warmupForwarding(
+                WarmupForwardingConfiguration(
+                    sessionId = WarmupSessionId("session-1"),
+                    consumerId = WarmupConsumerId("orders"),
+                    assignments = listOf(
+                        WarmupPartitionAssignment(
+                            consumerId = WarmupConsumerId("orders"),
+                            sourceTopic = sourceTopic,
+                            warmupTopic = warmupTopic,
+                            warmupPartition = 0
+                        )
+                    ),
+                    profile = WarmupForwardingProfile(
+                        initialFraction = 1.0,
+                        targetFraction = 1.0,
+                        rampUpDuration = kotlin.time.Duration.ZERO
+                    ),
+                    producerProperties = mapOf(
+                        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                        ProducerConfig.ACKS_CONFIG to "all"
+                    )
+                ),
+                WarmupForwardingObserver { forwardingAcknowledged.complete(it) }
+            )
+            handle { donorHandlerCalls.incrementAndGet() }
+        }
+
+        try {
+            recipient.start()
+            withTimeout(15_000L) { recipient.awaitReady() }
+            donor.start()
+            withTimeout(15_000L) { donor.awaitReady() }
+            produce(sourceTopic, "key-1", "payload-1")
+
+            val acknowledgement = withTimeout(15_000L) { forwardingAcknowledged.await() }
+            assertEquals(TopicPartition(sourceTopic, 0), acknowledgement.sourceTopicPartition)
+            assertEquals(0L, acknowledgement.sourceOffset)
+            assertEquals(TopicPartition(warmupTopic, 0), acknowledgement.warmupTopicPartition)
+            assertEquals(
+                Triple("key-1", "payload-1", acknowledgement.warmupOffset),
+                withTimeout(15_000L) { recipientProcessed.await() }
+            )
+            awaitFor(timeoutMillis = 15_000L, pauseMillis = 50L) {
+                committedOffset(donorGroup, sourceTopic)?.takeIf { it.offset() == 1L }
+            }
+            assertEquals(0, donorHandlerCalls.get())
+        } finally {
+            donor.stop()
+            recipient.stop()
+        }
+    }
 
     @Test
     fun `assigned warm-up consumer starts at end and processes only records published after readiness`() = runBlocking {

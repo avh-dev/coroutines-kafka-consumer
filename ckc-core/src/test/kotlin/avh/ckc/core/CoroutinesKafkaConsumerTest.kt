@@ -12,6 +12,7 @@ import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntim
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
+import avh.ckc.core.warmup.WarmupRecordForwarding
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +48,90 @@ import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.seconds
 
 class CoroutinesKafkaConsumerTest {
+
+    @Test
+    fun `selected warm-up record is forwarded without invoking business or failure handlers`() = runBlocking {
+        val forwarded = CompletableDeferred<Long>()
+        val handlerCalls = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val closeCalls = AtomicInteger()
+        val forwarding = object : WarmupRecordForwarding<String, String> {
+            override suspend fun forwardIfSelected(record: ConsumerRecord<String, String>): Boolean {
+                forwarded.complete(record.offset())
+                return true
+            }
+
+            override suspend fun close() {
+                closeCalls.incrementAndGet()
+            }
+        }
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 41L)),
+            consumerProperties = stringSerdeProperties(),
+            handler = KafkaRecordHandler { handlerCalls.incrementAndGet() },
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            warmupRecordForwarding = forwarding
+        )
+
+        consumer.start()
+        assertEquals(41L, withTimeout(2_000L) { forwarded.await() })
+        consumer.stop()
+
+        assertEquals(0, handlerCalls.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertEquals(1, closeCalls.get())
+    }
+
+    @Test
+    fun `unselected warm-up record follows ordinary business handler path`() = runBlocking {
+        val handled = CompletableDeferred<Long>()
+        val forwarding = object : WarmupRecordForwarding<String, String> {
+            override suspend fun forwardIfSelected(record: ConsumerRecord<String, String>) = false
+            override suspend fun close() = Unit
+        }
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 43L)),
+            consumerProperties = stringSerdeProperties(),
+            handler = KafkaRecordHandler { handled.complete(it.offset()) },
+            warmupRecordForwarding = forwarding
+        )
+
+        consumer.start()
+        assertEquals(43L, withTimeout(2_000L) { handled.await() })
+        consumer.stop()
+    }
+
+    @Test
+    fun `warm-up forwarding failure terminates consumer without invoking skip path`() = runBlocking {
+        val expected = IllegalStateException("forwarding failed")
+        val handlerCalls = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val closeCalls = AtomicInteger()
+        val forwarding = object : WarmupRecordForwarding<String, String> {
+            override suspend fun forwardIfSelected(record: ConsumerRecord<String, String>): Boolean = throw expected
+
+            override suspend fun close() {
+                closeCalls.incrementAndGet()
+            }
+        }
+        val consumer = createTestConsumer(
+            records = listOf(typedTestRecord(offset = 42L)),
+            consumerProperties = stringSerdeProperties(),
+            handler = KafkaRecordHandler { handlerCalls.incrementAndGet() },
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            warmupRecordForwarding = forwarding
+        )
+
+        consumer.start()
+        val actual = runCatching { withTimeout(2_000L) { consumer.awaitTermination() } }.exceptionOrNull()
+        withTimeout(2_000L) { consumer.awaitShutdownCompletion() }
+
+        assertEquals(expected::class, actual?.let { it::class })
+        assertEquals(expected.message, actual?.message)
+        assertEquals(0, handlerCalls.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertEquals(1, closeCalls.get())
+    }
 
     @Test
     @Suppress("UNCHECKED_CAST")

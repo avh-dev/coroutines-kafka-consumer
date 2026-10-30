@@ -8,6 +8,7 @@ import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.polling.ConsumerSubscription
 import avh.ckc.core.polling.consumerSubscription
+import avh.ckc.core.warmup.WarmupRecordForwarding
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
@@ -93,7 +94,8 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    warmupRecordForwarding: WarmupRecordForwarding<K, V>?
 ) -> RecordProcessingRuntime<K, V>
 
 /**
@@ -132,6 +134,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
     private val assignedPartitionsAtEnd: Set<TopicPartition>? = null,
+    private val warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
@@ -151,6 +154,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             require(consumerPollLoopConcurrency == 1) {
                 "Explicit warm-up assignment requires consumerPollLoopConcurrency = 1"
             }
+        }
+    }
+    private val validatedWarmupRecordForwarding = warmupRecordForwarding.also {
+        require(it == null || processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
+            "Warm-up forwarding supports only AT_LEAST_ONCE_NO_ORDERING"
         }
     }
     private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition)
@@ -183,7 +191,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         retryPolicy,
         recordProcessingContext,
         processingFailureHandler,
-        processedRecordTracker
+        processedRecordTracker,
+        validatedWarmupRecordForwarding
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
@@ -283,6 +292,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
         assignedPartitionsAtEnd: Set<TopicPartition>? = null,
+        warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
         processingMode = processingMode,
@@ -309,6 +319,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics = topics,
         topicsPattern = topicsPattern,
         assignedPartitionsAtEnd = assignedPartitionsAtEnd,
+        warmupRecordForwarding = warmupRecordForwarding,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
@@ -567,7 +578,8 @@ internal fun <K, V> defaultProcessingRuntime(
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null
 ): RecordProcessingRuntime<K, V> =
     when (processingMode) {
         ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceNoOrderingRecordProcessingRuntime(
@@ -580,7 +592,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            warmupRecordForwarding = warmupRecordForwarding
         )
 
         ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(

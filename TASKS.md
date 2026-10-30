@@ -78,7 +78,7 @@
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
 | [CORE-75](#core-75) | Add a minimal unordered warm-up recipient with explicit partition assignment and position-based readiness. | DONE |
-| [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | IN_PROGRESS |
+| [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5950,3 +5950,14 @@ acknowledges the forwarded record; bound concurrent sends; and surface forwardin
 failures as terminal consumer failures without invoking the application skip path.
 Leave session stop boundaries, final-offset drain, dynamic coordinator commands,
 metrics, and environment-specific audit recording to their subsequent tasks.
+Implemented time-ramped random selection, source-topic to warm-up-partition routing,
+bounded acknowledged Kafka sends, defensive key/value/header/timestamp forwarding,
+and an observer event linking source and warm-up coordinates after acknowledgement.
+Selected records bypass the business and failure handlers and advance their source
+offset only after forwarding and observation succeed; send or observation failures
+terminate the donor consumer without local fallback or `skip()` handling. Producer
+resources are initialized with consumer startup and closed during runtime shutdown.
+Verification: full core, Micrometer, and Spring starter test suites pass. Real-Kafka
+integration tests prove both the assigned recipient baseline and the complete static
+donor-to-recipient hop, including donor handler exclusion, audit correlation, and
+source commit after acknowledgement.

@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.warmup.WarmupRecordForwarding
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -23,7 +24,8 @@ internal fun <K, V> createTestConsumer(
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
     workerConcurrency: Int = 1,
     parentContext: CoroutineContext = kotlinx.coroutines.Dispatchers.Default,
-    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
+    runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING),
+    warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null
 ): CoroutinesKafkaConsumer<K, V> =
     CoroutinesKafkaConsumer(
         consumerProperties = consumerProperties,
@@ -42,6 +44,7 @@ internal fun <K, V> createTestConsumer(
         parentContext = parentContext,
         topics = listOf("topic-a"),
         topicsPattern = null,
+        warmupRecordForwarding = warmupRecordForwarding,
         handler = handler,
         pollLoopFactory = { _, context, processingMode, _, _, _, _, _, _, recordSink, registry ->
             FakePollLoopControl(context, processingMode, recordSink, records, registry)
