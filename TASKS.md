@@ -76,7 +76,7 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
-| [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
+| [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
