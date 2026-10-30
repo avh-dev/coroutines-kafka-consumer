@@ -184,6 +184,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
+| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | IN_PROGRESS |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5967,3 +5968,16 @@ until the producer callback resolves the ambiguous send, while a late acknowledg
 cannot invoke the observer or close the source offset. Explicitly assigned warm-up
 recipients now reject forwarding in both the public DSL and the common constructor,
 preventing recursive recipient forwarding and same-partition loops.
+
+<a id="demo-106"></a>
+### DEMO-106 - Wire static real-traffic warm-up roles
+
+_Date: 2026-10-30_
+
+Add an explicitly configured static donor/recipient mode to the CKC demo so the
+first hop experiment can use production-shaped handlers without waiting for the
+coordinator protocol. A donor runs the normal main-topic consumers with fixed
+warm-up forwarding mappings; a recipient runs separately assigned warm-up-topic
+consumers from their established end positions with the same handlers, retry policy,
+metrics, and application dependencies. Keep topic creation, deployment wiring,
+forwarding audit analysis, and the lab comparison in INFRA-319.
