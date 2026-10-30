@@ -160,6 +160,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require(it == null || processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
             "Warm-up forwarding supports only AT_LEAST_ONCE_NO_ORDERING"
         }
+        require(it == null || subscription !is ConsumerSubscription.AssignedAtEnd) {
+            "Explicitly assigned warm-up recipients cannot forward records"
+        }
     }
     private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition)
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.

@@ -203,6 +203,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         require(warmupForwardingConfiguration == null || processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
             "Warm-up forwarding supports only AT_LEAST_ONCE_NO_ORDERING"
         }
+        require(warmupForwardingConfiguration == null || assignedPartitionsAtEnd == null) {
+            "Explicitly assigned warm-up recipients cannot forward records"
+        }
         val warmupRecordForwarding: WarmupRecordForwarding<K, V>? = warmupForwardingConfiguration?.let {
             kafkaWarmupRecordForwarding(it, warmupForwardingObserver)
         }

@@ -73,6 +73,19 @@ class CoroutinesKafkaConsumerBuilderTest {
     }
 
     @Test
+    fun `when assigned warm-up recipient has forwarding then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                assignedPartitionsAtEnd(TopicPartition("warmup-orders", 0))
+                warmupForwarding(forwardingConfiguration())
+                handle { }
+            }
+        }
+
+        assertEquals("Explicitly assigned warm-up recipients cannot forward records", error.message)
+    }
+
+    @Test
     fun `when assigned warm-up partitions are empty then build fails`() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {

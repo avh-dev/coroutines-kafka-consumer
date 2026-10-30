@@ -1,8 +1,20 @@
 package avh.ckc.core.warmup
 
+import avh.ckc.core.KafkaRecordHandler
+import avh.ckc.core.ProcessingFailureHandler
+import avh.ckc.core.RecordingMetrics
+import avh.ckc.core.RetryPolicy
 import avh.ckc.core.awaitFor
+import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.processing.PartitionProcessedRecordTracker
+import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.MockProducer
 import org.apache.kafka.common.header.internals.RecordHeaders
@@ -12,11 +24,13 @@ import org.apache.kafka.common.Cluster
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.PartitionInfo
 import java.util.Optional
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 
 class WarmupForwardingTest {
@@ -151,6 +165,87 @@ class WarmupForwardingTest {
         assertTrue(first.await())
         assertTrue(second.await())
         forwarding.close()
+    }
+
+    @Test
+    fun `cancellation after send starts is terminal and retains permit until late acknowledgement`() = runBlocking {
+        val producer = producer(autoComplete = false)
+        val acknowledgements = mutableListOf<WarmupForwardingAcknowledgement>()
+        val forwarding = forwarding(
+            producer = producer,
+            observer = WarmupForwardingObserver { acknowledgements += it },
+            maxInFlightSends = 1
+        )
+
+        kotlinx.coroutines.supervisorScope {
+            val interrupted = async { forwarding.forwardIfSelected(sourceRecord(offset = 7L)) }
+            awaitFor(2_000L, 10L) { producer.history().singleOrNull() }
+            interrupted.cancel()
+            val interruption = runCatching { interrupted.await() }.exceptionOrNull()
+            assertIs<WarmupForwardingInterruptedException>(interruption)
+
+            val next = async { forwarding.forwardIfSelected(sourceRecord(offset = 8L)) }
+            kotlinx.coroutines.delay(50L)
+            assertEquals(1, producer.history().size)
+            assertTrue(producer.completeNext())
+            awaitFor(2_000L, 10L) { producer.history().takeIf { it.size == 2 } }
+            assertTrue(producer.completeNext())
+            assertTrue(next.await())
+        }
+
+        assertEquals(listOf(8L), acknowledgements.map(WarmupForwardingAcknowledgement::sourceOffset))
+        forwarding.close()
+    }
+
+    @Test
+    fun `assignment loss during send becomes terminal without local fallback or source acknowledgement`() = runBlocking {
+        val producer = producer(autoComplete = false)
+        val acknowledgements = mutableListOf<WarmupForwardingAcknowledgement>()
+        val forwarding = forwarding(
+            producer = producer,
+            observer = WarmupForwardingObserver { acknowledgements += it }
+        )
+        val registry = PartitionRegistry()
+        val sourcePartition = org.apache.kafka.common.TopicPartition("source-orders", 2)
+        val state = registry.onPartitionsAssigned(setOf(sourcePartition)).single().also { it.init(7L) }
+        val tracker = PartitionProcessedRecordTracker(registry)
+        val parentJob = SupervisorJob()
+        val terminalFailure = CompletableDeferred<Throwable>()
+        val handlerCalls = AtomicInteger()
+        val failureHandlerCalls = AtomicInteger()
+        val runtime = AtLeastOnceNoOrderingRecordProcessingRuntime(
+            workerConcurrency = 1,
+            workChannelCapacity = 1,
+            processingDispatcher = Dispatchers.Default,
+            scope = CoroutineScope(parentJob + Dispatchers.Default),
+            metrics = RecordingMetrics(),
+            handler = KafkaRecordHandler<String, String> { handlerCalls.incrementAndGet() },
+            retryPolicy = RetryPolicy.none(),
+            processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
+            recordProcessingContext = null,
+            processedRecordTracker = tracker,
+            warmupRecordForwarding = forwarding
+        )
+        val source = sourceRecord(offset = 7L)
+        registry.observe(source)
+        runtime.start { terminalFailure.complete(it) }
+        assertTrue(runtime.tryEmit(source))
+        awaitFor(2_000L, 10L) { producer.history().singleOrNull() }
+
+        registry.revoke(setOf(sourcePartition))
+        registry.cancelActive(setOf(sourcePartition))
+        val failure = withTimeout(2_000L) { terminalFailure.await() }
+
+        assertIs<WarmupForwardingInterruptedException>(failure)
+        assertEquals(0, handlerCalls.get())
+        assertEquals(0, failureHandlerCalls.get())
+        assertFalse(state.isProcessed(7L))
+        assertTrue(producer.completeNext())
+        kotlinx.coroutines.delay(50L)
+        assertTrue(acknowledgements.isEmpty())
+
+        runtime.stop()
+        parentJob.cancel()
     }
 
     @Test

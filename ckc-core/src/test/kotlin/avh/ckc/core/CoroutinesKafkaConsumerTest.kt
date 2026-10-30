@@ -50,6 +50,29 @@ import kotlin.time.Duration.Companion.seconds
 class CoroutinesKafkaConsumerTest {
 
     @Test
+    fun `direct consumer construction rejects forwarding on assigned warm-up recipient`() {
+        val forwarding = object : WarmupRecordForwarding<String, String> {
+            override suspend fun forwardIfSelected(record: ConsumerRecord<String, String>) = true
+            override suspend fun close() = Unit
+        }
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            CoroutinesKafkaConsumer(
+                consumerProperties = stringSerdeProperties(),
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                workerConcurrency = 1,
+                consumerPollLoopConcurrency = 1,
+                commitIntervalMs = 1_000L,
+                assignedPartitionsAtEnd = setOf(org.apache.kafka.common.TopicPartition("warmup-orders", 0)),
+                warmupRecordForwarding = forwarding,
+                handler = KafkaRecordHandler { }
+            )
+        }
+
+        assertEquals("Explicitly assigned warm-up recipients cannot forward records", error.message)
+    }
+
+    @Test
     fun `selected warm-up record is forwarded without invoking business or failure handlers`() = runBlocking {
         val forwarded = CompletableDeferred<Long>()
         val handlerCalls = AtomicInteger()

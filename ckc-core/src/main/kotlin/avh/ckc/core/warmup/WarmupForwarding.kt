@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -70,6 +70,11 @@ data class WarmupForwardingAcknowledgement(
     }
 }
 
+class WarmupForwardingInterruptedException(
+    message: String,
+    cause: CancellationException
+) : IllegalStateException(message, cause)
+
 fun interface WarmupForwardingObserver {
     suspend fun onForwarded(acknowledgement: WarmupForwardingAcknowledgement)
 
@@ -118,10 +123,23 @@ internal class KafkaWarmupRecordForwarding<K, V>(
         if (!selector.shouldForward()) return false
         check(!closed.get()) { "Warm-up forwarding is closed" }
 
-        return sendPermits.withPermit {
-            val metadata = send(record.toWarmupProducerRecord(assignment))
+        sendPermits.acquire()
+        val sendStarted = AtomicBoolean(false)
+        try {
+            val metadata = send(record.toWarmupProducerRecord(assignment)) {
+                sendStarted.set(true)
+            }
             observer.onForwarded(record.acknowledgement(metadata))
-            true
+            return true
+        } catch (error: CancellationException) {
+            if (sendStarted.get()) {
+                throw WarmupForwardingInterruptedException(
+                    "Warm-up forwarding was interrupted after send started for " +
+                        "${record.topic()}-${record.partition()}@${record.offset()}; delivery result is unsafe",
+                    error
+                )
+            }
+            throw error
         }
     }
 
@@ -135,14 +153,24 @@ internal class KafkaWarmupRecordForwarding<K, V>(
         }
     }
 
-    private suspend fun send(record: ProducerRecord<K, V>): RecordMetadata =
+    private suspend fun send(
+        record: ProducerRecord<K, V>,
+        onSendStarted: () -> Unit
+    ): RecordMetadata =
         suspendCancellableCoroutine { continuation ->
             val completionClaimed = AtomicBoolean(false)
+            val permitReleased = AtomicBoolean(false)
+            fun releasePermit() {
+                if (permitReleased.compareAndSet(false, true)) sendPermits.release()
+            }
             fun complete(result: Result<RecordMetadata>) {
                 if (completionClaimed.compareAndSet(false, true)) continuation.resumeWith(result)
             }
             try {
-                producer().send(record) { metadata, error ->
+                val activeProducer = producer()
+                onSendStarted()
+                activeProducer.send(record) { metadata, error ->
+                    releasePermit()
                     when {
                         error != null -> complete(Result.failure(error))
                         metadata == null -> complete(Result.failure(
@@ -152,6 +180,7 @@ internal class KafkaWarmupRecordForwarding<K, V>(
                     }
                 }
             } catch (error: Throwable) {
+                releasePermit()
                 complete(Result.failure(error))
             }
         }
