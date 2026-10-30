@@ -64,7 +64,7 @@
 | [CORE-59](#core-59) | Recover polling and offset commits after a single Kafka broker is paused and resumed.                                                                                                                              | DONE |
 | [CORE-60](#core-60) | Recover the same consumer after a graceful stop and restart of a single Kafka broker.                                                                                                                              | DONE |
 | [CORE-61](#core-61) | Recover the same consumer after a single Kafka broker is killed and restarted.                                                                                                                                      | DONE |
-| [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | IN_PROGRESS |
+| [CORE-62](#core-62) | Expose CKC offset commit metadata size, limit utilization, and compression metrics.                                                                                                                                | DONE |
 | [CORE-63](#core-63) | Optionally bind native Kafka consumer client metrics through the Micrometer adapter.                                                                                                                              | DONE |
 | [CORE-64](#core-64) | Make partition handoff generation-safe, drain graceful shutdown correctly, recover consumers after lost assignments, and surface terminal failures through the Spring starter. | DONE |
 | [CORE-65](#core-65) | Report ownership handoff separately from terminal record drops in core metrics and audit evidence. | DONE |
@@ -426,7 +426,7 @@
 | [INFRA-246](#infra-246) | Add a fixed-replica AWS CKC sizing experiment at 50,000 messages per second. | DONE |
 | [INFRA-247](#infra-247) | Harden AWS runner bootstrap and preserve provisioning failures in session logs. | DONE |
 | [INFRA-248](#infra-248) | Stabilize AWS sizing execution, notifications, and cleanup reporting. | DONE |
-| [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | IN_PROGRESS |
+| [INFRA-249](#infra-249) | Fit the AWS CKC sizing run into the currently proven EC2 capacity. | DONE |
 | [INFRA-250](#infra-250) | Correct Amazon MSK CPU collection and idle-ratio utilization reporting. | DONE |
 | [INFRA-251](#infra-251) | Make large evidence-bundle Loki imports tolerate restore-time ingestion bursts. | DONE |
 | [INFRA-252](#infra-252) | Stream AWS audit chunks to S3 during targets and prefetch them for post-cleanup analysis. | DONE |
@@ -481,7 +481,7 @@
 | [INFRA-301](#infra-301) | Accept equals-form JVM options in the target runner. | DONE |
 | [INFRA-302](#infra-302) | Remove fixed-dispatcher settings from the virtual-thread target. | DONE |
 | [INFRA-304](#infra-304) | Prepare an hourly TLS AWS 50k qualification and make target MSK downscales recreate the broker. | DONE |
-| [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | IN_PROGRESS |
+| [INFRA-306](#infra-306) | Enable TLS for KEDA Kafka lag scaling and prepare an unaligned Spring-only AWS requalification. | DONE |
 | [INFRA-307](#infra-307) | Refine experiment report topology and target configuration for readable AWS and local comparisons. | DONE |
 | [INFRA-308](#infra-308) | Prepare short and long AWS qualifications with refreshable SSO credentials. | DONE |
 | [INFRA-309](#infra-309) | Qualify the single-pod 50k fleet-telemetry generator on the local TLS lab. | DONE |
@@ -504,6 +504,7 @@
 | [DOC-6](#doc-6) | Update the main README module list so it matches the current repository modules. | DONE |
 | [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 | [DOC-8](#doc-8) | Document replay after failures and the scope of ordered at-least-once processing guarantees. | DONE |
+| [DOC-9](#doc-9) | Close the remaining stale in-progress entries in the repository task tracker. | DONE |
 
 ## Task Details
 
@@ -5861,3 +5862,11 @@ consumer failure, and leave the affected record unacknowledged.
 Verification: core, Micrometer, and Spring starter tests pass, including fatal-error
 classification, retry/skip bypass, unchanged ordinary-error semantics, and terminal
 consumer propagation regressions; all 23 core integration tests pass.
+
+<a id="doc-9"></a>
+### DOC-9 - Close stale in-progress tasks
+
+_Date: 2026-10-29_
+
+Mark the remaining CORE and INFRA task-tracker entries as complete so `TASKS.md`
+contains no stale `IN_PROGRESS` status after the sequential CORE work finished.
