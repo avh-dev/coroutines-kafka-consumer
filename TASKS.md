@@ -499,6 +499,7 @@
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-319](#infra-319) | Prepare the static real-traffic warm-up hop experiment, isolated Kafka resources, and forwarding-aware audit analysis. | DONE |
+| [INFRA-320](#infra-320) | Fix static warm-up topic provisioning discovered by the first lab run and shorten the diagnostic experiment. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6026,3 +6027,15 @@ can start. Cohort-filtered audit analysis now suppresses outcomes whose known so
 was excluded, regardless of log order. Bounded-TTL forwarding analysis aggregates
 completed relations, evicts per-record correlation state and bounded tombstones, and
 reports its explicit late-event policy and counters.
+
+<a id="infra-320"></a>
+### INFRA-320 - Fix the static warm-up diagnostic experiment
+
+_Date: 2026-10-30_
+
+Ensure canonical internal-lab runs provision every materialized deployment topic,
+including the isolated traffic-warm-up topics required before recipient readiness.
+Shorten the static hop diagnostic to a one-minute measured load so failures and
+basic hop-cost checks can be iterated without waiting through the qualification-sized
+profile. Preserve the failed first-run evidence and add regression coverage before
+updating the installed lab again.
