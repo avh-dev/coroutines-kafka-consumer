@@ -32,7 +32,6 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -66,8 +65,7 @@ internal class ConsumerPollLoop<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     private val consumerProperties: Map<String, Any?>,
     private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
-    private val topics: List<String>?,
-    private val topicsPattern: Pattern?,
+    private val subscription: ConsumerSubscription,
     private val recordSink: PolledRecordSink<K, V>,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
@@ -179,6 +177,7 @@ internal class ConsumerPollLoop<K, V>(
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
     private val finalizedShutdownSignal = CompletableDeferred<Unit>()
+    private val readinessSignal = CompletableDeferred<Unit>()
 
     @Volatile
     private var finalizationRequested = false
@@ -198,6 +197,8 @@ internal class ConsumerPollLoop<K, V>(
         job = scope.launch { runLoop() }
         return job!!
     }
+
+    override fun readiness(): Deferred<Unit> = readinessSignal
 
     /**
      * Phase 1 shutdown: request draining and pause poll().
@@ -290,7 +291,7 @@ internal class ConsumerPollLoop<K, V>(
                     consumerRef = consumer
                     metrics.bindKafkaClientMetrics(id, consumer)
                     kafkaClientMetricsBound = true
-                    subscribe(consumer)
+                    initializeSubscription(consumer)
                     consumerLoop(consumer)
                     break
                 } catch (_: LostAssignmentException) {
@@ -333,15 +334,35 @@ internal class ConsumerPollLoop<K, V>(
             // but it is already safe for the owner to join the completed job.
             readyForShutdownSignal.complete(Unit)
             finalizedShutdownSignal.complete(Unit)
+            if (!readinessSignal.isCompleted) {
+                readinessSignal.completeExceptionally(
+                    CancellationException("Kafka consumer #$id stopped before assignment readiness")
+                )
+            }
         }
     }
 
-    private fun subscribe(consumer: KafkaConsumer<K, V>) {
-        if (topicsPattern != null) {
-            consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
-        } else {
-            consumer.subscribe(topics, createRebalanceListener(consumer, processingMode))
+    private fun initializeSubscription(consumer: KafkaConsumer<K, V>) {
+        when (val current = subscription) {
+            is ConsumerSubscription.Topics ->
+                consumer.subscribe(current.names, createRebalanceListener(consumer, processingMode))
+            is ConsumerSubscription.PatternSubscription ->
+                consumer.subscribe(current.pattern, createRebalanceListener(consumer, processingMode))
+            is ConsumerSubscription.AssignedAtEnd -> assignAtEnd(consumer, current.partitions)
         }
+    }
+
+    private fun assignAtEnd(consumer: KafkaConsumer<K, V>, partitions: Set<TopicPartition>) {
+        consumer.assign(partitions)
+        consumer.seekToEnd(partitions)
+        val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        assignedPartitionStates.forEach { state ->
+            state.init(consumer.position(state.topicPartition), forceReset = true)
+            metrics.bindPartitionMetrics(id, state)
+        }
+        assignedPartitions += assignedPartitionStates
+        refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     /**
@@ -490,6 +511,7 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
+        if (partitions.isNotEmpty()) readinessSignal.complete(Unit)
     }
 
     private fun remainingRecoveryCallTimeout(): Duration? {

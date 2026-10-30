@@ -52,6 +52,36 @@ import kotlin.time.Duration.Companion.milliseconds
 class CoroutinesKafkaConsumerIntegrationTest {
 
     @Test
+    fun `assigned warm-up consumer starts at end and processes only records published after readiness`() = runBlocking {
+        val topic = "assigned-warmup-${UUID.randomUUID()}"
+        val groupId = "ckc-it-group-${UUID.randomUUID()}"
+        createTopic(topic)
+        produce(topic, "old-key", "old-payload")
+
+        val processed = CompletableDeferred<Triple<String?, String?, Long>>()
+        val consumer = coroutinesKafkaConsumer<String, String>(consumerProperties(groupId)) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            assignedPartitionsAtEnd(TopicPartition(topic, 0))
+            handle { record ->
+                processed.complete(Triple(record.key(), record.value(), record.offset()))
+            }
+        }
+
+        try {
+            consumer.start()
+            withTimeout(15_000) { consumer.awaitReady() }
+            produce(topic, "new-key", "new-payload")
+
+            assertEquals(
+                Triple("new-key", "new-payload", 1L),
+                withTimeout(15_000) { processed.await() }
+            )
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
         val topic = "ckc-it-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"

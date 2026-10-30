@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
@@ -112,6 +113,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
 
     private var topics: List<String>? = null
     private var topicsPattern: Pattern? = null
+    private var assignedPartitionsAtEnd: Set<TopicPartition>? = null
     private var handler: KafkaRecordHandler<K, V>? = null
 
     /**
@@ -120,6 +122,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     fun topics(vararg names: String) {
         topics = names.toList()
         topicsPattern = null
+        assignedPartitionsAtEnd = null
     }
 
     /**
@@ -128,6 +131,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     fun topics(names: List<String>) {
         topics = names.toList()
         topicsPattern = null
+        assignedPartitionsAtEnd = null
     }
 
     /**
@@ -136,6 +140,24 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     fun topicsPattern(pattern: Pattern) {
         topicsPattern = pattern
         topics = null
+        assignedPartitionsAtEnd = null
+    }
+
+    /**
+     * Assigns prepared warm-up partitions directly and starts at their current end positions.
+     *
+     * This narrow mode supports only [ProcessingMode.AT_LEAST_ONCE_NO_ORDERING] and one poll loop.
+     * Call [CoroutinesKafkaConsumer.awaitReady] before allowing a donor to publish records.
+     */
+    fun assignedPartitionsAtEnd(partitions: Collection<TopicPartition>) {
+        assignedPartitionsAtEnd = LinkedHashSet(partitions)
+        topics = null
+        topicsPattern = null
+    }
+
+    /** See [assignedPartitionsAtEnd]. */
+    fun assignedPartitionsAtEnd(vararg partitions: TopicPartition) {
+        assignedPartitionsAtEnd(partitions.asList())
     }
 
     /**
@@ -157,8 +179,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
      */
     internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
-        require((topics == null) != (topicsPattern == null)) {
-            "Exactly one of topics or topicsPattern must be specified"
+        val configuredSubscriptionModes = listOf(topics, topicsPattern, assignedPartitionsAtEnd).count { it != null }
+        require(configuredSubscriptionModes == 1) {
+            "Exactly one of topics, topicsPattern, or assignedPartitionsAtEnd must be specified"
         }
 
         return CoroutinesKafkaConsumer(
@@ -184,6 +207,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             parentContext = parentContext,
             topics = topics,
             topicsPattern = topicsPattern,
+            assignedPartitionsAtEnd = assignedPartitionsAtEnd,
             handler = configuredHandler
         )
     }

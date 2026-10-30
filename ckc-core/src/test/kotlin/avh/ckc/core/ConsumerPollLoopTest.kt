@@ -10,6 +10,7 @@ import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.ConsumerPollLoop
+import avh.ckc.core.polling.ConsumerSubscription
 import avh.ckc.core.processing.PolledRecordSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,6 +40,7 @@ import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.doNothing
 import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -53,6 +55,36 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class ConsumerPollLoopTest {
+
+    @Test
+    fun `explicit assignment establishes end positions before reporting readiness`() = runBlocking {
+        val fixture = PollLoopFixture(
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workChannelCapacity = 1,
+            assignmentPosition = 12L,
+            assignedAtEnd = true,
+            pollAnswer = { emptyRecords() }
+        )
+
+        val job = fixture.start()
+        withTimeout(2_000L) { fixture.loop.readiness().await() }
+
+        val state = fixture.awaitAssignedState(lastCommittedOffset = 11L)
+        assertEquals(fixture.topicPartition, state.topicPartition)
+        inOrder(fixture.consumer) {
+            verify(fixture.consumer).assign(eq(setOf(fixture.topicPartition)))
+            verify(fixture.consumer).seekToEnd(eq(setOf(fixture.topicPartition)))
+            verify(fixture.consumer).position(fixture.topicPartition)
+        }
+        verify(fixture.consumer, never()).subscribe(
+            any<List<String>>(),
+            any<ConsumerRebalanceListener>()
+        )
+
+        job.cancel()
+        job.join()
+        fixture.loop.releaseResources()
+    }
 
     @Test
     fun `when poll loops are repeatedly created and released then dispatcher threads terminate`() = runBlocking {
@@ -1403,6 +1435,7 @@ private class PollLoopFixture(
     metrics: ConsumerMetrics<ByteArray, ByteArray> = ConsumerMetrics.NOOP as ConsumerMetrics<ByteArray, ByteArray>,
     workChannelCapacity: Int,
     assignmentPosition: Long = 0L,
+    assignedAtEnd: Boolean = false,
     private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
     commitIntervalMs: Long = 5_000L,
     commitRecordsThreshold: Int = 1_000,
@@ -1449,8 +1482,11 @@ private class PollLoopFixture(
         metrics = metrics,
         consumerProperties = consumerProperties,
         consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties),
-        topics = listOf(topicPartition.topic()),
-        topicsPattern = null,
+        subscription = if (assignedAtEnd) {
+            ConsumerSubscription.AssignedAtEnd(setOf(topicPartition))
+        } else {
+            ConsumerSubscription.Topics(listOf(topicPartition.topic()))
+        },
         recordSink = recordSink,
         partitionStateRegistry = registry,
         kafkaConsumerFactory = { consumer }
