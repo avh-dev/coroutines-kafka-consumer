@@ -7,6 +7,7 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.warmup.WarmupRecordForwarding
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -23,7 +24,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null
 ) : BaseUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency = workerConcurrency,
     workChannelCapacity = workChannelCapacity,
@@ -35,6 +37,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
     processedRecordTracker = processedRecordTracker,
+    warmupRecordForwarding = warmupRecordForwarding,
     handoffOnAssignmentEnd = true
 ) {
     override fun createChannel(

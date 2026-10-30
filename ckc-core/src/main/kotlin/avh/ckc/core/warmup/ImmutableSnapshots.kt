@@ -7,3 +7,6 @@ internal fun <T> immutableListSnapshot(values: Collection<T>): List<T> =
 
 internal fun <T> immutableSetSnapshot(values: Collection<T>): Set<T> =
     Collections.unmodifiableSet(LinkedHashSet(values))
+
+internal fun <K, V> immutableMapSnapshot(values: Map<K, V>): Map<K, V> =
+    Collections.unmodifiableMap(LinkedHashMap(values))

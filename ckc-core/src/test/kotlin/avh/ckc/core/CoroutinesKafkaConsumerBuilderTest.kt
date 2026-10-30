@@ -1,7 +1,14 @@
 package avh.ckc.core
 
+import avh.ckc.core.warmup.WarmupConsumerId
+import avh.ckc.core.warmup.WarmupForwardingConfiguration
+import avh.ckc.core.warmup.WarmupForwardingProfile
+import avh.ckc.core.warmup.WarmupPartitionAssignment
+import avh.ckc.core.warmup.WarmupSessionId
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -38,6 +45,44 @@ class CoroutinesKafkaConsumerBuilderTest {
         }
 
         assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `when unordered builder has warm-up forwarding then donor consumer is created`() {
+        val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+            topics("source-orders")
+            warmupForwarding(forwardingConfiguration())
+            handle { }
+        }
+
+        assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `when ordered builder has warm-up forwarding then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                processingMode = ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING
+                topics("source-orders")
+                warmupForwarding(forwardingConfiguration())
+                handle { }
+            }
+        }
+
+        assertEquals("Warm-up forwarding supports only AT_LEAST_ONCE_NO_ORDERING", error.message)
+    }
+
+    @Test
+    fun `when assigned warm-up recipient has forwarding then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                assignedPartitionsAtEnd(TopicPartition("warmup-orders", 0))
+                warmupForwarding(forwardingConfiguration())
+                handle { }
+            }
+        }
+
+        assertEquals("Explicitly assigned warm-up recipients cannot forward records", error.message)
     }
 
     @Test
@@ -187,4 +232,22 @@ class CoroutinesKafkaConsumerBuilderTest {
             error.message
         )
     }
+
+    private fun forwardingConfiguration(): WarmupForwardingConfiguration = WarmupForwardingConfiguration(
+        sessionId = WarmupSessionId("session-1"),
+        consumerId = WarmupConsumerId("orders"),
+        assignments = listOf(
+            WarmupPartitionAssignment(
+                consumerId = WarmupConsumerId("orders"),
+                sourceTopic = "source-orders",
+                warmupTopic = "warmup-orders",
+                warmupPartition = 0
+            )
+        ),
+        profile = WarmupForwardingProfile(),
+        producerProperties = mapOf(
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+    )
 }

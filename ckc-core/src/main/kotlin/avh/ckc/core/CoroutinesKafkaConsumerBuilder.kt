@@ -1,6 +1,10 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.warmup.WarmupForwardingConfiguration
+import avh.ckc.core.warmup.WarmupForwardingObserver
+import avh.ckc.core.warmup.WarmupRecordForwarding
+import avh.ckc.core.warmup.kafkaWarmupRecordForwarding
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -114,6 +118,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private var topics: List<String>? = null
     private var topicsPattern: Pattern? = null
     private var assignedPartitionsAtEnd: Set<TopicPartition>? = null
+    private var warmupForwardingConfiguration: WarmupForwardingConfiguration? = null
+    private var warmupForwardingObserver: WarmupForwardingObserver = WarmupForwardingObserver.NOOP
     private var handler: KafkaRecordHandler<K, V>? = null
 
     /**
@@ -161,6 +167,17 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     }
 
     /**
+     * Selects and forwards donor records to assigned warm-up partitions before business handling.
+     */
+    fun warmupForwarding(
+        configuration: WarmupForwardingConfiguration,
+        observer: WarmupForwardingObserver = WarmupForwardingObserver.NOOP
+    ) {
+        warmupForwardingConfiguration = configuration
+        warmupForwardingObserver = observer
+    }
+
+    /**
      * Configures a callback invoked after the processing retry policy is exhausted.
      */
     fun onProcessingFailure(handler: suspend (ConsumerRecord<K, V>, Throwable) -> Unit) {
@@ -182,6 +199,15 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         val configuredSubscriptionModes = listOf(topics, topicsPattern, assignedPartitionsAtEnd).count { it != null }
         require(configuredSubscriptionModes == 1) {
             "Exactly one of topics, topicsPattern, or assignedPartitionsAtEnd must be specified"
+        }
+        require(warmupForwardingConfiguration == null || processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
+            "Warm-up forwarding supports only AT_LEAST_ONCE_NO_ORDERING"
+        }
+        require(warmupForwardingConfiguration == null || assignedPartitionsAtEnd == null) {
+            "Explicitly assigned warm-up recipients cannot forward records"
+        }
+        val warmupRecordForwarding: WarmupRecordForwarding<K, V>? = warmupForwardingConfiguration?.let {
+            kafkaWarmupRecordForwarding(it, warmupForwardingObserver)
         }
 
         return CoroutinesKafkaConsumer(
@@ -208,6 +234,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             topics = topics,
             topicsPattern = topicsPattern,
             assignedPartitionsAtEnd = assignedPartitionsAtEnd,
+            warmupRecordForwarding = warmupRecordForwarding,
             handler = configuredHandler
         )
     }

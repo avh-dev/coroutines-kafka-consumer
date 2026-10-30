@@ -12,6 +12,7 @@ import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.warmup.WarmupRecordForwarding
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
@@ -36,7 +37,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     protected val processedRecordTracker: ProcessedRecordTracker,
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null,
-    private val handoffOnAssignmentEnd: Boolean = false
+    private val handoffOnAssignmentEnd: Boolean = false,
+    private val warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -62,6 +64,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     ): Channel<ConsumerRecord<K, V>>
 
     override fun start(onFailure: (Throwable) -> Unit) {
+        warmupRecordForwarding?.start()
         workerJobs = List(workerConcurrency) { workerIndex ->
             scope.launch(processingDispatcher + CoroutineName("KafkaWorker-$workerIndex")) {
                 while (true) {
@@ -76,7 +79,14 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                     try {
                         if (recordDropPolicy?.shouldDrop(record) != true) {
                             supervisorScope {
-                                val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(record) }
+                                val pipeline = async(start = CoroutineStart.LAZY) {
+                                    if (warmupRecordForwarding?.forwardIfSelected(record) == true) {
+                                        processedRecordTracker.markProcessed(record)
+                                        RecordProcessingOutcome.COMPLETED
+                                    } else {
+                                        recordProcessor.process(record)
+                                    }
+                                }
                                 processedRecordTracker.attach(record, pipeline)
                                 pipeline.start()
                                 try {
@@ -137,7 +147,11 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
             workChannel.close()
             workerJobs.joinAll()
         } finally {
-            metrics.unbindRuntimeMetrics()
+            try {
+                metrics.unbindRuntimeMetrics()
+            } finally {
+                warmupRecordForwarding?.close()
+            }
         }
     }
 
