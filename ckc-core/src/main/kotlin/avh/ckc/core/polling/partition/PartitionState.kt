@@ -172,6 +172,12 @@ internal class PartitionState(
     fun isProcessed(offset: Long): Boolean =
         offsetTracker.isProcessed(offset)
 
+    /** Poll-thread only: unlike isProcessed, this includes every earlier delivered record. */
+    fun isProcessedThrough(offset: Long): Boolean {
+        offsetTracker.advanceProcessedFrontier()
+        return offsetTracker.lastProcessedOffset >= offset
+    }
+
     /** Opens a new assignment generation. A record from an older generation can never start work. */
     @Synchronized
     fun activate(): PartitionLease {

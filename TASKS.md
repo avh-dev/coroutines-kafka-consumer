@@ -79,6 +79,7 @@
 | [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
 | [CORE-75](#core-75) | Add a minimal unordered warm-up recipient with explicit partition assignment and position-based readiness. | DONE |
 | [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
+| [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6048,3 +6049,23 @@ a 15-second cooldown for both targets. Unit and canonical experiment validation
 cover the topic-source precedence and shortened measurement window.
 Run the static warm-up target before the direct baseline so provisioning or readiness
 regressions fail fast instead of waiting for a successful control target first.
+
+<a id="core-77"></a>
+### CORE-77 - Complete the warm-up data plane
+
+_Date: 2026-10-30_
+
+Close donor forwarding admission atomically, await admitted sends and publish immutable
+final offsets, including partitions without sends. Drain assigned recipients through
+the existing gap-aware offset tracker before final commit and main subscription.
+Keep lifecycle ownership inside core; no temporary demo control API, lab coordinator,
+or Spring integration. Control transport and automatic coordination remain CORE-78/79.
+Implemented an atomic donor admission boundary that waits for admitted sends and audit
+observers, reports immutable acknowledged offsets for every assigned partition, and
+routes later records locally. Recipient drain now waits for the contiguous gap-aware
+processed frontier, performs the existing graceful final commit, closes warm-up
+consumers, and only then permits the library-owned main consumer to start. Cancellation
+before a producer send remains a normal lifecycle handoff; cancellation after send
+starts remains terminal. Verification: the complete core unit suite and real-Kafka
+integration suite pass, including the full forward, boundary, drain, commit, and local
+donor continuation path.
