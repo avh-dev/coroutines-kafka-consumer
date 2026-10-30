@@ -5,6 +5,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.polling.ConsumerSubscription
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
@@ -70,7 +71,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _, _, _, _, _, _, properties, _, _, _, _, _ ->
+            pollLoopFactory = { _, _, _, _, _, _, properties, _, _, _, _ ->
                 receivedProperties = properties
                 object : ConsumerPollLoopControl {
                     override fun start() = error("not started")
@@ -345,7 +346,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = parentJob + Dispatchers.Default,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { id, context, mode, interval, threshold, metrics, properties, config, topics, pattern, sink, registry ->
+            pollLoopFactory = { id, context, mode, interval, threshold, metrics, properties, config, subscription, sink, registry ->
                 ConsumerPollLoop(
                     id = id,
                     parentContext = context,
@@ -355,8 +356,7 @@ class CoroutinesKafkaConsumerTest {
                     metrics = metrics,
                     consumerProperties = properties,
                     consumerConfigAdapter = config,
-                    topics = topics,
-                    topicsPattern = pattern,
+                    subscription = subscription,
                     recordSink = sink,
                     partitionStateRegistry = registry,
                     kafkaConsumerFactory = { kafkaConsumer }
@@ -600,7 +600,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { index: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
+            pollLoopFactory = { index: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: ConsumerSubscription, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         if (index == 0) {
@@ -771,7 +771,7 @@ class CoroutinesKafkaConsumerTest {
         parentContext = parentContext,
         topics = listOf("topic-a"),
         topicsPattern = null,
-        pollLoopFactory = { id, context, _, _, _, _, _, _, _, _, _, _ ->
+        pollLoopFactory = { id, context, _, _, _, _, _, _, _, _, _ ->
             pollLoopFactory(id, context)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime

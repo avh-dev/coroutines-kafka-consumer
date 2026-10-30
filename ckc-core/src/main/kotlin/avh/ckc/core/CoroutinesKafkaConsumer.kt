@@ -6,6 +6,8 @@ import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
+import avh.ckc.core.polling.ConsumerSubscription
+import avh.ckc.core.polling.consumerSubscription
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
@@ -28,6 +30,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
@@ -38,6 +41,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_C
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Pattern
 import kotlin.concurrent.Volatile
@@ -72,8 +76,7 @@ private typealias PollLoopFactory<K, V> = (
     metrics: ConsumerMetrics<K, V>,
     consumerProperties: Map<String, Any?>,
     consumerConfigAdapter: KafkaConsumerConfigAdapter,
-    topics: List<String>?,
-    topicsPattern: Pattern?,
+    subscription: ConsumerSubscription,
     recordSink: PolledRecordSink<K, V>,
     partitionRegistry: PartitionRegistry
 ) -> ConsumerPollLoopControl
@@ -128,6 +131,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
+    private val assignedPartitionsAtEnd: Set<TopicPartition>? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
@@ -138,6 +142,17 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val termination = CompletableDeferred<Throwable?>()
     private val shutdownCompletion = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
+    private val subscription = consumerSubscription(topics, topicsPattern, assignedPartitionsAtEnd).also {
+        if (it is ConsumerSubscription.AssignedAtEnd) {
+            require(it.partitions.isNotEmpty()) { "assignedPartitionsAtEnd must not be empty" }
+            require(processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
+                "Explicit warm-up assignment supports only AT_LEAST_ONCE_NO_ORDERING"
+            }
+            require(consumerPollLoopConcurrency == 1) {
+                "Explicit warm-up assignment requires consumerPollLoopConcurrency = 1"
+            }
+        }
+    }
     private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition)
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
     private val processedRecordTracker: ProcessedRecordTracker = PartitionProcessedRecordTracker(
@@ -181,8 +196,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             metrics,
             effectiveConsumerProperties,
             consumerConfigAdapter,
-            topics,
-            topicsPattern,
+            subscription,
             processingRuntime,
             partitionRegistry
         )
@@ -236,9 +250,6 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             it.configureProcessingCancellationTimeout(processingCancellationTimeout)
             it.configureRecovery(recoveryTimeout, recoveryRetryBackoff)
         }
-        require((topics == null) != (topicsPattern == null)) {
-            "Exactly one of topics or topicsPattern must be specified"
-        }
         require(consumerProperties.containsKey(KEY_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$KEY_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
@@ -271,6 +282,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
+        assignedPartitionsAtEnd: Set<TopicPartition>? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
         processingMode = processingMode,
@@ -296,6 +308,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext = parentContext,
         topics = topics,
         topicsPattern = topicsPattern,
+        assignedPartitionsAtEnd = assignedPartitionsAtEnd,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
@@ -322,6 +335,18 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 prepareForStop()
             }
         }
+    }
+
+    /** Waits until every poll loop has established its Kafka assignment and initial positions. */
+    suspend fun awaitReady() {
+        check(started) { "Consumer must be started before awaiting readiness" }
+        try {
+            pollLoops.map { it.readiness() }.awaitAll()
+        } catch (error: Throwable) {
+            failure.get()?.let { throw it }
+            throw error
+        }
+        failure.get()?.let { throw it }
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
@@ -514,7 +539,7 @@ private fun Map<String, Any?>.withExplicitCommitManagement(): Map<String, Any?> 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
+    { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, subscription, recordSink, registry ->
         ConsumerPollLoop<K, V>(
             id = id,
             parentContext = context,
@@ -524,8 +549,7 @@ private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
             metrics = metrics,
             consumerProperties = consumerProperties,
             consumerConfigAdapter = consumerConfigAdapter,
-            topics = loopTopics,
-            topicsPattern = loopTopicsPattern,
+            subscription = subscription,
             recordSink = recordSink,
             partitionStateRegistry = registry
         )

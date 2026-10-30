@@ -1,6 +1,7 @@
 package avh.ckc.core
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -27,6 +28,54 @@ class CoroutinesKafkaConsumerBuilderTest {
         }
 
         assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `when builder is configured with assigned warm-up partitions then consumer is created`() {
+        val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+            assignedPartitionsAtEnd(TopicPartition("warmup-a", 1))
+            handle { }
+        }
+
+        assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `when assigned warm-up partitions are empty then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                assignedPartitionsAtEnd(emptySet())
+                handle { }
+            }
+        }
+
+        assertEquals("assignedPartitionsAtEnd must not be empty", error.message)
+    }
+
+    @Test
+    fun `when assigned warm-up partitions use ordered processing then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                processingMode = ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING
+                assignedPartitionsAtEnd(TopicPartition("warmup-a", 0))
+                handle { }
+            }
+        }
+
+        assertEquals("Explicit warm-up assignment supports only AT_LEAST_ONCE_NO_ORDERING", error.message)
+    }
+
+    @Test
+    fun `when assigned warm-up partitions use multiple poll loops then build fails`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                consumerPollLoopConcurrency = 2
+                assignedPartitionsAtEnd(TopicPartition("warmup-a", 0))
+                handle { }
+            }
+        }
+
+        assertEquals("Explicit warm-up assignment requires consumerPollLoopConcurrency = 1", error.message)
     }
 
     @Test

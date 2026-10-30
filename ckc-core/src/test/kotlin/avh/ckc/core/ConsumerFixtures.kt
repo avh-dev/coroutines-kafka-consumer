@@ -43,7 +43,7 @@ internal fun <K, V> createTestConsumer(
         topics = listOf("topic-a"),
         topicsPattern = null,
         handler = handler,
-        pollLoopFactory = { _, context, processingMode, _, _, _, _, _, _, _, recordSink, registry ->
+        pollLoopFactory = { _, context, processingMode, _, _, _, _, _, _, recordSink, registry ->
             FakePollLoopControl(context, processingMode, recordSink, records, registry)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime

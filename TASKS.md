@@ -77,6 +77,7 @@
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
+| [CORE-75](#core-75) | Add a minimal unordered warm-up recipient with explicit partition assignment and position-based readiness. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5911,3 +5912,26 @@ audit-proven delivery correctness instead of inferring success from aggregate
 counts. `successfullyProcessedMessages` now excludes failure-handler outcomes,
 contradictory empty-drain results are rejected, and every collection-bearing
 contract takes an immutable defensive snapshot without a generated `copy()` path.
+
+<a id="core-75"></a>
+### CORE-75 - Add a minimal assigned warm-up recipient
+
+_Date: 2026-10-30_
+
+Add the narrow explicit-assignment mode needed by the static warm-up experiment.
+Run assigned warm-up partitions through the ordinary unordered CKC processing
+runtime, initialize every partition at its current end position, and expose
+readiness only after assignment and position establishment complete. Keep the main
+consumer as a separate, unstarted object and leave final-offset drain, coordinated
+main startup, forwarding, and control transport to their later tasks.
+Implemented a mutually exclusive assigned-partition subscription mode, immutable
+assignment snapshots, and an explicit readiness barrier after `assign`, `seekToEnd`,
+and position initialization. Restricted this mode to one unordered poll loop while
+reusing the normal handler, retry, offset tracking, commit, and shutdown paths.
+Verification: the full core unit suite and the Micrometer and Spring starter suites
+pass. A real-Kafka integration test confirms that a prepared old tail is skipped and
+only records published after recipient readiness enter the ordinary CKC runtime.
+Review follow-up treats a completed empty group assignment as ready, so ordinary
+consumers with more poll loops than partitions cannot block `awaitReady`. Poll-loop
+initialization failures now complete readiness with their original error type and
+message; cancellation is reserved for stopping before assignment readiness.
