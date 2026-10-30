@@ -1,6 +1,7 @@
 package avh.ckc.core.polling
 
 import avh.ckc.core.PollLoopStateSnapshot
+import avh.ckc.core.warmup.WarmupForwardingBoundary
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlin.time.Duration
@@ -10,6 +11,9 @@ internal interface ConsumerPollLoopControl {
 
     /** Completes after Kafka assignment and initial positions are established. */
     fun readiness(): Deferred<Unit> = kotlinx.coroutines.CompletableDeferred(Unit)
+
+    fun drainWarmup(boundary: WarmupForwardingBoundary): Deferred<Unit> =
+        error("Warm-up drain is not supported by this poll loop")
 
     fun prepareForShutdown(): Deferred<Unit>
 

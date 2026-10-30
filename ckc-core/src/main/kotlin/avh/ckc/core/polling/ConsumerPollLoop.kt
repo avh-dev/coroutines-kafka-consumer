@@ -1,5 +1,7 @@
 package avh.ckc.core.polling
 
+import avh.ckc.core.warmup.WarmupForwardingBoundary
+
 import avh.ckc.core.AssignedPartitionSnapshot
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.PollLoopStateSnapshot
@@ -178,6 +180,9 @@ internal class ConsumerPollLoop<K, V>(
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
     private val finalizedShutdownSignal = CompletableDeferred<Unit>()
     private val readinessSignal = CompletableDeferred<Unit>()
+    private val warmupDrainSignal = CompletableDeferred<Unit>()
+    @Volatile
+    private var warmupDrainBoundary: WarmupForwardingBoundary? = null
 
     @Volatile
     private var finalizationRequested = false
@@ -199,6 +204,27 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     override fun readiness(): Deferred<Unit> = readinessSignal
+
+    @Synchronized
+    override fun drainWarmup(boundary: WarmupForwardingBoundary): Deferred<Unit> {
+        val assigned = subscription as? ConsumerSubscription.AssignedAtEnd
+            ?: error("Warm-up drain requires explicit assignment")
+        require(boundary.offsets.keys == assigned.partitions) { "Boundary must match the complete assignment" }
+        check(warmupDrainBoundary == null || warmupDrainBoundary!!.offsets == boundary.offsets) {
+            "Warm-up drain boundary cannot change"
+        }
+        warmupDrainBoundary = boundary
+        return warmupDrainSignal
+    }
+
+    private fun checkWarmupDrain() {
+        val boundary = warmupDrainBoundary ?: return
+        if (boundary.offsets.all { (partition, offset) ->
+            val state = assignedPartitions.firstOrNull { it.topicPartition == partition }
+                ?: error("Warm-up assignment ended before drain: $partition")
+            offset == null || state.isProcessedThrough(offset)
+        }) warmupDrainSignal.complete(Unit)
+    }
 
     /**
      * Phase 1 shutdown: request draining and pause poll().
@@ -328,10 +354,12 @@ internal class ConsumerPollLoop<K, V>(
             }
         } catch (error: Throwable) {
             readinessSignal.completeExceptionally(error)
+            warmupDrainSignal.completeExceptionally(error)
             throw error
         } finally {
             if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
             running = false
+            warmupDrainSignal.completeExceptionally(CancellationException("Consumer stopped before warm-up drain"))
             assignedPartitionSnapshot = emptyList()
             // A terminal loop failure cannot perform the graceful drain handshake,
             // but it is already safe for the owner to join the completed job.
@@ -768,6 +796,8 @@ internal class ConsumerPollLoop<K, V>(
 
         try {
             while (currentCoroutineContext().isActive) {
+
+            checkWarmupDrain()
 
             if (recoveringLostAssignment) {
                 val deadline = recoveryDeadlineNanos

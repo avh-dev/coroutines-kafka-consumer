@@ -59,7 +59,7 @@ import kotlin.time.Duration.Companion.milliseconds
 class CoroutinesKafkaConsumerIntegrationTest {
 
     @Test
-    fun `donor forwards selected source record to ready warm-up recipient without local handling`() = runBlocking {
+    fun `donor forwards then completes and recipient drains final committed boundary`() = runBlocking {
         val sourceTopic = "forward-source-${UUID.randomUUID()}"
         val warmupTopic = "forward-target-${UUID.randomUUID()}"
         val donorGroup = "ckc-it-donor-${UUID.randomUUID()}"
@@ -132,10 +132,19 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 committedOffset(donorGroup, sourceTopic)?.takeIf { it.offset() == 1L }
             }
             assertEquals(0, donorHandlerCalls.get())
+            val boundary = donor.completeWarmupForwarding()
+            assertEquals(acknowledgement.warmupOffset, boundary.offsets[TopicPartition(warmupTopic, 0)])
+            recipient.drainWarmupAndStop(boundary)
+            assertEquals(acknowledgement.warmupOffset + 1, committedOffset(recipientGroup, warmupTopic)?.offset())
+            produce(sourceTopic, "key-2", "payload-2")
+            awaitFor(timeoutMillis = 15_000L, pauseMillis = 50L) {
+                donorHandlerCalls.get().takeIf { it == 1 }
+            }
         } finally {
             donor.stop()
             recipient.stop()
         }
+        Unit
     }
 
     @Test

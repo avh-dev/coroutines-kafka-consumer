@@ -9,6 +9,7 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,6 +35,109 @@ import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 
 class WarmupForwardingTest {
+    @Test
+    fun `cancellation while waiting for a producer permit does not fail completion`() = runBlocking {
+        val producer = producer(autoComplete = false)
+        val forwarding = forwarding(producer, maxInFlightSends = 1)
+        val first = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            forwarding.forwardIfSelected(sourceRecord(offset = 1))
+        }
+        val waiting = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            forwarding.forwardIfSelected(sourceRecord(offset = 2))
+        }
+
+        assertEquals(1, producer.history().size)
+        waiting.cancel()
+        assertFailsWith<CancellationException> { waiting.await() }
+
+        val completion = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { forwarding.complete() }
+        assertFalse(completion.isCompleted)
+        assertTrue(producer.completeNext())
+        assertTrue(first.await())
+        assertEquals(0L, completion.await().offsets[org.apache.kafka.common.TopicPartition("warmup-orders", 3)])
+        assertFalse(forwarding.forwardIfSelected(sourceRecord(offset = 3)))
+        forwarding.close()
+    }
+
+    @Test
+    fun `completion includes sends admitted while waiting for a producer permit`() = runBlocking {
+        val producer = producer(autoComplete = false)
+        val forwarding = forwarding(producer, maxInFlightSends = 1)
+        val first = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            forwarding.forwardIfSelected(sourceRecord(offset = 1))
+        }
+        val second = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            forwarding.forwardIfSelected(sourceRecord(offset = 2))
+        }
+        val completion = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { forwarding.complete() }
+        assertEquals(1, producer.history().size)
+        assertTrue(producer.completeNext())
+        first.await()
+        awaitFor(timeoutMillis = 2_000L) { producer.history().size.takeIf { it == 2 } }
+        assertFalse(completion.isCompleted)
+        assertTrue(producer.completeNext())
+        second.await()
+        assertEquals(1L, completion.await().offsets[org.apache.kafka.common.TopicPartition("warmup-orders", 3)])
+        forwarding.close()
+    }
+
+    @Test
+    fun `final boundary is an immutable snapshot`() {
+        val partition = org.apache.kafka.common.TopicPartition("warmup-orders", 3)
+        val offsets = mutableMapOf<org.apache.kafka.common.TopicPartition, Long?>(partition to 9L)
+        val boundary = WarmupForwardingBoundary(offsets)
+        offsets[partition] = 10L
+        assertEquals(9L, boundary.offsets[partition])
+        assertFailsWith<UnsupportedOperationException> {
+            (boundary.offsets as MutableMap)[partition] = 11L
+        }
+    }
+    @Test
+    fun `completion waits for admitted sends and observer and routes subsequent records locally`() = runBlocking {
+        val producer = producer(autoComplete = false)
+        val observerEntered = CompletableDeferred<Unit>()
+        val observerRelease = CompletableDeferred<Unit>()
+        val forwarding = forwarding(producer, WarmupForwardingObserver {
+            observerEntered.complete(Unit)
+            observerRelease.await()
+        })
+        val send = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            forwarding.forwardIfSelected(sourceRecord())
+        }
+        val completion = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { forwarding.complete() }
+        assertFalse(completion.isCompleted)
+        assertFalse(forwarding.forwardIfSelected(sourceRecord(offset = 8)))
+        assertTrue(producer.completeNext())
+        observerEntered.await()
+        assertFalse(completion.isCompleted)
+        observerRelease.complete(Unit)
+        assertTrue(send.await())
+        val boundary = completion.await()
+        assertEquals(0L, boundary.offsets[org.apache.kafka.common.TopicPartition("warmup-orders", 3)])
+        assertEquals(boundary.offsets, forwarding.complete().offsets)
+        forwarding.close()
+    }
+
+    @Test
+    fun `completion includes explicit no sends boundary`() = runBlocking {
+        val forwarding = forwarding(producer(autoComplete = true))
+        assertEquals(mapOf(org.apache.kafka.common.TopicPartition("warmup-orders", 3) to null),
+            forwarding.complete().offsets)
+        assertFalse(forwarding.forwardIfSelected(sourceRecord()))
+        forwarding.close()
+    }
+
+    @Test
+    fun `observer failure prevents successful completion`() = runBlocking {
+        val forwarding = forwarding(producer(autoComplete = true), WarmupForwardingObserver {
+            throw IllegalStateException("audit failed")
+        })
+        assertFailsWith<IllegalStateException> { forwarding.forwardIfSelected(sourceRecord()) }
+        assertFailsWith<IllegalStateException> { forwarding.complete() }
+        assertFailsWith<IllegalStateException> { forwarding.forwardIfSelected(sourceRecord(offset = 8)) }
+        forwarding.close()
+    }
+
     @Test
     fun `forwarding configuration validates ownership producer and concurrency and snapshots inputs`() {
         val consumerId = WarmupConsumerId("orders")
@@ -168,7 +272,7 @@ class WarmupForwardingTest {
     }
 
     @Test
-    fun `cancellation after send starts is terminal and retains permit until late acknowledgement`() = runBlocking {
+    fun `cancellation after send starts permanently fails completion even after late acknowledgement`() = runBlocking {
         val producer = producer(autoComplete = false)
         val acknowledgements = mutableListOf<WarmupForwardingAcknowledgement>()
         val forwarding = forwarding(
@@ -184,16 +288,15 @@ class WarmupForwardingTest {
             val interruption = runCatching { interrupted.await() }.exceptionOrNull()
             assertIs<WarmupForwardingInterruptedException>(interruption)
 
-            val next = async { forwarding.forwardIfSelected(sourceRecord(offset = 8L)) }
-            kotlinx.coroutines.delay(50L)
+            assertFailsWith<WarmupForwardingInterruptedException> {
+                forwarding.forwardIfSelected(sourceRecord(offset = 8L))
+            }
             assertEquals(1, producer.history().size)
             assertTrue(producer.completeNext())
-            awaitFor(2_000L, 10L) { producer.history().takeIf { it.size == 2 } }
-            assertTrue(producer.completeNext())
-            assertTrue(next.await())
+            assertFailsWith<WarmupForwardingInterruptedException> { forwarding.complete() }
         }
 
-        assertEquals(listOf(8L), acknowledgements.map(WarmupForwardingAcknowledgement::sourceOffset))
+        assertTrue(acknowledgements.isEmpty())
         forwarding.close()
     }
 

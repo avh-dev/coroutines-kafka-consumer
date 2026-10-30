@@ -9,6 +9,7 @@ import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.polling.ConsumerSubscription
 import avh.ckc.core.polling.consumerSubscription
 import avh.ckc.core.warmup.WarmupRecordForwarding
+import avh.ckc.core.warmup.WarmupForwardingBoundary
 import avh.ckc.core.processing.NoopProcessedRecordTracker
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
@@ -361,6 +362,36 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             throw error
         }
         failure.get()?.let { throw it }
+    }
+
+    /** Coordinator primitive: main-topic processing continues locally after admission closes. */
+    internal suspend fun completeWarmupForwarding(): WarmupForwardingBoundary {
+        check(started && stopDeferred == null) { "Consumer must be running" }
+        val forwarding = requireNotNull(validatedWarmupRecordForwarding) { "Consumer is not a donor" }
+        return try {
+            withTimeout(shutdownDrainTimeout) { forwarding.complete() }.also {
+                failure.get()?.let { error -> throw error }
+            }
+        } catch (error: Throwable) {
+            handleFailure(error)
+            throw error
+        }
+    }
+
+    /** Coordinator primitive: wait for the contiguous processed frontier, then reuse graceful final commit. */
+    internal suspend fun drainWarmupAndStop(boundary: WarmupForwardingBoundary) {
+        check(subscription is ConsumerSubscription.AssignedAtEnd) { "Consumer is not a warm-up recipient" }
+        check(started && stopDeferred == null) { "Consumer must be running" }
+        try {
+            withTimeout(shutdownDrainTimeout) {
+                awaitReady()
+                pollLoops.map { it.drainWarmup(boundary) }.awaitAll()
+                stop()
+            }
+        } catch (error: Throwable) {
+            handleFailure(error)
+            throw error
+        }
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {

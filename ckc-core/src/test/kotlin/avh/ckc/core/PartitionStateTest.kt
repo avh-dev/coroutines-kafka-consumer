@@ -17,6 +17,20 @@ import kotlin.time.Duration.Companion.seconds
 class PartitionStateTest {
 
     @Test
+    fun `warmup boundary waits for earlier records but skips observed Kafka offset gaps`() {
+        val state = PartitionState(TopicPartition("warmup", 0))
+        state.init(10)
+        assertTrue(state.observe(10))
+        assertTrue(state.observe(13))
+        state.markProcessed(13)
+        assertTrue(state.isProcessed(13))
+        assertFalse(state.isProcessedThrough(13))
+        state.markProcessed(10)
+        assertTrue(state.isProcessedThrough(13))
+        assertFalse(state.isProcessedThrough(14))
+    }
+
+    @Test
     fun `when revoke occurs during retry backoff then retry permission is denied immediately`() = runBlocking {
         val state = PartitionState(TopicPartition("t", 0))
         val lease = state.activate()

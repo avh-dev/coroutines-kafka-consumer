@@ -1,6 +1,7 @@
 package avh.ckc.core.warmup
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -90,6 +91,10 @@ interface WarmupRecordForwarding<K, V> {
     /** Returns true only after the selected record and its forwarding audit event are acknowledged. */
     suspend fun forwardIfSelected(record: ConsumerRecord<K, V>): Boolean
 
+    /** Closes routing admission and waits for every admitted send and observer. */
+    suspend fun complete(): WarmupForwardingBoundary =
+        error("This forwarding implementation does not support completion")
+
     suspend fun close()
 }
 
@@ -111,6 +116,13 @@ internal class KafkaWarmupRecordForwarding<K, V>(
     private val assignmentsBySource = configuration.assignments.associateBy { it.sourceTopic }
     private val sendPermits = Semaphore(configuration.maxInFlightSends)
     private val closed = AtomicBoolean(false)
+    private val admissionLock = Any()
+    private var accepting = true
+    private var admitted = 0
+    private var forwardingFailure: Throwable? = null
+    private val completed = CompletableDeferred<WarmupForwardingBoundary>()
+    private val finalOffsets: MutableMap<TopicPartition, Long?> = configuration.assignments
+        .associate { it.topicPartition to null }.toMutableMap()
     @Volatile
     private var producer: Producer<K, V>? = null
 
@@ -120,31 +132,75 @@ internal class KafkaWarmupRecordForwarding<K, V>(
 
     override suspend fun forwardIfSelected(record: ConsumerRecord<K, V>): Boolean {
         val assignment = assignmentsBySource[record.topic()] ?: return false
-        if (!selector.shouldForward()) return false
-        check(!closed.get()) { "Warm-up forwarding is closed" }
-
-        sendPermits.acquire()
+        synchronized(admissionLock) {
+            forwardingFailure?.let { throw it }
+            check(!closed.get()) { "Warm-up forwarding is closed" }
+            if (!accepting || !selector.shouldForward()) return false
+            admitted++
+        }
         val sendStarted = AtomicBoolean(false)
         try {
+            sendPermits.acquire()
             val metadata = send(record.toWarmupProducerRecord(assignment)) {
                 sendStarted.set(true)
             }
             observer.onForwarded(record.acknowledgement(metadata))
+            synchronized(admissionLock) {
+                val destination = TopicPartition(metadata.topic(), metadata.partition())
+                check(destination == assignment.topicPartition && metadata.offset() >= 0) {
+                    "Unexpected warm-up acknowledgement: $metadata"
+                }
+                finalOffsets[destination] = maxOf(finalOffsets[destination] ?: -1, metadata.offset())
+            }
             return true
-        } catch (error: CancellationException) {
-            if (sendStarted.get()) {
-                throw WarmupForwardingInterruptedException(
+        } catch (error: Throwable) {
+            if (error is CancellationException && !sendStarted.get()) {
+                throw error
+            }
+            val failure = if (error is CancellationException && sendStarted.get()) {
+                WarmupForwardingInterruptedException(
                     "Warm-up forwarding was interrupted after send started for " +
                         "${record.topic()}-${record.partition()}@${record.offset()}; delivery result is unsafe",
                     error
                 )
+            } else error
+            synchronized(admissionLock) {
+                if (forwardingFailure == null) forwardingFailure = failure
+                accepting = false
+                completed.completeExceptionally(failure)
             }
-            throw error
+            throw failure
+        } finally {
+            synchronized(admissionLock) {
+                admitted--
+                completeIfDrained()
+            }
+        }
+    }
+
+    override suspend fun complete(): WarmupForwardingBoundary {
+        synchronized(admissionLock) {
+            check(!closed.get()) { "Warm-up forwarding is closed" }
+            accepting = false
+            completeIfDrained()
+        }
+        return completed.await()
+    }
+
+    private fun completeIfDrained() {
+        if (!accepting && admitted == 0 && forwardingFailure == null) {
+            completed.complete(WarmupForwardingBoundary(finalOffsets))
         }
     }
 
     override suspend fun close() {
         if (closed.compareAndSet(false, true)) {
+            synchronized(admissionLock) {
+                accepting = false
+                if (!completed.isCompleted) {
+                    completed.completeExceptionally(IllegalStateException("Forwarding closed before completion"))
+                }
+            }
             withContext(Dispatchers.IO) {
                 producer?.close(
                     JavaDuration.ofMillis(configuration.producerCloseTimeout.inWholeMilliseconds.coerceAtLeast(1L))

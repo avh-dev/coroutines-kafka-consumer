@@ -59,6 +59,65 @@ import java.util.concurrent.atomic.AtomicReference
 class ConsumerPollLoopTest {
 
     @Test
+    fun `assigned recipient drain completes for partition without sends`() = runBlocking {
+        val fixture = PollLoopFixture(
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workChannelCapacity = 1,
+            assignedAtEnd = true,
+            pollAnswer = { emptyRecords() }
+        )
+        val job = fixture.start()
+        try {
+            withTimeout(2_000L) {
+                fixture.loop.readiness().await()
+                fixture.loop.drainWarmup(avh.ckc.core.warmup.WarmupForwardingBoundary(
+                    mapOf(fixture.topicPartition to null)
+                )).await()
+            }
+        } finally {
+            job.cancel()
+            job.join()
+            fixture.loop.releaseResources()
+        }
+    }
+
+    @Test
+    fun `assigned recipient drain does not complete from last offset alone`() = runBlocking {
+        val delivered = AtomicBoolean(false)
+        val fixture = PollLoopFixture(
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workChannelCapacity = 4,
+            assignedAtEnd = true,
+            pollAnswer = {
+                if (delivered.compareAndSet(false, true)) ConsumerRecords(mapOf(topicPartition to listOf(
+                    ConsumerRecord("topic-a", 0, 0L, byteArrayOf(), byteArrayOf()),
+                    ConsumerRecord("topic-a", 0, 2L, byteArrayOf(), byteArrayOf())
+                ))) else emptyRecords()
+            }
+        )
+        val job = fixture.start()
+        try {
+            withTimeout(2_000L) {
+                fixture.loop.readiness().await()
+                fixture.workChannel.receive()
+                fixture.workChannel.receive()
+                val state = requireNotNull(fixture.registry.partitionStateFor(fixture.topicPartition))
+                val drain = fixture.loop.drainWarmup(avh.ckc.core.warmup.WarmupForwardingBoundary(
+                    mapOf(fixture.topicPartition to 2L)
+                ))
+                state.markProcessed(2)
+                assertFalse(drain.isCompleted)
+                state.markProcessed(0)
+                drain.await()
+            }
+        } finally {
+            job.cancel()
+            job.join()
+            fixture.loop.releaseResources()
+        }
+    }
+
+    @Test
     fun `empty group assignment reports readiness`() = runBlocking {
         val fixture = PollLoopFixture(
             processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
