@@ -76,7 +76,7 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
-| [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | IN_PROGRESS |
+| [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5906,3 +5906,8 @@ forwarded set.
 Verification: core, Micrometer, and Spring starter tests pass. One existing
 freshness-queue timeout on the first core run passed both in isolation and on the
 immediate full-suite rerun.
+Review follow-up separates observed business processing, offset-based drain, and
+audit-proven delivery correctness instead of inferring success from aggregate
+counts. `successfullyProcessedMessages` now excludes failure-handler outcomes,
+contradictory empty-drain results are rejected, and every collection-bearing
+contract takes an immutable defensive snapshot without a generated `copy()` path.

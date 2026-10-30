@@ -37,12 +37,14 @@ data class WarmupForwardingProfile(
     }
 }
 
-data class WarmupParticipantConfiguration(
+class WarmupParticipantConfiguration(
     val consumerId: WarmupConsumerId,
-    val topicMappings: List<WarmupTopicMapping>,
+    topicMappings: Collection<WarmupTopicMapping>,
     val forwardingProfile: WarmupForwardingProfile = WarmupForwardingProfile(),
     val processingMode: ProcessingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
 ) {
+    val topicMappings: List<WarmupTopicMapping> = immutableListSnapshot(topicMappings)
+
     init {
         require(processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
             "Real-traffic warm-up MVP supports only AT_LEAST_ONCE_NO_ORDERING"
@@ -57,6 +59,21 @@ data class WarmupParticipantConfiguration(
             "Each source topic must have exactly one warm-up mapping; duplicates: ${duplicateSourceTopics.sorted()}"
         }
     }
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is WarmupParticipantConfiguration &&
+            consumerId == other.consumerId &&
+            topicMappings == other.topicMappings &&
+            forwardingProfile == other.forwardingProfile &&
+            processingMode == other.processingMode
+
+    override fun hashCode(): Int =
+        arrayOf(consumerId, topicMappings, forwardingProfile, processingMode).contentHashCode()
+
+    override fun toString(): String =
+        "WarmupParticipantConfiguration(consumerId=$consumerId, topicMappings=$topicMappings, " +
+            "forwardingProfile=$forwardingProfile, processingMode=$processingMode)"
 }
 
 /** A locally registered CKC consumer that can participate in real-traffic warm-up. */
