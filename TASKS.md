@@ -78,7 +78,7 @@
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | DONE |
 | [CORE-75](#core-75) | Add a minimal unordered warm-up recipient with explicit partition assignment and position-based readiness. | DONE |
-| [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
+| [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
