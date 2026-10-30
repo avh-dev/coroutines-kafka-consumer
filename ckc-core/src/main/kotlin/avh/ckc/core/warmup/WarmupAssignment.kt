@@ -18,12 +18,14 @@ data class WarmupPartitionAssignment(
         get() = TopicPartition(warmupTopic, warmupPartition)
 }
 
-data class WarmupSessionAssignment(
+class WarmupSessionAssignment(
     val sessionId: WarmupSessionId,
     val donorInstanceId: WarmupInstanceId,
     val recipientInstanceId: WarmupInstanceId,
-    val partitions: List<WarmupPartitionAssignment>
+    partitions: Collection<WarmupPartitionAssignment>
 ) {
+    val partitions: List<WarmupPartitionAssignment> = immutableListSnapshot(partitions)
+
     init {
         require(donorInstanceId != recipientInstanceId) {
             "donorInstanceId and recipientInstanceId must identify different application instances"
@@ -51,4 +53,19 @@ data class WarmupSessionAssignment(
 
     fun assignmentsFor(consumerId: WarmupConsumerId): List<WarmupPartitionAssignment> =
         partitions.filter { it.consumerId == consumerId }
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is WarmupSessionAssignment &&
+            sessionId == other.sessionId &&
+            donorInstanceId == other.donorInstanceId &&
+            recipientInstanceId == other.recipientInstanceId &&
+            partitions == other.partitions
+
+    override fun hashCode(): Int =
+        arrayOf(sessionId, donorInstanceId, recipientInstanceId, partitions).contentHashCode()
+
+    override fun toString(): String =
+        "WarmupSessionAssignment(sessionId=$sessionId, donorInstanceId=$donorInstanceId, " +
+            "recipientInstanceId=$recipientInstanceId, partitions=$partitions)"
 }

@@ -123,7 +123,12 @@ class WarmupContractsTest {
         assertTrue(noTraffic.ownsCandidatePartitions)
         assertFalse(noTraffic.hasObservedTraffic)
 
-        val traffic = noTraffic.copy(observedMessages = 25)
+        val traffic = WarmupTopicCapability(
+            sourceTopic = "orders",
+            compatible = true,
+            ownedPartitions = setOf(1, 3),
+            observedMessages = 25
+        )
         assertTrue(traffic.hasObservedTraffic)
 
         val incompatibleButActive = WarmupTopicCapability(
@@ -137,51 +142,131 @@ class WarmupContractsTest {
     }
 
     @Test
-    fun `topic result never treats time or configuration alone as real traffic warm-up`() {
-        val base = WarmupTopicOutcome(
+    fun `topic outcome separates traffic drain and delivery audit`() {
+        val noTraffic = topicOutcome(
+            forwardedMessages = 0,
+            successfullyProcessedMessages = 0,
+            drainStatus = WarmupDrainStatus.NO_RECORDS
+        )
+        assertEquals(WarmupTrafficStatus.NO_REAL_TRAFFIC, noTraffic.trafficStatus)
+        assertTrue(noTraffic.drainCompleted)
+        assertFalse(noTraffic.deliveryVerified)
+
+        val observedBusinessProcessingWithAuditViolation = topicOutcome(
+            forwardedMessages = 10,
+            successfullyProcessedMessages = 11,
+            drainStatus = WarmupDrainStatus.COMPLETED,
+            deliveryAuditStatus = WarmupDeliveryAuditStatus.VIOLATIONS_DETECTED
+        )
+        assertEquals(
+            WarmupTrafficStatus.BUSINESS_PROCESSING_OBSERVED,
+            observedBusinessProcessingWithAuditViolation.trafficStatus
+        )
+        assertTrue(observedBusinessProcessingWithAuditViolation.drainCompleted)
+        assertFalse(observedBusinessProcessingWithAuditViolation.deliveryVerified)
+
+        val verified = topicOutcome(
+            forwardedMessages = 10,
+            successfullyProcessedMessages = 10,
+            drainStatus = WarmupDrainStatus.COMPLETED,
+            deliveryAuditStatus = WarmupDeliveryAuditStatus.VERIFIED
+        )
+        assertTrue(verified.deliveryVerified)
+
+        assertEquals(
+            WarmupTrafficStatus.FORWARDED_WITHOUT_SUCCESSFUL_PROCESSING,
+            topicOutcome(
+                forwardedMessages = 10,
+                successfullyProcessedMessages = 0,
+                drainStatus = WarmupDrainStatus.COMPLETED
+            ).trafficStatus
+        )
+    }
+
+    @Test
+    fun `no records drain cannot contain successful business processing`() {
+        assertFailsWith<IllegalArgumentException> {
+            topicOutcome(
+                forwardedMessages = 0,
+                successfullyProcessedMessages = 1,
+                drainStatus = WarmupDrainStatus.NO_RECORDS
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            topicOutcome(
+                ownedSourcePartitions = emptySet(),
+                forwardedMessages = 1,
+                drainStatus = WarmupDrainStatus.NOT_STARTED
+            )
+        }
+    }
+
+    @Test
+    fun `contract collections are immutable snapshots at every nesting level`() {
+        val mappings = mutableListOf(WarmupTopicMapping("orders", "warmup-orders"))
+        val configuration = WarmupParticipantConfiguration(WarmupConsumerId("orders"), mappings)
+        mappings += WarmupTopicMapping("batches", "warmup-batches")
+        assertEquals(listOf(WarmupTopicMapping("orders", "warmup-orders")), configuration.topicMappings)
+
+        val partitionAssignments = mutableListOf(
+            WarmupPartitionAssignment(WarmupConsumerId("orders"), "orders", "warmup-orders", 0)
+        )
+        val session = WarmupSessionAssignment(
+            WarmupSessionId("session"),
+            WarmupInstanceId("donor"),
+            WarmupInstanceId("recipient"),
+            partitionAssignments
+        )
+        partitionAssignments += partitionAssignments.single().copy(warmupPartition = 1)
+        assertEquals(1, session.partitions.size)
+
+        val ownedPartitions = mutableSetOf(0)
+        val topicCapability = WarmupTopicCapability("orders", true, ownedPartitions, 1)
+        val topics = mutableListOf(topicCapability)
+        val participantCapability = WarmupParticipantCapability(WarmupConsumerId("orders"), topics)
+        val participants = mutableListOf(participantCapability)
+        val donorCapability = WarmupDonorCapability(WarmupInstanceId("donor"), true, participants)
+        ownedPartitions += 1
+        topics += WarmupTopicCapability("batches", true)
+        participants += WarmupParticipantCapability(
+            WarmupConsumerId("batches"),
+            listOf(WarmupTopicCapability("batches", true))
+        )
+        assertEquals(setOf(0), topicCapability.ownedPartitions)
+        assertEquals(1, participantCapability.topics.size)
+        assertEquals(1, donorCapability.participants.size)
+
+        val outcomePartitions = mutableSetOf(0)
+        val outcome = topicOutcome(ownedSourcePartitions = outcomePartitions)
+        outcomePartitions += 1
+        assertEquals(setOf(0), outcome.ownedSourcePartitions)
+
+        assertFailsWith<UnsupportedOperationException> {
+            (configuration.topicMappings as MutableList<WarmupTopicMapping>).clear()
+        }
+        assertFailsWith<UnsupportedOperationException> {
+            (topicCapability.ownedPartitions as MutableSet<Int>).clear()
+        }
+    }
+
+    private fun topicOutcome(
+        ownedSourcePartitions: Collection<Int> = setOf(0),
+        forwardedMessages: Long = 0,
+        successfullyProcessedMessages: Long = 0,
+        drainStatus: WarmupDrainStatus = WarmupDrainStatus.NOT_STARTED,
+        deliveryAuditStatus: WarmupDeliveryAuditStatus = WarmupDeliveryAuditStatus.NOT_ANALYZED
+    ): WarmupTopicOutcome =
+        WarmupTopicOutcome(
             consumerId = WarmupConsumerId("orders"),
             sourceTopic = "orders",
             warmupTopic = "ckc.traffic-warmup.v1.orders",
             compatible = true,
-            ownedSourcePartitions = setOf(0),
+            ownedSourcePartitions = ownedSourcePartitions,
             observedMessages = 100,
-            forwardedMessages = 0,
-            processedMessages = 0,
-            forwardedMessagesPerSecond = 0.0,
-            drainStatus = WarmupDrainStatus.NO_RECORDS
+            forwardedMessages = forwardedMessages,
+            successfullyProcessedMessages = successfullyProcessedMessages,
+            forwardedMessagesPerSecond = if (forwardedMessages == 0L) 0.0 else 2.0,
+            drainStatus = drainStatus,
+            deliveryAuditStatus = deliveryAuditStatus
         )
-
-        assertEquals(WarmupTopicResult.NO_REAL_TRAFFIC, base.result)
-        assertEquals(
-            WarmupTopicResult.NOT_CURRENTLY_OWNED,
-            base.copy(ownedSourcePartitions = emptySet()).result
-        )
-        assertEquals(
-            WarmupTopicResult.WARMED_WITH_REAL_TRAFFIC,
-            base.copy(
-                forwardedMessages = 10,
-                processedMessages = 10,
-                forwardedMessagesPerSecond = 2.0,
-                drainStatus = WarmupDrainStatus.COMPLETED
-            ).result
-        )
-        assertEquals(
-            WarmupTopicResult.INCOMPLETE,
-            base.copy(
-                forwardedMessages = 10,
-                processedMessages = 9,
-                forwardedMessagesPerSecond = 2.0,
-                drainStatus = WarmupDrainStatus.COMPLETED
-            ).result
-        )
-        assertEquals(
-            WarmupTopicResult.FAILED,
-            base.copy(
-                forwardedMessages = 10,
-                processedMessages = 9,
-                forwardedMessagesPerSecond = 2.0,
-                drainStatus = WarmupDrainStatus.FAILED
-            ).result
-        )
-    }
 }

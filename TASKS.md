@@ -5906,3 +5906,8 @@ forwarded set.
 Verification: core, Micrometer, and Spring starter tests pass. One existing
 freshness-queue timeout on the first core run passed both in isolation and on the
 immediate full-suite rerun.
+Review follow-up separates observed business processing, offset-based drain, and
+audit-proven delivery correctness instead of inferring success from aggregate
+counts. `successfullyProcessedMessages` now excludes failure-handler outcomes,
+contradictory empty-drain results are rejected, and every collection-bearing
+contract takes an immutable defensive snapshot without a generated `copy()` path.
