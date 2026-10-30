@@ -12,7 +12,8 @@ data class DemoApplicationProperties(
     var model: Model = Model(),
     var registry: Registry = Registry(),
     var audit: Audit = Audit(),
-    var consumers: Consumers = Consumers()
+    var consumers: Consumers = Consumers(),
+    var trafficWarmup: TrafficWarmup = TrafficWarmup()
 ) {
     data class Kafka(
         var enabled: Boolean = false,
@@ -136,5 +137,42 @@ data class DemoApplicationProperties(
         var kafka: KafkaConsumerOverrides = KafkaConsumerOverrides()
     ) {
         fun groupIdOr(fallback: String): String = groupId.ifBlank { fallback }
+    }
+
+    data class TrafficWarmup(
+        var role: TrafficWarmupRole = TrafficWarmupRole.DISABLED,
+        var sessionId: String = "static",
+        var kafkaBootstrapServers: String = "",
+        var recipientGroupIdPrefix: String = "ckc-traffic-warmup-v1-recipient",
+        var initialFraction: Double = 0.0,
+        var targetFraction: Double = 0.1,
+        var rampUpSeconds: Long = 120,
+        var maxInFlightSends: Int = 32,
+        var order: TrafficWarmupParticipant = TrafficWarmupParticipant(
+            consumerId = "order_events",
+            topic = DemoTopics.TRAFFIC_WARMUP_ORDER_EVENTS
+        ),
+        var batch: TrafficWarmupParticipant = TrafficWarmupParticipant(
+            consumerId = "batch_events",
+            topic = DemoTopics.TRAFFIC_WARMUP_BATCH_EVENTS
+        ),
+        var telemetry: TrafficWarmupParticipant = TrafficWarmupParticipant(
+            enabled = false,
+            consumerId = "cauldron_events",
+            topic = DemoTopics.TRAFFIC_WARMUP_CAULDRON_EVENTS
+        )
+    )
+
+    data class TrafficWarmupParticipant(
+        var enabled: Boolean = true,
+        var consumerId: String = "",
+        var topic: String = "",
+        var partition: Int = 0
+    )
+
+    enum class TrafficWarmupRole {
+        DISABLED,
+        DONOR,
+        RECIPIENT
     }
 }

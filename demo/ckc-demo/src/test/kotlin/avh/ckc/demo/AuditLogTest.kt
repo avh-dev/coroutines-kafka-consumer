@@ -1,5 +1,9 @@
 package avh.ckc.demo
 
+import avh.ckc.core.warmup.WarmupConsumerId
+import avh.ckc.core.warmup.WarmupForwardingAcknowledgement
+import avh.ckc.core.warmup.WarmupSessionId
+import org.apache.kafka.common.TopicPartition
 import avh.ckc.demo.config.DemoApplicationProperties
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import kotlin.test.Test
@@ -7,6 +11,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class AuditLogTest {
+    @Test
+    fun `warm-up forwarding audit links source and destination coordinates`() {
+        val encoded = encodeWarmupForwardingAuditRecord(
+            WarmupForwardingAcknowledgement(
+                sessionId = WarmupSessionId("session-7"),
+                consumerId = WarmupConsumerId("order_events"),
+                sourceTopicPartition = TopicPartition(DemoTopics.ORDER_EVENTS, 2),
+                sourceOffset = 41L,
+                warmupTopicPartition = TopicPartition(DemoTopics.TRAFFIC_WARMUP_ORDER_EVENTS, 3),
+                warmupOffset = 9L
+            ),
+            auditTimestampMs = 1234L
+        )
+
+        assertEquals("W|session-7|order_events|1|2|41|101|3|9|1234", encoded)
+    }
+
     @Test
     fun `encodes processed record as compact TCP audit payload`() {
         val encoded = encodeConsumerAuditRecord(

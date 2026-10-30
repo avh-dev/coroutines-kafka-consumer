@@ -1,11 +1,23 @@
 package avh.ckc.demo.config
 
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.config.SslConfigs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class KafkaConsumerPropertiesTest {
+    @Test
+    fun `connection properties can target a separate warm-up bootstrap address`() {
+        val properties = DemoApplicationProperties().apply {
+            kafka.bootstrapServers = "main:9092"
+        }
+
+        val resolved = properties.kafkaConnectionProperties("warmup:9093")
+
+        assertEquals("warmup:9093", resolved[CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG])
+    }
+
     @Test
     fun `TLS trust certificates and endpoint policy are passed to Kafka`() {
         val properties = DemoApplicationProperties().apply {

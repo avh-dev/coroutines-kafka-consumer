@@ -10,14 +10,7 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
     val shared = kafka.consumer
     val topic = runtime.kafka
     return buildMap {
-        put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
-        kafka.sslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
-            put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
-            put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM")
-        }
-        kafka.sslEndpointIdentificationAlgorithm?.let {
-            put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)
-        }
+        putAll(kafkaConnectionProperties(kafka.bootstrapServers))
         shared.assignmentStrategy?.trim()?.takeIf(String::isNotEmpty)?.let {
             put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG, it)
         }
@@ -30,5 +23,19 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
             ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG,
             topic.maxPartitionFetchBytes ?: shared.maxPartitionFetchBytes
         )
+    }
+}
+
+internal fun DemoApplicationProperties.kafkaConnectionProperties(
+    bootstrapServers: String
+): Map<String, Any> = buildMap {
+    put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
+    put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
+    kafka.sslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
+        put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
+        put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM")
+    }
+    kafka.sslEndpointIdentificationAlgorithm?.let {
+        put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, it)
     }
 }

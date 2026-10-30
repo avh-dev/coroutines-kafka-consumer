@@ -184,7 +184,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
-| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | IN_PROGRESS |
+| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5981,3 +5981,13 @@ warm-up forwarding mappings; a recipient runs separately assigned warm-up-topic
 consumers from their established end positions with the same handlers, retry policy,
 metrics, and application dependencies. Keep topic creation, deployment wiring,
 forwarding audit analysis, and the lab comparison in INFRA-319.
+Implemented opt-in donor and recipient roles for order and batch participants, with
+telemetry available explicitly when its processing mode is changed to unordered.
+Donors use typed serializers, bounded ramped forwarding, and an optional separate
+warm-up Kafka bootstrap address; recipients use namespaced groups and wait until all
+assigned partitions have established end positions. Non-participants retain their
+normal main subscriptions, and startup failure closes every consumer already started.
+Added the `ckc.traffic-warmup.v1.*` topic namespace and compact forwarding audit
+records that preserve every source-to-destination relation independently. Verification:
+the full core, demo-contract, and demo test suites pass, including Spring contexts,
+configuration binding, static role planning, validation, and audit encoding.

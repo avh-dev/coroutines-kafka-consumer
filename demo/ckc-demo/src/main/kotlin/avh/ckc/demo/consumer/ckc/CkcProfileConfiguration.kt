@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.config.kafkaConnectionProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
@@ -118,53 +119,78 @@ private class CkcConsumerRuntime(
     private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
+    private val recipientConsumers = mutableListOf<CoroutinesKafkaConsumer<*, *>>()
     @Volatile
     private var running = false
 
     override fun start() {
+        val trafficWarmup = StaticTrafficWarmupPlan.from(properties)
         val commonProperties = mapOf<String, Any>(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
         )
 
         orderConsumer = DemoConsumers.orderConsumer(
-            commonProperties + properties.kafkaConsumerProperties(properties.consumers.order) +
-                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            consumerProperties(commonProperties, properties.consumers.order, trafficWarmup.order),
             orderConsumerMetrics,
             properties.audit,
             properties.consumers.order,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup.order.route
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
-            commonProperties + properties.kafkaConsumerProperties(properties.consumers.batch) +
-                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            consumerProperties(commonProperties, properties.consumers.batch, trafficWarmup.batch),
             batchConsumerMetrics,
             properties.audit,
             properties.consumers.batch,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup.batch.route
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
-            commonProperties + properties.kafkaConsumerProperties(properties.consumers.telemetry) +
-                mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
+            consumerProperties(commonProperties, properties.consumers.telemetry, trafficWarmup.telemetry),
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,
             properties.consumers.freshnessFirstMaxRecordAgeSeconds,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup.telemetry.route
         ) { key, telemetry -> telemetryHandler(key, telemetry) }
 
-        orderConsumer.start()
-        batchConsumer.start()
-        telemetryConsumer.start()
-        running = true
+        val startedConsumers = mutableListOf<CoroutinesKafkaConsumer<*, *>>()
+        try {
+            orderConsumer.start()
+            startedConsumers += orderConsumer
+            batchConsumer.start()
+            startedConsumers += batchConsumer
+            telemetryConsumer.start()
+            startedConsumers += telemetryConsumer
+            recipientConsumers.clear()
+            if (trafficWarmup.order.recipient) recipientConsumers += orderConsumer
+            if (trafficWarmup.batch.recipient) recipientConsumers += batchConsumer
+            if (trafficWarmup.telemetry.recipient) recipientConsumers += telemetryConsumer
+            runBlocking {
+                recipientConsumers.forEach { it.awaitReady() }
+            }
+            running = true
+        } catch (startupFailure: Throwable) {
+            runBlocking {
+                startedConsumers.asReversed().forEach { consumer ->
+                    runCatching { consumer.stop() }
+                        .exceptionOrNull()
+                        ?.let(startupFailure::addSuppressed)
+                }
+            }
+            recipientConsumers.clear()
+            throw startupFailure
+        }
     }
 
     override fun stop() {
@@ -185,4 +211,26 @@ private class CkcConsumerRuntime(
     override fun isRunning(): Boolean = running
 
     override fun isAutoStartup(): Boolean = true
+
+    private fun consumerProperties(
+        commonProperties: Map<String, Any>,
+        runtime: DemoApplicationProperties.ConsumerRuntime,
+        participant: StaticTrafficWarmupParticipantPlan
+    ): Map<String, Any> {
+        val bootstrapServers = if (participant.recipient) {
+            properties.trafficWarmup.kafkaBootstrapServers.ifBlank { properties.kafka.bootstrapServers }
+        } else {
+            properties.kafka.bootstrapServers
+        }
+        val groupId = if (participant.recipient) {
+            "${properties.trafficWarmup.recipientGroupIdPrefix}-${properties.trafficWarmup.sessionId}-" +
+                participant.consumerId.value
+        } else {
+            runtime.groupIdOr(properties.kafka.groupId)
+        }
+        return commonProperties +
+            properties.kafkaConsumerProperties(runtime) +
+            properties.kafkaConnectionProperties(bootstrapServers) +
+            mapOf(ConsumerConfig.GROUP_ID_CONFIG to groupId)
+    }
 }
