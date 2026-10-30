@@ -6046,3 +6046,5 @@ profile and created only the main topics. Canonical runs now prefer the material
 The diagnostic workload now uses a 15-second ramp, one measured steady minute, and
 a 15-second cooldown for both targets. Unit and canonical experiment validation
 cover the topic-source precedence and shortened measurement window.
+Run the static warm-up target before the direct baseline so provisioning or readiness
+regressions fail fast instead of waiting for a successful control target first.
