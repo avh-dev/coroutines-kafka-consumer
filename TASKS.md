@@ -76,6 +76,7 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
+| [CORE-74](#core-74) | Define the real-traffic warm-up domain model, configuration, participant contracts, and per-topic outcomes. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5884,3 +5885,16 @@ plane before adding the shared coordinator and automatic control protocol.
 Keep all child work isolated on local branches rooted in the long-lived GLOBAL-3
 umbrella branch; do not merge it into `master` or push related branches without an
 explicit later instruction.
+
+<a id="core-74"></a>
+### CORE-74 - Define real-traffic warm-up contracts
+
+_Date: 2026-10-30_
+
+Define the identifiers, validated configuration, topic mapping, participant
+capabilities, and per-topic outcome model shared by the static data plane and the
+later coordinator protocol. Restrict the MVP contracts to unordered at-least-once
+processing, one donor and recipient per session, and explicit reporting of
+compatibility, partition ownership, observed traffic, forwarding, processing, and
+drain results. Keep Kafka transport, record forwarding, assigned consumption, and
+session state transitions in their later implementation tasks.
