@@ -1,5 +1,6 @@
 package avh.ckc.demo
 
+import avh.ckc.core.warmup.WarmupForwardingAcknowledgement
 import avh.ckc.demo.audit.auditTopicId
 import avh.ckc.demo.config.DemoApplicationProperties
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -161,6 +162,34 @@ fun logAuditShutdownMarker(phase: String, audit: DemoApplicationProperties.Audit
         return
     }
     auditLogger.info("S|shutdown|$phase|${System.currentTimeMillis()}")
+}
+
+fun logWarmupForwarded(
+    acknowledgement: WarmupForwardingAcknowledgement,
+    audit: DemoApplicationProperties.Audit
+) {
+    if (!audit.enabled) {
+        return
+    }
+    auditLogger.info(encodeWarmupForwardingAuditRecord(acknowledgement))
+}
+
+internal fun encodeWarmupForwardingAuditRecord(
+    acknowledgement: WarmupForwardingAcknowledgement,
+    auditTimestampMs: Long = System.currentTimeMillis()
+): String = with(acknowledgement) {
+    listOf(
+        "W",
+        sessionId.value,
+        consumerId.value,
+        auditTopicId(sourceTopicPartition.topic()),
+        sourceTopicPartition.partition(),
+        sourceOffset,
+        auditTopicId(warmupTopicPartition.topic()),
+        warmupTopicPartition.partition(),
+        warmupOffset,
+        auditTimestampMs
+    ).joinToString("|")
 }
 
 private fun logRecord(

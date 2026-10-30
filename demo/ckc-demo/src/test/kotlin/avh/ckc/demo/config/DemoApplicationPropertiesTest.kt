@@ -54,6 +54,13 @@ class DemoApplicationPropertiesTest {
         assertEquals(DemoApplicationProperties.JdkHttpClientExecutor.DEFAULT, properties.model.jdkHttpClientExecutor)
         assertEquals("HttpClient-virtual-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://127.0.0.1:18080", properties.registry.baseUrl)
+        assertEquals(DemoApplicationProperties.TrafficWarmupRole.DISABLED, properties.trafficWarmup.role)
+        assertEquals("static", properties.trafficWarmup.sessionId)
+        assertEquals("", properties.trafficWarmup.kafkaBootstrapServers)
+        assertEquals("ckc-traffic-warmup-v1-recipient", properties.trafficWarmup.recipientGroupIdPrefix)
+        assertEquals("ckc.traffic-warmup.v1.order.events", properties.trafficWarmup.order.topic)
+        assertEquals(0, properties.trafficWarmup.order.partition)
+        assertEquals(false, properties.trafficWarmup.telemetry.enabled)
     }
 
     @Test
@@ -102,7 +109,15 @@ class DemoApplicationPropertiesTest {
                 "demo.model.sync-http-client" to "jdk",
                 "demo.model.jdk-http-client-executor" to "virtual",
                 "demo.model.jdk-http-client-virtual-thread-name-prefix" to "http-vt-test-",
-                "demo.registry.base-url" to "http://registry.example"
+                "demo.registry.base-url" to "http://registry.example",
+                "demo.traffic-warmup.role" to "recipient",
+                "demo.traffic-warmup.session-id" to "session-9",
+                "demo.traffic-warmup.kafka-bootstrap-servers" to "warmup:9093",
+                "demo.traffic-warmup.recipient-group-id-prefix" to "ckc-traffic-warmup-v1-test",
+                "demo.traffic-warmup.target-fraction" to "0.25",
+                "demo.traffic-warmup.ramp-up-seconds" to "30",
+                "demo.traffic-warmup.order.topic" to "ckc.traffic-warmup.v1.test-orders",
+                "demo.traffic-warmup.order.partition" to "4"
             )
         )
 
@@ -151,6 +166,14 @@ class DemoApplicationPropertiesTest {
         assertEquals(DemoApplicationProperties.JdkHttpClientExecutor.VIRTUAL, properties.model.jdkHttpClientExecutor)
         assertEquals("http-vt-test-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://registry.example", properties.registry.baseUrl)
+        assertEquals(DemoApplicationProperties.TrafficWarmupRole.RECIPIENT, properties.trafficWarmup.role)
+        assertEquals("session-9", properties.trafficWarmup.sessionId)
+        assertEquals("warmup:9093", properties.trafficWarmup.kafkaBootstrapServers)
+        assertEquals("ckc-traffic-warmup-v1-test", properties.trafficWarmup.recipientGroupIdPrefix)
+        assertEquals(0.25, properties.trafficWarmup.targetFraction)
+        assertEquals(30, properties.trafficWarmup.rampUpSeconds)
+        assertEquals("ckc.traffic-warmup.v1.test-orders", properties.trafficWarmup.order.topic)
+        assertEquals(4, properties.trafficWarmup.order.partition)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =

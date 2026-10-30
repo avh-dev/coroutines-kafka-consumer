@@ -7,6 +7,8 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.core.warmup.WarmupForwardingConfiguration
+import avh.ckc.core.warmup.WarmupForwardingObserver
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logFailed
@@ -25,10 +27,11 @@ import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.common.TopicPartition
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-object DemoConsumers {
+internal object DemoConsumers {
     fun orderConsumer(
         baseProperties: Map<String, Any>,
         metrics: ConsumerMetrics<String, OrderLifecycleEvent>,
@@ -37,6 +40,7 @@ object DemoConsumers {
         retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
+        route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.ORDER_EVENTS),
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -46,7 +50,7 @@ object DemoConsumers {
         )
 
         return coroutinesKafkaConsumer(properties) {
-            topics(DemoTopics.ORDER_EVENTS)
+            configureRoute(route)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -79,6 +83,7 @@ object DemoConsumers {
         retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
+        route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.BATCH_EVENTS),
         handler: suspend (String?, BatchLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, BatchLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -88,7 +93,7 @@ object DemoConsumers {
         )
 
         return coroutinesKafkaConsumer(properties) {
-            topics(DemoTopics.BATCH_EVENTS)
+            configureRoute(route)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -122,6 +127,7 @@ object DemoConsumers {
         retry: DemoApplicationProperties.Retry,
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
+        route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.CAULDRON_EVENTS),
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -131,7 +137,7 @@ object DemoConsumers {
         )
 
         return coroutinesKafkaConsumer(properties) {
-            topics(DemoTopics.CAULDRON_EVENTS)
+            configureRoute(route)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -195,4 +201,34 @@ object DemoConsumers {
     }
 
     private fun RecordDropReason.auditReason(): String = name.lowercase()
+
+    private fun <K, V> avh.ckc.core.CoroutinesKafkaConsumerBuilder<K, V>.configureRoute(
+        route: DemoConsumerRoute
+    ) {
+        route.assignedPartition?.let { assignedPartitionsAtEnd(it) } ?: topics(route.mainTopic!!)
+        route.forwardingConfiguration?.let {
+            warmupForwarding(it, route.forwardingObserver)
+        }
+    }
+}
+
+internal class DemoConsumerRoute private constructor(
+    val mainTopic: String?,
+    val assignedPartition: TopicPartition?,
+    val forwardingConfiguration: WarmupForwardingConfiguration?,
+    val forwardingObserver: WarmupForwardingObserver
+) {
+    companion object {
+        fun main(
+            topic: String,
+            forwardingConfiguration: WarmupForwardingConfiguration? = null,
+            forwardingObserver: WarmupForwardingObserver = WarmupForwardingObserver.NOOP
+        ): DemoConsumerRoute {
+            require(topic.isNotBlank()) { "Main topic must not be blank" }
+            return DemoConsumerRoute(topic, null, forwardingConfiguration, forwardingObserver)
+        }
+
+        fun recipient(partition: TopicPartition): DemoConsumerRoute =
+            DemoConsumerRoute(null, partition, null, WarmupForwardingObserver.NOOP)
+    }
 }
