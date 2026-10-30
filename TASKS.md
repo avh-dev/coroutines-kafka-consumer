@@ -496,6 +496,7 @@
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
+| [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -5870,3 +5871,16 @@ _Date: 2026-10-29_
 
 Mark the remaining CORE and INFRA task-tracker entries as complete so `TASKS.md`
 contains no stale `IN_PROGRESS` status after the sequential CORE work finished.
+
+<a id="global-3"></a>
+### GLOBAL-3 - Build an unordered real-traffic warm-up MVP
+
+_Date: 2026-10-30_
+
+Coordinate the local-only MVP work across CKC core, Spring integration, demo audit,
+and internal-lab experiment infrastructure. Introduce a real-traffic warm-up path
+for `AT_LEAST_ONCE_NO_ORDERING` consumers, starting with a measurable static data
+plane before adding the shared coordinator and automatic control protocol.
+Keep all child work isolated on local branches rooted in the long-lived GLOBAL-3
+umbrella branch; do not merge it into `master` or push related branches without an
+explicit later instruction.
