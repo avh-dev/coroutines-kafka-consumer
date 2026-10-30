@@ -14,7 +14,7 @@ workload:
     workers: 8
     base_tps: 2000
     producer_capacity_tps: {order: 2000, batch: 2000, telemetry: 2000}
-    load_profile: 0 -> (2m, warmup) -> 100 -> (5m, steady) -> 100 -> (1m, cool-down) -> 0
+    load_profile: 0 -> (15s, warmup) -> 100 -> (1m, steady) -> 100 -> (15s, cool-down) -> 0
     cauldron_count: 128
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -27,8 +27,8 @@ workload:
     consumer_drain_required: true
   measurement_windows:
   - name: steady-state
-    start: 3m
-    duration: 3m
+    start: 15s
+    duration: 1m
   topics:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}

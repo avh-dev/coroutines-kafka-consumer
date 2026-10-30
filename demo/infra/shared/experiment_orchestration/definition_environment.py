@@ -382,6 +382,32 @@ def parse_env_override(value: str) -> tuple[str, str]:
     return key, raw
 
 
+def kafka_topic_specs(
+    definition: dict[str, Any],
+    deployment_profile: dict[str, Any],
+    deployment_profile_path: Path,
+) -> list[str]:
+    materialized_topics = value_at(definition, "deployment", "kafka_topics", default=None)
+    topics = materialized_topics if isinstance(materialized_topics, list) and materialized_topics else value_at(
+        deployment_profile,
+        "lab",
+        "kafkaTopics",
+        default=None,
+    )
+    if not isinstance(topics, list) or not topics:
+        raise ValueError(f"Deployment profile must define lab.kafkaTopics: {deployment_profile_path}")
+    topic_specs: list[str] = []
+    for topic in topics:
+        if not isinstance(topic, dict):
+            continue
+        name = str(topic.get("name", "")).strip()
+        if not name:
+            continue
+        partitions = int(topic.get("partitions", 1))
+        topic_specs.append(f"{name}:{partitions}")
+    return topic_specs
+
+
 def main() -> None:
     args = parse_args()
     repo_dir = Path(args.repo_dir).resolve()
@@ -398,18 +424,7 @@ def main() -> None:
             else repo_dir / deployment_profile_path
         )
     deployment_profile = load_yaml(deployment_profile_path)
-    topics = value_at(deployment_profile, "lab", "kafkaTopics", default=None)
-    if not isinstance(topics, list) or not topics:
-        raise ValueError(f"Deployment profile must define lab.kafkaTopics: {deployment_profile_path}")
-    topic_specs: list[str] = []
-    for topic in topics:
-        if not isinstance(topic, dict):
-            continue
-        name = str(topic.get("name", "")).strip()
-        if not name:
-            continue
-        partitions = int(topic.get("partitions", 1))
-        topic_specs.append(f"{name}:{partitions}")
+    topic_specs = kafka_topic_specs(definition, deployment_profile, deployment_profile_path)
 
     load_test = value_at(definition, "load_test", default={})
     if not isinstance(load_test, dict):
