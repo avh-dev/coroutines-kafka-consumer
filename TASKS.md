@@ -184,7 +184,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
-| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
+| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | IN_PROGRESS |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
