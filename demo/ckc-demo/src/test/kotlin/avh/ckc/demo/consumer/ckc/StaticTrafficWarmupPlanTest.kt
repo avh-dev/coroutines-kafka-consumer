@@ -91,6 +91,52 @@ class StaticTrafficWarmupPlanTest {
         assertTrue(error.message.orEmpty().contains("Traffic warm-up partitions must be exclusive"))
     }
 
+    @Test
+    fun `custom warm-up topic is rejected before startup when audit is enabled`() {
+        val properties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.DONOR)
+        properties.trafficWarmup.order.topic = "custom.warmup.orders"
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            StaticTrafficWarmupPlan.from(properties)
+        }
+
+        assertEquals(
+            "No audit topic ID is configured for traffic warm-up topic 'custom.warmup.orders'",
+            error.message
+        )
+    }
+
+    @Test
+    fun `custom warm-up topic remains available when audit is disabled`() {
+        val properties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.DONOR)
+        properties.audit.enabled = false
+        properties.trafficWarmup.order.topic = "custom.warmup.orders"
+
+        val plan = StaticTrafficWarmupPlan.from(properties)
+
+        assertEquals(
+            "custom.warmup.orders",
+            plan.order.route.forwardingConfiguration!!.assignments.single().warmupTopic
+        )
+    }
+
+    @Test
+    fun `audit separator is rejected in session and consumer identifiers`() {
+        val sessionProperties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.DONOR)
+        sessionProperties.trafficWarmup.sessionId = "run|1"
+        val sessionError = assertFailsWith<IllegalArgumentException> {
+            StaticTrafficWarmupPlan.from(sessionProperties)
+        }
+        assertEquals("demo.traffic-warmup.session-id must not contain '|'", sessionError.message)
+
+        val consumerProperties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.DONOR)
+        consumerProperties.trafficWarmup.order.consumerId = "orders|primary"
+        val consumerError = assertFailsWith<IllegalArgumentException> {
+            StaticTrafficWarmupPlan.from(consumerProperties)
+        }
+        assertEquals("Traffic warm-up consumer ID must not contain '|'", consumerError.message)
+    }
+
     private fun warmupProperties(
         role: DemoApplicationProperties.TrafficWarmupRole
     ): DemoApplicationProperties = DemoApplicationProperties().also {

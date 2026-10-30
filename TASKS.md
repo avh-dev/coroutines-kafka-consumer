@@ -184,7 +184,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
-| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | IN_PROGRESS |
+| [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -5991,3 +5991,8 @@ Added the `ckc.traffic-warmup.v1.*` topic namespace and compact forwarding audit
 records that preserve every source-to-destination relation independently. Verification:
 the full core, demo-contract, and demo test suites pass, including Spring contexts,
 configuration binding, static role planning, validation, and audit encoding.
+Review follow-up validates every active warm-up topic against the compact audit ID
+registry before any consumer starts when audit is enabled; custom topics remain
+available when audit is disabled. Demo session and consumer identifiers now reject
+the compact-record field separator so forwarding relations always retain their
+fixed column layout. Regression coverage exercises both validation boundaries.

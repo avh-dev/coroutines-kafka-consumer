@@ -7,7 +7,7 @@ const val AUDIT_TRAFFIC_WARMUP_ORDER_EVENTS_TOPIC = "ckc.traffic-warmup.v1.order
 const val AUDIT_TRAFFIC_WARMUP_BATCH_EVENTS_TOPIC = "ckc.traffic-warmup.v1.batch.events"
 const val AUDIT_TRAFFIC_WARMUP_CAULDRON_EVENTS_TOPIC = "ckc.traffic-warmup.v1.cauldron.events"
 
-fun auditTopicId(topic: String): Int =
+fun auditTopicIdOrNull(topic: String): Int? =
     when (topic) {
         AUDIT_ORDER_EVENTS_TOPIC -> 1
         AUDIT_BATCH_EVENTS_TOPIC -> 2
@@ -15,5 +15,8 @@ fun auditTopicId(topic: String): Int =
         AUDIT_TRAFFIC_WARMUP_ORDER_EVENTS_TOPIC -> 101
         AUDIT_TRAFFIC_WARMUP_BATCH_EVENTS_TOPIC -> 102
         AUDIT_TRAFFIC_WARMUP_CAULDRON_EVENTS_TOPIC -> 103
-        else -> error("No audit topic id configured for topic '$topic'")
+        else -> null
     }
+
+fun auditTopicId(topic: String): Int =
+    auditTopicIdOrNull(topic) ?: error("No audit topic id configured for topic '$topic'")

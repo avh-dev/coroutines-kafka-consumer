@@ -8,6 +8,7 @@ import avh.ckc.core.warmup.WarmupForwardingProfile
 import avh.ckc.core.warmup.WarmupPartitionAssignment
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.demo.DemoTopics
+import avh.ckc.demo.audit.auditTopicIdOrNull
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConnectionProperties
 import avh.ckc.demo.logWarmupForwarded
@@ -53,17 +54,21 @@ internal data class StaticTrafficWarmupPlan(
                     CauldronTelemetryEventSerializer::class.java
                 )
             )
-            validate(warmup, participants)
+            validate(warmup, participants, properties.audit.enabled)
             val plans = participants.map { participant -> participant.toPlan(properties, warmup) }
             return StaticTrafficWarmupPlan(plans[0], plans[1], plans[2])
         }
 
         private fun validate(
             warmup: DemoApplicationProperties.TrafficWarmup,
-            participants: List<ParticipantInput>
+            participants: List<ParticipantInput>,
+            auditEnabled: Boolean
         ) {
             if (warmup.role == DemoApplicationProperties.TrafficWarmupRole.DISABLED) return
             WarmupSessionId(warmup.sessionId)
+            require(AUDIT_FIELD_SEPARATOR !in warmup.sessionId) {
+                "demo.traffic-warmup.session-id must not contain '$AUDIT_FIELD_SEPARATOR'"
+            }
             WarmupForwardingProfile(
                 initialFraction = warmup.initialFraction,
                 targetFraction = warmup.targetFraction,
@@ -82,8 +87,14 @@ internal data class StaticTrafficWarmupPlan(
                     "Traffic warm-up participant ${it.configuration.consumerId} must use AT_LEAST_ONCE_NO_ORDERING"
                 }
                 WarmupConsumerId(it.configuration.consumerId)
+                require(AUDIT_FIELD_SEPARATOR !in it.configuration.consumerId) {
+                    "Traffic warm-up consumer ID must not contain '$AUDIT_FIELD_SEPARATOR'"
+                }
                 require(it.configuration.topic.isNotBlank()) { "Traffic warm-up topic must not be blank" }
                 require(it.configuration.partition >= 0) { "Traffic warm-up partition must not be negative" }
+                require(!auditEnabled || auditTopicIdOrNull(it.configuration.topic) != null) {
+                    "No audit topic ID is configured for traffic warm-up topic '${it.configuration.topic}'"
+                }
             }
             val duplicateDestinations = enabled.groupingBy {
                 TopicPartition(it.configuration.topic, it.configuration.partition)
@@ -95,6 +106,8 @@ internal data class StaticTrafficWarmupPlan(
         }
     }
 }
+
+private const val AUDIT_FIELD_SEPARATOR = '|'
 
 private data class ParticipantInput(
     val sourceTopic: String,
