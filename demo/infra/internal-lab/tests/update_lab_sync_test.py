@@ -18,6 +18,13 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn('print(",".join(', prepare)
         self.assertIn('name="${application#*/}"', quiesce)
 
+    def test_static_traffic_warmup_cleanup_uses_its_own_recipient_group_namespace(self) -> None:
+        prepare = PREPARE_TEST.read_text(encoding="utf-8")
+
+        self.assertIn('deployment_mode") == "static_traffic_warmup"', prepare)
+        self.assertIn('"ckc-traffic-warmup-v1-recipient"', prepare)
+        self.assertIn('f"{prefix}-{session}-{consumer_id}"', prepare)
+
     def test_target_runner_exports_topology_to_environment_evidence_collector(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
 

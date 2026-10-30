@@ -660,6 +660,7 @@ def _deployment(
     node_selector: Mapping[str, str] | None = None,
     tolerations: tuple[Mapping[str, str], ...] = (),
     extra_labels: Mapping[str, str] | None = None,
+    init_containers: tuple[Mapping[str, Any], ...] = (),
 ) -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": name, **dict(extra_labels or {})}
     pod_labels = {
@@ -706,6 +707,8 @@ def _deployment(
         }],
         "containers": [container],
     }
+    if init_containers:
+        pod_spec["initContainers"] = [copy.deepcopy(dict(item)) for item in init_containers]
     if node_selector:
         pod_spec["nodeSelector"] = dict(node_selector)
     if tolerations:
@@ -719,7 +722,9 @@ def _deployment(
         container["volumeMounts"] = [{"name": "packet-captures", "mountPath": "/captures"}]
         pod_spec["volumes"] = [{"name": "packet-captures", "emptyDir": {"sizeLimit": "256Mi"}}]
     if network_counters:
-        pod_spec["initContainers"] = [_kafka_network_exporter(kafka_network_exporter_image, pull_policy, kafka_ports)]
+        pod_spec.setdefault("initContainers", []).append(
+            _kafka_network_exporter(kafka_network_exporter_image, pull_policy, kafka_ports)
+        )
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -862,7 +867,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         )
         if application_hpa:
             manifests.append(application_hpa)
-    else:
+    elif deployment_mode == "per_topic":
         topics = {
             str(topic.get("name")): str(topic.get("kafka_topic") or topic.get("topic") or "")
             for topic in ((application.get("planner") or {}).get("topics") or [])
@@ -924,6 +929,87 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                            **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {})}],
             },
         })
+    else:
+        recipient_name = "ckc-demo-warmup-recipient"
+        donor_name = "ckc-demo-warmup-donor"
+        common_warmup_env = {
+            "TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS": bindings.kafka_bootstrap,
+            "TRAFFIC_WARMUP_ORDER_ENABLED": "true",
+            "TRAFFIC_WARMUP_BATCH_ENABLED": "true",
+            "TRAFFIC_WARMUP_TELEMETRY_ENABLED": "true",
+        }
+        recipient_env = {
+            **computed_env,
+            **common_warmup_env,
+            "TRAFFIC_WARMUP_ROLE": "RECIPIENT",
+            "GROUP_ID": "ckc-traffic-warmup-v1-recipient-main-disabled",
+        }
+        donor_env = {
+            **computed_env,
+            **common_warmup_env,
+            "TRAFFIC_WARMUP_ROLE": "DONOR",
+            "GROUP_ID": "ckc-demo",
+        }
+        recipient_labels = {"ckc.dev/component": "application", "ckc.dev/workload": "warmup-recipient"}
+        donor_labels = {"ckc.dev/component": "application", "ckc.dev/workload": "warmup-donor"}
+        wait_for_recipient = {
+            "name": "wait-for-warmup-recipient",
+            "image": bindings.application_image,
+            "imagePullPolicy": bindings.image_pull_policy,
+            "command": ["/bin/bash", "-ec"],
+            "args": [
+                "until exec 3<>/dev/tcp/ckc-demo-warmup-recipient/8080; do sleep 1; done; "
+                "printf 'GET /actuator/health HTTP/1.1\\r\\nHost: ckc-demo-warmup-recipient\\r\\nConnection: close\\r\\n\\r\\n' >&3; "
+                "read -r status <&3; [[ \"${status}\" == *' 200 '* ]]"
+            ],
+            "resources": {
+                "requests": {"cpu": "5m", "memory": "16Mi"},
+                "limits": {"cpu": "50m", "memory": "64Mi"},
+            },
+        }
+        manifests.extend([
+            _deployment(
+                name=recipient_name, namespace=bindings.application_namespace, container_name="demo",
+                image=bindings.application_image, pull_policy=bindings.image_pull_policy, replicas=1,
+                run_id=bindings.run_id, profile=profile, environment=recipient_env, resources=resources,
+                packet_capture=bindings.packet_capture_enabled, network_counters=network_counters_enabled,
+                kafka_network_exporter_image=bindings.kafka_network_exporter_image, kafka_ports=kafka_ports,
+                probes=probes, test_definition=bindings.test_definition,
+                node_selector=bindings.application_node_selector,
+                tolerations=bindings.application_tolerations, extra_labels=recipient_labels,
+            ),
+            {
+                "apiVersion": "v1", "kind": "Service",
+                "metadata": _metadata(recipient_name, bindings.application_namespace, recipient_labels),
+                "spec": {
+                    "selector": {"app.kubernetes.io/name": recipient_name},
+                    "ports": [{"name": "http", "port": 8080, "targetPort": 8080}],
+                },
+            },
+            _deployment(
+                name=donor_name, namespace=bindings.application_namespace, container_name="demo",
+                image=bindings.application_image, pull_policy=bindings.image_pull_policy, replicas=1,
+                run_id=bindings.run_id, profile=profile, environment=donor_env, resources=resources,
+                packet_capture=bindings.packet_capture_enabled, network_counters=network_counters_enabled,
+                kafka_network_exporter_image=bindings.kafka_network_exporter_image, kafka_ports=kafka_ports,
+                probes=probes, test_definition=bindings.test_definition,
+                node_selector=bindings.application_node_selector,
+                tolerations=bindings.application_tolerations, extra_labels=donor_labels,
+                init_containers=(wait_for_recipient,),
+            ),
+            {
+                "apiVersion": "v1", "kind": "Service",
+                "metadata": _metadata("ckc-demo", bindings.application_namespace, donor_labels),
+                "spec": {
+                    "selector": {"app.kubernetes.io/name": donor_name},
+                    "type": bindings.application_service_type,
+                    "ports": [{
+                        "name": "http", "port": 8080, "targetPort": 8080,
+                        **({"nodePort": bindings.application_node_port} if bindings.application_node_port else {}),
+                    }],
+                },
+            },
+        ])
     workload = plan["workload"]
     manifests.extend([
         {

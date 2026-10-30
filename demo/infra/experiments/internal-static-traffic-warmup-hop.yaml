@@ -1,0 +1,88 @@
+schema_version: 2
+name: internal-static-traffic-warmup-hop
+description: >-
+  Compare direct CKC processing with a fixed donor-to-recipient real-traffic
+  warm-up hop before adding the automatic coordinator protocol.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    flavour: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    workers: 8
+    base_tps: 2000
+    producer_capacity_tps: {order: 2000, batch: 2000, telemetry: 2000}
+    load_profile: 0 -> (2m, warmup) -> 100 -> (5m, steady) -> 100 -> (1m, cool-down) -> 0
+    cauldron_count: 128
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 2
+    consumer_drain_timeout_seconds: 180
+    consumer_drain_required: true
+  measurement_windows:
+  - name: steady-state
+    start: 3m
+    duration: 3m
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+targets:
+- &direct
+  name: ckc.direct
+  annotation_label: CKC · direct processing
+  implementation: ckc
+  application: &application
+    replicas: 1
+    resources:
+      requests: {cpu: 1000m, memory: 768Mi}
+      limits: {memory: 1536Mi}
+    hpa: {enabled: false}
+    java_options: -Xms512m -Xmx1024m -Xss256k -XX:+UseSerialGC
+  runtime: &runtime
+    env: &base_env
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 4
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 1000
+    planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 50}
+    parallelism: [workers]
+    topics:
+      order: {partitions: 2, workers: 64, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      batch: {partitions: 2, workers: 64, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      telemetry: {partitions: 2, workers: 64, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+- <<: *direct
+  name: ckc.static-warmup-hop
+  annotation_label: CKC · static 10% traffic warm-up hop
+  application:
+    <<: *application
+    deployment_mode: static_traffic_warmup
+  runtime:
+    <<: *runtime
+    env:
+      <<: *base_env
+      TRAFFIC_WARMUP_SESSION_ID: static-hop
+      TRAFFIC_WARMUP_INITIAL_FRACTION: 0.1
+      TRAFFIC_WARMUP_TARGET_FRACTION: 0.1
+      TRAFFIC_WARMUP_RAMP_UP_SECONDS: 0
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: single
+        brokers: 1
+        replication_factor: 1
+        min_insync_replicas: 1
+        resources: {cpu_per_broker: 2, memory_per_broker: 4Gi, heap_per_broker: 2Gi}

@@ -52,6 +52,90 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_forwarding_correlates_outcome_before_relation_and_keeps_ack_nonterminal(self) -> None:
+        document = analyze([
+            "C|101|0|9|1200|order-a",
+            "W|session-1|order_events|1|2|41|101|0|9|1300",
+            "W|session-1|order_events|1|2|42|101|0|10|1400",
+        ])
+
+        forwarding = document["audit"]["forwarding"]
+        self.assertEqual(2, forwarding["unique_relations"])
+        self.assertEqual(1, forwarding["relations"]["processed"])
+        self.assertEqual(1, forwarding["relations"]["unresolved"])
+        self.assertEqual(1, forwarding["business_delivery"]["processed_sources"])
+        self.assertEqual(1, forwarding["business_delivery"]["unresolved_sources"])
+        self.assertEqual([1, 2, 42], forwarding["unresolved_samples"][0]["source"])
+
+    def test_forwarding_preserves_multiple_destinations_and_reports_business_duplicate(self) -> None:
+        document = analyze([
+            "W|session-1|order_events|1|0|7|101|0|11|1000",
+            "W|session-1|order_events|1|0|7|101|0|12|1100",
+            "C|101|0|11|1200|order-a",
+            "C|101|0|12|1300|order-a",
+        ])
+
+        forwarding = document["audit"]["forwarding"]
+        self.assertEqual(2, forwarding["unique_relations"])
+        self.assertEqual(1, forwarding["forwarded_sources"])
+        self.assertEqual(1, forwarding["sources_with_multiple_relations"])
+        self.assertEqual(1, forwarding["business_delivery"]["sources_with_duplicate_processing"])
+        self.assertEqual(1, forwarding["business_delivery"]["duplicate_processing_outcomes"])
+
+    def test_forwarding_duplicate_audit_record_does_not_replace_relation(self) -> None:
+        document = analyze([
+            "W|session-1|order_events|1|0|7|101|0|11|1000",
+            "W|session-1|order_events|1|0|7|101|0|11|1100",
+            "F|101|0|11|1200|order-a",
+        ])
+
+        forwarding = document["audit"]["forwarding"]
+        self.assertEqual(2, forwarding["relation_records"])
+        self.assertEqual(1, forwarding["unique_relations"])
+        self.assertEqual(1, forwarding["duplicate_relation_records"])
+        self.assertEqual(1, forwarding["business_delivery"]["failed_sources"])
+
+    def test_forwarding_rejects_destination_reuse_by_another_source(self) -> None:
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None)
+        accumulator.add(analyzer.parse_record("W|session-1|order_events|1|0|7|101|0|11|1000"))
+
+        with self.assertRaisesRegex(ValueError, "linked to multiple forwarding sources"):
+            accumulator.add(analyzer.parse_record("W|session-1|order_events|1|0|8|101|0|11|1100"))
+
+    def test_forwarding_outcome_closes_source_delivery_without_warmup_without_publish(self) -> None:
+        document = analyze([
+            "C|101|0|11|1300|order-a",
+            "W|session-1|order_events|1|0|7|101|0|11|1200",
+            "P|1|0|7|1000|1000|order-a",
+        ])
+
+        totals = document["audit"]["totals"]
+        self.assertEqual(1, totals["published"])
+        self.assertEqual(1, totals["processed"])
+        self.assertEqual(0, totals["missing_terminal"])
+        self.assertEqual(0, totals["without_publish"]["processed"])
+        self.assertEqual(300, totals["e2e_latency"]["max"])
+
+    def test_forwarding_is_correlated_inside_publication_window_in_any_log_order(self) -> None:
+        accumulator = analyzer.MultiWindowAuditAccumulator(
+            open_record_ttl_ms=None,
+            windows=(analyzer.MeasurementWindow("steady", 1000, 2000),),
+        )
+        for line in (
+            "W|session-1|order_events|1|0|7|101|0|11|1200",
+            "C|101|0|11|1300|order-a",
+            "P|1|0|7|1100|1100|order-a",
+        ):
+            accumulator.add(analyzer.parse_record(line))
+        accumulator.finish()
+
+        audit = analyzer.summary_document(accumulator, {})["audit"]
+        window = audit["measurement_windows"][0]
+        self.assertEqual(1, window["totals"]["published"])
+        self.assertEqual(1, window["totals"]["processed"])
+        self.assertEqual(0, window["totals"]["missing_terminal"])
+        self.assertEqual(1, window["forwarding"]["unique_relations"])
+
     def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
         accumulator = analyzer.MultiWindowAuditAccumulator(
             open_record_ttl_ms=None,

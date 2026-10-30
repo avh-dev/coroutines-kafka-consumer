@@ -76,6 +76,67 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertIn("BEGIN CERTIFICATE", load_env["KAFKA_SSL_TRUSTSTORE_CERTIFICATES"])
         self.assertEqual("", load_env["KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"])
 
+    def test_static_traffic_warmup_materializes_isolated_topics_and_ordered_roles(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/internal-static-traffic-warmup-hop.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "static-warmup"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+        target = next(item for item in targets if item.target.name == "ckc.static-warmup-hop")
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        topic_names = [topic["name"] for topic in definition["deployment"]["kafka_topics"]]
+        self.assertEqual(
+            [
+                "ckc.traffic-warmup.v1.order.events",
+                "ckc.traffic-warmup.v1.batch.events",
+                "ckc.traffic-warmup.v1.cauldron.events",
+            ],
+            [name for name in topic_names if name.startswith("ckc.traffic-warmup.v1.")],
+        )
+        self.assertFalse(any(name.startswith("ckc.warmup.v1.") for name in topic_names))
+
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="warmup-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="kafka:9092",
+            redis_host="redis",
+            audit_host="audit",
+        ))
+        deployments = {
+            item["metadata"]["name"]: item
+            for item in manifests
+            if item["kind"] == "Deployment"
+        }
+        recipient = deployments["ckc-demo-warmup-recipient"]
+        donor = deployments["ckc-demo-warmup-donor"]
+        recipient_env = {
+            item["name"]: item["value"]
+            for item in recipient["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        donor_env = {
+            item["name"]: item["value"]
+            for item in donor["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual("RECIPIENT", recipient_env["TRAFFIC_WARMUP_ROLE"])
+        self.assertEqual("DONOR", donor_env["TRAFFIC_WARMUP_ROLE"])
+        self.assertEqual("true", recipient_env["TRAFFIC_WARMUP_TELEMETRY_ENABLED"])
+        init_names = [
+            item["name"]
+            for item in donor["spec"]["template"]["spec"]["initContainers"]
+        ]
+        self.assertIn("wait-for-warmup-recipient", init_names)
+        donor_service = next(
+            item for item in manifests
+            if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-demo"
+        )
+        self.assertEqual(
+            "ckc-demo-warmup-donor",
+            donor_service["spec"]["selector"]["app.kubernetes.io/name"],
+        )
+
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")
