@@ -284,6 +284,7 @@ class WarmupCoordinator internal constructor(
         val assignment = localAssignments[message.sessionId]
             ?: ownAssignment.takeIf { it?.sessionId == message.sessionId }
             ?: activeSessions[message.sessionId]?.assignment
+        val existingExecutor = sessionEffects[message.sessionId]
         if (assignment?.donorInstanceId == configuration.instanceId) {
             enqueueDonorEffect(DonorEffect.Complete(message.sessionId))
         }
@@ -293,6 +294,7 @@ class WarmupCoordinator internal constructor(
         if (assignment?.recipientInstanceId == configuration.instanceId && ownSessionId == message.sessionId) {
             enqueueSessionEffect(message)
         } else {
+            existingExecutor?.let { enqueueExistingSessionEffect(message, it) }
             localAssignments.remove(message.sessionId)
             dataPlaneStarted.remove(message.sessionId)
         }
@@ -393,6 +395,14 @@ class WarmupCoordinator internal constructor(
         if (effects == null) {
             scope.launch { fail(IllegalStateException("Warm-up session executor limit exceeded"), true) }
         } else if (effects.queue.trySend(message).isFailure) {
+            scope.launch {
+                fail(IllegalStateException("Warm-up session command queue is full for ${message.sessionId}"), true)
+            }
+        }
+    }
+
+    private fun enqueueExistingSessionEffect(message: WarmupControlMessage, executor: SessionEffectExecutor) {
+        if (executor.queue.trySend(message).isFailure) {
             scope.launch {
                 fail(IllegalStateException("Warm-up session command queue is full for ${message.sessionId}"), true)
             }
@@ -549,9 +559,10 @@ class WarmupCoordinator internal constructor(
     private suspend fun startForwarding(message: StartForwarding) {
         val assignment = matchingAssignment(message.sessionId) ?: return
         if (assignment.donorInstanceId != configuration.instanceId || !once("forward:${message.sessionId}")) return
-        participants.values.forEach { it.activateDonor(message.sessionId) }
+        // From this point activation may be partial, so any failure requires terminal participant cleanup.
         dataPlaneStarted += message.sessionId
         state = WarmupCoordinatorState.DONOR_FORWARDING
+        participants.values.forEach { it.activateDonor(message.sessionId) }
     }
 
     private suspend fun stopForwarding(message: StopForwarding) {

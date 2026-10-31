@@ -6154,3 +6154,8 @@ before a later reservation. A replicated failure immediately fences and cancels 
 local executor instead of waiting behind readiness or drain. The reducer enforces monotonic
 session stages and keeps quarantined reservations terminal. Unassigned requests create no
 session executor, expire their scheduler state, and all local executor counts are bounded.
+
+Donor activation is terminal from before the first participant is enabled, so cancellation
+of a partially activated set stops every participant instead of releasing it as unused.
+Successful completion also closes any executor created by the active coordinator, allowing
+the configured executor bound to be reused across sequential warm-up sessions.

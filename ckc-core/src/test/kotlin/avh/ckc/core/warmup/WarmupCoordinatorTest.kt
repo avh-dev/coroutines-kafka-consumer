@@ -383,6 +383,80 @@ class WarmupCoordinatorTest {
         }
     }
 
+    @Test
+    fun `failure during partial donor activation stops already activated participants`() = runBlocking {
+        val bus = ControlBus()
+        val activationGate = CompletableDeferred<Unit>()
+        val activationEntered = CompletableDeferred<Unit>()
+        val firstDonor = TestParticipant(
+            consumerId = "orders-a", sourceTopic = "orders-a", warmupTopic = "warmup-orders-a"
+        )
+        val secondDonor = TestParticipant(
+            consumerId = "orders-b", sourceTopic = "orders-b", warmupTopic = "warmup-orders-b",
+            activationGate = activationGate, activationEntered = activationEntered
+        )
+        val donor = coordinator("donor", bus).also {
+            it.register(firstDonor)
+            it.register(secondDonor)
+        }
+        val recipient = coordinator("recipient", bus).also {
+            it.register(TestParticipant(
+                consumerId = "orders-a", sourceTopic = "orders-a", warmupTopic = "warmup-orders-a"
+            ))
+            it.register(TestParticipant(
+                consumerId = "orders-b", sourceTopic = "orders-b", warmupTopic = "warmup-orders-b"
+            ))
+        }
+        supervisorScope {
+            donor.start()
+            val startup = async { recipient.start() }
+            try {
+                withTimeout(2_000) { activationEntered.await() }
+                assertTrue(firstDonor.forwardingActive)
+                val session = donor.controlPlaneView().sessions.keys.single()
+                bus.publish(SessionFailed(
+                    session, WarmupInstanceId("recipient"), donor.controlPlaneView().activeCoordinator,
+                    "activation failed"
+                ))
+
+                withTimeout(2_000) {
+                    assertFailsWith<IllegalStateException> { donor.awaitTermination() }
+                }
+                assertFalse(firstDonor.forwardingActive)
+                assertFalse(secondDonor.forwardingActive)
+                assertFailsWith<IllegalStateException> { startup.await() }
+                Unit
+            } finally {
+                activationGate.complete(Unit)
+                recipient.stop(); donor.stop()
+            }
+        }
+    }
+
+    @Test
+    fun `active releases successful executor before next sequential warmup`() = runBlocking {
+        val bus = ControlBus()
+        val limits = WarmupControlPlaneLimits(maximumSessionExecutors = 1)
+        val active = coordinator("active", bus, limits = limits).also { it.register(TestParticipant()) }
+        val first = coordinator("first", bus, limits = limits).also { it.register(TestParticipant()) }
+        val second = coordinator("second", bus, limits = limits).also { it.register(TestParticipant()) }
+        try {
+            active.start()
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(3_000) { first.start() })
+            withTimeout(1_000) {
+                while (active.localSessionExecutorCount() != 0) delay(5)
+            }
+
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(3_000) { second.start() })
+            withTimeout(1_000) {
+                while (active.localSessionExecutorCount() != 0) delay(5)
+            }
+            assertFalse(active.state() == WarmupCoordinatorState.FAILED)
+        } finally {
+            second.stop(); first.stop(); active.stop()
+        }
+    }
+
     private fun coordinator(
         id: String,
         bus: ControlBus,
@@ -441,6 +515,9 @@ class WarmupCoordinatorTest {
     }
 
     private class TestParticipant(
+        consumerId: String = "orders",
+        sourceTopic: String = "orders",
+        warmupTopic: String = "warmup-orders",
         private val hold: kotlin.time.Duration = 0.milliseconds,
         private val recipientFailure: Throwable? = null,
         private val drainGate: CompletableDeferred<Unit>? = null,
@@ -448,23 +525,35 @@ class WarmupCoordinatorTest {
         private val finishGate: CompletableDeferred<Unit>? = null,
         private val finishEntered: CompletableDeferred<Unit>? = null,
         private val recipientStartGate: CompletableDeferred<Unit>? = null,
-        private val recipientStartEntered: CompletableDeferred<Unit>? = null
+        private val recipientStartEntered: CompletableDeferred<Unit>? = null,
+        private val activationGate: CompletableDeferred<Unit>? = null,
+        private val activationEntered: CompletableDeferred<Unit>? = null
     ) : CoordinatorParticipant {
         override val configuration = WarmupParticipantConfiguration(
-            WarmupConsumerId("orders"), listOf(WarmupTopicMapping("orders", "warmup-orders")),
+            WarmupConsumerId(consumerId), listOf(WarmupTopicMapping(sourceTopic, warmupTopic)),
             WarmupForwardingProfile(1.0, 1.0, 0.milliseconds, hold)
         )
         val events = CopyOnWriteArrayList<String>()
+        @Volatile var forwardingActive = false
         private lateinit var assignment: List<WarmupPartitionAssignment>
         override suspend fun startMain() { events += "main" }
         override fun capability(requested: WarmupParticipantConfiguration) = WarmupParticipantCapability(
-            configuration.consumerId, listOf(WarmupTopicCapability("orders", true, setOf(0), 10))
+            configuration.consumerId,
+            listOf(WarmupTopicCapability(configuration.topicMappings.single().sourceTopic, true, setOf(0), 10))
         )
         override suspend fun reserveDonor(assignment: List<WarmupPartitionAssignment>) {
             this.assignment = assignment; events += "reserved"
         }
-        override suspend fun releaseDonorReservation() { events += "reservation-released" }
-        override suspend fun activateDonor(sessionId: WarmupSessionId) { events += "forwarding" }
+        override suspend fun releaseDonorReservation() {
+            forwardingActive = false
+            events += "reservation-released"
+        }
+        override suspend fun activateDonor(sessionId: WarmupSessionId) {
+            forwardingActive = true
+            events += "forwarding"
+            activationEntered?.complete(Unit)
+            activationGate?.await()
+        }
         override suspend fun completeForwarding(): WarmupForwardingBoundary {
             events += "boundary"
             return WarmupForwardingBoundary(assignment.associate { it.topicPartition to 4L })
@@ -472,6 +561,7 @@ class WarmupCoordinatorTest {
         override suspend fun finishDonor(sessionId: WarmupSessionId) {
             finishEntered?.complete(Unit)
             finishGate?.await()
+            forwardingActive = false
             events += "released"
         }
         override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) {
@@ -488,6 +578,6 @@ class WarmupCoordinatorTest {
         }
         override suspend fun startMainAfterDrain() { events += "main-after-drain" }
         override suspend fun prepareFallback(knownFailure: Throwable) { events += "fallback-prepared" }
-        override suspend fun stop() = Unit
+        override suspend fun stop() { forwardingActive = false }
     }
 }
