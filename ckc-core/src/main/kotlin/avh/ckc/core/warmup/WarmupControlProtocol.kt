@@ -2,13 +2,75 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 1
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 2
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
     val sessionId: WarmupSessionId
     val senderInstanceId: WarmupInstanceId
     val targetInstanceId: WarmupInstanceId?
+}
+
+internal sealed interface GeneratedWarmupCommand : WarmupControlMessage { val generation: Long }
+
+internal data class StateSyncRequest(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage { override val targetInstanceId: WarmupInstanceId? = null }
+
+internal class StateSnapshot(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val targetInstanceId: WarmupInstanceId,
+    val generation: Long,
+    val activeCoordinator: WarmupInstanceId,
+    val coveredOffset: Long,
+    val lastHeartbeatOffset: Long,
+    readyInstances: Collection<WarmupInstanceId>,
+    sessions: Collection<WarmupReplicatedSession>,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    val readyInstances = immutableSetSnapshot(readyInstances)
+    val sessions = immutableListSnapshot(sessions)
+    init {
+        require(generation > 0) { "Snapshot generation must be positive" }
+        require(coveredOffset >= 0) { "Snapshot covered offset must not be negative" }
+        require(lastHeartbeatOffset in -1..coveredOffset) { "Snapshot heartbeat offset is invalid" }
+        require(activeCoordinator == senderInstanceId) { "Snapshot sender must be its active coordinator" }
+        require(senderInstanceId != targetInstanceId) { "Snapshot must target another instance" }
+    }
+}
+
+internal data class InstanceReady(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage { override val targetInstanceId: WarmupInstanceId? = null }
+
+internal data class CoordinatorHeartbeat(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val generation: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : GeneratedWarmupCommand {
+    override val targetInstanceId: WarmupInstanceId? = null
+    init { require(generation > 0) }
+}
+
+internal data class CoordinatorClaim(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    val expectedGeneration: Long,
+    val expectedCoordinator: WarmupInstanceId?,
+    val observedHeartbeatOffset: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    override val targetInstanceId: WarmupInstanceId? = null
+    init {
+        require(expectedGeneration >= 0) { "Expected generation must not be negative" }
+        require(observedHeartbeatOffset >= -1) { "Observed heartbeat offset is invalid" }
+    }
 }
 
 internal class WarmupRequest(
@@ -18,8 +80,7 @@ internal class WarmupRequest(
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
     override val targetInstanceId: WarmupInstanceId? = null
-    val participants: List<WarmupParticipantConfiguration> = immutableListSnapshot(participants)
-
+    val participants = immutableListSnapshot(participants)
     init {
         require(participants.isNotEmpty()) { "A warm-up request must contain participants" }
         require(participants.map { it.consumerId }.toSet().size == participants.size) {
@@ -28,43 +89,45 @@ internal class WarmupRequest(
     }
 }
 
+internal class DonorProbe(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val targetInstanceId: WarmupInstanceId,
+    override val generation: Long,
+    val recipientInstanceId: WarmupInstanceId,
+    participants: Collection<WarmupParticipantConfiguration>,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : GeneratedWarmupCommand {
+    val participants = immutableListSnapshot(participants)
+    init { require(generation > 0); require(participants.isNotEmpty()) }
+}
+
 internal class DonorOffer(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
+    val generation: Long,
     val capability: WarmupDonorCapability,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
     init {
-        require(capability.instanceId == senderInstanceId) {
-            "Donor capability must describe the sending instance"
-        }
-        require(senderInstanceId != targetInstanceId) { "A donor cannot offer to itself" }
+        require(generation > 0)
+        require(capability.instanceId == senderInstanceId) { "Donor capability must describe the sender" }
     }
 }
 
-internal data class DonorSelected(
+/** Applying this journal record, not acknowledging its send, owns the reservation. */
+internal class AssignmentProposed(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
-    override val targetInstanceId: WarmupInstanceId,
-    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
-) : WarmupControlMessage {
-    init {
-        require(senderInstanceId != targetInstanceId) { "A recipient cannot select itself" }
-    }
-}
-
-internal class WarmupAssigned(
-    override val sessionId: WarmupSessionId,
-    override val senderInstanceId: WarmupInstanceId,
-    override val targetInstanceId: WarmupInstanceId,
+    override val generation: Long,
     val assignment: WarmupSessionAssignment,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
-) : WarmupControlMessage {
+) : GeneratedWarmupCommand {
+    override val targetInstanceId: WarmupInstanceId? = null
     init {
-        require(assignment.sessionId == sessionId) { "Assignment session must match the message session" }
-        require(assignment.donorInstanceId == senderInstanceId) { "Assignment donor must match the sender" }
-        require(assignment.recipientInstanceId == targetInstanceId) { "Assignment recipient must match the target" }
+        require(generation > 0)
+        require(assignment.sessionId == sessionId) { "Assignment session must match the message" }
     }
 }
 
@@ -75,29 +138,29 @@ internal class RecipientReady(
     consumerIds: Collection<WarmupConsumerId>,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
-    val consumerIds: Set<WarmupConsumerId> = immutableSetSnapshot(consumerIds)
-
-    init {
-        requireDistinctInstances(senderInstanceId, targetInstanceId)
-        require(consumerIds.isNotEmpty()) { "Recipient readiness must contain consumers" }
-    }
+    val consumerIds = immutableSetSnapshot(consumerIds)
+    init { require(consumerIds.isNotEmpty()) }
 }
 
-internal data class WarmupFinished(
+internal data class StartForwarding(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
+    override val generation: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
-) : WarmupControlMessage {
-    init {
-        requireDistinctInstances(senderInstanceId, targetInstanceId)
-    }
-}
+) : GeneratedWarmupCommand { init { require(generation > 0) } }
+
+internal data class StopForwarding(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val targetInstanceId: WarmupInstanceId,
+    override val generation: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : GeneratedWarmupCommand { init { require(generation > 0) } }
 
 internal data class WarmupFinalOffset(
     val consumerId: WarmupConsumerId,
     val topicPartition: TopicPartition,
-    /** Inclusive acknowledged offset, or null when the partition received no records. */
     val offset: Long?
 ) {
     init {
@@ -114,30 +177,34 @@ internal class ForwardingStopped(
     finalOffsets: Collection<WarmupFinalOffset>,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
-    val finalOffsets: List<WarmupFinalOffset> = immutableListSnapshot(finalOffsets)
-
+    val finalOffsets = immutableListSnapshot(finalOffsets)
     init {
-        requireDistinctInstances(senderInstanceId, targetInstanceId)
-        require(finalOffsets.isNotEmpty()) { "Forwarding completion must contain assigned partitions" }
-        require(finalOffsets.map { it.topicPartition }.toSet().size == finalOffsets.size) {
-            "Forwarding completion must contain each warm-up partition at most once"
-        }
+        require(finalOffsets.isNotEmpty())
+        require(finalOffsets.map { it.topicPartition }.toSet().size == finalOffsets.size)
     }
+}
+
+internal class DrainRecipient(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val targetInstanceId: WarmupInstanceId,
+    override val generation: Long,
+    finalOffsets: Collection<WarmupFinalOffset>,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : GeneratedWarmupCommand {
+    val finalOffsets = immutableListSnapshot(finalOffsets)
+    init { require(generation > 0); require(finalOffsets.isNotEmpty()) }
 }
 
 internal class SessionCompleted(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
-    override val targetInstanceId: WarmupInstanceId,
     consumerIds: Collection<WarmupConsumerId>,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
-    val consumerIds: Set<WarmupConsumerId> = immutableSetSnapshot(consumerIds)
-
-    init {
-        requireDistinctInstances(senderInstanceId, targetInstanceId)
-        require(consumerIds.isNotEmpty()) { "Session completion must contain consumers" }
-    }
+    override val targetInstanceId: WarmupInstanceId? = null
+    val consumerIds = immutableSetSnapshot(consumerIds)
+    init { require(consumerIds.isNotEmpty()) }
 }
 
 internal data class SessionFailed(
@@ -148,12 +215,14 @@ internal data class SessionFailed(
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
     init {
-        targetInstanceId?.let { requireDistinctInstances(senderInstanceId, it) }
-        require(reason.isNotBlank()) { "Failure reason must not be blank" }
-        require(reason.none(Char::isISOControl)) { "Failure reason must not contain control characters" }
+        require(reason.isNotBlank())
+        require(reason.none(Char::isISOControl))
     }
 }
 
-private fun requireDistinctInstances(sender: WarmupInstanceId, target: WarmupInstanceId) {
-    require(sender != target) { "Control message sender and target must be different instances" }
-}
+internal enum class WarmupReplicatedStage { ASSIGNED, FORWARDING, STOPPING, DRAINING, QUARANTINED }
+
+internal data class WarmupReplicatedSession(
+    val assignment: WarmupSessionAssignment,
+    val stage: WarmupReplicatedStage
+)

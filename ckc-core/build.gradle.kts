@@ -30,7 +30,6 @@ val junitVersion = "5.10.2"
 val mockitoVersion = "5.12.0"
 val mockitoKotlinVersion = "5.3.1"
 val testcontainersVersion = "2.0.2"
-val lettuceVersion = "6.5.5.RELEASE"
 
 dependencies {
     implementation(kotlin("stdlib"))
@@ -39,7 +38,6 @@ dependencies {
     api("org.slf4j:slf4j-api")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("com.github.luben:zstd-jni:1.5.6-9")
-    implementation("io.lettuce:lettuce-core:$lettuceVersion")
 
     testFixturesImplementation(kotlin("test-junit5"))
     testFixturesImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")

@@ -6107,38 +6107,32 @@ writing instead of allocating the complete oversized payload first.
 _Date: 2026-10-31_
 
 Implement one explicit coordinator per application scope, with registration for multiple
-unordered CKC participants and one authoritative happy-path session state machine.
-Automate donor discovery and reservation, recipient readiness, timed forwarding,
-all-participant completion and drain, and transition to main subscriptions. Fall back to
-normal startup only when no donor is selected before any warm-up data is transferred;
-recovery after an active-session failure remains outside the MVP.
-Implemented an explicit multi-participant coordinator that waits for control readiness,
-discovers and selects the most-loaded compatible donor, confirms one reservation, starts
-library-created assigned recipients, activates donor forwarding only after aggregate
-readiness, and drives timed completion, final boundaries, all-participant drain, and main
-subscription startup. A first pod falls back to normal main subscriptions when no donor
-answers; failures after selection are terminal and are reported to the peer.
-Applications provide one reusable `WarmupConsumerDefinition` per logical consumer. Core
-creates both main and warm-up consumers from it and installs a dormant switchable
-forwarding gateway in each main runtime, allowing warmed recipients to become future
-donors without rebuilding their main consumer. Donor offers now report exact compatible
-topics, current partition ownership, cumulative observed traffic, and load score.
-Unit coverage verifies fallback, duplicate-message idempotence, and a two-consumer
-happy path with a strict drain-before-main barrier. A real-Kafka integration test verifies
-automatic discovery, forwarding, recipient processing, drain, and main subscription.
-The coordinator now requires a globally linearizable assignment-lease provider, so two
-donors cannot assign the same warm-up capacity concurrently. Pre-forwarding control or
-recipient-start failures use bounded cold-start fallback, while failures after forwarding
-begins are terminal. State transitions and asynchronous results are serialized so a late
-startup result cannot overwrite `FAILED`; owned consumer failures are observed and exposed
-through coordinator termination. Regression coverage includes two simultaneous pairs,
-timer-send and readiness failures, local donor cleanup after failed recipient startup,
-and the delayed-main versus transport-failure race.
-Global assignment is implemented inside core with a Redis `SET NX` reservation configured
-by URI, key, and MVP partition number; applications no longer provide coordination code.
-The reservation has no expiry and is deleted atomically only after confirmed
-`SessionCompleted`. Failed, stopped, or ambiguous sessions quarantine the capacity for
-operator inspection instead of making a possibly active partition reusable. Recipient
-startup is structurally cancellable, and cleanup can stop a consumer waiting for readiness
-without being blocked by the participant mutex. Re-reporting the already observed consumer
-failure during stop is ignored, while an independent cleanup failure remains terminal.
+unordered CKC participants and a library-owned local data-plane executor. Core creates
+main and assigned warm-up consumers, activates forwarding only after aggregate readiness,
+collects final offsets, drains every recipient, and starts main subscriptions afterwards.
+
+Replace the temporary Redis lease with a replicated control plane over one Kafka control
+partition. One eligible pod is active while standby replicas apply the same journal,
+heartbeat and generation-fenced election records. Only the active pod probes donors,
+chooses the most loaded compatible candidate, and publishes partition assignments.
+Assignments become authoritative only when their record is applied from the journal;
+ambiguous sends may republish the same idempotent decision and never imply rollback.
+
+New pods synchronize from a bounded snapshot plus the buffered journal tail. A snapshot
+answer to the pod's own request establishes initial trust, while later election records
+supersede an old active's snapshot. Synchronization validates retained log-range coverage
+without assuming contiguous Kafka offset numbers. Empty-journal bootstrap is explicit;
+an unsynchronized pod may cold-start but remains ineligible for election.
+
+Generation fencing applies when commands are accepted, without cancelling data-plane work
+already admitted by an earlier generation. Participant completion reports remain valid by
+session, assignment, and sender after an election. `SessionCompleted` itself releases the
+replicated reservation; failed or ambiguous sessions remain quarantined. Live sessions,
+ready instances, and synchronization buffers have explicit limits, completed sessions are
+removed from snapshots, and overflow fails closed for warm-up.
+
+Regression coverage verifies old-snapshot election races, non-contiguous offsets, bounded
+state, ambiguous assignment publication, two competing recipient pairs, pre-forwarding
+cleanup, generation fencing, and participant completion after leader change. Existing
+recipient lifecycle cleanup tests and a real-Kafka automatic warm-up test cover the local
+executor and complete forwarding/drain/main transition.
