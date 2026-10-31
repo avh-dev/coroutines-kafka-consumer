@@ -18,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -233,16 +234,166 @@ class WarmupCoordinatorTest {
         }
     }
 
+    @Test
+    fun `next donor reservation waits for previous donor cleanup`() = runBlocking {
+        val bus = ControlBus()
+        val finishGate = CompletableDeferred<Unit>()
+        val finishEntered = CompletableDeferred<Unit>()
+        val donorParticipant = TestParticipant(finishGate = finishGate, finishEntered = finishEntered)
+        val donor = coordinator("donor", bus, stageTimeout = 1_000.milliseconds).also {
+            it.register(donorParticipant)
+        }
+        val recipient = coordinator("recipient", bus, stageTimeout = 1_000.milliseconds).also {
+            it.register(TestParticipant())
+        }
+        try {
+            donor.start()
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(3_000) { recipient.start() })
+            withTimeout(1_000) { finishEntered.await() }
+
+            val view = donor.controlPlaneView()
+            val session = WarmupSessionId("next-session")
+            val assignment = WarmupSessionAssignment(
+                session, WarmupInstanceId("donor"), WarmupInstanceId("next-recipient"),
+                listOf(WarmupPartitionAssignment(
+                    WarmupConsumerId("orders"), "orders", "warmup-orders", 0
+                ))
+            )
+            bus.publish(AssignmentProposed(
+                session, requireNotNull(view.activeCoordinator), view.generation, assignment, 100
+            ))
+            delay(100)
+            assertEquals(1, donorParticipant.events.count { it == "reserved" })
+            assertFalse(donor.state() == WarmupCoordinatorState.FAILED)
+
+            finishGate.complete(Unit)
+            withTimeout(1_000) {
+                while (donorParticipant.events.count { it == "reserved" } < 2) delay(5)
+            }
+            assertFalse(donor.state() == WarmupCoordinatorState.FAILED)
+        } finally {
+            finishGate.complete(Unit)
+            recipient.stop(); donor.stop()
+        }
+    }
+
+    @Test
+    fun `session failure interrupts blocked drain before main starts`() = runBlocking {
+        val bus = ControlBus()
+        val drainGate = CompletableDeferred<Unit>()
+        val drainEntered = CompletableDeferred<Unit>()
+        val recipientParticipant = TestParticipant(drainGate = drainGate, drainEntered = drainEntered)
+        val donor = coordinator("donor", bus).also { it.register(TestParticipant()) }
+        val recipient = coordinator("recipient", bus).also { it.register(recipientParticipant) }
+        supervisorScope {
+            donor.start()
+            val startup = async { recipient.start() }
+            try {
+                withTimeout(2_000) { drainEntered.await() }
+                val session = recipient.controlPlaneView().sessions.keys.single()
+                bus.publish(SessionFailed(
+                    session, WarmupInstanceId("donor"), recipient.controlPlaneView().activeCoordinator,
+                    "forced failure"
+                ))
+
+                withTimeout(2_000) {
+                    assertFailsWith<IllegalStateException> { recipient.awaitTermination() }
+                }
+                assertFalse("main-after-drain" in recipientParticipant.events)
+                assertFalse(bus.messages.any { it is SessionCompleted && it.sessionId == session })
+                assertFailsWith<IllegalStateException> { startup.await() }
+                Unit
+            } finally {
+                drainGate.complete(Unit)
+                recipient.stop(); donor.stop()
+            }
+        }
+    }
+
+    @Test
+    fun `unassigned requests finish without accumulating session executors`() = runBlocking {
+        val bus = ControlBus()
+        val coordinator = coordinator("active", bus).also { it.register(TestParticipant()) }
+        try {
+            coordinator.start()
+            val incompatible = WarmupParticipantConfiguration(
+                WarmupConsumerId("missing"),
+                listOf(WarmupTopicMapping("missing", "warmup-missing")),
+                WarmupForwardingProfile(0.0, 0.1, 10.milliseconds)
+            )
+            repeat(20) { index ->
+                bus.publish(WarmupRequest(
+                    WarmupSessionId("unassigned-$index"), WarmupInstanceId("requester-$index"),
+                    listOf(incompatible)
+                ))
+            }
+
+            assertEquals(0, coordinator.localSessionExecutorCount())
+            withTimeout(1_000) {
+                while (coordinator.pendingRequestCount() != 0) delay(5)
+            }
+            assertEquals(0, coordinator.localSessionExecutorCount())
+        } finally {
+            coordinator.stop()
+        }
+    }
+
+    @Test
+    fun `session executor count is bounded and overflow fails closed`() = runBlocking {
+        val bus = ControlBus()
+        val startGate = CompletableDeferred<Unit>()
+        val startEntered = CompletableDeferred<Unit>()
+        val coordinator = coordinator(
+            "recipient", bus, warmupPartitions = listOf(0, 1),
+            limits = WarmupControlPlaneLimits(maximumSessionExecutors = 1)
+        ).also {
+            it.register(TestParticipant(recipientStartGate = startGate, recipientStartEntered = startEntered))
+        }
+        supervisorScope {
+            try {
+                coordinator.start()
+                withTimeout(1_000) {
+                    while (coordinator.controlPlaneView().activeCoordinator == null) delay(5)
+                }
+                val view = coordinator.controlPlaneView()
+                fun assignment(id: String, donor: String, partition: Int) = WarmupSessionAssignment(
+                    WarmupSessionId(id), WarmupInstanceId(donor), WarmupInstanceId("recipient"),
+                    listOf(WarmupPartitionAssignment(
+                        WarmupConsumerId("orders"), "orders", "warmup-orders", partition
+                    ))
+                )
+                bus.publish(AssignmentProposed(
+                    WarmupSessionId("first"), requireNotNull(view.activeCoordinator), view.generation,
+                    assignment("first", "donor-one", 0), 100
+                ))
+                withTimeout(1_000) { startEntered.await() }
+                bus.publish(AssignmentProposed(
+                    WarmupSessionId("second"), requireNotNull(view.activeCoordinator), view.generation,
+                    assignment("second", "donor-two", 1), 100
+                ))
+
+                withTimeout(2_000) {
+                    assertFailsWith<IllegalStateException> { coordinator.awaitTermination() }
+                }
+                assertTrue(coordinator.localSessionExecutorCount() <= 1)
+            } finally {
+                startGate.complete(Unit)
+                coordinator.stop()
+            }
+        }
+    }
+
     private fun coordinator(
         id: String,
         bus: ControlBus,
         warmupPartitions: Collection<Int> = listOf(0),
-        stageTimeout: kotlin.time.Duration = 120.milliseconds
+        stageTimeout: kotlin.time.Duration = 120.milliseconds,
+        limits: WarmupControlPlaneLimits = WarmupControlPlaneLimits()
     ) = WarmupCoordinator(
         WarmupCoordinatorConfiguration(
             WarmupInstanceId(id), warmupPartitions, donorSearchTimeout = 20.milliseconds,
             stageTimeout = stageTimeout, heartbeatInterval = 20.milliseconds,
-            electionTimeout = 80.milliseconds
+            electionTimeout = 80.milliseconds, controlPlaneLimits = limits
         ), Dispatchers.Default, bus::channel
     )
 
@@ -293,7 +444,11 @@ class WarmupCoordinatorTest {
         private val hold: kotlin.time.Duration = 0.milliseconds,
         private val recipientFailure: Throwable? = null,
         private val drainGate: CompletableDeferred<Unit>? = null,
-        private val drainEntered: CompletableDeferred<Unit>? = null
+        private val drainEntered: CompletableDeferred<Unit>? = null,
+        private val finishGate: CompletableDeferred<Unit>? = null,
+        private val finishEntered: CompletableDeferred<Unit>? = null,
+        private val recipientStartGate: CompletableDeferred<Unit>? = null,
+        private val recipientStartEntered: CompletableDeferred<Unit>? = null
     ) : CoordinatorParticipant {
         override val configuration = WarmupParticipantConfiguration(
             WarmupConsumerId("orders"), listOf(WarmupTopicMapping("orders", "warmup-orders")),
@@ -314,10 +469,16 @@ class WarmupCoordinatorTest {
             events += "boundary"
             return WarmupForwardingBoundary(assignment.associate { it.topicPartition to 4L })
         }
-        override suspend fun finishDonor(sessionId: WarmupSessionId) { events += "released" }
+        override suspend fun finishDonor(sessionId: WarmupSessionId) {
+            finishEntered?.complete(Unit)
+            finishGate?.await()
+            events += "released"
+        }
         override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) {
             this.assignment = assignment
             recipientFailure?.let { throw it }
+            recipientStartEntered?.complete(Unit)
+            recipientStartGate?.await()
             events += "recipient"
         }
         override suspend fun drainRecipient(boundary: WarmupForwardingBoundary) {

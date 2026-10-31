@@ -5,12 +5,14 @@ import java.util.TreeMap
 data class WarmupControlPlaneLimits(
     val maximumBufferedRecords: Int = 2048,
     val maximumPendingSessionCommands: Int = 64,
+    val maximumSessionExecutors: Int = 128,
     val maximumSessions: Int = 128,
     val maximumReadyInstances: Int = 256
 ) {
     init {
         require(maximumBufferedRecords > 0)
         require(maximumPendingSessionCommands > 0)
+        require(maximumSessionExecutors > 0)
         require(maximumSessions > 0)
         require(maximumReadyInstances > 0)
     }
@@ -169,6 +171,7 @@ internal class WarmupControlPlaneReplica(
             is SessionCompleted -> {
                 val existing = sessions[message.sessionId]
                 if (existing != null && existing.assignment.recipientInstanceId == message.senderInstanceId &&
+                    existing.stage == WarmupReplicatedStage.DRAINING &&
                     message.consumerIds == existing.assignment.partitions.map { it.consumerId }.toSet()) {
                     sessions.remove(message.sessionId)
                     true
@@ -210,6 +213,10 @@ internal class WarmupControlPlaneReplica(
     private fun updateForwarding(message: StartForwarding): Boolean {
         if (!commandIsCurrent(message)) return false
         val existing = sessions[message.sessionId] ?: return false
+        if (existing.stage == WarmupReplicatedStage.FORWARDING) {
+            return existing.stopAtEpochMillis == message.stopAtEpochMillis
+        }
+        if (existing.stage != WarmupReplicatedStage.ASSIGNED) return false
         sessions[message.sessionId] = existing.copy(
             stage = WarmupReplicatedStage.FORWARDING,
             stopAtEpochMillis = message.stopAtEpochMillis
@@ -220,6 +227,13 @@ internal class WarmupControlPlaneReplica(
     private fun updateStage(message: GeneratedWarmupCommand, stage: WarmupReplicatedStage): Boolean {
         if (!commandIsCurrent(message)) return false
         val existing = sessions[message.sessionId] ?: return false
+        if (existing.stage == stage) return true
+        val expected = when (stage) {
+            WarmupReplicatedStage.STOPPING -> WarmupReplicatedStage.FORWARDING
+            WarmupReplicatedStage.DRAINING -> WarmupReplicatedStage.STOPPING
+            else -> return false
+        }
+        if (existing.stage != expected) return false
         sessions[message.sessionId] = existing.copy(stage = stage)
         return true
     }

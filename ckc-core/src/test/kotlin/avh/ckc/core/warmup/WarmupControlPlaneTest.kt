@@ -70,11 +70,12 @@ class WarmupControlPlaneTest {
         assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(first.sessionId, oldActive, 1, first, 1_000))).accepted)
         assertFalse(replica.apply(WarmupControlRecord(3, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
 
-        assertTrue(replica.apply(WarmupControlRecord(4, SessionCompleted(
+        progressToDraining(replica, first, 4)
+        assertTrue(replica.apply(WarmupControlRecord(7, SessionCompleted(
             first.sessionId, first.recipientInstanceId, setOf(WarmupConsumerId("orders"))
         ))).accepted)
         assertTrue(replica.view().sessions.isEmpty())
-        assertTrue(replica.apply(WarmupControlRecord(5, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(8, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
     }
 
     @Test
@@ -96,18 +97,43 @@ class WarmupControlPlaneTest {
         val replica = activeReplica()
         val assignment = assignment("session")
         replica.apply(WarmupControlRecord(2, AssignmentProposed(assignment.sessionId, oldActive, 1, assignment, 1_000)))
-        replica.apply(WarmupControlRecord(3, InstanceReady(WarmupSessionId("new-ready"), newActive)))
-        replica.apply(WarmupControlRecord(4, CoordinatorClaim(
+        progressToDraining(replica, assignment, 3)
+        replica.apply(WarmupControlRecord(6, InstanceReady(WarmupSessionId("new-ready"), newActive)))
+        replica.apply(WarmupControlRecord(7, CoordinatorClaim(
             WarmupSessionId("claim"), newActive, 1, oldActive, 1
         )))
 
-        assertFalse(replica.apply(WarmupControlRecord(5, StopForwarding(
+        assertFalse(replica.apply(WarmupControlRecord(8, StopForwarding(
             assignment.sessionId, oldActive, assignment.donorInstanceId, 1
         ))).accepted)
-        assertTrue(replica.apply(WarmupControlRecord(6, SessionCompleted(
+        assertTrue(replica.apply(WarmupControlRecord(9, SessionCompleted(
             assignment.sessionId, assignment.recipientInstanceId, setOf(WarmupConsumerId("orders"))
         ))).accepted)
         assertTrue(replica.view().sessions.isEmpty())
+    }
+
+    @Test
+    fun `quarantined session rejects late data plane commands and completion`() {
+        val replica = activeReplica()
+        val assignment = assignment("failed")
+        assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(
+            assignment.sessionId, oldActive, 1, assignment, 1_000
+        ))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(3, SessionFailed(
+            assignment.sessionId, assignment.donorInstanceId, oldActive, "failed"
+        ))).accepted)
+
+        assertFalse(replica.apply(WarmupControlRecord(4, StartForwarding(
+            assignment.sessionId, oldActive, assignment.donorInstanceId, 1, 10_000
+        ))).accepted)
+        assertFalse(replica.apply(WarmupControlRecord(5, DrainRecipient(
+            assignment.sessionId, oldActive, assignment.recipientInstanceId, 1, finalOffsets()
+        ))).accepted)
+        assertFalse(replica.apply(WarmupControlRecord(6, SessionCompleted(
+            assignment.sessionId, assignment.recipientInstanceId, setOf(WarmupConsumerId("orders"))
+        ))).accepted)
+        assertEquals(WarmupReplicatedStage.QUARANTINED,
+            replica.view().sessions.getValue(assignment.sessionId).stage)
     }
 
     @Test
@@ -141,4 +167,24 @@ class WarmupControlPlaneTest {
         WarmupSessionId(id), WarmupInstanceId("donor"), WarmupInstanceId("recipient-$id"),
         listOf(WarmupPartitionAssignment(WarmupConsumerId("orders"), "orders", "warmup-orders", partition))
     )
+
+    private fun progressToDraining(
+        replica: WarmupControlPlaneReplica,
+        assignment: WarmupSessionAssignment,
+        firstOffset: Long
+    ) {
+        assertTrue(replica.apply(WarmupControlRecord(firstOffset, StartForwarding(
+            assignment.sessionId, oldActive, assignment.donorInstanceId, 1, 10_000
+        ))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(firstOffset + 1, StopForwarding(
+            assignment.sessionId, oldActive, assignment.donorInstanceId, 1
+        ))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(firstOffset + 2, DrainRecipient(
+            assignment.sessionId, oldActive, assignment.recipientInstanceId, 1, finalOffsets()
+        ))).accepted)
+    }
+
+    private fun finalOffsets() = listOf(WarmupFinalOffset(
+        WarmupConsumerId("orders"), TopicPartition("warmup-orders", 0), 10
+    ))
 }

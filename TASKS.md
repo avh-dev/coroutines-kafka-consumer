@@ -6148,3 +6148,9 @@ elected coordinator bounds forwarding without reconstructing the data plane. Ses
 effects execute in bounded per-session queues and cannot block journal replication.
 Assignment records reserve both partitions and the donor atomically; participant
 failures publish every affected local session for fail-closed quarantine.
+
+Local donor lifecycle operations are serialized across sessions, including delayed cleanup
+before a later reservation. A replicated failure immediately fences and cancels the matching
+local executor instead of waiting behind readiness or drain. The reducer enforces monotonic
+session stages and keeps quarantined reservations terminal. Unassigned requests create no
+session executor, expire their scheduler state, and all local executor counts are bounded.
