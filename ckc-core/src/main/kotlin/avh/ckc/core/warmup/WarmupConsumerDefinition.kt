@@ -38,14 +38,16 @@ internal interface CoordinatorParticipant {
     suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>)
     suspend fun drainRecipient(boundary: WarmupForwardingBoundary)
     suspend fun startMainAfterDrain()
-    suspend fun prepareFallback()
+    suspend fun prepareFallback(knownFailure: Throwable)
     suspend fun stop()
 }
 
 internal class KafkaCoordinatorParticipant<K, V>(
     private val definition: WarmupConsumerDefinition<K, V>,
     private val scope: CoroutineScope,
-    private val onConsumerFailure: suspend (Throwable) -> Unit
+    private val onConsumerFailure: suspend (Throwable) -> Unit,
+    private val mainFactory: (() -> CoroutinesKafkaConsumer<K, V>)? = null,
+    private val warmupFactory: ((Set<TopicPartition>) -> CoroutinesKafkaConsumer<K, V>)? = null
 ) : CoordinatorParticipant {
     override val configuration: WarmupParticipantConfiguration = definition.configuration
     private val mutex = Mutex()
@@ -58,6 +60,7 @@ internal class KafkaCoordinatorParticipant<K, V>(
         check(main == null && recipient == null) { "Consumer ${configuration.consumerId} already started" }
         buildMain().also { main = it }.start()
         requireNotNull(main).awaitReady()
+        observeFailure(requireNotNull(main))
     }
 
     override fun capability(requested: WarmupParticipantConfiguration): WarmupParticipantCapability {
@@ -121,16 +124,20 @@ internal class KafkaCoordinatorParticipant<K, V>(
         donorAssignment = null
     }
 
-    override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) = mutex.withLock {
-        check(assignment.isNotEmpty() && assignment.all { it.consumerId == configuration.consumerId }) {
-            "Invalid recipient assignment for ${configuration.consumerId}"
+    override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) {
+        val lifecycle = mutex.withLock {
+            check(assignment.isNotEmpty() && assignment.all { it.consumerId == configuration.consumerId }) {
+                "Invalid recipient assignment for ${configuration.consumerId}"
+            }
+            check(recipient == null) { "Recipient ${configuration.consumerId} is already started" }
+            val partitions = assignment.map(WarmupPartitionAssignment::topicPartition).toSet()
+            WarmupRecipientLifecycle(
+                createWarmup = { buildWarmup(partitions) },
+                createMain = { buildMain() }
+            ).also { recipient = it }
         }
-        val partitions = assignment.map(WarmupPartitionAssignment::topicPartition).toSet()
-        val lifecycle = WarmupRecipientLifecycle(
-            createWarmup = { buildWarmup(partitions) },
-            createMain = { buildMain() }
-        ).also { recipient = it }
         lifecycle.startWarmup()
+        observeFailure(lifecycle.warmupConsumer())
     }
 
     override suspend fun drainRecipient(boundary: WarmupForwardingBoundary) {
@@ -141,11 +148,12 @@ internal class KafkaCoordinatorParticipant<K, V>(
         val lifecycle = requireNotNull(recipient) { "Recipient is not running" }
         lifecycle.startMain()
         main = lifecycle.mainConsumer()
+        observeFailure(requireNotNull(main))
     }
 
-    override suspend fun prepareFallback() = mutex.withLock {
-        recipient?.stop()
-        recipient = null
+    override suspend fun prepareFallback(knownFailure: Throwable) {
+        val lifecycle = mutex.withLock { recipient.also { recipient = null } }
+        lifecycle?.stop(knownFailure)
     }
 
     override suspend fun stop() = mutex.withLock {
@@ -154,21 +162,19 @@ internal class KafkaCoordinatorParticipant<K, V>(
     }
 
     private fun buildMain(): CoroutinesKafkaConsumer<K, V> =
-        CoroutinesKafkaConsumerBuilder<K, V>()
+        mainFactory?.invoke() ?: CoroutinesKafkaConsumerBuilder<K, V>()
             .apply(definition.configure)
             .apply {
                 topics(configuration.topicMappings.map(WarmupTopicMapping::sourceTopic))
                 warmupForwarding(forwarding)
             }
             .build(definition.mainConsumerProperties)
-            .also(::observeFailure)
 
     private fun buildWarmup(partitions: Set<TopicPartition>): CoroutinesKafkaConsumer<K, V> =
-        CoroutinesKafkaConsumerBuilder<K, V>()
+        warmupFactory?.invoke(partitions) ?: CoroutinesKafkaConsumerBuilder<K, V>()
             .apply(definition.configure)
             .apply { assignedPartitionsAtEnd(partitions) }
             .build(definition.warmupConsumerProperties)
-            .also(::observeFailure)
 
     private fun observeFailure(consumer: CoroutinesKafkaConsumer<K, V>) {
         scope.launch {

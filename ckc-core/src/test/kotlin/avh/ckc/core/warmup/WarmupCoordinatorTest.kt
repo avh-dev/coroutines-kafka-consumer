@@ -2,15 +2,22 @@ package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.doSuspendableAnswer
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
+import avh.ckc.core.CoroutinesKafkaConsumer
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
@@ -186,7 +193,7 @@ class WarmupCoordinatorTest {
     }
 
     @Test
-    fun `recipient startup failure falls back and releases donor reservation`() = runBlocking {
+    fun `recipient startup failure falls back releases local donor and quarantines global capacity`() = runBlocking {
         val bus = ControlBus()
         val donorParticipant = TestParticipant("orders", "orders", "warmup-orders")
         val donor = coordinator("donor", bus, load = 0.9).also { it.register(donorParticipant) }
@@ -202,17 +209,103 @@ class WarmupCoordinatorTest {
         try {
             donor.start()
             assertEquals(WarmupStartupResult.NO_DONOR_FALLBACK, withTimeout(2_000) { recipient.start() })
-            withTimeout(2_000) {
-                while (donor.state() != WarmupCoordinatorState.MAIN || bus.leases.active != 0) delay(5)
-            }
+            withTimeout(2_000) { while (donor.state() != WarmupCoordinatorState.MAIN) delay(5) }
             assertTrue("fallback-prepared" in recipientParticipant.events)
-            assertEquals(WarmupStartupResult.WARMED, withTimeout(2_000) { nextRecipient.start() })
-            assertEquals(2, donorParticipant.events.count { it == "reserved" })
+            assertEquals(WarmupStartupResult.NO_DONOR_FALLBACK, withTimeout(2_000) { nextRecipient.start() })
+            assertEquals(1, donorParticipant.events.count { it == "reserved" })
             assertEquals(1, donorParticipant.events.count { it == "reservation-released" })
+            assertEquals(1, bus.leases.active, "Failed capacity remains quarantined")
         } finally {
             nextRecipient.stop()
             recipient.stop()
             donor.stop()
+        }
+    }
+
+    @Test
+    fun `recipient readiness timeout stops real participant and cold starts main`() = runBlocking {
+        val bus = ControlBus()
+        val donor = coordinator("donor", bus).also {
+            it.register(TestParticipant("orders", "orders", "warmup-orders"))
+        }
+        val warmup = mock<CoroutinesKafkaConsumer<String, String>>()
+        val main = mock<CoroutinesKafkaConsumer<String, String>>()
+        val readinessEntered = CompletableDeferred<Unit>()
+        whenever(warmup.awaitReady()).doSuspendableAnswer {
+            readinessEntered.complete(Unit)
+            awaitCancellation()
+        }
+        val definition = WarmupConsumerDefinition<String, String>(
+            configuration = participantConfiguration("orders", "orders", "warmup-orders"),
+            mainConsumerProperties = emptyMap(),
+            forwardingProducerProperties = emptyMap()
+        ) { handle { _ -> } }
+        lateinit var recipient: WarmupCoordinator
+        val participantScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        val participant = KafkaCoordinatorParticipant(
+            definition,
+            participantScope,
+            onConsumerFailure = { error -> recipient.onParticipantFailure(definition.configuration.consumerId, error) },
+            mainFactory = { main },
+            warmupFactory = { warmup }
+        )
+        recipient = coordinator("recipient", bus, stageTimeout = 50.milliseconds).also {
+            it.register(participant)
+        }
+
+        try {
+            donor.start()
+            val startup = async { recipient.start() }
+            readinessEntered.await()
+            assertEquals(WarmupStartupResult.NO_DONOR_FALLBACK, withTimeout(2_000) { startup.await() })
+            verify(warmup).stop()
+            verify(main).start()
+            verify(main).awaitReady()
+        } finally {
+            recipient.stop()
+            donor.stop()
+            participantScope.cancel()
+        }
+    }
+
+    @Test
+    fun `real participant terminal startup error is cleaned and falls back to main`() = runBlocking {
+        val bus = ControlBus()
+        val donor = coordinator("donor", bus).also {
+            it.register(TestParticipant("orders", "orders", "warmup-orders"))
+        }
+        val warmup = mock<CoroutinesKafkaConsumer<String, String>>()
+        val main = mock<CoroutinesKafkaConsumer<String, String>>()
+        val failure = IllegalStateException("Kafka initialization failed")
+        whenever(warmup.awaitReady()).thenThrow(failure)
+        whenever(warmup.awaitTermination()).thenThrow(failure)
+        whenever(warmup.stop()).thenThrow(failure)
+        val definition = WarmupConsumerDefinition<String, String>(
+            configuration = participantConfiguration("orders", "orders", "warmup-orders"),
+            mainConsumerProperties = emptyMap(),
+            forwardingProducerProperties = emptyMap()
+        ) { handle { _ -> } }
+        lateinit var recipient: WarmupCoordinator
+        val participantScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        val participant = KafkaCoordinatorParticipant(
+            definition,
+            participantScope,
+            onConsumerFailure = { error -> recipient.onParticipantFailure(definition.configuration.consumerId, error) },
+            mainFactory = { main },
+            warmupFactory = { warmup }
+        )
+        recipient = coordinator("recipient", bus).also { it.register(participant) }
+
+        try {
+            donor.start()
+            assertEquals(WarmupStartupResult.NO_DONOR_FALLBACK, withTimeout(2_000) { recipient.start() })
+            verify(warmup).stop()
+            verify(main).start()
+            verify(main).awaitReady()
+        } finally {
+            recipient.stop()
+            donor.stop()
+            participantScope.cancel()
         }
     }
 
@@ -366,13 +459,17 @@ class WarmupCoordinatorTest {
             }
             object : WarmupAssignmentLease {
                 override val assignments = assignments
-                override suspend fun release() {
+                override suspend fun releaseCompleted() {
                     if (!released.compareAndSet(false, true)) return
                     synchronized(lock) {
                         check(owner == sessionId)
                         owner = null
                         active--
                     }
+                }
+
+                override fun quarantine() {
+                    released.compareAndSet(false, true)
                 }
             }
         }
@@ -388,11 +485,7 @@ class WarmupCoordinatorTest {
         private val recipientFailure: Throwable? = null,
         private val mainGate: CompletableDeferred<Unit>? = null
     ) : CoordinatorParticipant {
-        override val configuration = WarmupParticipantConfiguration(
-            WarmupConsumerId(id),
-            listOf(WarmupTopicMapping(sourceTopic, warmupTopic)),
-            WarmupForwardingProfile(rampUpDuration = 0.milliseconds, holdDuration = hold)
-        )
+        override val configuration = participantConfiguration(id, sourceTopic, warmupTopic, hold)
         val events = CopyOnWriteArrayList<String>()
         private lateinit var assignment: List<WarmupPartitionAssignment>
 
@@ -444,8 +537,21 @@ class WarmupCoordinatorTest {
             lifecycleEvents += "$id:main-after-drain"
         }
 
-        override suspend fun prepareFallback() { events += "fallback-prepared" }
+        override suspend fun prepareFallback(knownFailure: Throwable) { events += "fallback-prepared" }
 
         override suspend fun stop() { events += "stopped" }
+    }
+
+    private companion object {
+        fun participantConfiguration(
+            id: String,
+            sourceTopic: String,
+            warmupTopic: String,
+            hold: kotlin.time.Duration = 0.milliseconds
+        ) = WarmupParticipantConfiguration(
+            WarmupConsumerId(id),
+            listOf(WarmupTopicMapping(sourceTopic, warmupTopic)),
+            WarmupForwardingProfile(rampUpDuration = 0.milliseconds, holdDuration = hold)
+        )
     }
 }

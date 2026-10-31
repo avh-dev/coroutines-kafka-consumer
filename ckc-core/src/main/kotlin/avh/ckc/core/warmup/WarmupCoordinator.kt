@@ -8,6 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -17,9 +18,9 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-class WarmupCoordinatorConfiguration(
+class WarmupCoordinatorConfiguration internal constructor(
     val instanceId: WarmupInstanceId,
-    val assignmentLeaseProvider: WarmupAssignmentLeaseProvider,
+    internal val assignmentLeaseProvider: WarmupAssignmentLeaseProvider,
     val donorSearchTimeout: Duration = 5.seconds,
     val stageTimeout: Duration = 30.seconds,
     val donorLoadScore: () -> Double? = { null }
@@ -28,6 +29,20 @@ class WarmupCoordinatorConfiguration(
         require(donorSearchTimeout.isPositive()) { "donorSearchTimeout must be positive" }
         require(stageTimeout.isPositive()) { "stageTimeout must be positive" }
     }
+
+    constructor(
+        instanceId: WarmupInstanceId,
+        assignmentConfiguration: WarmupAssignmentConfiguration,
+        donorSearchTimeout: Duration = 5.seconds,
+        stageTimeout: Duration = 30.seconds,
+        donorLoadScore: () -> Double? = { null }
+    ) : this(
+        instanceId,
+        RedisWarmupAssignmentLeaseProvider(assignmentConfiguration),
+        donorSearchTimeout,
+        stageTimeout,
+        donorLoadScore
+    )
 }
 
 enum class WarmupStartupResult { WARMED, NO_DONOR_FALLBACK }
@@ -97,9 +112,11 @@ class WarmupCoordinator internal constructor(
             "Warm-up participants must be registered before coordinator start"
         }
         val consumerId = definition.configuration.consumerId
-        val participant = KafkaCoordinatorParticipant(definition, scope) { error ->
-            onParticipantFailure(consumerId, error)
-        }
+        val participant = KafkaCoordinatorParticipant(
+            definition,
+            scope,
+            onConsumerFailure = { error -> onParticipantFailure(consumerId, error) }
+        )
         check(participants.putIfAbsent(definition.configuration.consumerId, participant) == null) {
             "Warm-up consumer ${definition.configuration.consumerId} is already registered"
         }
@@ -177,9 +194,12 @@ class WarmupCoordinator internal constructor(
         }
         if (!shouldStop) return
         stageTimer?.cancel()
-        takeAssignmentLease()?.runCatching { release() }
-        participants.values.map { participant -> scope.async { runCatching { participant.stop() } } }.awaitAll()
+        takeAssignmentLease()?.quarantine()
+        coroutineScope {
+            participants.values.map { participant -> async { runCatching { participant.stop() } } }.awaitAll()
+        }
         channel.stop()
+        (configuration.assignmentLeaseProvider as? AutoCloseable)?.close()
         scope.cancel()
         termination.complete(null)
         if (!startup.isCompleted) startup.completeExceptionally(
@@ -296,7 +316,7 @@ class WarmupCoordinator internal constructor(
             return
         }
         if (!installAssignmentLease(selected.sessionId, lease)) {
-            lease.release()
+            lease.quarantine()
             return
         }
         val assigned = WarmupSessionAssignment(
@@ -334,9 +354,11 @@ class WarmupCoordinator internal constructor(
             WarmupCoordinatorState.RECIPIENT_STARTING
         )) { "Coordinator state changed before recipient startup" }
         withTimeout(configuration.stageTimeout) {
-            participants.values.map { participant -> scope.async {
-                participant.startRecipient(message.assignment.assignmentsFor(participant.configuration.consumerId))
-            } }.awaitAll()
+            coroutineScope {
+                participants.values.map { participant -> async {
+                    participant.startRecipient(message.assignment.assignmentsFor(participant.configuration.consumerId))
+                } }.awaitAll()
+            }
         }
         check(transition(
             setOf(WarmupCoordinatorState.RECIPIENT_STARTING),
@@ -397,9 +419,11 @@ class WarmupCoordinator internal constructor(
                 WarmupCoordinatorState.DONOR_STOPPING,
                 expectedSession = message.sessionId
             )) return
-        val boundaries = participants.map { (consumerId, participant) ->
-            consumerId to scope.async { participant.completeForwarding() }
-        }.associate { (id, deferred) -> id to deferred.await() }
+        val boundaries = coroutineScope {
+            participants.map { (consumerId, participant) ->
+                consumerId to async { participant.completeForwarding() }
+            }.associate { (id, deferred) -> id to deferred.await() }
+        }
         val offsets = boundaries.flatMap { (consumerId, boundary) ->
             boundary.offsets.map { (partition, offset) -> WarmupFinalOffset(consumerId, partition, offset) }
         }
@@ -429,12 +453,16 @@ class WarmupCoordinator internal constructor(
         check(reported.keys == assigned.partitions.map { it.topicPartition }.toSet()) {
             "Forwarding boundary does not match the session assignment"
         }
-        participants.map { (consumerId, participant) -> scope.async {
-            val offsets = message.finalOffsets.filter { it.consumerId == consumerId }
-                .associate { it.topicPartition to it.offset }
-            participant.drainRecipient(WarmupForwardingBoundary(offsets))
-        } }.awaitAll()
-        participants.values.map { participant -> scope.async { participant.startMainAfterDrain() } }.awaitAll()
+        coroutineScope {
+            participants.map { (consumerId, participant) -> async {
+                val offsets = message.finalOffsets.filter { it.consumerId == consumerId }
+                    .associate { it.topicPartition to it.offset }
+                participant.drainRecipient(WarmupForwardingBoundary(offsets))
+            } }.awaitAll()
+        }
+        coroutineScope {
+            participants.values.map { participant -> async { participant.startMainAfterDrain() } }.awaitAll()
+        }
         channel.send(SessionCompleted(
             message.sessionId,
             configuration.instanceId,
@@ -452,10 +480,12 @@ class WarmupCoordinator internal constructor(
         if (state != WarmupCoordinatorState.DONOR_WAITING_COMPLETION) return
         check(message.consumerIds == participants.keys) { "Session completion does not cover all participants" }
         stageTimer?.cancel()
-        participants.values.map { participant -> scope.async {
-            participant.finishDonor(message.sessionId)
-        } }.awaitAll()
-        takeAssignmentLease()?.release()
+        coroutineScope {
+            participants.values.map { participant -> async {
+                participant.finishDonor(message.sessionId)
+            } }.awaitAll()
+        }
+        takeAssignmentLease()?.releaseCompleted()
         offeredRequests.remove(message.sessionId)
         assignment = null
         sessionId = null
@@ -561,7 +591,9 @@ class WarmupCoordinator internal constructor(
 
     internal suspend fun onParticipantFailure(consumerId: WarmupConsumerId, error: Throwable) {
         val failure = IllegalStateException("Warm-up consumer $consumerId failed", error)
-        if (!forwardingStarted && currentState() == WarmupCoordinatorState.RECIPIENT_STARTING) {
+        if (currentState() == WarmupCoordinatorState.FALLBACK_STARTING) {
+            return
+        } else if (!forwardingStarted && currentState() == WarmupCoordinatorState.RECIPIENT_STARTING) {
             fallbackBeforeForwarding(failure, notifyPeer = true)
         } else {
             fail(failure, notifyPeer = true)
@@ -578,9 +610,13 @@ class WarmupCoordinator internal constructor(
         val target = peerId
         if (notifyPeer && failedSession != null) sendFailure(failedSession, target, error)
         try {
-            participants.values.map { participant -> scope.async { participant.prepareFallback() } }.awaitAll()
+            coroutineScope {
+                participants.values.map { participant -> async { participant.prepareFallback(error) } }.awaitAll()
+            }
             if (currentState() != WarmupCoordinatorState.FALLBACK_STARTING) return
-            participants.values.map { participant -> scope.async { participant.startMain() } }.awaitAll()
+            coroutineScope {
+                participants.values.map { participant -> async { participant.startMain() } }.awaitAll()
+            }
             sessionId = null
             peerId = null
             assignment = null
@@ -599,10 +635,12 @@ class WarmupCoordinator internal constructor(
         stageTimer?.cancel()
         val failedSession = sessionId
         val target = peerId
-        participants.values.map { participant -> scope.async {
-            runCatching { participant.releaseDonorReservation() }
-        } }.awaitAll()
-        takeAssignmentLease()?.release()
+        coroutineScope {
+            participants.values.map { participant -> async {
+                runCatching { participant.releaseDonorReservation() }
+            } }.awaitAll()
+        }
+        takeAssignmentLease()?.quarantine()
         assignment = null
         sessionId = null
         peerId = null
@@ -692,8 +730,10 @@ class WarmupCoordinator internal constructor(
         val failedSession = sessionId
         val target = peerId
         if (notifyPeer && failedSession != null) sendFailure(failedSession, target, error)
-        takeAssignmentLease()?.runCatching { release() }
-        participants.values.map { participant -> scope.async { runCatching { participant.stop() } } }.awaitAll()
+        takeAssignmentLease()?.quarantine()
+        coroutineScope {
+            participants.values.map { participant -> async { runCatching { participant.stop() } } }.awaitAll()
+        }
         startup.completeExceptionally(error)
         termination.complete(error)
     }

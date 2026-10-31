@@ -56,6 +56,7 @@ internal class WarmupRecipientLifecycle<K, V>(
         check(!stopRequested.isCompleted) { "Recipient is stopping" }
         try {
             createMain().also { main = it }.start()
+            requireNotNull(main).awaitReady()
             state = State.MAIN
         } catch (error: Throwable) {
             state = State.FAILED
@@ -66,7 +67,10 @@ internal class WarmupRecipientLifecycle<K, V>(
     fun mainConsumer(): CoroutinesKafkaConsumer<K, V> =
         requireNotNull(main) { "Main subscription has not started" }
 
-    suspend fun stop() {
+    fun warmupConsumer(): CoroutinesKafkaConsumer<K, V> =
+        requireNotNull(warmup) { "Warm-up subscription has not started" }
+
+    suspend fun stop(knownFailure: Throwable? = null) {
         stopRequested.complete(Unit)
         withContext(NonCancellable) {
             mutex.withLock {
@@ -77,7 +81,9 @@ internal class WarmupRecipientLifecycle<K, V>(
                     try {
                         consumer.stop()
                     } catch (error: Throwable) {
-                        if (failure == null) failure = error else failure.addSuppressed(error)
+                        if (!error.matchesKnownFailure(knownFailure)) {
+                            if (failure == null) failure = error else failure.addSuppressed(error)
+                        }
                     }
                 }
                 failure?.let { throw it }
@@ -95,6 +101,36 @@ internal class WarmupRecipientLifecycle<K, V>(
         } finally {
             operation.cancel()
         }
+    }
+
+    private fun Throwable.matchesKnownFailure(knownFailure: Throwable?): Boolean {
+        if (knownFailure == null) return false
+        val known = throwableGraph(knownFailure)
+        val pending = ArrayDeque<Throwable>().apply { add(this@matchesKnownFailure) }
+        val visited = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+        while (pending.isNotEmpty()) {
+            val current = pending.removeFirst()
+            if (!visited.add(current)) continue
+            if (known.any { candidate ->
+                    current === candidate ||
+                        (current.javaClass == candidate.javaClass && current.message == candidate.message)
+                }) return true
+            current.cause?.let(pending::add)
+            current.suppressed.forEach(pending::add)
+        }
+        return false
+    }
+
+    private fun throwableGraph(root: Throwable): Set<Throwable> {
+        val result = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+        val pending = ArrayDeque<Throwable>().apply { add(root) }
+        while (pending.isNotEmpty()) {
+            val current = pending.removeFirst()
+            if (!result.add(current)) continue
+            current.cause?.let(pending::add)
+            current.suppressed.forEach(pending::add)
+        }
+        return result
     }
 
     private enum class State { NEW, WARMING, DRAINED, MAIN, FAILED, STOPPED }

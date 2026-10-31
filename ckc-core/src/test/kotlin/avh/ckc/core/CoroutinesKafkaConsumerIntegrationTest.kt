@@ -9,8 +9,7 @@ import avh.ckc.core.warmup.WarmupForwardingConfiguration
 import avh.ckc.core.warmup.WarmupForwardingObserver
 import avh.ckc.core.warmup.WarmupForwardingProfile
 import avh.ckc.core.warmup.WarmupPartitionAssignment
-import avh.ckc.core.warmup.WarmupAssignmentLease
-import avh.ckc.core.warmup.WarmupAssignmentLeaseProvider
+import avh.ckc.core.warmup.WarmupAssignmentConfiguration
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.core.warmup.WarmupControlCodec
 import avh.ckc.core.warmup.WarmupControlMessage
@@ -61,6 +60,7 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.containers.GenericContainer
 import org.testcontainers.kafka.KafkaContainer
 import org.testcontainers.utility.DockerImageName
 import java.io.IOException
@@ -119,25 +119,14 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 if (!countOnlyWarmup || record.topic() == warmupTopic) counter.incrementAndGet()
             }
         }
-        val leaseProvider = WarmupAssignmentLeaseProvider { _, _, _, participants ->
-            object : WarmupAssignmentLease {
-                override val assignments = participants.flatMap { participant ->
-                    participant.topicMappings.map { mapping ->
-                        WarmupPartitionAssignment(
-                            participant.consumerId,
-                            mapping.sourceTopic,
-                            mapping.warmupTopic,
-                            0
-                        )
-                    }
-                }
-                override suspend fun release() = Unit
-            }
-        }
+        val assignmentConfiguration = WarmupAssignmentConfiguration(
+            redisUri = "redis://${redis.host}:${redis.getMappedPort(REDIS_PORT)}",
+            lockKey = "ckc:test:coordinator:${UUID.randomUUID()}"
+        )
         fun coordinator(instance: String) = WarmupCoordinator(
             WarmupCoordinatorConfiguration(
                 instanceId = WarmupInstanceId(instance),
-                assignmentLeaseProvider = leaseProvider,
+                assignmentConfiguration = assignmentConfiguration,
                 donorSearchTimeout = 200.milliseconds,
                 stageTimeout = 15_000.milliseconds,
                 donorLoadScore = { donorProcessed.get().toDouble() }
@@ -1608,7 +1597,19 @@ class CoroutinesKafkaConsumerIntegrationTest {
             DockerImageName.parse("apache/kafka-native:3.8.0")
         ).withFixedKafkaPort(availableTcpPort())
 
+        @Container
+        @JvmStatic
+        val redis = CoreRedisContainer(DockerImageName.parse("redis:7.4-alpine"))
+
+        const val REDIS_PORT = 6379
+
         private fun availableTcpPort(): Int = ServerSocket(0).use { it.localPort }
+    }
+}
+
+class CoreRedisContainer(imageName: DockerImageName) : GenericContainer<CoreRedisContainer>(imageName) {
+    init {
+        withExposedPorts(6379)
     }
 }
 

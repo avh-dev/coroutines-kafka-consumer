@@ -6132,5 +6132,13 @@ recipient-start failures use bounded cold-start fallback, while failures after f
 begins are terminal. State transitions and asynchronous results are serialized so a late
 startup result cannot overwrite `FAILED`; owned consumer failures are observed and exposed
 through coordinator termination. Regression coverage includes two simultaneous pairs,
-timer-send and readiness failures, reusable donor reservation after failed recipient
-startup, and the delayed-main versus transport-failure race.
+timer-send and readiness failures, local donor cleanup after failed recipient startup,
+and the delayed-main versus transport-failure race.
+Global assignment is implemented inside core with a Redis `SET NX` reservation configured
+by URI, key, and MVP partition number; applications no longer provide coordination code.
+The reservation has no expiry and is deleted atomically only after confirmed
+`SessionCompleted`. Failed, stopped, or ambiguous sessions quarantine the capacity for
+operator inspection instead of making a possibly active partition reusable. Recipient
+startup is structurally cancellable, and cleanup can stop a consumer waiting for readiness
+without being blocked by the participant mutex. Re-reporting the already observed consumer
+failure during stop is ignored, while an independent cleanup failure remains terminal.

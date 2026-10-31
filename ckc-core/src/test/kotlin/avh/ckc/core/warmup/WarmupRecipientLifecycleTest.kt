@@ -72,4 +72,33 @@ class WarmupRecipientLifecycleTest {
         Unit
     }
 
+    @Test
+    fun `cleanup ignores the already observed warm-up terminal failure`() = runBlocking {
+        val warmup = mock<CoroutinesKafkaConsumer<String, String>>()
+        val failure = IllegalStateException("Kafka initialization failed")
+        whenever(warmup.awaitReady()).thenThrow(failure)
+        whenever(warmup.stop()).thenThrow(failure)
+        val lifecycle = WarmupRecipientLifecycle({ warmup }, { error("Main must not be created") })
+
+        val observed = assertFailsWith<IllegalStateException> { lifecycle.startWarmup() }
+        lifecycle.stop(IllegalStateException("Coordinator observed warm-up failure", observed))
+
+        verify(warmup).stop()
+    }
+
+    @Test
+    fun `cleanup still reports an independent stop failure`() = runBlocking {
+        val warmup = mock<CoroutinesKafkaConsumer<String, String>>()
+        val startupFailure = IllegalStateException("Kafka initialization failed")
+        val cleanupFailure = IllegalArgumentException("close failed")
+        whenever(warmup.awaitReady()).thenThrow(startupFailure)
+        whenever(warmup.stop()).thenThrow(cleanupFailure)
+        val lifecycle = WarmupRecipientLifecycle({ warmup }, { error("Main must not be created") })
+
+        val observed = assertFailsWith<IllegalStateException> { lifecycle.startWarmup() }
+        val thrown = assertFailsWith<IllegalArgumentException> { lifecycle.stop(observed) }
+
+        assertEquals(cleanupFailure.message, thrown.message)
+    }
+
 }
