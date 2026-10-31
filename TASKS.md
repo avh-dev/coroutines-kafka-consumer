@@ -81,6 +81,7 @@
 | [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
+| [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6099,3 +6100,29 @@ shutdown, and every caller shares one cancellation-independent cleanup operation
 Synchronous producer sends are interruptible and use a Kafka `max.block.ms` no larger
 than the transport timeout. Encoding now rejects a message at the 1 MiB boundary while
 writing instead of allocating the complete oversized payload first.
+
+<a id="core-79"></a>
+### CORE-79 - Add the automatic warm-up coordinator
+
+_Date: 2026-10-31_
+
+Implement one explicit coordinator per application scope, with registration for multiple
+unordered CKC participants and one authoritative happy-path session state machine.
+Automate donor discovery and reservation, recipient readiness, timed forwarding,
+all-participant completion and drain, and transition to main subscriptions. Fall back to
+normal startup only when no donor is selected before any warm-up data is transferred;
+recovery after an active-session failure remains outside the MVP.
+Implemented an explicit multi-participant coordinator that waits for control readiness,
+discovers and selects the most-loaded compatible donor, confirms one reservation, starts
+library-created assigned recipients, activates donor forwarding only after aggregate
+readiness, and drives timed completion, final boundaries, all-participant drain, and main
+subscription startup. A first pod falls back to normal main subscriptions when no donor
+answers; failures after selection are terminal and are reported to the peer.
+Applications provide one reusable `WarmupConsumerDefinition` per logical consumer. Core
+creates both main and warm-up consumers from it and installs a dormant switchable
+forwarding gateway in each main runtime, allowing warmed recipients to become future
+donors without rebuilding their main consumer. Donor offers now report exact compatible
+topics, current partition ownership, cumulative observed traffic, and load score.
+Unit coverage verifies fallback, duplicate-message idempotence, and a two-consumer
+happy path with a strict drain-before-main barrier. A real-Kafka integration test verifies
+automatic discovery, forwarding, recipient processing, drain, and main subscription.

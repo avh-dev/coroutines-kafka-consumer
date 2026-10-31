@@ -54,7 +54,8 @@ data class PollLoopStateSnapshot(
     val lastCommitAttemptEpochMillis: Long?,
     val lastCommitSucceeded: Boolean?,
     val recovering: Boolean = false,
-    val lastRecoveryReason: String? = null
+    val lastRecoveryReason: String? = null,
+    val observedRecordsByTopic: Map<String, Long> = emptyMap()
 )
 
 data class AssignedPartitionSnapshot(

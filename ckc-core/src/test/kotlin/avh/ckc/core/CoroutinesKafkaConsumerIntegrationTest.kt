@@ -14,6 +14,10 @@ import avh.ckc.core.warmup.WarmupControlCodec
 import avh.ckc.core.warmup.WarmupControlMessage
 import avh.ckc.core.warmup.WarmupControlTransport
 import avh.ckc.core.warmup.WarmupControlTransportConfiguration
+import avh.ckc.core.warmup.WarmupConsumerDefinition
+import avh.ckc.core.warmup.WarmupCoordinator
+import avh.ckc.core.warmup.WarmupCoordinatorConfiguration
+import avh.ckc.core.warmup.WarmupStartupResult
 import avh.ckc.core.warmup.WarmupInvalidControlRecordHandler
 import avh.ckc.core.warmup.WarmupInstanceId
 import avh.ckc.core.warmup.WarmupParticipantConfiguration
@@ -21,10 +25,12 @@ import avh.ckc.core.warmup.WarmupRequest
 import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.SessionFailed
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.AdminClient
@@ -68,6 +74,90 @@ import kotlin.time.Duration.Companion.milliseconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    fun `automatic coordinator warms a new instance and starts its main subscription`() = runBlocking {
+        val sourceTopic = "coordinator-source-${UUID.randomUUID()}"
+        val warmupTopic = "coordinator-warmup-${UUID.randomUUID()}"
+        val controlTopic = "coordinator-control-${UUID.randomUUID()}"
+        val groupId = "coordinator-main-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(warmupTopic)
+        createTopic(controlTopic)
+        val donorProcessed = AtomicInteger()
+        val recipientWarmupProcessed = AtomicInteger()
+        val participantConfiguration = WarmupParticipantConfiguration(
+            consumerId = WarmupConsumerId("orders"),
+            topicMappings = listOf(WarmupTopicMapping(sourceTopic, warmupTopic)),
+            forwardingProfile = WarmupForwardingProfile(
+                initialFraction = 1.0,
+                targetFraction = 1.0,
+                rampUpDuration = 0.milliseconds,
+                holdDuration = 800.milliseconds
+            )
+        )
+        val forwardingProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all"
+        )
+        fun definition(counter: AtomicInteger, countOnlyWarmup: Boolean) = WarmupConsumerDefinition<String, String>(
+            configuration = participantConfiguration,
+            mainConsumerProperties = consumerProperties(groupId),
+            warmupConsumerProperties = consumerProperties("$groupId-warmup"),
+            forwardingProducerProperties = forwardingProperties
+        ) {
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+            workerConcurrency = 4
+            consumerPollLoopConcurrency = 1
+            commitIntervalMs = 50
+            commitRecordsThreshold = 1
+            handle { record ->
+                if (!countOnlyWarmup || record.topic() == warmupTopic) counter.incrementAndGet()
+            }
+        }
+        fun coordinator(instance: String) = WarmupCoordinator(
+            WarmupCoordinatorConfiguration(
+                instanceId = WarmupInstanceId(instance),
+                donorSearchTimeout = 200.milliseconds,
+                stageTimeout = 15_000.milliseconds,
+                donorLoadScore = { donorProcessed.get().toDouble() }
+            ),
+            WarmupControlTransportConfiguration(
+                instanceId = WarmupInstanceId(instance),
+                topic = controlTopic,
+                producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+                consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers)
+            )
+        )
+        val donor = coordinator("donor-${UUID.randomUUID()}").also {
+            it.register(definition(donorProcessed, countOnlyWarmup = false))
+        }
+        val recipient = coordinator("recipient-${UUID.randomUUID()}").also {
+            it.register(definition(recipientWarmupProcessed, countOnlyWarmup = true))
+        }
+
+        try {
+            assertEquals(WarmupStartupResult.NO_DONOR_FALLBACK, withTimeout(15_000) { donor.start() })
+            produce(sourceTopic, "initial", "initial")
+            awaitForBlocking { donorProcessed.get().takeIf { it > 0 } }
+            val traffic = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(forwardingProperties).use { producer ->
+                    repeat(200) { index ->
+                        producer.send(ProducerRecord(sourceTopic, "key-$index", "value-$index")).get()
+                        delay(10)
+                    }
+                }
+            }
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(20_000) { recipient.start() })
+            traffic.join()
+            assertTrue(recipientWarmupProcessed.get() > 0)
+        } finally {
+            recipient.stop()
+            donor.stop()
+        }
+    }
 
     @Test
     fun `control transports establish end positions before sending and each instance receives the stream`() = runBlocking {

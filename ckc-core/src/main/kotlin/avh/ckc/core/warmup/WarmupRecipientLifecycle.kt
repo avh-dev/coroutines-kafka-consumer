@@ -63,6 +63,9 @@ internal class WarmupRecipientLifecycle<K, V>(
         }
     }
 
+    fun mainConsumer(): CoroutinesKafkaConsumer<K, V> =
+        requireNotNull(main) { "Main subscription has not started" }
+
     suspend fun stop() {
         stopRequested.complete(Unit)
         withContext(NonCancellable) {
