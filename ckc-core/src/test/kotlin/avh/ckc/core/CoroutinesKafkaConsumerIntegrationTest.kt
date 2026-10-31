@@ -9,6 +9,8 @@ import avh.ckc.core.warmup.WarmupForwardingConfiguration
 import avh.ckc.core.warmup.WarmupForwardingObserver
 import avh.ckc.core.warmup.WarmupForwardingProfile
 import avh.ckc.core.warmup.WarmupPartitionAssignment
+import avh.ckc.core.warmup.WarmupAssignmentLease
+import avh.ckc.core.warmup.WarmupAssignmentLeaseProvider
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.core.warmup.WarmupControlCodec
 import avh.ckc.core.warmup.WarmupControlMessage
@@ -117,9 +119,25 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 if (!countOnlyWarmup || record.topic() == warmupTopic) counter.incrementAndGet()
             }
         }
+        val leaseProvider = WarmupAssignmentLeaseProvider { _, _, _, participants ->
+            object : WarmupAssignmentLease {
+                override val assignments = participants.flatMap { participant ->
+                    participant.topicMappings.map { mapping ->
+                        WarmupPartitionAssignment(
+                            participant.consumerId,
+                            mapping.sourceTopic,
+                            mapping.warmupTopic,
+                            0
+                        )
+                    }
+                }
+                override suspend fun release() = Unit
+            }
+        }
         fun coordinator(instance: String) = WarmupCoordinator(
             WarmupCoordinatorConfiguration(
                 instanceId = WarmupInstanceId(instance),
+                assignmentLeaseProvider = leaseProvider,
                 donorSearchTimeout = 200.milliseconds,
                 stageTimeout = 15_000.milliseconds,
                 donorLoadScore = { donorProcessed.get().toDouble() }

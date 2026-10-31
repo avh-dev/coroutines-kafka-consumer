@@ -6126,3 +6126,11 @@ topics, current partition ownership, cumulative observed traffic, and load score
 Unit coverage verifies fallback, duplicate-message idempotence, and a two-consumer
 happy path with a strict drain-before-main barrier. A real-Kafka integration test verifies
 automatic discovery, forwarding, recipient processing, drain, and main subscription.
+The coordinator now requires a globally linearizable assignment-lease provider, so two
+donors cannot assign the same warm-up capacity concurrently. Pre-forwarding control or
+recipient-start failures use bounded cold-start fallback, while failures after forwarding
+begins are terminal. State transitions and asynchronous results are serialized so a late
+startup result cannot overwrite `FAILED`; owned consumer failures are observed and exposed
+through coordinator termination. Regression coverage includes two simultaneous pairs,
+timer-send and readiness failures, reusable donor reservation after failed recipient
+startup, and the delayed-main versus transport-failure race.

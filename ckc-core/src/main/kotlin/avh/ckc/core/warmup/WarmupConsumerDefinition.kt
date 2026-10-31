@@ -2,6 +2,8 @@ package avh.ckc.core.warmup
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.CoroutinesKafkaConsumerBuilder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.TopicPartition
@@ -28,18 +30,22 @@ internal interface CoordinatorParticipant {
     val configuration: WarmupParticipantConfiguration
     suspend fun startMain()
     fun capability(requested: WarmupParticipantConfiguration): WarmupParticipantCapability
-    fun reserveDonor(assignment: List<WarmupPartitionAssignment>)
+    suspend fun reserveDonor(assignment: List<WarmupPartitionAssignment>)
+    suspend fun releaseDonorReservation()
     suspend fun activateDonor(sessionId: WarmupSessionId)
     suspend fun completeForwarding(): WarmupForwardingBoundary
     suspend fun finishDonor(sessionId: WarmupSessionId)
     suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>)
     suspend fun drainRecipient(boundary: WarmupForwardingBoundary)
     suspend fun startMainAfterDrain()
+    suspend fun prepareFallback()
     suspend fun stop()
 }
 
 internal class KafkaCoordinatorParticipant<K, V>(
-    private val definition: WarmupConsumerDefinition<K, V>
+    private val definition: WarmupConsumerDefinition<K, V>,
+    private val scope: CoroutineScope,
+    private val onConsumerFailure: suspend (Throwable) -> Unit
 ) : CoordinatorParticipant {
     override val configuration: WarmupParticipantConfiguration = definition.configuration
     private val mutex = Mutex()
@@ -79,7 +85,7 @@ internal class KafkaCoordinatorParticipant<K, V>(
         )
     }
 
-    override fun reserveDonor(assignment: List<WarmupPartitionAssignment>) {
+    override suspend fun reserveDonor(assignment: List<WarmupPartitionAssignment>) = mutex.withLock {
         check(donorAssignment == null) { "Consumer ${configuration.consumerId} is already reserved" }
         check(assignment.isNotEmpty() && assignment.all { it.consumerId == configuration.consumerId }) {
             "Invalid donor assignment for ${configuration.consumerId}"
@@ -88,7 +94,11 @@ internal class KafkaCoordinatorParticipant<K, V>(
         donorAssignment = immutableListSnapshot(assignment)
     }
 
-    override suspend fun activateDonor(sessionId: WarmupSessionId) {
+    override suspend fun releaseDonorReservation() = mutex.withLock {
+        donorAssignment = null
+    }
+
+    override suspend fun activateDonor(sessionId: WarmupSessionId) = mutex.withLock {
         val assignment = requireNotNull(donorAssignment) { "Donor is not reserved" }
         forwarding.activate(
             WarmupForwardingConfiguration(
@@ -102,15 +112,16 @@ internal class KafkaCoordinatorParticipant<K, V>(
         )
     }
 
-    override suspend fun completeForwarding(): WarmupForwardingBoundary =
+    override suspend fun completeForwarding(): WarmupForwardingBoundary = mutex.withLock {
         requireNotNull(main) { "Donor main consumer is not running" }.completeWarmupForwarding()
+    }
 
-    override suspend fun finishDonor(sessionId: WarmupSessionId) {
+    override suspend fun finishDonor(sessionId: WarmupSessionId) = mutex.withLock {
         forwarding.finish(sessionId)
         donorAssignment = null
     }
 
-    override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) {
+    override suspend fun startRecipient(assignment: List<WarmupPartitionAssignment>) = mutex.withLock {
         check(assignment.isNotEmpty() && assignment.all { it.consumerId == configuration.consumerId }) {
             "Invalid recipient assignment for ${configuration.consumerId}"
         }
@@ -126,13 +137,18 @@ internal class KafkaCoordinatorParticipant<K, V>(
         requireNotNull(recipient) { "Recipient is not running" }.drain(boundary)
     }
 
-    override suspend fun startMainAfterDrain() {
+    override suspend fun startMainAfterDrain() = mutex.withLock {
         val lifecycle = requireNotNull(recipient) { "Recipient is not running" }
         lifecycle.startMain()
         main = lifecycle.mainConsumer()
     }
 
-    override suspend fun stop() {
+    override suspend fun prepareFallback() = mutex.withLock {
+        recipient?.stop()
+        recipient = null
+    }
+
+    override suspend fun stop() = mutex.withLock {
         recipient?.stop() ?: main?.stop()
         forwarding.close()
     }
@@ -145,10 +161,22 @@ internal class KafkaCoordinatorParticipant<K, V>(
                 warmupForwarding(forwarding)
             }
             .build(definition.mainConsumerProperties)
+            .also(::observeFailure)
 
     private fun buildWarmup(partitions: Set<TopicPartition>): CoroutinesKafkaConsumer<K, V> =
         CoroutinesKafkaConsumerBuilder<K, V>()
             .apply(definition.configure)
             .apply { assignedPartitionsAtEnd(partitions) }
             .build(definition.warmupConsumerProperties)
+            .also(::observeFailure)
+
+    private fun observeFailure(consumer: CoroutinesKafkaConsumer<K, V>) {
+        scope.launch {
+            try {
+                consumer.awaitTermination()
+            } catch (error: Throwable) {
+                onConsumerFailure(error)
+            }
+        }
+    }
 }
