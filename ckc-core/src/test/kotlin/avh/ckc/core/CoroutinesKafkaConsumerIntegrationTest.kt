@@ -10,9 +10,20 @@ import avh.ckc.core.warmup.WarmupForwardingObserver
 import avh.ckc.core.warmup.WarmupForwardingProfile
 import avh.ckc.core.warmup.WarmupPartitionAssignment
 import avh.ckc.core.warmup.WarmupSessionId
+import avh.ckc.core.warmup.WarmupControlCodec
+import avh.ckc.core.warmup.WarmupControlMessage
+import avh.ckc.core.warmup.WarmupControlTransport
+import avh.ckc.core.warmup.WarmupControlTransportConfiguration
+import avh.ckc.core.warmup.WarmupInvalidControlRecordHandler
+import avh.ckc.core.warmup.WarmupInstanceId
+import avh.ckc.core.warmup.WarmupParticipantConfiguration
+import avh.ckc.core.warmup.WarmupRequest
+import avh.ckc.core.warmup.WarmupTopicMapping
+import avh.ckc.core.warmup.SessionFailed
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -57,6 +68,69 @@ import kotlin.time.Duration.Companion.milliseconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    fun `control transports establish end positions before sending and each instance receives the stream`() = runBlocking {
+        val topic = "warmup-control-${UUID.randomUUID()}"
+        createTopic(topic)
+        val oldSession = WarmupSessionId("old-${UUID.randomUUID()}")
+        val firstId = WarmupInstanceId("first-${UUID.randomUUID()}")
+        val secondId = WarmupInstanceId("second-${UUID.randomUUID()}")
+        produceControlRecord(
+            topic,
+            oldSession.value,
+            WarmupControlCodec.encode(SessionFailed(oldSession, firstId, null, "old record"))
+        )
+        val firstMessages = Channel<WarmupControlMessage>(Channel.UNLIMITED)
+        val secondMessages = Channel<WarmupControlMessage>(Channel.UNLIMITED)
+        val invalidRecords = Channel<String?>(Channel.UNLIMITED)
+        fun transport(
+            instanceId: WarmupInstanceId,
+            messages: Channel<WarmupControlMessage>,
+            invalidHandler: WarmupInvalidControlRecordHandler = WarmupInvalidControlRecordHandler.NOOP
+        ) =
+            WarmupControlTransport(
+                WarmupControlTransportConfiguration(
+                    instanceId = instanceId,
+                    topic = topic,
+                    producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+                    consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers)
+                ),
+                handler = { messages.send(it) },
+                invalidRecordHandler = invalidHandler
+            )
+        val first = transport(firstId, firstMessages) { key, _ -> invalidRecords.trySend(key) }
+        val second = transport(secondId, secondMessages)
+        try {
+            first.start()
+            second.start()
+            withTimeout(15_000L) {
+                first.awaitReady()
+                second.awaitReady()
+            }
+            produceControlRecord(topic, "malformed", byteArrayOf(1, 2, 3))
+            assertEquals("malformed", withTimeout(15_000L) { invalidRecords.receive() })
+            val session = WarmupSessionId("session-${UUID.randomUUID()}")
+            first.send(WarmupRequest(
+                sessionId = session,
+                senderInstanceId = firstId,
+                participants = listOf(WarmupParticipantConfiguration(
+                    consumerId = WarmupConsumerId("orders"),
+                    topicMappings = listOf(WarmupTopicMapping("orders", "warmup-orders"))
+                ))
+            ))
+
+            val receivedByFirst = withTimeout(15_000L) { firstMessages.receive() }
+            val receivedBySecond = withTimeout(15_000L) { secondMessages.receive() }
+            assertEquals(session, receivedByFirst.sessionId)
+            assertEquals(session, receivedBySecond.sessionId)
+            assertTrue(firstMessages.tryReceive().isFailure)
+            assertTrue(secondMessages.tryReceive().isFailure)
+        } finally {
+            first.stop()
+            second.stop()
+        }
+    }
 
     @Test
     fun `donor forwards then completes and recipient drains final committed boundary`() = runBlocking {
@@ -1355,6 +1429,19 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ).use { producer ->
             producer.send(ProducerRecord(topic, partition, key, value)).get()
             producer.flush()
+        }
+    }
+
+    private fun produceControlRecord(topic: String, key: String, value: ByteArray) {
+        KafkaProducer<String, ByteArray>(
+            mapOf(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
+                ProducerConfig.ACKS_CONFIG to "all"
+            )
+        ).use { producer ->
+            producer.send(ProducerRecord(topic, key, value)).get(10, TimeUnit.SECONDS)
         }
     }
 
