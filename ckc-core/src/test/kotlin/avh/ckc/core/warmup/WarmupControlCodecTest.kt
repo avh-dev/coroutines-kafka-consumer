@@ -40,17 +40,28 @@ class WarmupControlCodecTest {
             loadScore = 0.75
         )
         val messages = listOf<WarmupControlMessage>(
+            StateSyncRequest(session, recipient),
+            StateSnapshot(session, donor, recipient, 3, donor, 12, 11, setOf(donor), listOf(
+                WarmupReplicatedSession(assignment, WarmupReplicatedStage.FORWARDING, 1_000, 2_000)
+            )),
+            InstanceReady(session, donor),
+            CoordinatorHeartbeat(session, donor, 3),
+            CoordinatorClaim(session, recipient, 3, donor, 12),
             WarmupRequest(session, recipient, listOf(participant)),
-            DonorOffer(session, donor, recipient, capability),
-            DonorSelected(session, recipient, donor),
-            WarmupAssigned(session, donor, recipient, assignment),
+            DonorProbe(session, donor, recipient, 3, recipient, listOf(participant)),
+            DonorOffer(session, donor, recipient, 3, capability),
+            AssignmentProposed(session, donor, 3, assignment, 1_000),
             RecipientReady(session, recipient, donor, setOf(consumer)),
-            WarmupFinished(session, recipient, donor),
+            StartForwarding(session, donor, donor, 3, 2_000),
+            StopForwarding(session, donor, donor, 3),
             ForwardingStopped(session, donor, recipient, listOf(
                 WarmupFinalOffset(consumer, TopicPartition("warmup-orders", 2), 91),
                 WarmupFinalOffset(WarmupConsumerId("empty"), TopicPartition("warmup-empty", 0), null)
             )),
-            SessionCompleted(session, recipient, donor, setOf(consumer)),
+            DrainRecipient(session, donor, recipient, 3, listOf(
+                WarmupFinalOffset(consumer, TopicPartition("warmup-orders", 2), 91)
+            )),
+            SessionCompleted(session, recipient, setOf(consumer)),
             SessionFailed(session, donor, recipient, "producer acknowledgement failed")
         )
 
@@ -62,15 +73,15 @@ class WarmupControlCodecTest {
         }
 
         val decodedRequest = assertIs<WarmupRequest>(
-            WarmupControlCodec.decode(WarmupControlCodec.encode(messages.first()))
+            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[5]))
         )
         assertEquals(participant, decodedRequest.participants.single())
         val decodedOffer = assertIs<DonorOffer>(
-            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[1]))
+            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[7]))
         )
         assertEquals(capability, decodedOffer.capability)
         val decodedStopped = assertIs<ForwardingStopped>(
-            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[6]))
+            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[12]))
         )
         assertEquals(91, decodedStopped.finalOffsets.first().offset)
         assertEquals(null, decodedStopped.finalOffsets.last().offset)
@@ -78,10 +89,10 @@ class WarmupControlCodecTest {
 
     @Test
     fun `codec rejects unsupported versions unknown types trailing bytes and oversized input`() {
-        val encoded = WarmupControlCodec.encode(WarmupFinished(session, recipient, donor))
+        val encoded = WarmupControlCodec.encode(StopForwarding(session, recipient, donor, 1))
 
         val unsupportedVersion = encoded.copyOf()
-        ByteBuffer.wrap(unsupportedVersion).putShort(4, 2)
+        ByteBuffer.wrap(unsupportedVersion).putShort(4, 3)
         assertFailsWith<IllegalArgumentException> { WarmupControlCodec.decode(unsupportedVersion) }
 
         val unknownType = encoded.copyOf().also { it[6] = 127 }
@@ -127,7 +138,7 @@ class WarmupControlCodecTest {
         )
 
         val error = assertFailsWith<IllegalArgumentException> {
-            WarmupControlCodec.encode(DonorOffer(session, donor, recipient, largeCapability))
+            WarmupControlCodec.encode(DonorOffer(session, donor, recipient, 1, largeCapability))
         }
         assertEquals("Warm-up control message exceeds 1048576 bytes", error.message)
     }

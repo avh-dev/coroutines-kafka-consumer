@@ -40,7 +40,11 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-internal class WarmupControlTransportConfiguration(
+/**
+ * The control topic is an uncompacted single-partition journal. Its retention must cover the
+ * complete MVP experiment; synchronization fails closed when the required retained range is gone.
+ */
+class WarmupControlTransportConfiguration(
     val instanceId: WarmupInstanceId,
     val topic: String,
     producerProperties: Map<String, Any?>,
@@ -71,8 +75,18 @@ internal class WarmupControlTransportConfiguration(
     }
 }
 
+internal data class WarmupControlRecord(val offset: Long, val message: WarmupControlMessage)
+
+internal data class WarmupControlLogPosition(
+    val partition: TopicPartition,
+    val beginningOffset: Long,
+    val endOffset: Long
+) {
+    val isProvablyEmpty: Boolean get() = beginningOffset == 0L && endOffset == 0L
+}
+
 internal fun interface WarmupControlMessageHandler {
-    suspend fun onMessage(message: WarmupControlMessage)
+    suspend fun onMessage(record: WarmupControlRecord)
 }
 
 internal fun interface WarmupInvalidControlRecordHandler {
@@ -81,6 +95,15 @@ internal fun interface WarmupInvalidControlRecordHandler {
     companion object {
         val NOOP = WarmupInvalidControlRecordHandler { _, _ -> }
     }
+}
+
+internal interface WarmupControlChannel {
+    fun start()
+    suspend fun awaitReady()
+    fun logPosition(): WarmupControlLogPosition
+    suspend fun send(message: WarmupControlMessage): RecordMetadata
+    suspend fun awaitTermination()
+    suspend fun stop()
 }
 
 /**
@@ -95,11 +118,11 @@ internal class WarmupControlTransport(
     private val producerFactory: (Map<String, Any?>) -> KafkaProducer<String, ByteArray> = { KafkaProducer(it) },
     private val consumerFactory: (Map<String, Any?>) -> KafkaConsumer<String, ByteArray> = { KafkaConsumer(it) },
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
+) : WarmupControlChannel {
     private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val scope = CoroutineScope(parentContext + lifecycleJob)
     private val shutdownScope = CoroutineScope(dispatcher)
-    private val commands = Channel<WarmupControlMessage>(configuration.commandBufferCapacity)
+    private val commands = Channel<WarmupControlRecord>(configuration.commandBufferCapacity)
     private val readiness = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
     private val failure = AtomicReference<Throwable?>()
@@ -110,8 +133,9 @@ internal class WarmupControlTransport(
     private var consumer: KafkaConsumer<String, ByteArray>? = null
     private var pollJob: Job? = null
     private var dispatchJob: Job? = null
+    @Volatile private var initialLogPosition: WarmupControlLogPosition? = null
 
-    fun start() {
+    override fun start() {
         check(started.compareAndSet(false, true)) { "Warm-up control transport already started" }
         try {
             producer = producerFactory(producerProperties())
@@ -126,13 +150,16 @@ internal class WarmupControlTransport(
         }
     }
 
-    suspend fun awaitReady() {
+    override suspend fun awaitReady() {
         check(started.get()) { "Warm-up control transport has not started" }
         readiness.await()
         failure.get()?.let { throw it }
     }
 
-    suspend fun send(message: WarmupControlMessage): RecordMetadata {
+    override fun logPosition(): WarmupControlLogPosition =
+        checkNotNull(initialLogPosition) { "Warm-up control transport is not ready" }
+
+    override suspend fun send(message: WarmupControlMessage): RecordMetadata {
         check(message.senderInstanceId == configuration.instanceId) {
             "Control message sender must match the local instance"
         }
@@ -147,11 +174,11 @@ internal class WarmupControlTransport(
         return withTimeout(configuration.sendTimeout) { sendAcknowledged(requireNotNull(producer), record) }
     }
 
-    suspend fun awaitTermination() {
+    override suspend fun awaitTermination() {
         termination.await()?.let { throw it }
     }
 
-    suspend fun stop() {
+    override suspend fun stop() {
         shutdownOperation().join()
     }
 
@@ -190,10 +217,17 @@ internal class WarmupControlTransport(
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
 
                 override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
+                    check(partitions.size == 1) {
+                        "Warm-up control topic must have exactly one assigned partition"
+                    }
                     val newPartitions = partitions.filterNot(initializedPartitions::contains)
                     if (newPartitions.isNotEmpty()) {
-                        activeConsumer.seekToEnd(newPartitions)
-                        newPartitions.forEach { activeConsumer.position(it) }
+                        val partition = newPartitions.single()
+                        val beginning = activeConsumer.beginningOffsets(newPartitions).getValue(partition)
+                        val end = activeConsumer.endOffsets(newPartitions).getValue(partition)
+                        activeConsumer.seek(partition, end)
+                        activeConsumer.position(partition)
+                        initialLogPosition = WarmupControlLogPosition(partition, beginning, end)
                         initializedPartitions += newPartitions
                     }
                     if (partitions.isNotEmpty()) readiness.complete(Unit)
@@ -216,7 +250,7 @@ internal class WarmupControlTransport(
                         invalidRecordHandler.onInvalidRecord(record.key(), error)
                         continue
                     }
-                    check(commands.trySend(message).isSuccess) {
+                    check(commands.trySend(WarmupControlRecord(record.offset(), message)).isSuccess) {
                         "Warm-up control command buffer is full or closed"
                     }
                 }
@@ -227,7 +261,7 @@ internal class WarmupControlTransport(
     }
 
     private suspend fun dispatchLoop() {
-        for (message in commands) handler.onMessage(message)
+        for (record in commands) handler.onMessage(record)
     }
 
     private fun observe(job: Job) {

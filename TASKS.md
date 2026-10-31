@@ -81,6 +81,7 @@
 | [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
+| [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6099,3 +6100,62 @@ shutdown, and every caller shares one cancellation-independent cleanup operation
 Synchronous producer sends are interruptible and use a Kafka `max.block.ms` no larger
 than the transport timeout. Encoding now rejects a message at the 1 MiB boundary while
 writing instead of allocating the complete oversized payload first.
+
+<a id="core-79"></a>
+### CORE-79 - Add the automatic warm-up coordinator
+
+_Date: 2026-10-31_
+
+Implement one explicit coordinator per application scope, with registration for multiple
+unordered CKC participants and a library-owned local data-plane executor. Core creates
+main and assigned warm-up consumers, activates forwarding only after aggregate readiness,
+collects final offsets, drains every recipient, and starts main subscriptions afterwards.
+
+Replace the temporary Redis lease with a replicated control plane over one Kafka control
+partition. One eligible pod is active while standby replicas apply the same journal,
+heartbeat and generation-fenced election records. Only the active pod probes donors,
+chooses the most loaded compatible candidate, and publishes partition assignments.
+Assignments become authoritative only when their record is applied from the journal;
+ambiguous sends may republish the same idempotent decision and never imply rollback.
+
+New pods synchronize from a bounded snapshot plus the buffered journal tail. A snapshot
+answer to the pod's own request establishes initial trust, while later election records
+supersede an old active's snapshot. Synchronization validates retained log-range coverage
+without assuming contiguous Kafka offset numbers. Empty-journal bootstrap is explicit;
+an unsynchronized pod may cold-start but remains ineligible for election.
+
+Generation fencing applies when commands are accepted, without cancelling data-plane work
+already admitted by an earlier generation. Participant completion reports remain valid by
+session, assignment, and sender after an election. `SessionCompleted` itself releases the
+replicated reservation; failed or ambiguous sessions remain quarantined. Live sessions,
+ready instances, and synchronization buffers have explicit limits, completed sessions are
+removed from snapshots, and overflow fails closed for warm-up.
+
+Regression coverage verifies old-snapshot election races, non-contiguous offsets, bounded
+state, ambiguous assignment publication, two competing recipient pairs, pre-forwarding
+cleanup, generation fencing, and participant completion after leader change. Existing
+recipient lifecycle cleanup tests and a real-Kafka automatic warm-up test cover the local
+executor and complete forwarding/drain/main transition.
+
+The MVP does not replay the full control journal after a simultaneous restart of every
+coordinator. A pod that finds a non-empty journal but cannot obtain a snapshot cold-starts
+main consumers and remains ineligible for election; warm-up stays unavailable until an
+operator starts from a deliberately reset control journal. This is fail-closed for reserved
+capacity. Durable checkpoints and automatic full-service recovery remain follow-up work.
+
+Long-running sessions keep their warm-up deadline in replicated state, so a newly
+elected coordinator bounds forwarding without reconstructing the data plane. Session
+effects execute in bounded per-session queues and cannot block journal replication.
+Assignment records reserve both partitions and the donor atomically; participant
+failures publish every affected local session for fail-closed quarantine.
+
+Local donor lifecycle operations are serialized across sessions, including delayed cleanup
+before a later reservation. A replicated failure immediately fences and cancels the matching
+local executor instead of waiting behind readiness or drain. The reducer enforces monotonic
+session stages and keeps quarantined reservations terminal. Unassigned requests create no
+session executor, expire their scheduler state, and all local executor counts are bounded.
+
+Donor activation is terminal from before the first participant is enabled, so cancellation
+of a partially activated set stops every participant instead of releasing it as unused.
+Successful completion also closes any executor created by the active coordinator, allowing
+the configured executor bound to be reused across sequential warm-up sessions.

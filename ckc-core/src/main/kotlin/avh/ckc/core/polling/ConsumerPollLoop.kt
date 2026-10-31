@@ -166,6 +166,11 @@ internal class ConsumerPollLoop<K, V>(
     @Volatile
     private var lastPollRecordCount: Int? = null
 
+    private val observedRecordsByTopic = mutableMapOf<String, Long>()
+
+    @Volatile
+    private var observedRecordsByTopicSnapshot: Map<String, Long> = emptyMap()
+
     @Volatile
     private var lastCommitAttemptEpochMillis: Long? = null
 
@@ -260,7 +265,8 @@ internal class ConsumerPollLoop<K, V>(
             lastCommitAttemptEpochMillis = lastCommitAttemptEpochMillis,
             lastCommitSucceeded = lastCommitSucceeded,
             recovering = recoveringLostAssignment,
-            lastRecoveryReason = lastRecoveryReason
+            lastRecoveryReason = lastRecoveryReason,
+            observedRecordsByTopic = observedRecordsByTopicSnapshot
         )
 
     override fun configurePartitionHandoffTimeout(timeout: kotlin.time.Duration) {
@@ -957,6 +963,16 @@ internal class ConsumerPollLoop<K, V>(
             val records = consumer.poll(state.pollTimeout)
             lastPollEpochMillis = System.currentTimeMillis()
             lastPollRecordCount = records.count()
+            if (!records.isEmpty) {
+                records.partitions().forEach { partition ->
+                    val count = records.records(partition).size.toLong()
+                    observedRecordsByTopic.compute(partition.topic()) { _, previous ->
+                        val current = previous ?: 0L
+                        if (Long.MAX_VALUE - current < count) Long.MAX_VALUE else current + count
+                    }
+                }
+                observedRecordsByTopicSnapshot = HashMap(observedRecordsByTopic)
+            }
             metrics.onPoll(records.count(), System.nanoTime() - startedAt)
             if (state.pollTimeout == Duration.ZERO && records.isEmpty) {
                 delay(State.ACTIVE.pollTimeout.toKotlinDuration())

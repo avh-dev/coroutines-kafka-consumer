@@ -174,6 +174,8 @@ class WarmupControlTransportTest {
             Unit
         }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
         whenever(consumer.position(partition)).thenReturn(0L)
+        whenever(consumer.beginningOffsets(listOf(partition))).thenReturn(mapOf(partition to 0L))
+        whenever(consumer.endOffsets(listOf(partition))).thenReturn(mapOf(partition to 0L))
         doAnswer {
             if (firstPoll.compareAndSet(true, false)) {
                 listener.get().onPartitionsAssigned(listOf(partition))

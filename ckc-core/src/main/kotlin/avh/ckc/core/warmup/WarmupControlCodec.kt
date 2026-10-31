@@ -28,13 +28,48 @@ internal object WarmupControlCodec {
             data.writeString(message.senderInstanceId.value)
             data.writeNullableString(message.targetInstanceId?.value)
             when (message) {
+                is StateSyncRequest -> Unit
+                is StateSnapshot -> {
+                    data.writeLong(message.generation)
+                    data.writeString(message.activeCoordinator.value)
+                    data.writeLong(message.coveredOffset)
+                    data.writeLong(message.lastHeartbeatOffset)
+                    data.writeCollection(message.readyInstances.sortedBy { it.value }) { writeString(it.value) }
+                    data.writeCollection(message.sessions) { writeReplicatedSession(it) }
+                }
+                is InstanceReady -> Unit
+                is CoordinatorHeartbeat -> data.writeLong(message.generation)
+                is CoordinatorClaim -> {
+                    data.writeLong(message.expectedGeneration)
+                    data.writeNullableString(message.expectedCoordinator?.value)
+                    data.writeLong(message.observedHeartbeatOffset)
+                }
                 is WarmupRequest -> data.writeCollection(message.participants) { writeParticipantConfiguration(it) }
-                is DonorOffer -> data.writeDonorCapability(message.capability)
-                is DonorSelected -> Unit
-                is WarmupAssigned -> data.writeAssignment(message.assignment)
+                is DonorProbe -> {
+                    data.writeLong(message.generation)
+                    data.writeString(message.recipientInstanceId.value)
+                    data.writeCollection(message.participants) { writeParticipantConfiguration(it) }
+                }
+                is DonorOffer -> {
+                    data.writeLong(message.generation)
+                    data.writeDonorCapability(message.capability)
+                }
+                is AssignmentProposed -> {
+                    data.writeLong(message.generation)
+                    data.writeAssignment(message.assignment)
+                    data.writeLong(message.warmupDurationMillis)
+                }
                 is RecipientReady -> data.writeCollection(message.consumerIds.sortedBy { it.value }) { writeString(it.value) }
-                is WarmupFinished -> Unit
+                is StartForwarding -> {
+                    data.writeLong(message.generation)
+                    data.writeLong(message.stopAtEpochMillis)
+                }
+                is StopForwarding -> data.writeLong(message.generation)
                 is ForwardingStopped -> data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
+                is DrainRecipient -> {
+                    data.writeLong(message.generation)
+                    data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
+                }
                 is SessionCompleted -> data.writeCollection(message.consumerIds.sortedBy { it.value }) { writeString(it.value) }
                 is SessionFailed -> data.writeString(message.reason)
             }
@@ -56,35 +91,50 @@ internal object WarmupControlCodec {
             val sender = WarmupInstanceId(data.readString())
             val target = data.readNullableString()?.let(::WarmupInstanceId)
             when (type) {
+                TYPE_SYNC_REQUEST -> StateSyncRequest(sessionId, sender, version)
+                TYPE_SNAPSHOT -> StateSnapshot(
+                    sessionId, sender, requireNotNull(target), data.readLong(), WarmupInstanceId(data.readString()),
+                    data.readLong(), data.readLong(), data.readCollection { WarmupInstanceId(readString()) },
+                    data.readCollection { readReplicatedSession() }, version
+                )
+                TYPE_INSTANCE_READY -> InstanceReady(sessionId, sender, version)
+                TYPE_HEARTBEAT -> CoordinatorHeartbeat(sessionId, sender, data.readLong(), version)
+                TYPE_CLAIM -> CoordinatorClaim(
+                    sessionId, sender, data.readLong(), data.readNullableString()?.let(::WarmupInstanceId),
+                    data.readLong(), version
+                )
                 TYPE_REQUEST -> {
                     require(target == null) { "WarmupRequest must be broadcast" }
                     WarmupRequest(sessionId, sender, data.readCollection { readParticipantConfiguration() }, version)
                 }
+                TYPE_PROBE -> DonorProbe(
+                    sessionId, sender, requireNotNull(target), data.readLong(), WarmupInstanceId(data.readString()),
+                    data.readCollection { readParticipantConfiguration() }, version
+                )
                 TYPE_OFFER -> DonorOffer(
-                    sessionId, sender, requireNotNull(target) { "DonorOffer target is missing" },
-                    data.readDonorCapability(), version
+                    sessionId, sender, requireNotNull(target), data.readLong(), data.readDonorCapability(), version
                 )
-                TYPE_SELECTED -> DonorSelected(
-                    sessionId, sender, requireNotNull(target) { "DonorSelected target is missing" }, version
-                )
-                TYPE_ASSIGNED -> WarmupAssigned(
-                    sessionId, sender, requireNotNull(target) { "WarmupAssigned target is missing" },
-                    data.readAssignment(), version
+                TYPE_ASSIGNMENT -> AssignmentProposed(
+                    sessionId, sender, data.readLong(), data.readAssignment(), data.readLong(), version
                 )
                 TYPE_READY -> RecipientReady(
                     sessionId, sender, requireNotNull(target) { "RecipientReady target is missing" },
                     data.readCollection { WarmupConsumerId(readString()) }, version
                 )
-                TYPE_FINISHED -> WarmupFinished(
-                    sessionId, sender, requireNotNull(target) { "WarmupFinished target is missing" }, version
+                TYPE_START -> StartForwarding(
+                    sessionId, sender, requireNotNull(target), data.readLong(), data.readLong(), version
                 )
+                TYPE_STOP -> StopForwarding(sessionId, sender, requireNotNull(target), data.readLong(), version)
                 TYPE_FORWARDING_STOPPED -> ForwardingStopped(
                     sessionId, sender, requireNotNull(target) { "ForwardingStopped target is missing" },
                     data.readCollection { readFinalOffset() }, version
                 )
+                TYPE_DRAIN -> DrainRecipient(
+                    sessionId, sender, requireNotNull(target), data.readLong(),
+                    data.readCollection { readFinalOffset() }, version
+                )
                 TYPE_COMPLETED -> SessionCompleted(
-                    sessionId, sender, requireNotNull(target) { "SessionCompleted target is missing" },
-                    data.readCollection { WarmupConsumerId(readString()) }, version
+                    sessionId, sender, data.readCollection { WarmupConsumerId(readString()) }, version
                 )
                 TYPE_FAILED -> SessionFailed(sessionId, sender, target, data.readString(), version)
                 else -> throw IllegalArgumentException("Unknown warm-up control message type: $type")
@@ -95,13 +145,20 @@ internal object WarmupControlCodec {
     }
 
     private fun WarmupControlMessage.typeId(): Int = when (this) {
+        is StateSyncRequest -> TYPE_SYNC_REQUEST
+        is StateSnapshot -> TYPE_SNAPSHOT
+        is InstanceReady -> TYPE_INSTANCE_READY
+        is CoordinatorHeartbeat -> TYPE_HEARTBEAT
+        is CoordinatorClaim -> TYPE_CLAIM
         is WarmupRequest -> TYPE_REQUEST
+        is DonorProbe -> TYPE_PROBE
         is DonorOffer -> TYPE_OFFER
-        is DonorSelected -> TYPE_SELECTED
-        is WarmupAssigned -> TYPE_ASSIGNED
+        is AssignmentProposed -> TYPE_ASSIGNMENT
         is RecipientReady -> TYPE_READY
-        is WarmupFinished -> TYPE_FINISHED
+        is StartForwarding -> TYPE_START
+        is StopForwarding -> TYPE_STOP
         is ForwardingStopped -> TYPE_FORWARDING_STOPPED
+        is DrainRecipient -> TYPE_DRAIN
         is SessionCompleted -> TYPE_COMPLETED
         is SessionFailed -> TYPE_FAILED
     }
@@ -210,6 +267,24 @@ internal object WarmupControlCodec {
         }
     )
 
+    private fun DataOutputStream.writeReplicatedSession(value: WarmupReplicatedSession) {
+        writeAssignment(value.assignment)
+        writeByte(value.stage.ordinal)
+        writeLong(value.warmupDurationMillis)
+        writeBoolean(value.stopAtEpochMillis != null)
+        value.stopAtEpochMillis?.let(::writeLong)
+    }
+
+    private fun DataInputStream.readReplicatedSession(): WarmupReplicatedSession {
+        val assignment = readAssignment()
+        val stageOrdinal = readUnsignedByte()
+        val stage = WarmupReplicatedStage.entries.getOrNull(stageOrdinal)
+            ?: throw IllegalArgumentException("Unknown replicated session stage: $stageOrdinal")
+        val warmupDurationMillis = readLong()
+        val stopAtEpochMillis = if (readBoolean()) readLong() else null
+        return WarmupReplicatedSession(assignment, stage, warmupDurationMillis, stopAtEpochMillis)
+    }
+
     private fun DataOutputStream.writeFinalOffset(value: WarmupFinalOffset) {
         writeString(value.consumerId.value)
         writeString(value.topicPartition.topic())
@@ -259,15 +334,22 @@ internal object WarmupControlCodec {
     }
 
     private const val PROCESSING_MODE_UNORDERED = 1
-    private const val TYPE_REQUEST = 1
-    private const val TYPE_OFFER = 2
-    private const val TYPE_SELECTED = 3
-    private const val TYPE_ASSIGNED = 4
-    private const val TYPE_READY = 5
-    private const val TYPE_FINISHED = 6
-    private const val TYPE_FORWARDING_STOPPED = 7
-    private const val TYPE_COMPLETED = 8
-    private const val TYPE_FAILED = 9
+    private const val TYPE_SYNC_REQUEST = 1
+    private const val TYPE_SNAPSHOT = 2
+    private const val TYPE_INSTANCE_READY = 3
+    private const val TYPE_HEARTBEAT = 4
+    private const val TYPE_CLAIM = 5
+    private const val TYPE_REQUEST = 6
+    private const val TYPE_PROBE = 7
+    private const val TYPE_OFFER = 8
+    private const val TYPE_ASSIGNMENT = 9
+    private const val TYPE_READY = 10
+    private const val TYPE_START = 11
+    private const val TYPE_STOP = 12
+    private const val TYPE_FORWARDING_STOPPED = 13
+    private const val TYPE_DRAIN = 14
+    private const val TYPE_COMPLETED = 15
+    private const val TYPE_FAILED = 16
 }
 
 private class SizeLimitedByteArrayOutputStream(
