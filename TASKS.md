@@ -80,6 +80,7 @@
 | [CORE-75](#core-75) | Add a minimal unordered warm-up recipient with explicit partition assignment and position-based readiness. | DONE |
 | [CORE-76](#core-76) | Add bounded donor-side warm-up forwarding before business handling with producer acknowledgement and terminal failure semantics. | DONE |
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
+| [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6069,3 +6070,32 @@ before a producer send remains a normal lifecycle handoff; cancellation after se
 starts remains terminal. Verification: the complete core unit suite and real-Kafka
 integration suite pass, including the full forward, boundary, drain, commit, and local
 donor continuation path.
+
+<a id="core-78"></a>
+### CORE-78 - Add the warm-up control transport
+
+_Date: 2026-10-30_
+
+Define the versioned happy-path control messages and a bounded internal binary codec
+without adding a serialization dependency. Add one shared Kafka control consumer per
+coordinator scope, using an instance-specific group so every coordinator receives the
+control stream. Establish assignment and initial positions before allowing sends, key
+records by session, and dispatch decoded commands outside the Kafka poll loop.
+Keep the session state machine, donor selection, participant lifecycle orchestration,
+and fallback policy in CORE-79.
+Implemented all happy-path control messages with explicit sender, target, session, and
+protocol version fields. The internal codec bounds messages, strings, and collections,
+preserves participant capabilities, assignments, and nullable final offsets, and rejects
+unknown versions, message types, malformed lengths, and trailing data without a new
+serialization dependency. The Kafka transport uses one instance-specific consumer group
+per coordinator, seeks initial assignments to established end positions before allowing
+any send, keys messages by session, and dispatches decoded commands through a separate
+bounded coroutine so the poll loop never waits for session work. Malformed records are
+reported explicitly without stopping valid later commands. Verification: the complete
+core unit and real-Kafka integration suites pass; two simultaneous transports both
+receive the control stream while retained pre-readiness data is skipped.
+Cancellation from a command handler is terminal unless it was initiated by transport
+shutdown, and every caller shares one cancellation-independent cleanup operation.
+Synchronous producer sends are interruptible and use a Kafka `max.block.ms` no larger
+than the transport timeout. Encoding now rejects a message at the 1 MiB boundary while
+writing instead of allocating the complete oversized payload first.
