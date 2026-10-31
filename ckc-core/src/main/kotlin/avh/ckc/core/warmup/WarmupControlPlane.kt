@@ -4,11 +4,13 @@ import java.util.TreeMap
 
 data class WarmupControlPlaneLimits(
     val maximumBufferedRecords: Int = 2048,
+    val maximumPendingSessionCommands: Int = 64,
     val maximumSessions: Int = 128,
     val maximumReadyInstances: Int = 256
 ) {
     init {
         require(maximumBufferedRecords > 0)
+        require(maximumPendingSessionCommands > 0)
         require(maximumSessions > 0)
         require(maximumReadyInstances > 0)
     }
@@ -115,6 +117,10 @@ internal class WarmupControlPlaneReplica(
         check(destinations.toSet().size == destinations.size) {
             "Snapshot contains overlapping warm-up reservations"
         }
+        val donors = snapshot.sessions.map { it.assignment.donorInstanceId }
+        check(donors.toSet().size == donors.size) {
+            "Snapshot contains a donor reserved by multiple sessions"
+        }
         generation = snapshot.generation
         activeCoordinator = snapshot.activeCoordinator
         lastHeartbeatOffset = snapshot.lastHeartbeatOffset
@@ -140,8 +146,9 @@ internal class WarmupControlPlaneReplica(
 
     private fun applyMessage(offset: Long, message: WarmupControlMessage): Boolean {
         return when (message) {
-            is StateSyncRequest, is StateSnapshot, is WarmupRequest, is DonorProbe, is DonorOffer,
+            is StateSyncRequest, is StateSnapshot, is WarmupRequest, is DonorOffer,
             is RecipientReady, is ForwardingStopped -> true
+            is DonorProbe -> commandIsCurrent(message)
             is InstanceReady -> {
                 if (readyInstances.size >= limits.maximumReadyInstances &&
                     message.senderInstanceId !in readyInstances) {
@@ -156,7 +163,7 @@ internal class WarmupControlPlaneReplica(
                 }
             }
             is AssignmentProposed -> applyAssignment(message)
-            is StartForwarding -> updateStage(message, WarmupReplicatedStage.FORWARDING)
+            is StartForwarding -> updateForwarding(message)
             is StopForwarding -> updateStage(message, WarmupReplicatedStage.STOPPING)
             is DrainRecipient -> updateStage(message, WarmupReplicatedStage.DRAINING)
             is SessionCompleted -> {
@@ -193,7 +200,20 @@ internal class WarmupControlPlaneReplica(
         if (sessions.size >= limits.maximumSessions) return false
         val used = sessions.values.flatMap { it.assignment.partitions }.map { it.topicPartition }.toSet()
         if (message.assignment.partitions.any { it.topicPartition in used }) return false
-        sessions[message.sessionId] = WarmupReplicatedSession(message.assignment, WarmupReplicatedStage.ASSIGNED)
+        if (sessions.values.any { it.assignment.donorInstanceId == message.assignment.donorInstanceId }) return false
+        sessions[message.sessionId] = WarmupReplicatedSession(
+            message.assignment, WarmupReplicatedStage.ASSIGNED, message.warmupDurationMillis
+        )
+        return true
+    }
+
+    private fun updateForwarding(message: StartForwarding): Boolean {
+        if (!commandIsCurrent(message)) return false
+        val existing = sessions[message.sessionId] ?: return false
+        sessions[message.sessionId] = existing.copy(
+            stage = WarmupReplicatedStage.FORWARDING,
+            stopAtEpochMillis = message.stopAtEpochMillis
+        )
         return true
     }
 

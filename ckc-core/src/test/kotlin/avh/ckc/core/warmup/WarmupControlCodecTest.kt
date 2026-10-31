@@ -42,7 +42,7 @@ class WarmupControlCodecTest {
         val messages = listOf<WarmupControlMessage>(
             StateSyncRequest(session, recipient),
             StateSnapshot(session, donor, recipient, 3, donor, 12, 11, setOf(donor), listOf(
-                WarmupReplicatedSession(assignment, WarmupReplicatedStage.FORWARDING)
+                WarmupReplicatedSession(assignment, WarmupReplicatedStage.FORWARDING, 1_000, 2_000)
             )),
             InstanceReady(session, donor),
             CoordinatorHeartbeat(session, donor, 3),
@@ -50,9 +50,9 @@ class WarmupControlCodecTest {
             WarmupRequest(session, recipient, listOf(participant)),
             DonorProbe(session, donor, recipient, 3, recipient, listOf(participant)),
             DonorOffer(session, donor, recipient, 3, capability),
-            AssignmentProposed(session, donor, 3, assignment),
+            AssignmentProposed(session, donor, 3, assignment, 1_000),
             RecipientReady(session, recipient, donor, setOf(consumer)),
-            StartForwarding(session, donor, donor, 3),
+            StartForwarding(session, donor, donor, 3, 2_000),
             StopForwarding(session, donor, donor, 3),
             ForwardingStopped(session, donor, recipient, listOf(
                 WarmupFinalOffset(consumer, TopicPartition("warmup-orders", 2), 91),

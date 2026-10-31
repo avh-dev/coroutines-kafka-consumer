@@ -54,7 +54,7 @@ class WarmupControlPlaneTest {
     fun `assignment exists only after journal application and duplicate decision is idempotent`() {
         val replica = activeReplica()
         val assignment = assignment("session")
-        val decision = AssignmentProposed(assignment.sessionId, oldActive, 1, assignment)
+        val decision = AssignmentProposed(assignment.sessionId, oldActive, 1, assignment, 1_000)
 
         assertNull(replica.view().sessions[assignment.sessionId])
         assertTrue(replica.apply(WarmupControlRecord(2, decision)).accepted)
@@ -67,21 +67,35 @@ class WarmupControlPlaneTest {
         val replica = activeReplica()
         val first = assignment("one")
         val second = assignment("two")
-        assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(first.sessionId, oldActive, 1, first))).accepted)
-        assertFalse(replica.apply(WarmupControlRecord(3, AssignmentProposed(second.sessionId, oldActive, 1, second))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(first.sessionId, oldActive, 1, first, 1_000))).accepted)
+        assertFalse(replica.apply(WarmupControlRecord(3, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
 
         assertTrue(replica.apply(WarmupControlRecord(4, SessionCompleted(
             first.sessionId, first.recipientInstanceId, setOf(WarmupConsumerId("orders"))
         ))).accepted)
         assertTrue(replica.view().sessions.isEmpty())
-        assertTrue(replica.apply(WarmupControlRecord(5, AssignmentProposed(second.sessionId, oldActive, 1, second))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(5, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
+    }
+
+    @Test
+    fun `one donor cannot be reserved by two sessions even on different partitions`() {
+        val replica = activeReplica()
+        val first = assignment("one", 0)
+        val second = assignment("two", 1)
+
+        assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(
+            first.sessionId, oldActive, 1, first, 1_000
+        ))).accepted)
+        assertFalse(replica.apply(WarmupControlRecord(3, AssignmentProposed(
+            second.sessionId, oldActive, 1, second, 1_000
+        ))).accepted)
     }
 
     @Test
     fun `leader change fences new commands but keeps participant completion valid`() {
         val replica = activeReplica()
         val assignment = assignment("session")
-        replica.apply(WarmupControlRecord(2, AssignmentProposed(assignment.sessionId, oldActive, 1, assignment)))
+        replica.apply(WarmupControlRecord(2, AssignmentProposed(assignment.sessionId, oldActive, 1, assignment, 1_000)))
         replica.apply(WarmupControlRecord(3, InstanceReady(WarmupSessionId("new-ready"), newActive)))
         replica.apply(WarmupControlRecord(4, CoordinatorClaim(
             WarmupSessionId("claim"), newActive, 1, oldActive, 1
@@ -108,8 +122,8 @@ class WarmupControlPlaneTest {
         val active = activeReplica(limits)
         val first = assignment("one", 0)
         val second = assignment("two", 1)
-        assertTrue(active.apply(WarmupControlRecord(2, AssignmentProposed(first.sessionId, oldActive, 1, first))).accepted)
-        assertFalse(active.apply(WarmupControlRecord(3, AssignmentProposed(second.sessionId, oldActive, 1, second))).accepted)
+        assertTrue(active.apply(WarmupControlRecord(2, AssignmentProposed(first.sessionId, oldActive, 1, first, 1_000))).accepted)
+        assertFalse(active.apply(WarmupControlRecord(3, AssignmentProposed(second.sessionId, oldActive, 1, second, 1_000))).accepted)
     }
 
     private fun activeReplica(limits: WarmupControlPlaneLimits = WarmupControlPlaneLimits()): WarmupControlPlaneReplica {

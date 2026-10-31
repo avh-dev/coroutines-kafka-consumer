@@ -122,11 +122,13 @@ internal class AssignmentProposed(
     override val senderInstanceId: WarmupInstanceId,
     override val generation: Long,
     val assignment: WarmupSessionAssignment,
+    val warmupDurationMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : GeneratedWarmupCommand {
     override val targetInstanceId: WarmupInstanceId? = null
     init {
         require(generation > 0)
+        require(warmupDurationMillis >= 0)
         require(assignment.sessionId == sessionId) { "Assignment session must match the message" }
     }
 }
@@ -147,8 +149,11 @@ internal data class StartForwarding(
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
     override val generation: Long,
+    val stopAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
-) : GeneratedWarmupCommand { init { require(generation > 0) } }
+) : GeneratedWarmupCommand {
+    init { require(generation > 0); require(stopAtEpochMillis > 0) }
+}
 
 internal data class StopForwarding(
     override val sessionId: WarmupSessionId,
@@ -224,5 +229,13 @@ internal enum class WarmupReplicatedStage { ASSIGNED, FORWARDING, STOPPING, DRAI
 
 internal data class WarmupReplicatedSession(
     val assignment: WarmupSessionAssignment,
-    val stage: WarmupReplicatedStage
-)
+    val stage: WarmupReplicatedStage,
+    val warmupDurationMillis: Long,
+    val stopAtEpochMillis: Long? = null
+) {
+    init {
+        require(warmupDurationMillis >= 0)
+        require(stopAtEpochMillis == null || stopAtEpochMillis > 0)
+        require(stage != WarmupReplicatedStage.FORWARDING || stopAtEpochMillis != null)
+    }
+}

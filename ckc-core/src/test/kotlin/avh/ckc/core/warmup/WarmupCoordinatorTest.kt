@@ -6,13 +6,18 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.mockito.kotlin.mock
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -80,10 +85,163 @@ class WarmupCoordinatorTest {
         }
     }
 
-    private fun coordinator(id: String, bus: ControlBus) = WarmupCoordinator(
+    @Test
+    fun `long warm-up does not fall back after forwarding was accepted`() = runBlocking {
+        val bus = ControlBus()
+        val donorParticipant = TestParticipant()
+        val recipientParticipant = TestParticipant(hold = 350.milliseconds)
+        val donor = coordinator("donor", bus, stageTimeout = 80.milliseconds).also { it.register(donorParticipant) }
+        val recipient = coordinator("recipient", bus, stageTimeout = 80.milliseconds).also {
+            it.register(recipientParticipant)
+        }
+        try {
+            donor.start()
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(3_000) { recipient.start() })
+            assertTrue("fallback-prepared" !in recipientParticipant.events)
+            assertEquals(1, recipientParticipant.events.count { it == "recipient" })
+        } finally {
+            recipient.stop(); donor.stop()
+        }
+    }
+
+    @Test
+    fun `one donor serves at most one session when two warm-up partitions are free`() = runBlocking {
+        val bus = ControlBus()
+        val donor = coordinator("donor", bus, warmupPartitions = listOf(0, 1)).also {
+            it.register(TestParticipant(hold = 150.milliseconds))
+        }
+        val recipients = listOf("one", "two").map { id ->
+            coordinator("recipient-$id", bus, warmupPartitions = listOf(0, 1)).also {
+                it.register(TestParticipant(hold = 150.milliseconds))
+            }
+        }
+        try {
+            donor.start()
+            val results = recipients.map { async { it.start() } }.awaitAll()
+            assertEquals(1, results.count { it == WarmupStartupResult.WARMED })
+            assertEquals(1, results.count { it == WarmupStartupResult.NO_DONOR_FALLBACK })
+        } finally {
+            recipients.forEach { it.stop() }; donor.stop()
+        }
+    }
+
+    @Test
+    fun `blocked drain does not block applying a new coordinator generation`() = runBlocking {
+        val bus = ControlBus()
+        val drainGate = CompletableDeferred<Unit>()
+        val drainEntered = CompletableDeferred<Unit>()
+        val donor = coordinator("donor", bus).also { it.register(TestParticipant()) }
+        val recipient = coordinator("recipient", bus).also {
+            it.register(TestParticipant(drainGate = drainGate, drainEntered = drainEntered))
+        }
+        try {
+            donor.start()
+            val startup = async { recipient.start() }
+            withTimeout(2_000) { drainEntered.await() }
+            bus.pausedHeartbeatSender = recipient.controlPlaneView().activeCoordinator
+            delay(30)
+            val before = recipient.controlPlaneView()
+            bus.publish(CoordinatorClaim(
+                WarmupSessionId("re-election"), requireNotNull(before.activeCoordinator),
+                before.generation, before.activeCoordinator, before.lastHeartbeatOffset
+            ))
+            withTimeout(1_000) {
+                while (recipient.controlPlaneView().generation == before.generation) delay(5)
+            }
+            drainGate.complete(Unit)
+            val result = withTimeoutOrNull(2_000) { startup.await() }
+            assertEquals(
+                WarmupStartupResult.WARMED,
+                result,
+                "messages=${bus.messages.map { it::class.simpleName to it.senderInstanceId }}, " +
+                    "view=${recipient.controlPlaneView()}"
+            )
+        } finally {
+            drainGate.complete(Unit)
+            recipient.stop(); donor.stop()
+        }
+    }
+
+    @Test
+    fun `new active stops forwarding using replicated deadline`() = runBlocking {
+        val bus = ControlBus()
+        val donor = coordinator("donor", bus).also { it.register(TestParticipant()) }
+        val standby = coordinator("standby", bus).also { it.register(TestParticipant()) }
+        val recipient = coordinator("recipient", bus).also {
+            it.register(TestParticipant(hold = 1_000.milliseconds))
+        }
+        try {
+            donor.start()
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(2_000) { standby.start() })
+            val startsBefore = bus.messages.count { it is StartForwarding }
+            val startup = async { recipient.start() }
+            withTimeout(2_000) {
+                while (bus.messages.count { it is StartForwarding } == startsBefore) delay(5)
+            }
+            bus.pausedHeartbeatSender = WarmupInstanceId("donor")
+            delay(30)
+            var view = recipient.controlPlaneView()
+            repeat(5) {
+                if (view.activeCoordinator == WarmupInstanceId("standby")) return@repeat
+                bus.publish(CoordinatorClaim(
+                    WarmupSessionId("takeover-$it"), WarmupInstanceId("standby"),
+                    view.generation, view.activeCoordinator, view.lastHeartbeatOffset
+                ))
+                delay(10)
+                view = recipient.controlPlaneView()
+            }
+            assertEquals(WarmupInstanceId("standby"), recipient.controlPlaneView().activeCoordinator)
+            withTimeout(2_000) {
+                while (bus.messages.none {
+                        it is StopForwarding && it.senderInstanceId == WarmupInstanceId("standby")
+                    }) delay(5)
+            }
+            val result = withTimeoutOrNull(3_000) { startup.await() }
+            assertEquals(
+                WarmupStartupResult.WARMED,
+                result,
+                "messages=${bus.messages.map { it::class.simpleName to it.senderInstanceId }}, " +
+                    "view=${recipient.controlPlaneView()}"
+            )
+        } finally {
+            recipient.stop(); standby.stop(); donor.stop()
+        }
+    }
+
+    @Test
+    fun `donor participant failure after forwarding notifies and quarantines session`() = runBlocking {
+        val bus = ControlBus()
+        val donorParticipant = TestParticipant(hold = 500.milliseconds)
+        val donor = coordinator("donor", bus).also { it.register(donorParticipant) }
+        val recipient = coordinator("recipient", bus).also { it.register(TestParticipant(hold = 500.milliseconds)) }
+        supervisorScope {
+            try {
+                donor.start()
+                val startup = async { recipient.start() }
+                withTimeout(2_000) { while ("forwarding" !in donorParticipant.events) delay(5) }
+                donor.onParticipantFailure(WarmupConsumerId("orders"), IllegalStateException("donor failed"))
+                assertFailsWith<IllegalStateException> { withTimeout(2_000) { startup.await() } }
+                assertTrue(bus.messages.any {
+                    it is SessionFailed && it.senderInstanceId == WarmupInstanceId("donor")
+                })
+                assertTrue(recipient.controlPlaneView().sessions.values.any {
+                    it.stage == WarmupReplicatedStage.QUARANTINED
+                })
+            } finally {
+                recipient.stop(); donor.stop()
+            }
+        }
+    }
+
+    private fun coordinator(
+        id: String,
+        bus: ControlBus,
+        warmupPartitions: Collection<Int> = listOf(0),
+        stageTimeout: kotlin.time.Duration = 120.milliseconds
+    ) = WarmupCoordinator(
         WarmupCoordinatorConfiguration(
-            WarmupInstanceId(id), donorSearchTimeout = 20.milliseconds,
-            stageTimeout = 120.milliseconds, heartbeatInterval = 20.milliseconds,
+            WarmupInstanceId(id), warmupPartitions, donorSearchTimeout = 20.milliseconds,
+            stageTimeout = stageTimeout, heartbeatInterval = 20.milliseconds,
             electionTimeout = 80.milliseconds
         ), Dispatchers.Default, bus::channel
     )
@@ -91,7 +249,9 @@ class WarmupCoordinatorTest {
     private class ControlBus(private val throwAfterPublish: (WarmupControlMessage) -> Boolean = { false }) {
         private val channels = CopyOnWriteArrayList<TestChannel>()
         val messages = CopyOnWriteArrayList<WarmupControlMessage>()
+        private val publication = Mutex()
         private var offset = 0L
+        @Volatile var pausedHeartbeatSender: WarmupInstanceId? = null
 
         fun channel(handler: WarmupControlMessageHandler): WarmupControlChannel = synchronized(this) {
             TestChannel(handler, this).also(channels::add)
@@ -99,14 +259,17 @@ class WarmupCoordinatorTest {
 
         @Synchronized fun endOffset(): Long = offset
 
-        suspend fun publish(message: WarmupControlMessage): RecordMetadata {
+        suspend fun publish(message: WarmupControlMessage): RecordMetadata = publication.withLock {
+            if (message is CoordinatorHeartbeat && message.senderInstanceId == pausedHeartbeatSender) {
+                return@withLock mock()
+            }
             val record = synchronized(this) {
                 messages += message
                 WarmupControlRecord(offset++, message)
             }
             channels.filter(TestChannel::active).forEach { it.handler.onMessage(record) }
             if (throwAfterPublish(message)) throw IllegalStateException("ambiguous send")
-            return mock()
+            mock()
         }
     }
 
@@ -128,7 +291,9 @@ class WarmupCoordinatorTest {
 
     private class TestParticipant(
         private val hold: kotlin.time.Duration = 0.milliseconds,
-        private val recipientFailure: Throwable? = null
+        private val recipientFailure: Throwable? = null,
+        private val drainGate: CompletableDeferred<Unit>? = null,
+        private val drainEntered: CompletableDeferred<Unit>? = null
     ) : CoordinatorParticipant {
         override val configuration = WarmupParticipantConfiguration(
             WarmupConsumerId("orders"), listOf(WarmupTopicMapping("orders", "warmup-orders")),
@@ -155,7 +320,11 @@ class WarmupCoordinatorTest {
             recipientFailure?.let { throw it }
             events += "recipient"
         }
-        override suspend fun drainRecipient(boundary: WarmupForwardingBoundary) { events += "drained" }
+        override suspend fun drainRecipient(boundary: WarmupForwardingBoundary) {
+            drainEntered?.complete(Unit)
+            drainGate?.await()
+            events += "drained"
+        }
         override suspend fun startMainAfterDrain() { events += "main-after-drain" }
         override suspend fun prepareFallback(knownFailure: Throwable) { events += "fallback-prepared" }
         override suspend fun stop() = Unit

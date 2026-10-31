@@ -6136,3 +6136,15 @@ state, ambiguous assignment publication, two competing recipient pairs, pre-forw
 cleanup, generation fencing, and participant completion after leader change. Existing
 recipient lifecycle cleanup tests and a real-Kafka automatic warm-up test cover the local
 executor and complete forwarding/drain/main transition.
+
+The MVP does not replay the full control journal after a simultaneous restart of every
+coordinator. A pod that finds a non-empty journal but cannot obtain a snapshot cold-starts
+main consumers and remains ineligible for election; warm-up stays unavailable until an
+operator starts from a deliberately reset control journal. This is fail-closed for reserved
+capacity. Durable checkpoints and automatic full-service recovery remain follow-up work.
+
+Long-running sessions keep their warm-up deadline in replicated state, so a newly
+elected coordinator bounds forwarding without reconstructing the data plane. Session
+effects execute in bounded per-session queues and cannot block journal replication.
+Assignment records reserve both partitions and the donor atomically; participant
+failures publish every affected local session for fail-closed quarantine.

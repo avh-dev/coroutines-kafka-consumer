@@ -57,9 +57,13 @@ internal object WarmupControlCodec {
                 is AssignmentProposed -> {
                     data.writeLong(message.generation)
                     data.writeAssignment(message.assignment)
+                    data.writeLong(message.warmupDurationMillis)
                 }
                 is RecipientReady -> data.writeCollection(message.consumerIds.sortedBy { it.value }) { writeString(it.value) }
-                is StartForwarding -> data.writeLong(message.generation)
+                is StartForwarding -> {
+                    data.writeLong(message.generation)
+                    data.writeLong(message.stopAtEpochMillis)
+                }
                 is StopForwarding -> data.writeLong(message.generation)
                 is ForwardingStopped -> data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
                 is DrainRecipient -> {
@@ -111,13 +115,15 @@ internal object WarmupControlCodec {
                     sessionId, sender, requireNotNull(target), data.readLong(), data.readDonorCapability(), version
                 )
                 TYPE_ASSIGNMENT -> AssignmentProposed(
-                    sessionId, sender, data.readLong(), data.readAssignment(), version
+                    sessionId, sender, data.readLong(), data.readAssignment(), data.readLong(), version
                 )
                 TYPE_READY -> RecipientReady(
                     sessionId, sender, requireNotNull(target) { "RecipientReady target is missing" },
                     data.readCollection { WarmupConsumerId(readString()) }, version
                 )
-                TYPE_START -> StartForwarding(sessionId, sender, requireNotNull(target), data.readLong(), version)
+                TYPE_START -> StartForwarding(
+                    sessionId, sender, requireNotNull(target), data.readLong(), data.readLong(), version
+                )
                 TYPE_STOP -> StopForwarding(sessionId, sender, requireNotNull(target), data.readLong(), version)
                 TYPE_FORWARDING_STOPPED -> ForwardingStopped(
                     sessionId, sender, requireNotNull(target) { "ForwardingStopped target is missing" },
@@ -264,6 +270,9 @@ internal object WarmupControlCodec {
     private fun DataOutputStream.writeReplicatedSession(value: WarmupReplicatedSession) {
         writeAssignment(value.assignment)
         writeByte(value.stage.ordinal)
+        writeLong(value.warmupDurationMillis)
+        writeBoolean(value.stopAtEpochMillis != null)
+        value.stopAtEpochMillis?.let(::writeLong)
     }
 
     private fun DataInputStream.readReplicatedSession(): WarmupReplicatedSession {
@@ -271,7 +280,9 @@ internal object WarmupControlCodec {
         val stageOrdinal = readUnsignedByte()
         val stage = WarmupReplicatedStage.entries.getOrNull(stageOrdinal)
             ?: throw IllegalArgumentException("Unknown replicated session stage: $stageOrdinal")
-        return WarmupReplicatedSession(assignment, stage)
+        val warmupDurationMillis = readLong()
+        val stopAtEpochMillis = if (readBoolean()) readLong() else null
+        return WarmupReplicatedSession(assignment, stage, warmupDurationMillis, stopAtEpochMillis)
     }
 
     private fun DataOutputStream.writeFinalOffset(value: WarmupFinalOffset) {
