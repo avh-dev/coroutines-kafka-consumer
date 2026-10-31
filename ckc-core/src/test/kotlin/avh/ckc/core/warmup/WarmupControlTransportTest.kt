@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -48,15 +49,25 @@ class WarmupControlTransportTest {
             ))
         )
         val consumer = readyConsumer(listOf(message))
+        val handlerFailure = CompletableDeferred<TimeoutCancellationException>()
         val transport = transport(consumer = consumer) {
-            withTimeout(10) { awaitCancellation() }
+            try {
+                withTimeout(10) { awaitCancellation() }
+            } catch (error: TimeoutCancellationException) {
+                handlerFailure.complete(error)
+                throw error
+            }
         }
 
         try {
             transport.start()
             transport.awaitReady()
-            assertFailsWith<TimeoutCancellationException> {
-                withTimeout(2_000) { transport.awaitTermination() }
+            withTimeout(2_000) {
+                val expected = handlerFailure.await()
+                val actual = assertFailsWith<TimeoutCancellationException> {
+                    transport.awaitTermination()
+                }
+                assertSame(expected, actual)
             }
         } finally {
             transport.stop()
