@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -14,7 +15,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -35,7 +36,6 @@ import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -60,6 +60,7 @@ internal class WarmupControlTransportConfiguration(
         require(groupIdPrefix.none(Char::isISOControl)) { "groupIdPrefix must not contain control characters" }
         require(pollTimeout.isPositive()) { "pollTimeout must be positive" }
         require(sendTimeout.isPositive()) { "sendTimeout must be positive" }
+        require(sendTimeout.inWholeMilliseconds > 0) { "sendTimeout must be at least one millisecond" }
         require(commandBufferCapacity > 0) { "commandBufferCapacity must be positive" }
         require(this.producerProperties.containsKey(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG)) {
             "Control producer bootstrap servers are required"
@@ -97,12 +98,14 @@ internal class WarmupControlTransport(
 ) {
     private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val scope = CoroutineScope(parentContext + lifecycleJob)
+    private val shutdownScope = CoroutineScope(dispatcher)
     private val commands = Channel<WarmupControlMessage>(configuration.commandBufferCapacity)
     private val readiness = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
     private val failure = AtomicReference<Throwable?>()
     private val started = AtomicBoolean(false)
     private val stopping = AtomicBoolean(false)
+    private val shutdownJob = AtomicReference<Job?>()
     private var producer: KafkaProducer<String, ByteArray>? = null
     private var consumer: KafkaConsumer<String, ByteArray>? = null
     private var pollJob: Job? = null
@@ -149,11 +152,22 @@ internal class WarmupControlTransport(
     }
 
     suspend fun stop() {
-        if (!stopping.compareAndSet(false, true)) {
-            pollJob?.join()
-            dispatchJob?.join()
-            return
+        shutdownOperation().join()
+    }
+
+    private fun shutdownOperation(): Job {
+        shutdownJob.get()?.let { return it }
+        val created = shutdownScope.launch(start = CoroutineStart.LAZY) { shutdown() }
+        if (shutdownJob.compareAndSet(null, created)) {
+            created.start()
+            return created
         }
+        created.cancel()
+        return requireNotNull(shutdownJob.get())
+    }
+
+    private suspend fun shutdown() {
+        stopping.set(true)
         consumer?.wakeup()
         pollJob?.cancelAndJoin()
         commands.close()
@@ -218,9 +232,12 @@ internal class WarmupControlTransport(
 
     private fun observe(job: Job) {
         job.invokeOnCompletion { error ->
-            if (error != null && error !is CancellationException) fail(error)
+            if (error != null && !isExpectedLifecycleCancellation(error)) fail(error)
         }
     }
+
+    private fun isExpectedLifecycleCancellation(error: Throwable): Boolean =
+        error is CancellationException && (stopping.get() || failure.get() != null || !lifecycleJob.isActive)
 
     private fun fail(error: Throwable) {
         if (failure.compareAndSet(null, error)) {
@@ -237,7 +254,10 @@ internal class WarmupControlTransport(
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
         ProducerConfig.ACKS_CONFIG to "all",
-        ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer"
+        ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
+        // KafkaProducer.send() may block synchronously while obtaining metadata or buffer space.
+        // Keep that Kafka-side budget within the public transport timeout as well.
+        ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
     )
 
     private fun consumerProperties(): Map<String, Any?> = configuration.consumerProperties + mapOf(
@@ -252,20 +272,20 @@ internal class WarmupControlTransport(
     private suspend fun sendAcknowledged(
         activeProducer: KafkaProducer<String, ByteArray>,
         record: ProducerRecord<String, ByteArray>
-    ): RecordMetadata = suspendCancellableCoroutine { continuation ->
-        try {
+    ): RecordMetadata {
+        val acknowledgement = CompletableDeferred<RecordMetadata>()
+        runInterruptible(dispatcher) {
             activeProducer.send(record) { metadata, error ->
                 when {
-                    error != null -> continuation.resumeWith(Result.failure(error))
-                    metadata == null -> continuation.resumeWithException(
+                    error != null -> acknowledgement.completeExceptionally(error)
+                    metadata == null -> acknowledgement.completeExceptionally(
                         IllegalStateException("Control producer acknowledgement did not contain metadata")
                     )
-                    else -> continuation.resumeWith(Result.success(metadata))
+                    else -> acknowledgement.complete(metadata)
                 }
             }
-        } catch (error: Throwable) {
-            continuation.resumeWithException(error)
         }
+        return acknowledgement.await()
     }
 }
 

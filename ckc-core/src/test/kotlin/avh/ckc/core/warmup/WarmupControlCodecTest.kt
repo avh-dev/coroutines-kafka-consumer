@@ -106,4 +106,29 @@ class WarmupControlCodecTest {
             ))
         }
     }
+
+    @Test
+    fun `codec stops encoding as soon as the message byte limit is exceeded`() {
+        val largeCapability = WarmupDonorCapability(
+            instanceId = donor,
+            available = true,
+            participants = listOf(WarmupParticipantCapability(
+                consumer,
+                (0 until 300).map { topic ->
+                    WarmupTopicCapability(
+                        sourceTopic = "topic-$topic",
+                        compatible = true,
+                        ownedPartitions = (0 until 1024).toSet(),
+                        observedMessages = 1
+                    )
+                }
+            )),
+            loadScore = null
+        )
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            WarmupControlCodec.encode(DonorOffer(session, donor, recipient, largeCapability))
+        }
+        assertEquals("Warm-up control message exceeds 1048576 bytes", error.message)
+    }
 }

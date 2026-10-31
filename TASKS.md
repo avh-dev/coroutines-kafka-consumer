@@ -6094,3 +6094,8 @@ bounded coroutine so the poll loop never waits for session work. Malformed recor
 reported explicitly without stopping valid later commands. Verification: the complete
 core unit and real-Kafka integration suites pass; two simultaneous transports both
 receive the control stream while retained pre-readiness data is skipped.
+Cancellation from a command handler is terminal unless it was initiated by transport
+shutdown, and every caller shares one cancellation-independent cleanup operation.
+Synchronous producer sends are interruptible and use a Kafka `max.block.ms` no larger
+than the transport timeout. Encoding now rejects a message at the 1 MiB boundary while
+writing instead of allocating the complete oversized payload first.

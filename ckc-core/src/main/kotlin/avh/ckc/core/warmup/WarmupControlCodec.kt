@@ -19,7 +19,7 @@ internal object WarmupControlCodec {
         require(message.protocolVersion == WARMUP_CONTROL_PROTOCOL_VERSION) {
             "Unsupported warm-up protocol version: ${message.protocolVersion}"
         }
-        val output = ByteArrayOutputStream()
+        val output = SizeLimitedByteArrayOutputStream(MAX_MESSAGE_BYTES)
         DataOutputStream(output).use { data ->
             data.writeInt(MAGIC)
             data.writeShort(message.protocolVersion)
@@ -39,9 +39,7 @@ internal object WarmupControlCodec {
                 is SessionFailed -> data.writeString(message.reason)
             }
         }
-        return output.toByteArray().also {
-            require(it.size <= MAX_MESSAGE_BYTES) { "Warm-up control message exceeds $MAX_MESSAGE_BYTES bytes" }
-        }
+        return output.toByteArray()
     }
 
     fun decode(bytes: ByteArray): WarmupControlMessage {
@@ -270,4 +268,24 @@ internal object WarmupControlCodec {
     private const val TYPE_FORWARDING_STOPPED = 7
     private const val TYPE_COMPLETED = 8
     private const val TYPE_FAILED = 9
+}
+
+private class SizeLimitedByteArrayOutputStream(
+    private val maximumSize: Int
+) : ByteArrayOutputStream() {
+    override fun write(value: Int) {
+        requireCapacity(1)
+        super.write(value)
+    }
+
+    override fun write(bytes: ByteArray, offset: Int, length: Int) {
+        requireCapacity(length)
+        super.write(bytes, offset, length)
+    }
+
+    private fun requireCapacity(additionalBytes: Int) {
+        require(additionalBytes <= maximumSize - count) {
+            "Warm-up control message exceeds $maximumSize bytes"
+        }
+    }
 }
