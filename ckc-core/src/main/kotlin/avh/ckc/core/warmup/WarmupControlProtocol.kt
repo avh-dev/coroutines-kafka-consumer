@@ -38,7 +38,6 @@ internal class StateSnapshot(
         require(coveredOffset >= 0) { "Snapshot covered offset must not be negative" }
         require(lastHeartbeatOffset in -1..coveredOffset) { "Snapshot heartbeat offset is invalid" }
         require(activeCoordinator == senderInstanceId) { "Snapshot sender must be its active coordinator" }
-        require(senderInstanceId != targetInstanceId) { "Snapshot must target another instance" }
     }
 }
 

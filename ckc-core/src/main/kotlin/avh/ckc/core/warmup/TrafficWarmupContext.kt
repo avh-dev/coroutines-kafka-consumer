@@ -47,6 +47,7 @@ class TrafficWarmupContext internal constructor(
 
     private val scope = CoroutineScope(parentContext + SupervisorJob(parentContext[Job]))
     private val controlHub = SharedWarmupControlHub(scope, channelFactory)
+    private val schedulingRegistry = ContextSchedulingRegistry()
     private val consumerIds = ConcurrentHashMap.newKeySet<WarmupConsumerId>()
 
     internal fun <K, V> attach(
@@ -78,6 +79,8 @@ class TrafficWarmupContext internal constructor(
         private val termination = CompletableDeferred<Throwable?>()
         @Volatile private var coordinator: WarmupCoordinator? = null
         @Volatile private var startupJob: Job? = null
+        private val schedulingId = definition.configuration.consumerId.value
+        @Volatile private var schedulingRegistered = false
 
         override fun start() {
             check(!stopped.get()) { "Consumer is already stopped" }
@@ -113,7 +116,9 @@ class TrafficWarmupContext internal constructor(
                     lateinit var localCoordinator: WarmupCoordinator
                     val resolvedDefinition = definition.resolved(metadata)
                     localCoordinator = WarmupCoordinator(
-                        configuration.coordinatorConfiguration(metadata.partitionsByTopic),
+                        configuration.coordinatorConfiguration(metadata.partitionsByTopic) {
+                            schedulingRegistry.isOwner(schedulingId)
+                        },
                         scope.coroutineContext,
                         controlHub::channel
                     ).also { coordinator = it }
@@ -129,6 +134,8 @@ class TrafficWarmupContext internal constructor(
                             forwarding = forwarding
                         )
                     )
+                    schedulingRegistry.register(schedulingId, localCoordinator::activateScheduling)
+                    schedulingRegistered = true
                     localCoordinator.start()
                     ready.complete(Unit)
                     localCoordinator.awaitTermination()
@@ -140,6 +147,11 @@ class TrafficWarmupContext internal constructor(
                     } else {
                         ready.completeExceptionally(error)
                         termination.complete(error)
+                    }
+                } finally {
+                    if (schedulingRegistered) {
+                        schedulingRegistered = false
+                        schedulingRegistry.unregister(schedulingId)
                     }
                 }
             }
@@ -204,15 +216,43 @@ class TrafficWarmupContextConfiguration(
         consumerProperties = kafkaProperties
     )
 
-    internal fun coordinatorConfiguration(available: Map<String, Set<Int>>) = WarmupCoordinatorConfiguration(
+    internal fun coordinatorConfiguration(
+        available: Map<String, Set<Int>>,
+        schedulingAuthority: () -> Boolean = { true }
+    ) = WarmupCoordinatorConfiguration(
         instanceId = instanceId,
         donorSearchTimeout = donorSearchTimeout,
         stageTimeout = stageTimeout,
         heartbeatInterval = heartbeatInterval,
         electionTimeout = electionTimeout,
         donorLoadScore = donorLoadScore,
-        availableWarmupPartitions = available
+        availableWarmupPartitions = available,
+        schedulingAuthority = schedulingAuthority
     )
+}
+
+/** Elects one scheduling engine inside a context without coupling consumer lifecycles. */
+internal class ContextSchedulingRegistry {
+    private val lock = Any()
+    private val engines = LinkedHashMap<String, () -> Unit>()
+    private var owner: String? = null
+
+    fun register(id: String, onPromoted: () -> Unit) = synchronized(lock) {
+        check(engines.putIfAbsent(id, onPromoted) == null) { "Scheduling engine $id is already registered" }
+        if (owner == null) owner = id
+    }
+
+    fun unregister(id: String) {
+        val promoted = synchronized(lock) {
+            engines.remove(id)
+            if (owner != id) return
+            owner = engines.keys.firstOrNull()
+            owner?.let(engines::get)
+        }
+        promoted?.invoke()
+    }
+
+    fun isOwner(id: String): Boolean = synchronized(lock) { owner == id }
 }
 
 class TrafficWarmupContextBuilder {

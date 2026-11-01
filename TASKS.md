@@ -6183,6 +6183,18 @@ not only by pod instance, so sibling consumers sharing a context cannot execute 
 another consumer's session. Protocol v3 carries the broker cluster identity and discovered
 partition set for every warm-up mapping; producer and recipient metadata must match locally,
 and compatible donor offers must match the recipient's cluster and topology across pods.
+
+Context-wide scheduling authority is transferable between the independently managed local
+consumer engines. Stopping the engine that currently makes active-coordinator decisions now
+removes only its local participant: another live engine on the pod continues heartbeat and
+schedules requests for any consumer type from the replicated journal. The data plane remains
+strictly routed by assignment and `consumerId`.
+
+Stopping during state synchronization now completes the snapshot barrier immediately instead
+of waiting for `stageTimeout`. Sibling engines with the same application `instanceId` may
+synchronize from the active local engine using their correlated snapshot request. Real-Kafka
+regressions cover both prompt shutdown after `StateSyncRequest` and successful orders warm-up
+after the active pod's local orders consumer has stopped while telemetry remains live.
 Stopping during coordinator startup now cancels readiness and completes the startup job.
 Snapshot validation deduplicates a donor participant within one multi-topic session before
 checking cross-session conflicts. A real-Kafka test runs two consumers in both donor and

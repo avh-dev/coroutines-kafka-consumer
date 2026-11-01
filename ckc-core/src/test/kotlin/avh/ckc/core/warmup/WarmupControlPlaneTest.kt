@@ -9,6 +9,24 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WarmupControlPlaneTest {
+    @Test
+    fun `sibling engine can synchronize from the active engine on the same instance`() {
+        val instance = WarmupInstanceId("pod-a")
+        val request = WarmupSessionId("sync-sibling")
+        val replica = WarmupControlPlaneReplica(
+            instance,
+            WarmupControlLogPosition(TopicPartition("control", 0), 0, 5),
+            request
+        )
+
+        val result = replica.apply(WarmupControlRecord(6, StateSnapshot(
+            request, instance, instance, 1, instance, 5, 5, setOf(instance), emptyList()
+        )))
+
+        assertTrue(result.synchronizedNow)
+        assertEquals(instance, replica.view().activeCoordinator)
+    }
+
     private val newcomer = WarmupInstanceId("new")
     private val oldActive = WarmupInstanceId("old-active")
     private val newActive = WarmupInstanceId("new-active")

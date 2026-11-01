@@ -24,6 +24,7 @@ import avh.ckc.core.warmup.WarmupParticipantConfiguration
 import avh.ckc.core.warmup.WarmupRequest
 import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.SessionFailed
+import avh.ckc.core.warmup.StateSyncRequest
 import avh.ckc.core.warmup.TrafficWarmupContext
 import avh.ckc.core.warmup.TrafficWarmupContextConfiguration
 import kotlinx.coroutines.CompletableDeferred
@@ -209,6 +210,164 @@ class CoroutinesKafkaConsumerIntegrationTest {
         val readinessError = runCatching { withTimeout(2_000) { consumer.awaitReady() } }.exceptionOrNull()
         assertTrue(readinessError is CancellationException, "actual=$readinessError")
         withTimeout(2_000) { consumer.awaitTermination() }
+    }
+
+    @Test
+    fun `stop during state synchronization does not wait for the stage timeout`() = runBlocking {
+        val sourceTopic = "stop-sync-source-${UUID.randomUUID()}"
+        val warmupTopic = "stop-sync-warmup-${UUID.randomUUID()}"
+        val controlTopic = "stop-sync-control-${UUID.randomUUID()}"
+        listOf(sourceTopic, warmupTopic, controlTopic).forEach(::createTopic)
+        val instanceId = WarmupInstanceId("stop-sync-${UUID.randomUUID()}")
+        produceControlRecord(
+            controlTopic,
+            "old-session",
+            WarmupControlCodec.encode(SessionFailed(
+                WarmupSessionId("old-session"), WarmupInstanceId("old-instance"), null, "old record"
+            ))
+        )
+        val observed = Channel<WarmupControlMessage>(Channel.UNLIMITED)
+        val observer = WarmupControlTransport(
+            WarmupControlTransportConfiguration(
+                instanceId = WarmupInstanceId("stop-sync-observer-${UUID.randomUUID()}"),
+                topic = controlTopic,
+                producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+                consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers)
+            ),
+            handler = { observed.send(it.message) }
+        )
+        val kafkaProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+        val context = TrafficWarmupContext(TrafficWarmupContextConfiguration(
+            instanceId = instanceId,
+            controlTopic = controlTopic,
+            kafkaProperties = kafkaProperties,
+            donorSearchTimeout = 30_000.milliseconds,
+            stageTimeout = 30_000.milliseconds,
+            heartbeatInterval = 100.milliseconds,
+            electionTimeout = 500.milliseconds
+        ))
+        val consumer = coroutinesKafkaConsumer<String, String>(consumerProperties("stop-sync-${UUID.randomUUID()}")) {
+            topics(sourceTopic)
+            trafficWarmup(context) {
+                consumerId = "orders"
+                warmupTopic(sourceTopic, warmupTopic)
+                forwardingProducerProperties = kafkaProperties
+            }
+            handle { }
+        }
+
+        try {
+            observer.start()
+            withTimeout(5_000) { observer.awaitReady() }
+            consumer.start()
+            withTimeout(10_000) {
+                while (true) {
+                    val message = observed.receive()
+                    if (message is StateSyncRequest && message.senderInstanceId == instanceId) break
+                }
+            }
+
+            withTimeout(2_000) { consumer.stop() }
+            val readinessError = runCatching { withTimeout(2_000) { consumer.awaitReady() } }.exceptionOrNull()
+            assertTrue(readinessError is CancellationException, "actual=$readinessError")
+            withTimeout(2_000) { consumer.awaitTermination() }
+        } finally {
+            runCatching { consumer.stop() }
+            observer.stop()
+        }
+    }
+
+    @Test
+    fun `active scheduling transfers when its local consumer stops`() = runBlocking {
+        val ordersTopic = "scheduler-orders-${UUID.randomUUID()}"
+        val telemetryTopic = "scheduler-telemetry-${UUID.randomUUID()}"
+        val ordersWarmup = "scheduler-orders-warmup-${UUID.randomUUID()}"
+        val telemetryWarmup = "scheduler-telemetry-warmup-${UUID.randomUUID()}"
+        val controlTopic = "scheduler-control-${UUID.randomUUID()}"
+        listOf(ordersTopic, telemetryTopic, ordersWarmup, telemetryWarmup, controlTopic).forEach(::createTopic)
+        val forwardingProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+        fun context(id: String) = TrafficWarmupContext(TrafficWarmupContextConfiguration(
+            instanceId = WarmupInstanceId("scheduler-$id-${UUID.randomUUID()}"),
+            controlTopic = controlTopic,
+            kafkaProperties = forwardingProperties,
+            donorSearchTimeout = 150.milliseconds,
+            stageTimeout = 3_000.milliseconds,
+            heartbeatInterval = 50.milliseconds,
+            electionTimeout = 250.milliseconds
+        ))
+        fun managed(
+            warmupContext: TrafficWarmupContext,
+            id: String,
+            source: String,
+            destination: String,
+            onRecord: (org.apache.kafka.clients.consumer.ConsumerRecord<String, String>) -> Unit = { }
+        ) = coroutinesKafkaConsumer<String, String>(consumerProperties("scheduler-$id-${UUID.randomUUID()}")) {
+            topics(source)
+            workerConcurrency = 2
+            commitIntervalMs = 50
+            commitRecordsThreshold = 1
+            trafficWarmup(warmupContext) {
+                consumerId = id
+                warmupTopic(source, destination)
+                warmupConsumerProperties = consumerProperties("scheduler-$id-warmup-${UUID.randomUUID()}")
+                forwardingProducerProperties = forwardingProperties
+                forwardingProfile = WarmupForwardingProfile(
+                    initialFraction = 1.0,
+                    targetFraction = 1.0,
+                    rampUpDuration = 0.milliseconds,
+                    holdDuration = 500.milliseconds
+                )
+            }
+            handle(onRecord)
+        }
+        val activeContext = context("active")
+        val donorContext = context("donor")
+        val recipientContext = context("recipient")
+        val activeOrders = managed(activeContext, "orders", ordersTopic, ordersWarmup)
+        val activeTelemetry = managed(activeContext, "telemetry", telemetryTopic, telemetryWarmup)
+        val donorOrders = managed(donorContext, "orders", ordersTopic, ordersWarmup)
+        val recipientWarmups = AtomicInteger()
+        val recipientOrders = managed(recipientContext, "orders", ordersTopic, ordersWarmup) {
+            if (it.topic() == ordersWarmup) recipientWarmups.incrementAndGet()
+        }
+
+        try {
+            activeOrders.start()
+            withTimeout(10_000) { activeOrders.awaitReady() }
+            activeTelemetry.start()
+            withTimeout(10_000) { activeTelemetry.awaitReady() }
+            activeOrders.stop()
+
+            donorOrders.start()
+            withTimeout(10_000) { donorOrders.awaitReady() }
+            val traffic = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(forwardingProperties).use { producer ->
+                    repeat(150) { index ->
+                        producer.send(ProducerRecord(ordersTopic, "key-$index", "value-$index")).get()
+                        delay(10)
+                    }
+                }
+            }
+            recipientOrders.start()
+            withTimeout(15_000) { recipientOrders.awaitReady() }
+            traffic.join()
+
+            assertTrue(recipientWarmups.get() > 0)
+            assertFalse(activeTelemetry.stateSnapshot().failed, activeTelemetry.stateSnapshot().toString())
+            assertFalse(donorOrders.stateSnapshot().failed, donorOrders.stateSnapshot().toString())
+        } finally {
+            listOf(recipientOrders, donorOrders, activeTelemetry, activeOrders).forEach {
+                runCatching { it.stop() }
+            }
+        }
     }
 
     @Test
