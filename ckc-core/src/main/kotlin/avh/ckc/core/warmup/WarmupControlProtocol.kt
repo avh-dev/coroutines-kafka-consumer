@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 2
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 3
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int

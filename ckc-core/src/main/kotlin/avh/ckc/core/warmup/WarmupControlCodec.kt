@@ -168,6 +168,8 @@ internal object WarmupControlCodec {
         writeCollection(value.topicMappings) {
             writeString(it.sourceTopic)
             writeString(it.warmupTopic)
+            writeNullableString(it.warmupClusterId)
+            writeCollection(it.availableWarmupPartitions.sorted()) { partition -> writeInt(partition) }
         }
         writeDouble(value.forwardingProfile.initialFraction)
         writeDouble(value.forwardingProfile.targetFraction)
@@ -187,7 +189,18 @@ internal object WarmupControlCodec {
 
     private fun DataInputStream.readParticipantConfiguration(): WarmupParticipantConfiguration {
         val consumerId = WarmupConsumerId(readString())
-        val mappings = readCollection { WarmupTopicMapping(readString(), readString()) }
+        val mappings = readCollection {
+            val sourceTopic = readString()
+            val warmupTopic = readString()
+            val clusterId = readNullableString()
+            val partitions = readCollection { readInt() }
+            if (clusterId == null) {
+                require(partitions.isEmpty()) { "Unresolved warm-up mapping contains partitions" }
+                WarmupTopicMapping(sourceTopic, warmupTopic)
+            } else {
+                WarmupTopicMapping.resolved(sourceTopic, warmupTopic, clusterId, partitions)
+            }
+        }
         val initialFraction = readDouble()
         val targetFraction = readDouble()
         val rampMillis = readLong().also { require(it >= 0) { "Negative ramp-up duration" } }

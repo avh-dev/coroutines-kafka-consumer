@@ -120,7 +120,8 @@ internal class WarmupControlPlaneReplica(
             "Snapshot contains overlapping warm-up reservations"
         }
         val donorParticipants = snapshot.sessions.flatMap { session ->
-            session.assignment.partitions.map { session.assignment.donorInstanceId to it.consumerId }
+            session.assignment.partitions.map { it.consumerId }.toSet()
+                .map { session.assignment.donorInstanceId to it }
         }
         check(donorParticipants.toSet().size == donorParticipants.size) {
             "Snapshot contains a donor consumer reserved by multiple sessions"

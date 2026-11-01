@@ -51,6 +51,26 @@ class WarmupControlPlaneTest {
     }
 
     @Test
+    fun `snapshot accepts one donor consumer assigned across multiple topics`() {
+        val replica = WarmupControlPlaneReplica(newcomer, position, sync)
+        val assignment = WarmupSessionAssignment(
+            WarmupSessionId("multi-topic"), WarmupInstanceId("donor"), WarmupInstanceId("recipient"),
+            listOf(
+                WarmupPartitionAssignment(WarmupConsumerId("combined"), "orders", "warmup-orders", 0),
+                WarmupPartitionAssignment(WarmupConsumerId("combined"), "batches", "warmup-batches", 0)
+            )
+        )
+
+        val result = replica.apply(WarmupControlRecord(11, StateSnapshot(
+            sync, oldActive, newcomer, 1, oldActive, 10, 9, setOf(oldActive),
+            listOf(WarmupReplicatedSession(assignment, WarmupReplicatedStage.ASSIGNED, 1_000))
+        )))
+
+        assertTrue(result.synchronizedNow)
+        assertEquals(assignment, replica.view().sessions.getValue(assignment.sessionId).assignment)
+    }
+
+    @Test
     fun `assignment exists only after journal application and duplicate decision is idempotent`() {
         val replica = activeReplica()
         val assignment = assignment("session")

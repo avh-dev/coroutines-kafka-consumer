@@ -24,6 +24,23 @@ internal class WarmupConsumerDefinition<K, V>(
     val mainConsumerProperties: Map<String, Any?> = immutableMapSnapshot(mainConsumerProperties)
     val warmupConsumerProperties: Map<String, Any?> = immutableMapSnapshot(warmupConsumerProperties)
     val forwardingProducerProperties: Map<String, Any?> = immutableMapSnapshot(forwardingProducerProperties)
+
+    fun resolved(metadata: ResolvedWarmupTopicMetadata): WarmupConsumerDefinition<K, V> =
+        WarmupConsumerDefinition(
+            configuration = WarmupParticipantConfiguration(
+                consumerId = configuration.consumerId,
+                topicMappings = configuration.topicMappings.map { mapping ->
+                    mapping.resolved(metadata.clusterId, metadata.partitionsByTopic.getValue(mapping.warmupTopic))
+                },
+                forwardingProfile = configuration.forwardingProfile,
+                processingMode = configuration.processingMode
+            ),
+            mainConsumerProperties = mainConsumerProperties,
+            warmupConsumerProperties = warmupConsumerProperties,
+            forwardingProducerProperties = forwardingProducerProperties,
+            forwardingObserver = forwardingObserver,
+            configure = configure
+        )
 }
 
 internal interface CoordinatorParticipant {

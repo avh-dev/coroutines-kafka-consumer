@@ -6178,6 +6178,16 @@ isolation. Real-Kafka tests verify automatic metadata discovery and the complete
 sequential independent startup, independent stop, and missing-topic fallback. The full
 core unit suite and complete real-Kafka integration suite pass.
 
+Review hardening routes every data-plane and terminal command by the assigned consumer,
+not only by pod instance, so sibling consumers sharing a context cannot execute or fail
+another consumer's session. Protocol v3 carries the broker cluster identity and discovered
+partition set for every warm-up mapping; producer and recipient metadata must match locally,
+and compatible donor offers must match the recipient's cluster and topology across pods.
+Stopping during coordinator startup now cancels readiness and completes the startup job.
+Snapshot validation deduplicates a donor participant within one multi-topic session before
+checking cross-session conflicts. A real-Kafka test runs two consumers in both donor and
+recipient contexts and verifies that warming one leaves its sibling healthy.
+
 Long-running sessions keep their warm-up deadline in replicated state, so a newly
 elected coordinator bounds forwarding without reconstructing the data plane. Session
 effects execute in bounded per-session queues and cannot block journal replication.

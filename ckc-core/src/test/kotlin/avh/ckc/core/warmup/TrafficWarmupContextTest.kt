@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import avh.ckc.core.ProcessingMode
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.mockito.kotlin.mock
@@ -16,6 +17,32 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TrafficWarmupContextTest {
+    @Test
+    fun `donor rejects an otherwise identical mapping from another Kafka cluster`() {
+        val local = WarmupParticipantConfiguration(
+            WarmupConsumerId("orders"),
+            listOf(WarmupTopicMapping.resolved("orders", "warmup-orders", "cluster-b", setOf(0, 1))),
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+        )
+        val requested = WarmupParticipantConfiguration(
+            WarmupConsumerId("orders"),
+            listOf(WarmupTopicMapping.resolved("orders", "warmup-orders", "cluster-a", setOf(0, 1))),
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+        )
+        val definition = WarmupConsumerDefinition<String, String>(
+            local, emptyMap(), emptyMap(), emptyMap(), configure = { }
+        )
+        val participant = KafkaCoordinatorParticipant(
+            definition,
+            CoroutineScope(Dispatchers.Default + SupervisorJob()),
+            onConsumerFailure = { }
+        )
+
+        val capability = participant.capability(requested)
+
+        assertEquals(false, capability.topics.single().compatible)
+    }
+
     @Test
     fun `consumer channels share transport and stopping one does not stop its peers`() = runBlocking {
         val transports = CopyOnWriteArrayList<TestTransport>()

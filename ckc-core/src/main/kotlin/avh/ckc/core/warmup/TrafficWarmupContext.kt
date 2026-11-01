@@ -8,7 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -86,7 +85,7 @@ class TrafficWarmupContext internal constructor(
             startupJob = scope.launch {
                 try {
                     val topics = definition.configuration.topicMappings.map(WarmupTopicMapping::warmupTopic).toSet()
-                    val available = try {
+                    val metadata = try {
                         val readable = metadataResolver.resolve(
                             topics,
                             definition.warmupConsumerProperties,
@@ -112,17 +111,18 @@ class TrafficWarmupContext internal constructor(
                         return@launch
                     }
                     lateinit var localCoordinator: WarmupCoordinator
+                    val resolvedDefinition = definition.resolved(metadata)
                     localCoordinator = WarmupCoordinator(
-                        configuration.coordinatorConfiguration(available),
+                        configuration.coordinatorConfiguration(metadata.partitionsByTopic),
                         scope.coroutineContext,
                         controlHub::channel
                     ).also { coordinator = it }
                     localCoordinator.register(
                         KafkaCoordinatorParticipant(
-                            definition,
+                            resolvedDefinition,
                             scope,
                             onConsumerFailure = { error -> localCoordinator.onParticipantFailure(
-                                definition.configuration.consumerId, error
+                                resolvedDefinition.configuration.consumerId, error
                             ) },
                             mainFactory = { main },
                             warmupFactory = warmupFactory,
@@ -155,12 +155,16 @@ class TrafficWarmupContext internal constructor(
                 termination.await()?.let { throw it }
                 return
             }
+            val cancellation = kotlinx.coroutines.CancellationException("Consumer stopped before readiness")
+            ready.completeExceptionally(cancellation)
             try {
                 val activeCoordinator = coordinator
                 if (activeCoordinator != null) {
                     activeCoordinator.stop()
+                    startupJob?.join()
                 } else {
-                    startupJob?.cancelAndJoin()
+                    startupJob?.cancel(cancellation)
+                    startupJob?.join()
                     coordinator?.stop() ?: main.stopRuntime()
                 }
                 termination.complete(null)
@@ -245,7 +249,21 @@ internal fun interface WarmupTopicMetadataResolver {
         topics: Set<String>,
         kafkaProperties: Map<String, Any?>,
         timeout: Duration
-    ): Map<String, Set<Int>>
+    ): ResolvedWarmupTopicMetadata
+}
+
+internal data class ResolvedWarmupTopicMetadata(
+    val clusterId: String,
+    val partitionsByTopic: Map<String, Set<Int>>
+) {
+    init {
+        require(clusterId.isNotBlank() && clusterId.none(Char::isISOControl)) {
+            "Kafka cluster identity is missing or invalid"
+        }
+        require(partitionsByTopic.isNotEmpty() && partitionsByTopic.values.all { partitions ->
+            partitions.isNotEmpty() && partitions.all { it >= 0 }
+        }) { "Resolved warm-up topics must contain non-negative partitions" }
+    }
 }
 
 private object KafkaWarmupTopicMetadataResolver : WarmupTopicMetadataResolver {
@@ -253,16 +271,18 @@ private object KafkaWarmupTopicMetadataResolver : WarmupTopicMetadataResolver {
         topics: Set<String>,
         kafkaProperties: Map<String, Any?>,
         timeout: Duration
-    ): Map<String, Set<Int>> = withContext(Dispatchers.IO) {
+    ): ResolvedWarmupTopicMetadata = withContext(Dispatchers.IO) {
         Admin.create(kafkaProperties).use { admin ->
+            val clusterId = admin.describeCluster().clusterId()
+                .get(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
             val descriptions = admin.describeTopics(topics)
                 .allTopicNames()
                 .get(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
-            topics.associateWith { topic ->
+            ResolvedWarmupTopicMetadata(clusterId, topics.associateWith { topic ->
                 descriptions.getValue(topic).partitions().map { it.partition() }.toSet().also { partitions ->
                     check(partitions.isNotEmpty()) { "Warm-up topic $topic has no partitions" }
                 }
-            }
+            })
         }
     }
 }

@@ -17,7 +17,9 @@ class WarmupControlCodecTest {
     private val consumer = WarmupConsumerId("orders")
     private val participant = WarmupParticipantConfiguration(
         consumerId = consumer,
-        topicMappings = listOf(WarmupTopicMapping("orders", "warmup-orders")),
+        topicMappings = listOf(WarmupTopicMapping.resolved(
+            "orders", "warmup-orders", "cluster-a", setOf(0, 1, 2)
+        )),
         forwardingProfile = WarmupForwardingProfile(0.01, 0.1, 20.seconds, 30.seconds),
         processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
     )
@@ -92,7 +94,7 @@ class WarmupControlCodecTest {
         val encoded = WarmupControlCodec.encode(StopForwarding(session, recipient, donor, 1))
 
         val unsupportedVersion = encoded.copyOf()
-        ByteBuffer.wrap(unsupportedVersion).putShort(4, 3)
+        ByteBuffer.wrap(unsupportedVersion).putShort(4, 2)
         assertFailsWith<IllegalArgumentException> { WarmupControlCodec.decode(unsupportedVersion) }
 
         val unknownType = encoded.copyOf().also { it[6] = 127 }

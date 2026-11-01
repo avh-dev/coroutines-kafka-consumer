@@ -210,6 +210,7 @@ internal class WarmupCoordinator(
     suspend fun stop() {
         if (state == WarmupCoordinatorState.STOPPED) return
         state = WarmupCoordinatorState.STOPPED
+        startup.completeExceptionally(CancellationException("Warm-up coordinator stopped before startup completed"))
         timers.values.forEach(Job::cancel)
         sessionEffects.values.forEach { it.cancel() }
         donorEffects.close()
@@ -276,18 +277,39 @@ internal class WarmupCoordinator(
                     enqueueSessionEffect(message)
                 }
             }
-            is RecipientReady -> if (isActive()) enqueueSessionEffect(message)
+            is RecipientReady -> if (isActive() && message.consumerIds == participants.keys) {
+                enqueueSessionEffect(message)
+            }
             is StartForwarding -> {
-                if (isActive()) scheduleReplicatedStop(message.sessionId)
+                val assignment = matchingAssignment(message.sessionId)
+                val localParticipant = assignment?.let(::participates) == true
+                if (isActive() && localParticipant) scheduleReplicatedStop(message.sessionId)
                 if (ownSessionId == message.sessionId) {
                     dataPlaneStarted += message.sessionId
                     timers.remove(message.sessionId)?.cancel()
                 }
-                if (targeted(message)) enqueueDonorEffect(DonorEffect.Start(message))
+                if (targeted(message) && localParticipant &&
+                    assignment?.donorInstanceId == configuration.instanceId) {
+                    enqueueDonorEffect(DonorEffect.Start(message))
+                }
             }
-            is StopForwarding -> if (targeted(message)) enqueueDonorEffect(DonorEffect.Stop(message))
-            is ForwardingStopped -> if (isActive()) enqueueSessionEffect(message)
-            is DrainRecipient -> if (targeted(message)) enqueueSessionEffect(message)
+            is StopForwarding -> {
+                val assignment = matchingAssignment(message.sessionId)
+                if (targeted(message) && assignment?.let(::participates) == true &&
+                    assignment.donorInstanceId == configuration.instanceId) {
+                    enqueueDonorEffect(DonorEffect.Stop(message))
+                }
+            }
+            is ForwardingStopped -> if (isActive() && managesSession(message.sessionId)) {
+                enqueueSessionEffect(message)
+            }
+            is DrainRecipient -> {
+                val assignment = matchingAssignment(message.sessionId)
+                if (targeted(message) && assignment?.let(::participates) == true &&
+                    assignment.recipientInstanceId == configuration.instanceId) {
+                    enqueueSessionEffect(message)
+                }
+            }
             is SessionCompleted -> dispatchSessionCompleted(message)
             is SessionFailed -> dispatchSessionFailed(message)
         }
@@ -297,6 +319,8 @@ internal class WarmupCoordinator(
         val assignment = localAssignments[message.sessionId]
             ?: ownAssignment.takeIf { it?.sessionId == message.sessionId }
             ?: activeSessions[message.sessionId]?.assignment
+            ?: replica.view().sessions[message.sessionId]?.assignment
+        if (assignment == null || !participates(assignment)) return
         val existingExecutor = sessionEffects[message.sessionId]
         if (assignment?.donorInstanceId == configuration.instanceId) {
             enqueueDonorEffect(DonorEffect.Complete(message.sessionId))
@@ -314,6 +338,8 @@ internal class WarmupCoordinator(
     }
 
     private fun dispatchSessionFailed(message: SessionFailed) {
+        val assignment = matchingAssignment(message.sessionId) ?: return
+        if (!participates(assignment)) return
         terminalSessions += message.sessionId
         sessionEffects.remove(message.sessionId)?.cancel()
         currentDonorOperation.get()?.takeIf { it.first == message.sessionId }?.second?.cancel(
@@ -322,7 +348,6 @@ internal class WarmupCoordinator(
         timers.remove(message.sessionId)?.cancel()
         activeSessions.remove(message.sessionId)
         offers.remove(message.sessionId)
-        val assignment = matchingAssignment(message.sessionId) ?: return
         val started = message.sessionId in dataPlaneStarted
         when {
             assignment.recipientInstanceId == configuration.instanceId && !started -> scope.launch {
@@ -767,7 +792,8 @@ internal class WarmupCoordinator(
         val assignments = mutableListOf<WarmupPartitionAssignment>()
         request.participants.forEach { participant ->
             participant.topicMappings.forEach { mapping ->
-                val available = configuration.availableWarmupPartitions?.get(mapping.warmupTopic)
+                val available = mapping.availableWarmupPartitions.takeIf { it.isNotEmpty() }
+                    ?: configuration.availableWarmupPartitions?.get(mapping.warmupTopic)
                     ?: configuration.warmupPartitions
                 val partition = available.sorted().firstOrNull { candidate ->
                     org.apache.kafka.common.TopicPartition(mapping.warmupTopic, candidate) !in used &&
@@ -797,6 +823,13 @@ internal class WarmupCoordinator(
     private fun matchingAssignment(sessionId: WarmupSessionId): WarmupSessionAssignment? =
         replica.view().sessions[sessionId]?.assignment ?: localAssignments[sessionId]
         ?: ownAssignment?.takeIf { it.sessionId == sessionId }
+
+    private fun participates(assignment: WarmupSessionAssignment): Boolean =
+        assignment.partitions.any { it.consumerId in participants.keys }
+
+    private fun managesSession(sessionId: WarmupSessionId): Boolean =
+        activeSessions[sessionId]?.request?.participants?.map { it.consumerId }?.toSet() == participants.keys ||
+            matchingAssignment(sessionId)?.let(::participates) == true
 
     private fun participantConfigurations() = participants.values.map(CoordinatorParticipant::configuration)
     private fun targeted(message: WarmupControlMessage) = message.targetInstanceId == configuration.instanceId
