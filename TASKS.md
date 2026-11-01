@@ -82,6 +82,7 @@
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
 | [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
+| [CORE-80](#core-80) | Integrate traffic warm-up with the ordinary independent consumer DSL and lifecycle. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6142,6 +6143,21 @@ coordinator. A pod that finds a non-empty journal but cannot obtain a snapshot c
 main consumers and remains ineligible for election; warm-up stays unavailable until an
 operator starts from a deliberately reset control journal. This is fail-closed for reserved
 capacity. Durable checkpoints and automatic full-service recovery remain follow-up work.
+
+<a id="core-80"></a>
+### CORE-80 - Integrate traffic warm-up with the ordinary consumer lifecycle
+
+_Date: 2026-11-01_
+
+Add an explicit non-global traffic warm-up context that ordinary consumer DSL instances
+can share without exposing coordinator lifecycle operations to the application. Preserve
+independent `start`, `awaitReady`, `stop`, and `awaitTermination` semantics for every
+consumer, including consumers created or started later than their peers.
+
+Discover the available partitions of each pre-created warm-up topic from Kafka metadata;
+do not duplicate partition counts in application configuration. Keep participant
+registration, internal consumers, control transport, and session orchestration inside
+the library, while allowing multiple isolated contexts in one process.
 
 Long-running sessions keep their warm-up deadline in replicated state, so a newly
 elected coordinator bounds forwarding without reconstructing the data plane. Session
