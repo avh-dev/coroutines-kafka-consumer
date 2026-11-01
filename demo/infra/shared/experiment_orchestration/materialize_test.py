@@ -173,6 +173,65 @@ class MaterializeTest(unittest.TestCase):
             },
         )
 
+    def test_materializes_automatic_warmup_and_cold_scale_up_on_one_fixed_lab(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-automatic-traffic-warmup-scale-up-10k-local.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        experiment = resolve_experiment_definition(source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+            plans = {
+                target.target.name: yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        self.assertEqual(
+            ["ckc.automatic-traffic-warmup", "ckc.cold-scale-up"],
+            [target.target.name for target in materialized],
+        )
+        self.assertEqual(
+            "0 -> (40m, linear-ramp-up) -> 100 -> (5m, steady) -> 100 -> "
+            "(2m, cool-down) -> 0",
+            candidate["workload"]["load"]["load_profile"],
+        )
+        self.assertEqual(10000, candidate["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            {"AT_LEAST_ONCE_NO_ORDERING"},
+            {
+                topic["processing_mode"]
+                for target in candidate["targets"]
+                for topic in target["runtime"]["topics"].values()
+            },
+        )
+        warmup_topics = {
+            "ckc.traffic-warmup.v1.control",
+            "ckc.traffic-warmup.v1.order.events",
+            "ckc.traffic-warmup.v1.batch.events",
+            "ckc.traffic-warmup.v1.cauldron.events",
+        }
+        for definition in definitions.values():
+            materialized_topics = {
+                topic["name"] for topic in definition["deployment"]["kafka_topics"]
+            }
+            self.assertTrue(warmup_topics.issubset(materialized_topics))
+        warm_plan = plans["ckc.automatic-traffic-warmup"]
+        cold_plan = plans["ckc.cold-scale-up"]
+        self.assertEqual(
+            "AUTOMATIC",
+            warm_plan["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ROLE"],
+        )
+        self.assertNotIn("TRAFFIC_WARMUP_ROLE", cold_plan["application"]["runtime"]["env"])
+        scale_up = warm_plan["application"]["configuration"]["hpa"]["hot_pod_cpu"]["scale_up"]
+        self.assertEqual({"max_pods": 1, "period_seconds": 180, "tolerance": 0.1}, scale_up)
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(

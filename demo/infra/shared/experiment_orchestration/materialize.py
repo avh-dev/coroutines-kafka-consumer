@@ -81,7 +81,7 @@ def materialize_target(
 
     warmup_topics = [
         {"name": topic, "partitions": 1}
-        for topic in automatic_traffic_warmup_topics(target)
+        for topic in experiment_traffic_warmup_topics(experiment)
     ]
     if warmup_topics:
         for document in (plan, values):
@@ -179,6 +179,14 @@ def automatic_traffic_warmup_topics(target: ResolvedTarget) -> tuple[str, ...]:
     if any(not topic for topic in topics):
         raise ValueError("Automatic traffic warm-up topic names must not be empty")
     return tuple(dict.fromkeys(topics))
+
+
+def experiment_traffic_warmup_topics(experiment: ResolvedExperiment) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        topic
+        for target in experiment.targets
+        for topic in automatic_traffic_warmup_topics(target)
+    ))
 
 
 def _environment_flag(value: Any, *, default: bool) -> bool:
