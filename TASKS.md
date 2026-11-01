@@ -190,6 +190,7 @@
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
 | [DEMO-107](#demo-107) | Wire automatic library-managed traffic warm-up into ordinary demo CKC consumers. | DONE |
+| [DEMO-108](#demo-108) | Remove the completed static traffic warm-up donor and recipient demo modes. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6023,6 +6024,19 @@ exit, and a forced halt when shutdown hangs; normal application stop and success
 fallback do not trigger it. Donor offers use the standard Micrometer `process.cpu.usage`
 gauge, treating missing or invalid initial samples as an unknown score. Ran the complete
 `:ckc-demo:test` suite.
+
+<a id="demo-108"></a>
+### DEMO-108 - Remove static traffic warm-up demo modes
+
+_Date: 2026-11-01_
+
+Removed the fixed donor/recipient plans, role-specific routing, recipient readiness endpoint,
+manual session/partition/group settings, and tests used only by the completed static-hop
+experiment. Ordinary consumers now always subscribe to their main topics, with automatic
+warm-up remaining an optional addition through the standard consumer DSL. Shared forwarding
+and audit primitives and historical experiment evidence remain intact. Infrastructure
+orchestration and deployment cleanup remain a separate INFRA task. The complete
+`:ckc-demo:test` suite passes.
 
 <a id="infra-319"></a>
 ### INFRA-319 - Prepare the static real-traffic warm-up experiment

@@ -1,7 +1,6 @@
 package avh.ckc.demo.config
 
 import avh.ckc.demo.api.OrderHttpService
-import avh.ckc.demo.consumer.ckc.TrafficWarmupRecipientReadinessHttpService
 import avh.ckc.demo.internal.CrashHttpService
 import com.linecorp.armeria.spring.ArmeriaServerConfigurator
 import org.springframework.beans.factory.ObjectProvider
@@ -13,12 +12,10 @@ class ArmeriaServerConfiguration {
     @Bean
     fun armeriaServerConfigurator(
         orderHttpService: ObjectProvider<OrderHttpService>,
-        crashHttpService: CrashHttpService,
-        trafficWarmupRecipientReadinessHttpService: TrafficWarmupRecipientReadinessHttpService
+        crashHttpService: CrashHttpService
     ): ArmeriaServerConfigurator =
         ArmeriaServerConfigurator { serverBuilder ->
             orderHttpService.ifAvailable?.let(serverBuilder::annotatedService)
             serverBuilder.annotatedService(crashHttpService)
-            serverBuilder.annotatedService(trafficWarmupRecipientReadinessHttpService)
         }
 }
