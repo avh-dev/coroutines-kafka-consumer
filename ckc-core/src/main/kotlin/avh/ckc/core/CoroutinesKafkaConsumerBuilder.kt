@@ -15,6 +15,7 @@ import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.kafkaWarmupRecordForwarding
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import java.util.regex.Pattern
@@ -256,7 +257,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
                 assignedPartitionsAtEnd,
                 forwarding
             )
-            val warmupProperties = managedWarmup.warmupConsumerProperties ?: consumerProperties
+            val warmupProperties = (managedWarmup.warmupConsumerProperties ?: consumerProperties) +
+                (ConsumerConfig.GROUP_ID_CONFIG to managedWarmup.context.newWarmupConsumerGroupId())
             val definition = WarmupConsumerDefinition<K, V>(
                 configuration = WarmupParticipantConfiguration(
                     WarmupConsumerId(managedWarmup.consumerId),

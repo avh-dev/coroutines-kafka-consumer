@@ -50,6 +50,14 @@ class TrafficWarmupContext internal constructor(
     private val schedulingRegistry = ContextSchedulingRegistry()
     private val consumerIds = ConcurrentHashMap.newKeySet<WarmupConsumerId>()
 
+    /**
+     * Explicitly assigned recipients still commit offsets, so Kafka requires a group identity.
+     * It must never overlap the application's main group or another independently draining
+     * recipient: either overlap can invalidate a final commit when a sibling starts main.
+     */
+    internal fun newWarmupConsumerGroupId(): String =
+        "ckc-traffic-warmup-v1-${UUID.randomUUID()}"
+
     internal fun <K, V> attach(
         definition: WarmupConsumerDefinition<K, V>,
         main: CoroutinesKafkaConsumer<K, V>,
