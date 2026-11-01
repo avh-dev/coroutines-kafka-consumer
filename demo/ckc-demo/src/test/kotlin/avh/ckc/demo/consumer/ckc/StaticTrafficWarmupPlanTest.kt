@@ -24,6 +24,17 @@ class StaticTrafficWarmupPlanTest {
     }
 
     @Test
+    fun `automatic mode does not install static routes`() {
+        val properties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.AUTOMATIC)
+
+        val plan = StaticTrafficWarmupPlan.from(properties)
+
+        assertMain(plan.order, DemoTopics.ORDER_EVENTS)
+        assertMain(plan.batch, DemoTopics.BATCH_EVENTS)
+        assertMain(plan.telemetry, DemoTopics.CAULDRON_EVENTS)
+    }
+
+    @Test
     fun `donor plan adds typed forwarding only to enabled unordered participants`() {
         val properties = warmupProperties(DemoApplicationProperties.TrafficWarmupRole.DONOR)
         properties.kafka.bootstrapServers = "main:9092"

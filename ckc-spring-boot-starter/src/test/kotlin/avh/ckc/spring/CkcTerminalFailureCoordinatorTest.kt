@@ -19,7 +19,8 @@ class CkcTerminalFailureCoordinatorTest {
                 exited.countDown()
             },
             haltHandler = CkcTerminalFailureHaltHandler { error("halt must not be called") },
-            closeTimeoutMillis = 1_000L
+            closeTimeoutMillis = 1_000L,
+            haltTimeoutMillis = 2_000L
         )
 
         coordinator.trigger()
@@ -37,7 +38,8 @@ class CkcTerminalFailureCoordinatorTest {
             closeContext = { releaseClose.await() },
             exitHandler = CkcTerminalFailureExitHandler { exited.countDown() },
             haltHandler = CkcTerminalFailureHaltHandler { error("halt must not be called") },
-            closeTimeoutMillis = 25L
+            closeTimeoutMillis = 25L,
+            haltTimeoutMillis = 2_000L
         )
 
         coordinator.trigger()
@@ -58,7 +60,29 @@ class CkcTerminalFailureCoordinatorTest {
                 releaseExit.countDown()
             },
             closeTimeoutMillis = 25L,
-            exitTimeoutMillis = 25L
+            haltTimeoutMillis = 25L
+        )
+
+        coordinator.trigger()
+
+        assertTrue(halted.await(2, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `watchdog covers context close and requests halt before cleanup deadline`() {
+        val releaseClose = CountDownLatch(1)
+        val halted = CountDownLatch(1)
+        val exitRequests = AtomicInteger(0)
+        val coordinator = CkcTerminalFailureCoordinator(
+            closeContext = { releaseClose.await() },
+            exitHandler = CkcTerminalFailureExitHandler { exitRequests.incrementAndGet() },
+            haltHandler = CkcTerminalFailureHaltHandler {
+                assertEquals(0, exitRequests.get())
+                halted.countDown()
+                releaseClose.countDown()
+            },
+            closeTimeoutMillis = 2_000L,
+            haltTimeoutMillis = 25L
         )
 
         coordinator.trigger()

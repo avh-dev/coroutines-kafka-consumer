@@ -55,12 +55,19 @@ class DemoApplicationPropertiesTest {
         assertEquals("HttpClient-virtual-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://127.0.0.1:18080", properties.registry.baseUrl)
         assertEquals(DemoApplicationProperties.TrafficWarmupRole.DISABLED, properties.trafficWarmup.role)
+        assertEquals("local", properties.trafficWarmup.instanceId)
+        assertEquals("ckc.traffic-warmup.v1.control", properties.trafficWarmup.controlTopic)
         assertEquals("static", properties.trafficWarmup.sessionId)
         assertEquals("", properties.trafficWarmup.kafkaBootstrapServers)
         assertEquals("ckc-traffic-warmup-v1-recipient", properties.trafficWarmup.recipientGroupIdPrefix)
         assertEquals("ckc.traffic-warmup.v1.order.events", properties.trafficWarmup.order.topic)
         assertEquals(0, properties.trafficWarmup.order.partition)
         assertEquals(false, properties.trafficWarmup.telemetry.enabled)
+        assertEquals(0, properties.trafficWarmup.holdSeconds)
+        assertEquals(5, properties.trafficWarmup.donorSearchTimeoutSeconds)
+        assertEquals(30, properties.trafficWarmup.stageTimeoutSeconds)
+        assertEquals(1_000, properties.trafficWarmup.heartbeatIntervalMs)
+        assertEquals(5_000, properties.trafficWarmup.electionTimeoutMs)
     }
 
     @Test
@@ -110,12 +117,19 @@ class DemoApplicationPropertiesTest {
                 "demo.model.jdk-http-client-executor" to "virtual",
                 "demo.model.jdk-http-client-virtual-thread-name-prefix" to "http-vt-test-",
                 "demo.registry.base-url" to "http://registry.example",
-                "demo.traffic-warmup.role" to "recipient",
+                "demo.traffic-warmup.role" to "automatic",
+                "demo.traffic-warmup.instance-id" to "demo-pod-9",
+                "demo.traffic-warmup.control-topic" to "ckc.traffic-warmup.v1.test-control",
                 "demo.traffic-warmup.session-id" to "session-9",
                 "demo.traffic-warmup.kafka-bootstrap-servers" to "warmup:9093",
                 "demo.traffic-warmup.recipient-group-id-prefix" to "ckc-traffic-warmup-v1-test",
                 "demo.traffic-warmup.target-fraction" to "0.25",
                 "demo.traffic-warmup.ramp-up-seconds" to "30",
+                "demo.traffic-warmup.hold-seconds" to "10",
+                "demo.traffic-warmup.donor-search-timeout-seconds" to "7",
+                "demo.traffic-warmup.stage-timeout-seconds" to "40",
+                "demo.traffic-warmup.heartbeat-interval-ms" to "1500",
+                "demo.traffic-warmup.election-timeout-ms" to "6500",
                 "demo.traffic-warmup.order.topic" to "ckc.traffic-warmup.v1.test-orders",
                 "demo.traffic-warmup.order.partition" to "4"
             )
@@ -166,12 +180,19 @@ class DemoApplicationPropertiesTest {
         assertEquals(DemoApplicationProperties.JdkHttpClientExecutor.VIRTUAL, properties.model.jdkHttpClientExecutor)
         assertEquals("http-vt-test-", properties.model.jdkHttpClientVirtualThreadNamePrefix)
         assertEquals("http://registry.example", properties.registry.baseUrl)
-        assertEquals(DemoApplicationProperties.TrafficWarmupRole.RECIPIENT, properties.trafficWarmup.role)
+        assertEquals(DemoApplicationProperties.TrafficWarmupRole.AUTOMATIC, properties.trafficWarmup.role)
+        assertEquals("demo-pod-9", properties.trafficWarmup.instanceId)
+        assertEquals("ckc.traffic-warmup.v1.test-control", properties.trafficWarmup.controlTopic)
         assertEquals("session-9", properties.trafficWarmup.sessionId)
         assertEquals("warmup:9093", properties.trafficWarmup.kafkaBootstrapServers)
         assertEquals("ckc-traffic-warmup-v1-test", properties.trafficWarmup.recipientGroupIdPrefix)
         assertEquals(0.25, properties.trafficWarmup.targetFraction)
         assertEquals(30, properties.trafficWarmup.rampUpSeconds)
+        assertEquals(10, properties.trafficWarmup.holdSeconds)
+        assertEquals(7, properties.trafficWarmup.donorSearchTimeoutSeconds)
+        assertEquals(40, properties.trafficWarmup.stageTimeoutSeconds)
+        assertEquals(1_500, properties.trafficWarmup.heartbeatIntervalMs)
+        assertEquals(6_500, properties.trafficWarmup.electionTimeoutMs)
         assertEquals("ckc.traffic-warmup.v1.test-orders", properties.trafficWarmup.order.topic)
         assertEquals(4, properties.trafficWarmup.order.partition)
     }

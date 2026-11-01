@@ -10,6 +10,9 @@ import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.api.OrderHttpService
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
+import avh.ckc.spring.CkcConsumersLifecycle
+import avh.ckc.spring.CkcTerminalFailureExitHandler
+import avh.ckc.spring.CkcTerminalFailureHaltHandler
 import com.linecorp.armeria.client.WebClient
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.runBlocking
@@ -20,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
+import org.springframework.context.annotation.Import
 import org.springframework.test.context.ActiveProfiles
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,6 +34,7 @@ import kotlin.test.assertTrue
 
 @SpringBootTest(
     properties = [
+        "ckc.enabled=false",
         "demo.kafka.enabled=false",
         "SERVER_PORT=0",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
@@ -37,6 +42,7 @@ import kotlin.test.assertTrue
     ]
 )
 @ActiveProfiles("ckc")
+@Import(ManualTerminalFailureTestConfiguration::class)
 class CkcProfileContextTest(
     @Autowired private val applicationContext: ApplicationContext,
     @Autowired private val meterRegistry: MeterRegistry,
@@ -45,10 +51,21 @@ class CkcProfileContextTest(
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     @Autowired
     @Qualifier("ckcWorkerDispatcher")
-    private val workerDispatcher: DemoProcessingDispatcher
+    private val workerDispatcher: DemoProcessingDispatcher,
+    @Autowired private val terminalFailureDependency: ManualTerminalFailureDependency,
+    @Autowired private val terminalFailureExitHandler: CkcTerminalFailureExitHandler,
+    @Autowired private val terminalFailureHaltHandler: CkcTerminalFailureHaltHandler
 ) {
     @Test
     fun contextLoads() {
+    }
+
+    @Test
+    fun `manual profile provides shared terminal failure infrastructure while starter lifecycle is disabled`() {
+        assertTrue(applicationContext.getBeansOfType(CkcConsumersLifecycle::class.java).isEmpty())
+        assertNotNull(terminalFailureDependency.coordinator)
+        assertTrue(terminalFailureExitHandler === ManualTerminalFailureTestConfiguration.exitHandler)
+        assertTrue(terminalFailureHaltHandler === ManualTerminalFailureTestConfiguration.haltHandler)
     }
 
     @Test

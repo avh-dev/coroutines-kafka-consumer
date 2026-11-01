@@ -189,6 +189,7 @@
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
+| [DEMO-107](#demo-107) | Wire automatic library-managed traffic warm-up into ordinary demo CKC consumers. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6002,6 +6003,26 @@ registry before any consumer starts when audit is enabled; custom topics remain
 available when audit is disabled. Demo session and consumer identifiers now reject
 the compact-record field separator so forwarding relations always retain their
 fixed column layout. Regression coverage exercises both validation boundaries.
+
+<a id="demo-107"></a>
+### DEMO-107 - Wire automatic traffic warm-up into demo consumers
+
+_Date: 2026-11-01_
+
+Integrated the library-managed coordinator through the ordinary CKC consumer DSL while
+preserving each demo consumer's independent lifecycle. One explicit non-global context
+shares control-channel settings, while each enabled consumer supplies only its stable ID,
+topic mapping, Kafka connection, forwarding profile, serializers, and audit observer.
+Kept the static donor/recipient mode for the completed hop experiment and added an opt-in
+automatic mode for natural scale-up without application-level orchestration APIs or
+application-configured warm-up partition counts. Added configuration and plan regression
+coverage. Automatic consumers are observed asynchronously after `start()`: readiness is
+observed across every handle, while terminal failure triggers the shared bounded Spring/JVM
+termination mechanism from CORE-64. Its watchdog covers consumer cleanup, normal non-zero
+exit, and a forced halt when shutdown hangs; normal application stop and successful cold
+fallback do not trigger it. Donor offers use the standard Micrometer `process.cpu.usage`
+gauge, treating missing or invalid initial samples as an unknown score. Ran the complete
+`:ckc-demo:test` suite.
 
 <a id="infra-319"></a>
 ### INFRA-319 - Prepare the static real-traffic warm-up experiment

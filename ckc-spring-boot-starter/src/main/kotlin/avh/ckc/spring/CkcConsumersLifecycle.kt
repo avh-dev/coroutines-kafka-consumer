@@ -37,11 +37,7 @@ class CkcConsumersLifecycle internal constructor(
     private val runningConsumerNames = linkedSetOf<String>()
     private val lifecycleObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val terminalFailureCoordinator by lazy {
-        CkcTerminalFailureCoordinator(
-            applicationContext,
-            applicationContext.getBean(CkcTerminalFailureExitHandler::class.java),
-            applicationContext.getBean(CkcTerminalFailureHaltHandler::class.java)
-        )
+        applicationContext.getBean(CkcTerminalFailureCoordinator::class.java)
     }
     private val properties: CkcConsumerProperties
         get() = applicationContext.getBean(CkcConsumerProperties::class.java)

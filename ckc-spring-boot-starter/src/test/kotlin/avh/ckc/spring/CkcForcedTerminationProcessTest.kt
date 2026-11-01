@@ -57,7 +57,7 @@ internal object CkcHangingShutdownHookProbe {
             exitHandler = CkcTerminalFailureExitHandler { System.exit(it) },
             haltHandler = CkcTerminalFailureHaltHandler { Runtime.getRuntime().halt(it) },
             closeTimeoutMillis = 10L,
-            exitTimeoutMillis = 100L
+            haltTimeoutMillis = 100L
         ).trigger()
         Thread.sleep(10_000L)
     }
