@@ -28,10 +28,26 @@ class CkcSpringBootAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
         .withConfiguration(
             AutoConfigurations.of(
+                CkcTerminalFailureAutoConfiguration::class.java,
                 CkcSpringBootAutoConfiguration::class.java,
                 CkcSpringBootHealthAutoConfiguration::class.java
             )
         )
+
+    @Test
+    fun `terminal failure infrastructure remains available when managed lifecycle is disabled`() {
+        contextRunner
+            .withUserConfiguration(CustomTerminalFailureHandlersConfiguration::class.java)
+            .withPropertyValues("ckc.enabled=false")
+            .run { context ->
+                assertThat(context).doesNotHaveBean(CkcConsumersLifecycle::class.java)
+                assertThat(context).hasSingleBean(CkcTerminalFailureCoordinator::class.java)
+                assertThat(context.getBean(CkcTerminalFailureExitHandler::class.java))
+                    .isSameAs(CustomTerminalFailureHandlersConfiguration.exitHandler)
+                assertThat(context.getBean(CkcTerminalFailureHaltHandler::class.java))
+                    .isSameAs(CustomTerminalFailureHandlersConfiguration.haltHandler)
+            }
+    }
 
     @Test
     fun `creates lifecycle for annotated consumer configured by name`() {
@@ -889,6 +905,20 @@ class CkcSpringBootAutoConfigurationTest {
             }
     }
 
+}
+
+@Configuration(proxyBeanMethods = false)
+private class CustomTerminalFailureHandlersConfiguration {
+    @Bean
+    fun terminalFailureExitHandler(): CkcTerminalFailureExitHandler = exitHandler
+
+    @Bean
+    fun terminalFailureHaltHandler(): CkcTerminalFailureHaltHandler = haltHandler
+
+    companion object {
+        val exitHandler = CkcTerminalFailureExitHandler { }
+        val haltHandler = CkcTerminalFailureHaltHandler { }
+    }
 }
 
 @Configuration(proxyBeanMethods = false)
