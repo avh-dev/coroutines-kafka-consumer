@@ -5,6 +5,7 @@ import avh.ckc.core.warmup.WarmupForwardingConfiguration
 import avh.ckc.core.warmup.WarmupForwardingProfile
 import avh.ckc.core.warmup.WarmupPartitionAssignment
 import avh.ckc.core.warmup.WarmupSessionId
+import avh.ckc.core.warmup.trafficWarmupContext
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.TopicPartition
@@ -16,6 +17,48 @@ import java.util.regex.Pattern
 import kotlin.time.Duration.Companion.seconds
 
 class CoroutinesKafkaConsumerBuilderTest {
+
+    @Test
+    fun `managed traffic warm-up configures topic mapping without partition count`() {
+        val context = trafficWarmupContext {
+            instanceId = "instance-a"
+            controlTopic = "ckc.traffic-warmup.v1.control"
+            kafkaProperties = mapOf("bootstrap.servers" to "localhost:9092")
+        }
+        val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+            topics("orders")
+            trafficWarmup(context) {
+                consumerId = "orders"
+                warmupTopic("orders", "ckc.traffic-warmup.v1.orders")
+                forwardingProducerProperties = forwardingProperties()
+            }
+            handle { }
+        }
+
+        assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `managed traffic warm-up requires mapping for every subscribed topic`() {
+        val context = trafficWarmupContext {
+            instanceId = "instance-a"
+            controlTopic = "ckc.traffic-warmup.v1.control"
+            kafkaProperties = mapOf("bootstrap.servers" to "localhost:9092")
+        }
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+                topics("orders", "batches")
+                trafficWarmup(context) {
+                    consumerId = "orders"
+                    warmupTopic("orders", "ckc.traffic-warmup.v1.orders")
+                    forwardingProducerProperties = forwardingProperties()
+                }
+                handle { }
+            }
+        }
+
+        assertEquals("Every subscribed topic must have exactly one warm-up topic mapping", error.message)
+    }
 
     @Test
     fun `when builder is configured with topics then consumer is created`() {
@@ -249,5 +292,11 @@ class CoroutinesKafkaConsumerBuilderTest {
             ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
         )
+    )
+
+    private fun forwardingProperties(): Map<String, Any?> = mapOf(
+        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "localhost:9092",
+        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
     )
 }

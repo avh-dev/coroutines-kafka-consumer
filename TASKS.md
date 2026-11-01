@@ -82,7 +82,7 @@
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
 | [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
-| [CORE-80](#core-80) | Integrate traffic warm-up with the ordinary independent consumer DSL and lifecycle. | IN_PROGRESS |
+| [CORE-80](#core-80) | Integrate traffic warm-up with the ordinary independent consumer DSL and lifecycle. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6158,6 +6158,25 @@ Discover the available partitions of each pre-created warm-up topic from Kafka m
 do not duplicate partition counts in application configuration. Keep participant
 registration, internal consumers, control transport, and session orchestration inside
 the library, while allowing multiple isolated contexts in one process.
+
+Implemented `trafficWarmupContext` as an explicit configuration scope and added
+`trafficWarmup(context)` to the ordinary consumer DSL. The public consumer still uses
+non-blocking `start()` and its own `awaitReady()`, `stop()`, and `awaitTermination()`;
+there is no aggregate registration barrier and stopping one consumer does not stop peers.
+The coordinator and definition types are now internal implementation details.
+
+The context lazily owns one physical control transport while consumer-scoped sessions
+remain attached. Warm-up topic mappings contain names only: core reads Kafka metadata
+from both recipient and forwarding clusters, verifies matching real partitions, and
+allocates journal-reserved partitions from that result. Missing or inconsistent metadata
+falls back safely to the ordinary main subscription before forwarding begins.
+
+Replicated donor reservations now use `(instanceId, consumerId)`, so different consumers
+on one hot pod may donate concurrently while one consumer remains single-session. Unit
+coverage verifies shared transport lifetime, discovered assignment, and reservation
+isolation. Real-Kafka tests verify automatic metadata discovery and the complete session,
+sequential independent startup, independent stop, and missing-topic fallback. The full
+core unit suite and complete real-Kafka integration suite pass.
 
 Long-running sessions keep their warm-up deadline in replicated state, so a newly
 elected coordinator bounds forwarding without reconstructing the data plane. Session

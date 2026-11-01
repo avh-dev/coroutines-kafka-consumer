@@ -31,8 +31,8 @@ internal class WarmupRecipientLifecycle<K, V>(
         state = State.WARMING
         try {
             val consumer = createWarmup().also { warmup = it }
-            consumer.start()
-            untilStopped { consumer.awaitReady() }
+            consumer.startOwnedRuntime()
+            untilStopped { consumer.awaitOwnedRuntimeReady() }
         } catch (error: Throwable) {
             state = State.FAILED
             throw error
@@ -55,8 +55,8 @@ internal class WarmupRecipientLifecycle<K, V>(
         check(state == State.DRAINED) { "Main subscription requires successful warm-up drain" }
         check(!stopRequested.isCompleted) { "Recipient is stopping" }
         try {
-            createMain().also { main = it }.start()
-            requireNotNull(main).awaitReady()
+            createMain().also { main = it }.startOwnedRuntime()
+            requireNotNull(main).awaitOwnedRuntimeReady()
             state = State.MAIN
         } catch (error: Throwable) {
             state = State.FAILED
@@ -79,7 +79,7 @@ internal class WarmupRecipientLifecycle<K, V>(
                 var failure: Throwable? = null
                 for (consumer in listOfNotNull(main, warmup)) {
                     try {
-                        consumer.stop()
+                        consumer.stopOwnedRuntime()
                     } catch (error: Throwable) {
                         if (!error.matchesKnownFailure(knownFailure)) {
                             if (failure == null) failure = error else failure.addSuppressed(error)
@@ -101,6 +101,18 @@ internal class WarmupRecipientLifecycle<K, V>(
         } finally {
             operation.cancel()
         }
+    }
+
+    private fun CoroutinesKafkaConsumer<K, V>.startOwnedRuntime() {
+        if (isLifecycleManaged()) startRuntime() else start()
+    }
+
+    private suspend fun CoroutinesKafkaConsumer<K, V>.awaitOwnedRuntimeReady() {
+        if (isLifecycleManaged()) awaitRuntimeReady() else awaitReady()
+    }
+
+    private suspend fun CoroutinesKafkaConsumer<K, V>.stopOwnedRuntime() {
+        if (isLifecycleManaged()) stopRuntime() else stop()
     }
 
     private fun Throwable.matchesKnownFailure(knownFailure: Throwable?): Boolean {

@@ -119,9 +119,11 @@ internal class WarmupControlPlaneReplica(
         check(destinations.toSet().size == destinations.size) {
             "Snapshot contains overlapping warm-up reservations"
         }
-        val donors = snapshot.sessions.map { it.assignment.donorInstanceId }
-        check(donors.toSet().size == donors.size) {
-            "Snapshot contains a donor reserved by multiple sessions"
+        val donorParticipants = snapshot.sessions.flatMap { session ->
+            session.assignment.partitions.map { session.assignment.donorInstanceId to it.consumerId }
+        }
+        check(donorParticipants.toSet().size == donorParticipants.size) {
+            "Snapshot contains a donor consumer reserved by multiple sessions"
         }
         generation = snapshot.generation
         activeCoordinator = snapshot.activeCoordinator
@@ -203,7 +205,13 @@ internal class WarmupControlPlaneReplica(
         if (sessions.size >= limits.maximumSessions) return false
         val used = sessions.values.flatMap { it.assignment.partitions }.map { it.topicPartition }.toSet()
         if (message.assignment.partitions.any { it.topicPartition in used }) return false
-        if (sessions.values.any { it.assignment.donorInstanceId == message.assignment.donorInstanceId }) return false
+        val requestedDonorParticipants = message.assignment.partitions
+            .map { message.assignment.donorInstanceId to it.consumerId }
+            .toSet()
+        val reservedDonorParticipants = sessions.values.flatMap { session ->
+            session.assignment.partitions.map { session.assignment.donorInstanceId to it.consumerId }
+        }.toSet()
+        if (requestedDonorParticipants.any { it in reservedDonorParticipants }) return false
         sessions[message.sessionId] = WarmupReplicatedSession(
             message.assignment, WarmupReplicatedStage.ASSIGNED, message.warmupDurationMillis
         )

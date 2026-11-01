@@ -24,6 +24,8 @@ import avh.ckc.core.warmup.WarmupParticipantConfiguration
 import avh.ckc.core.warmup.WarmupRequest
 import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.SessionFailed
+import avh.ckc.core.warmup.TrafficWarmupContext
+import avh.ckc.core.warmup.TrafficWarmupContextConfiguration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,6 +76,182 @@ import kotlin.time.Duration.Companion.milliseconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    fun `missing warm-up topic falls back to ordinary main subscription`() = runBlocking {
+        val sourceTopic = "metadata-fallback-source-${UUID.randomUUID()}"
+        val controlTopic = "metadata-fallback-control-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(controlTopic)
+        val handled = CompletableDeferred<Unit>()
+        val kafkaProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+        val context = TrafficWarmupContext(TrafficWarmupContextConfiguration(
+            instanceId = WarmupInstanceId("metadata-fallback-${UUID.randomUUID()}"),
+            controlTopic = controlTopic,
+            kafkaProperties = kafkaProperties,
+            stageTimeout = 2_000.milliseconds
+        ))
+        val consumer = coroutinesKafkaConsumer<String, String>(
+            consumerProperties("metadata-fallback-${UUID.randomUUID()}")
+        ) {
+            topics(sourceTopic)
+            trafficWarmup(context) {
+                consumerId = "orders"
+                warmupTopic(sourceTopic, "missing-warmup-${UUID.randomUUID()}")
+                forwardingProducerProperties = kafkaProperties
+            }
+            handle { handled.complete(Unit) }
+        }
+
+        try {
+            consumer.start()
+            withTimeout(10_000) { consumer.awaitReady() }
+            produce(sourceTopic, "key", "value")
+            withTimeout(5_000) { handled.await() }
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `shared context preserves sequential start and independent stop`() = runBlocking {
+        val ordersTopic = "independent-orders-${UUID.randomUUID()}"
+        val batchesTopic = "independent-batches-${UUID.randomUUID()}"
+        val ordersWarmup = "independent-orders-warmup-${UUID.randomUUID()}"
+        val batchesWarmup = "independent-batches-warmup-${UUID.randomUUID()}"
+        val controlTopic = "independent-control-${UUID.randomUUID()}"
+        listOf(ordersTopic, batchesTopic, ordersWarmup, batchesWarmup, controlTopic).forEach(::createTopic)
+        val context = TrafficWarmupContext(TrafficWarmupContextConfiguration(
+            instanceId = WarmupInstanceId("independent-${UUID.randomUUID()}"),
+            controlTopic = controlTopic,
+            kafkaProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+            donorSearchTimeout = 100.milliseconds,
+            stageTimeout = 1_000.milliseconds,
+            heartbeatInterval = 50.milliseconds,
+            electionTimeout = 250.milliseconds
+        ))
+        val forwardingProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+        fun managed(id: String, source: String, destination: String, handled: CompletableDeferred<Unit>) =
+            coroutinesKafkaConsumer<String, String>(consumerProperties("independent-$id-${UUID.randomUUID()}")) {
+                topics(source)
+                commitIntervalMs = 50
+                commitRecordsThreshold = 1
+                trafficWarmup(context) {
+                    consumerId = id
+                    warmupTopic(source, destination)
+                    warmupConsumerProperties = consumerProperties("independent-$id-warmup-${UUID.randomUUID()}")
+                    forwardingProducerProperties = forwardingProperties
+                }
+                handle { handled.complete(Unit) }
+            }
+        val ordersHandled = CompletableDeferred<Unit>()
+        val batchesHandled = CompletableDeferred<Unit>()
+        val orders = managed("orders", ordersTopic, ordersWarmup, ordersHandled)
+        val batches = managed("batches", batchesTopic, batchesWarmup, batchesHandled)
+
+        try {
+            orders.start()
+            withTimeout(5_000) { orders.awaitReady() }
+            batches.start()
+            withTimeout(5_000) { batches.awaitReady() }
+            orders.stop()
+
+            produce(batchesTopic, "key", "value")
+            withTimeout(5_000) { batchesHandled.await() }
+            assertFalse(batches.stateSnapshot().failed)
+        } finally {
+            runCatching { batches.stop() }
+            runCatching { orders.stop() }
+        }
+    }
+
+    @Test
+    fun `ordinary consumer lifecycle discovers warm-up partitions and completes automatic session`() = runBlocking {
+        val sourceTopic = "managed-source-${UUID.randomUUID()}"
+        val warmupTopic = "managed-warmup-${UUID.randomUUID()}"
+        val controlTopic = "managed-control-${UUID.randomUUID()}"
+        val groupId = "managed-main-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(warmupTopic, partitions = 2)
+        createTopic(controlTopic)
+        val donorProcessed = AtomicInteger()
+        val recipientWarmupProcessed = AtomicInteger()
+        val forwardingProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all"
+        )
+        fun context(instance: String) = TrafficWarmupContext(
+            TrafficWarmupContextConfiguration(
+                instanceId = WarmupInstanceId(instance),
+                controlTopic = controlTopic,
+                kafkaProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+                donorSearchTimeout = 200.milliseconds,
+                stageTimeout = 15_000.milliseconds,
+                heartbeatInterval = 100.milliseconds,
+                electionTimeout = 500.milliseconds,
+                donorLoadScore = { donorProcessed.get().toDouble() }
+            )
+        )
+        fun consumer(
+            instanceContext: TrafficWarmupContext,
+            counter: AtomicInteger,
+            countOnlyWarmup: Boolean
+        ) = coroutinesKafkaConsumer<String, String>(consumerProperties(groupId)) {
+            topics(sourceTopic)
+            workerConcurrency = 4
+            commitIntervalMs = 50
+            commitRecordsThreshold = 1
+            trafficWarmup(instanceContext) {
+                consumerId = "orders"
+                warmupTopic(sourceTopic, warmupTopic)
+                warmupConsumerProperties = consumerProperties("$groupId-warmup-${UUID.randomUUID()}")
+                forwardingProducerProperties = forwardingProperties
+                forwardingProfile = WarmupForwardingProfile(
+                    initialFraction = 1.0,
+                    targetFraction = 1.0,
+                    rampUpDuration = 0.milliseconds,
+                    holdDuration = 800.milliseconds
+                )
+            }
+            handle { record ->
+                if (!countOnlyWarmup || record.topic() == warmupTopic) counter.incrementAndGet()
+            }
+        }
+        val donor = consumer(context("managed-donor-${UUID.randomUUID()}"), donorProcessed, false)
+        val recipient = consumer(context("managed-recipient-${UUID.randomUUID()}"), recipientWarmupProcessed, true)
+
+        try {
+            donor.start()
+            withTimeout(15_000) { donor.awaitReady() }
+            produce(sourceTopic, "initial", "initial")
+            awaitForBlocking { donorProcessed.get().takeIf { it > 0 } }
+            val traffic = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(forwardingProperties).use { producer ->
+                    repeat(200) { index ->
+                        producer.send(ProducerRecord(sourceTopic, "key-$index", "value-$index")).get()
+                        delay(10)
+                    }
+                }
+            }
+            recipient.start()
+            withTimeout(20_000) { recipient.awaitReady() }
+            traffic.join()
+            assertTrue(recipientWarmupProcessed.get() > 0)
+        } finally {
+            recipient.stop()
+            donor.stop()
+        }
+    }
 
     @Test
     fun `automatic coordinator warms a new instance and starts its main subscription`() = runBlocking {

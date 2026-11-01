@@ -24,6 +24,24 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class WarmupCoordinatorTest {
     @Test
+    fun `assignment uses partitions discovered for the warm-up topic`() = runBlocking {
+        val bus = ControlBus()
+        val donor = coordinator("donor", bus, availableWarmupPartitions = mapOf("warmup-orders" to setOf(3, 5)))
+            .also { it.register(TestParticipant()) }
+        val recipient = coordinator(
+            "recipient", bus, availableWarmupPartitions = mapOf("warmup-orders" to setOf(3, 5))
+        ).also { it.register(TestParticipant()) }
+        try {
+            donor.start()
+            assertEquals(WarmupStartupResult.WARMED, withTimeout(3_000) { recipient.start() })
+            val assignment = bus.messages.filterIsInstance<AssignmentProposed>().first().assignment
+            assertEquals(3, assignment.partitions.single().warmupPartition)
+        } finally {
+            recipient.stop(); donor.stop()
+        }
+    }
+
+    @Test
     fun `active coordinator owns assignment and ambiguous decision send still completes from journal`() = runBlocking {
         val bus = ControlBus(throwAfterPublish = { it is AssignmentProposed })
         val donorParticipant = TestParticipant()
@@ -462,12 +480,14 @@ class WarmupCoordinatorTest {
         bus: ControlBus,
         warmupPartitions: Collection<Int> = listOf(0),
         stageTimeout: kotlin.time.Duration = 120.milliseconds,
-        limits: WarmupControlPlaneLimits = WarmupControlPlaneLimits()
+        limits: WarmupControlPlaneLimits = WarmupControlPlaneLimits(),
+        availableWarmupPartitions: Map<String, Set<Int>>? = null
     ) = WarmupCoordinator(
         WarmupCoordinatorConfiguration(
             WarmupInstanceId(id), warmupPartitions, donorSearchTimeout = 20.milliseconds,
             stageTimeout = stageTimeout, heartbeatInterval = 20.milliseconds,
-            electionTimeout = 80.milliseconds, controlPlaneLimits = limits
+            electionTimeout = 80.milliseconds, controlPlaneLimits = limits,
+            availableWarmupPartitions = availableWarmupPartitions
         ), Dispatchers.Default, bus::channel
     )
 

@@ -93,6 +93,20 @@ class WarmupControlPlaneTest {
     }
 
     @Test
+    fun `one donor may warm independent consumers in parallel`() {
+        val replica = activeReplica()
+        val first = assignment("one", 0, "orders")
+        val second = assignment("two", 0, "batches")
+
+        assertTrue(replica.apply(WarmupControlRecord(2, AssignmentProposed(
+            first.sessionId, oldActive, 1, first, 1_000
+        ))).accepted)
+        assertTrue(replica.apply(WarmupControlRecord(3, AssignmentProposed(
+            second.sessionId, oldActive, 1, second, 1_000
+        ))).accepted)
+    }
+
+    @Test
     fun `leader change fences new commands but keeps participant completion valid`() {
         val replica = activeReplica()
         val assignment = assignment("session")
@@ -163,9 +177,11 @@ class WarmupControlPlaneTest {
         return replica
     }
 
-    private fun assignment(id: String, partition: Int = 0) = WarmupSessionAssignment(
+    private fun assignment(id: String, partition: Int = 0, consumer: String = "orders") = WarmupSessionAssignment(
         WarmupSessionId(id), WarmupInstanceId("donor"), WarmupInstanceId("recipient-$id"),
-        listOf(WarmupPartitionAssignment(WarmupConsumerId("orders"), "orders", "warmup-orders", partition))
+        listOf(WarmupPartitionAssignment(
+            WarmupConsumerId(consumer), consumer, "warmup-$consumer", partition
+        ))
     )
 
     private fun progressToDraining(
