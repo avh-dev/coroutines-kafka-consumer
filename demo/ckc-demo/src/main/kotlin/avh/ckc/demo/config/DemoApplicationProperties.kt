@@ -143,9 +143,7 @@ data class DemoApplicationProperties(
         var role: TrafficWarmupRole = TrafficWarmupRole.DISABLED,
         var instanceId: String = "local",
         var controlTopic: String = DemoTopics.TRAFFIC_WARMUP_CONTROL,
-        var sessionId: String = "static",
         var kafkaBootstrapServers: String = "",
-        var recipientGroupIdPrefix: String = "ckc-traffic-warmup-v1-recipient",
         var initialFraction: Double = 0.0,
         var targetFraction: Double = 0.1,
         var rampUpSeconds: Long = 120,
@@ -154,7 +152,6 @@ data class DemoApplicationProperties(
         var stageTimeoutSeconds: Long = 30,
         var heartbeatIntervalMs: Long = 1_000,
         var electionTimeoutMs: Long = 5_000,
-        var maxInFlightSends: Int = 32,
         var order: TrafficWarmupParticipant = TrafficWarmupParticipant(
             consumerId = "order_events",
             topic = DemoTopics.TRAFFIC_WARMUP_ORDER_EVENTS
@@ -173,14 +170,11 @@ data class DemoApplicationProperties(
     data class TrafficWarmupParticipant(
         var enabled: Boolean = true,
         var consumerId: String = "",
-        var topic: String = "",
-        var partition: Int = 0
+        var topic: String = ""
     )
 
     enum class TrafficWarmupRole {
         DISABLED,
-        DONOR,
-        RECIPIENT,
         AUTOMATIC
     }
 }

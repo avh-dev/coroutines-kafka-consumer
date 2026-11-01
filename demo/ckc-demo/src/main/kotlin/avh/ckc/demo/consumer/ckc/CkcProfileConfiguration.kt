@@ -60,7 +60,6 @@ class CkcProfileConfiguration {
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher,
-        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
         meterRegistry: MeterRegistry,
         terminalFailureCoordinator: CkcTerminalFailureCoordinator
     ): SmartLifecycle =
@@ -73,7 +72,6 @@ class CkcProfileConfiguration {
             orderConsumerMetrics,
             batchConsumerMetrics,
             workerDispatcher,
-            trafficWarmupRecipientReadiness,
             meterRegistry,
             terminalFailureCoordinator
         )
@@ -105,7 +103,6 @@ class CkcSyncProfileConfiguration {
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher,
-        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
         meterRegistry: MeterRegistry,
         terminalFailureCoordinator: CkcTerminalFailureCoordinator
     ): SmartLifecycle =
@@ -118,7 +115,6 @@ class CkcSyncProfileConfiguration {
             orderConsumerMetrics,
             batchConsumerMetrics,
             processingDispatcher,
-            trafficWarmupRecipientReadiness,
             meterRegistry,
             terminalFailureCoordinator
         )
@@ -133,7 +129,6 @@ private class CkcConsumerRuntime(
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
     private val processingDispatcher: CoroutineDispatcher,
-    private val trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
     private val meterRegistry: MeterRegistry,
     private val terminalFailureCoordinator: CkcTerminalFailureCoordinator
 ) : SmartLifecycle {
@@ -141,7 +136,6 @@ private class CkcConsumerRuntime(
     private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
-    private val recipientConsumers = mutableListOf<CoroutinesKafkaConsumer<*, *>>()
     private var lifecycleMonitor: CkcConsumerLifecycleMonitor? = null
     @Volatile
     private var running = false
@@ -149,7 +143,6 @@ private class CkcConsumerRuntime(
     private var lifecycleStarted = false
 
     override fun start() {
-        val trafficWarmup = StaticTrafficWarmupPlan.from(properties)
         val automaticTrafficWarmup = AutomaticTrafficWarmupPlan.from(
             properties,
             processCpuLoadScore(meterRegistry)
@@ -160,31 +153,29 @@ private class CkcConsumerRuntime(
         )
 
         orderConsumer = DemoConsumers.orderConsumer(
-            consumerProperties(commonProperties, properties.consumers.order, trafficWarmup.order),
+            consumerProperties(commonProperties, properties.consumers.order),
             orderConsumerMetrics,
             properties.audit,
             properties.consumers.order,
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.order.route,
             automaticTrafficWarmup?.order
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
-            consumerProperties(commonProperties, properties.consumers.batch, trafficWarmup.batch),
+            consumerProperties(commonProperties, properties.consumers.batch),
             batchConsumerMetrics,
             properties.audit,
             properties.consumers.batch,
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.batch.route,
             automaticTrafficWarmup?.batch
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
-            consumerProperties(commonProperties, properties.consumers.telemetry, trafficWarmup.telemetry),
+            consumerProperties(commonProperties, properties.consumers.telemetry),
             consumerMetrics,
             properties.audit,
             properties.consumers.telemetry,
@@ -192,7 +183,6 @@ private class CkcConsumerRuntime(
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.telemetry.route,
             automaticTrafficWarmup?.telemetry
         ) { key, telemetry -> telemetryHandler(key, telemetry) }
 
@@ -204,16 +194,6 @@ private class CkcConsumerRuntime(
             startedConsumers += batchConsumer
             telemetryConsumer.start()
             startedConsumers += telemetryConsumer
-            recipientConsumers.clear()
-            if (trafficWarmup.order.recipient) recipientConsumers += orderConsumer
-            if (trafficWarmup.batch.recipient) recipientConsumers += batchConsumer
-            if (trafficWarmup.telemetry.recipient) recipientConsumers += telemetryConsumer
-            runBlocking {
-                recipientConsumers.forEach { it.awaitReady() }
-            }
-            if (automaticTrafficWarmup == null) {
-                trafficWarmupRecipientReadiness.markReady()
-            }
             lifecycleStarted = true
             running = true
             lifecycleMonitor = createLifecycleMonitor(
@@ -229,7 +209,6 @@ private class CkcConsumerRuntime(
             lifecycleMonitor = null
             running = false
             lifecycleStarted = false
-            trafficWarmupRecipientReadiness.markFailed()
             runBlocking {
                 startedConsumers.asReversed().forEach { consumer ->
                     runCatching { consumer.stop() }
@@ -237,7 +216,6 @@ private class CkcConsumerRuntime(
                         ?.let(startupFailure::addSuppressed)
                 }
             }
-            recipientConsumers.clear()
             throw startupFailure
         }
     }
@@ -248,7 +226,6 @@ private class CkcConsumerRuntime(
         }
         lifecycleMonitor?.stop()
         lifecycleMonitor = null
-        trafficWarmupRecipientReadiness.markStopped()
         try {
             runBlocking {
                 stopConsumers()
@@ -277,7 +254,6 @@ private class CkcConsumerRuntime(
 
     private fun handleTerminalFailure(failure: Throwable) {
         logger.error("CKC consumer reached terminal failure", failure)
-        trafficWarmupRecipientReadiness.markFailed()
         terminalFailureCoordinator.trigger()
     }
 
@@ -295,23 +271,11 @@ private class CkcConsumerRuntime(
 
     private fun consumerProperties(
         commonProperties: Map<String, Any>,
-        runtime: DemoApplicationProperties.ConsumerRuntime,
-        participant: StaticTrafficWarmupParticipantPlan
+        runtime: DemoApplicationProperties.ConsumerRuntime
     ): Map<String, Any> {
-        val bootstrapServers = if (participant.recipient) {
-            properties.trafficWarmup.kafkaBootstrapServers.ifBlank { properties.kafka.bootstrapServers }
-        } else {
-            properties.kafka.bootstrapServers
-        }
-        val groupId = if (participant.recipient) {
-            "${properties.trafficWarmup.recipientGroupIdPrefix}-${properties.trafficWarmup.sessionId}-" +
-                participant.consumerId.value
-        } else {
-            runtime.groupIdOr(properties.kafka.groupId)
-        }
         return commonProperties +
             properties.kafkaConsumerProperties(runtime) +
-            properties.kafkaConnectionProperties(bootstrapServers) +
-            mapOf(ConsumerConfig.GROUP_ID_CONFIG to groupId)
+            properties.kafkaConnectionProperties(properties.kafka.bootstrapServers) +
+            mapOf(ConsumerConfig.GROUP_ID_CONFIG to runtime.groupIdOr(properties.kafka.groupId))
     }
 }

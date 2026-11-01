@@ -166,9 +166,7 @@ demo:
     role: ${TRAFFIC_WARMUP_ROLE:DISABLED}
     instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:local}}
     control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v1.control}
-    session-id: ${TRAFFIC_WARMUP_SESSION_ID:static}
     kafka-bootstrap-servers: ${TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS:}
-    recipient-group-id-prefix: ${TRAFFIC_WARMUP_RECIPIENT_GROUP_ID_PREFIX:ckc-traffic-warmup-v1-recipient}
     initial-fraction: ${TRAFFIC_WARMUP_INITIAL_FRACTION:0.0}
     target-fraction: ${TRAFFIC_WARMUP_TARGET_FRACTION:0.1}
     ramp-up-seconds: ${TRAFFIC_WARMUP_RAMP_UP_SECONDS:120}
@@ -177,22 +175,18 @@ demo:
     stage-timeout-seconds: ${TRAFFIC_WARMUP_STAGE_TIMEOUT_SECONDS:30}
     heartbeat-interval-ms: ${TRAFFIC_WARMUP_HEARTBEAT_INTERVAL_MS:1000}
     election-timeout-ms: ${TRAFFIC_WARMUP_ELECTION_TIMEOUT_MS:5000}
-    max-in-flight-sends: ${TRAFFIC_WARMUP_MAX_IN_FLIGHT_SENDS:32}
     order:
       enabled: ${TRAFFIC_WARMUP_ORDER_ENABLED:true}
       consumer-id: ${TRAFFIC_WARMUP_ORDER_CONSUMER_ID:order_events}
       topic: ${TRAFFIC_WARMUP_ORDER_TOPIC:ckc.traffic-warmup.v1.order.events}
-      partition: ${TRAFFIC_WARMUP_ORDER_PARTITION:0}
     batch:
       enabled: ${TRAFFIC_WARMUP_BATCH_ENABLED:true}
       consumer-id: ${TRAFFIC_WARMUP_BATCH_CONSUMER_ID:batch_events}
       topic: ${TRAFFIC_WARMUP_BATCH_TOPIC:ckc.traffic-warmup.v1.batch.events}
-      partition: ${TRAFFIC_WARMUP_BATCH_PARTITION:0}
     telemetry:
       enabled: ${TRAFFIC_WARMUP_TELEMETRY_ENABLED:false}
       consumer-id: ${TRAFFIC_WARMUP_TELEMETRY_CONSUMER_ID:cauldron_events}
       topic: ${TRAFFIC_WARMUP_TELEMETRY_TOPIC:ckc.traffic-warmup.v1.cauldron.events}
-      partition: ${TRAFFIC_WARMUP_TELEMETRY_PARTITION:0}
   model:
     base-url: ${MODEL_BASE_URL:http://127.0.0.1:18080}
     eta-base-url: ${ETA_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}

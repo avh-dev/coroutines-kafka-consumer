@@ -57,11 +57,8 @@ class DemoApplicationPropertiesTest {
         assertEquals(DemoApplicationProperties.TrafficWarmupRole.DISABLED, properties.trafficWarmup.role)
         assertEquals("local", properties.trafficWarmup.instanceId)
         assertEquals("ckc.traffic-warmup.v1.control", properties.trafficWarmup.controlTopic)
-        assertEquals("static", properties.trafficWarmup.sessionId)
         assertEquals("", properties.trafficWarmup.kafkaBootstrapServers)
-        assertEquals("ckc-traffic-warmup-v1-recipient", properties.trafficWarmup.recipientGroupIdPrefix)
         assertEquals("ckc.traffic-warmup.v1.order.events", properties.trafficWarmup.order.topic)
-        assertEquals(0, properties.trafficWarmup.order.partition)
         assertEquals(false, properties.trafficWarmup.telemetry.enabled)
         assertEquals(0, properties.trafficWarmup.holdSeconds)
         assertEquals(5, properties.trafficWarmup.donorSearchTimeoutSeconds)
@@ -120,9 +117,7 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.role" to "automatic",
                 "demo.traffic-warmup.instance-id" to "demo-pod-9",
                 "demo.traffic-warmup.control-topic" to "ckc.traffic-warmup.v1.test-control",
-                "demo.traffic-warmup.session-id" to "session-9",
                 "demo.traffic-warmup.kafka-bootstrap-servers" to "warmup:9093",
-                "demo.traffic-warmup.recipient-group-id-prefix" to "ckc-traffic-warmup-v1-test",
                 "demo.traffic-warmup.target-fraction" to "0.25",
                 "demo.traffic-warmup.ramp-up-seconds" to "30",
                 "demo.traffic-warmup.hold-seconds" to "10",
@@ -130,8 +125,7 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.stage-timeout-seconds" to "40",
                 "demo.traffic-warmup.heartbeat-interval-ms" to "1500",
                 "demo.traffic-warmup.election-timeout-ms" to "6500",
-                "demo.traffic-warmup.order.topic" to "ckc.traffic-warmup.v1.test-orders",
-                "demo.traffic-warmup.order.partition" to "4"
+                "demo.traffic-warmup.order.topic" to "ckc.traffic-warmup.v1.test-orders"
             )
         )
 
@@ -183,9 +177,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(DemoApplicationProperties.TrafficWarmupRole.AUTOMATIC, properties.trafficWarmup.role)
         assertEquals("demo-pod-9", properties.trafficWarmup.instanceId)
         assertEquals("ckc.traffic-warmup.v1.test-control", properties.trafficWarmup.controlTopic)
-        assertEquals("session-9", properties.trafficWarmup.sessionId)
         assertEquals("warmup:9093", properties.trafficWarmup.kafkaBootstrapServers)
-        assertEquals("ckc-traffic-warmup-v1-test", properties.trafficWarmup.recipientGroupIdPrefix)
         assertEquals(0.25, properties.trafficWarmup.targetFraction)
         assertEquals(30, properties.trafficWarmup.rampUpSeconds)
         assertEquals(10, properties.trafficWarmup.holdSeconds)
@@ -194,7 +186,6 @@ class DemoApplicationPropertiesTest {
         assertEquals(1_500, properties.trafficWarmup.heartbeatIntervalMs)
         assertEquals(6_500, properties.trafficWarmup.electionTimeoutMs)
         assertEquals("ckc.traffic-warmup.v1.test-orders", properties.trafficWarmup.order.topic)
-        assertEquals(4, properties.trafficWarmup.order.partition)
     }
 
     private fun bind(values: Map<String, String>): DemoApplicationProperties =
