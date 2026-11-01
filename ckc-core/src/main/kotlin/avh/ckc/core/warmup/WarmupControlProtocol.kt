@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 3
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 4
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
@@ -226,15 +226,60 @@ internal data class SessionFailed(
 
 internal enum class WarmupReplicatedStage { ASSIGNED, FORWARDING, STOPPING, DRAINING, QUARANTINED }
 
-internal data class WarmupReplicatedSession(
+internal class WarmupReplicatedSession(
     val assignment: WarmupSessionAssignment,
     val stage: WarmupReplicatedStage,
     val warmupDurationMillis: Long,
-    val stopAtEpochMillis: Long? = null
+    val stopAtEpochMillis: Long? = null,
+    val recipientReady: Boolean = false,
+    finalOffsets: Collection<WarmupFinalOffset>? = null
 ) {
+    val finalOffsets = finalOffsets?.let(::immutableListSnapshot)
+
     init {
         require(warmupDurationMillis >= 0)
         require(stopAtEpochMillis == null || stopAtEpochMillis > 0)
         require(stage != WarmupReplicatedStage.FORWARDING || stopAtEpochMillis != null)
+        require(finalOffsets == null || stage in setOf(
+            WarmupReplicatedStage.STOPPING,
+            WarmupReplicatedStage.DRAINING,
+            WarmupReplicatedStage.QUARANTINED
+        )) { "Final offsets require a stopped forwarding stage" }
+        finalOffsets?.let { offsets ->
+            require(offsets.map { it.consumerId to it.topicPartition }.toSet() ==
+                assignment.partitions.map { it.consumerId to it.topicPartition }.toSet()) {
+                "Final offsets must cover every assigned warm-up partition"
+            }
+        }
     }
+
+    fun copy(
+        assignment: WarmupSessionAssignment = this.assignment,
+        stage: WarmupReplicatedStage = this.stage,
+        warmupDurationMillis: Long = this.warmupDurationMillis,
+        stopAtEpochMillis: Long? = this.stopAtEpochMillis,
+        recipientReady: Boolean = this.recipientReady,
+        finalOffsets: Collection<WarmupFinalOffset>? = this.finalOffsets
+    ) = WarmupReplicatedSession(
+        assignment, stage, warmupDurationMillis, stopAtEpochMillis, recipientReady, finalOffsets
+    )
+
+    override fun equals(other: Any?): Boolean = other is WarmupReplicatedSession &&
+        assignment == other.assignment && stage == other.stage &&
+        warmupDurationMillis == other.warmupDurationMillis && stopAtEpochMillis == other.stopAtEpochMillis &&
+        recipientReady == other.recipientReady && finalOffsets == other.finalOffsets
+
+    override fun hashCode(): Int {
+        var result = assignment.hashCode()
+        result = 31 * result + stage.hashCode()
+        result = 31 * result + warmupDurationMillis.hashCode()
+        result = 31 * result + (stopAtEpochMillis?.hashCode() ?: 0)
+        result = 31 * result + recipientReady.hashCode()
+        result = 31 * result + (finalOffsets?.hashCode() ?: 0)
+        return result
+    }
+
+    override fun toString(): String = "WarmupReplicatedSession(" +
+        "assignment=$assignment, stage=$stage, warmupDurationMillis=$warmupDurationMillis, " +
+        "stopAtEpochMillis=$stopAtEpochMillis, recipientReady=$recipientReady, finalOffsets=$finalOffsets)"
 }

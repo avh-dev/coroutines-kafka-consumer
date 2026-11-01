@@ -1239,6 +1239,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "failure-key", "failure-payload")
             withTimeout(15_000) { recovered.await() }
 
+            awaitForBlocking { metrics.failed.singleOrNull() }
             assertEquals(1, metrics.failed.size)
             assertEquals("metrics-boom", metrics.failed.single().error.message)
             assertFalse(metrics.polls.isEmpty())

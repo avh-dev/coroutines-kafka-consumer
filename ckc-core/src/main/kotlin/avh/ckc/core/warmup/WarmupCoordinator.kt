@@ -587,9 +587,17 @@ internal class WarmupCoordinator(
         val session = replica.view().sessions[message.sessionId] ?: return
         if (session.assignment.recipientInstanceId != message.senderInstanceId ||
             message.consumerIds != session.assignment.partitions.map { it.consumerId }.toSet()) return
+        publishStartForwarding(message.sessionId, session)
+    }
+
+    private suspend fun publishStartForwarding(
+        sessionId: WarmupSessionId,
+        session: WarmupReplicatedSession
+    ) {
+        if (session.stage != WarmupReplicatedStage.ASSIGNED || !session.recipientReady) return
         val stopAtEpochMillis = System.currentTimeMillis() + session.warmupDurationMillis
         channel.send(StartForwarding(
-            message.sessionId, configuration.instanceId, session.assignment.donorInstanceId,
+            sessionId, configuration.instanceId, session.assignment.donorInstanceId,
             replica.view().generation, stopAtEpochMillis
         ))
     }
@@ -615,7 +623,21 @@ internal class WarmupCoordinator(
     private fun reconcileActiveSessions() {
         if (!hasSchedulingAuthority()) return
         replica.view().sessions.forEach { (sessionId, session) ->
-            if (session.stage == WarmupReplicatedStage.FORWARDING) scheduleReplicatedStop(sessionId)
+            when {
+                session.stage == WarmupReplicatedStage.ASSIGNED && session.recipientReady -> scope.launch {
+                    val current = replica.view().sessions[sessionId] ?: return@launch
+                    if (isActive() && hasSchedulingAuthority()) runCatching {
+                        publishStartForwarding(sessionId, current)
+                    }
+                }
+                session.stage == WarmupReplicatedStage.FORWARDING -> scheduleReplicatedStop(sessionId)
+                session.stage == WarmupReplicatedStage.STOPPING && session.finalOffsets != null -> scope.launch {
+                    val current = replica.view().sessions[sessionId] ?: return@launch
+                    if (isActive() && hasSchedulingAuthority()) runCatching {
+                        publishDrainRecipient(sessionId, current)
+                    }
+                }
+            }
         }
     }
 
@@ -660,9 +682,19 @@ internal class WarmupCoordinator(
     private suspend fun onForwardingStopped(message: ForwardingStopped) {
         val assignment = matchingAssignment(message.sessionId) ?: return
         if (assignment.donorInstanceId != message.senderInstanceId) return
+        val session = replica.view().sessions[message.sessionId] ?: return
+        publishDrainRecipient(message.sessionId, session)
+    }
+
+    private suspend fun publishDrainRecipient(
+        sessionId: WarmupSessionId,
+        session: WarmupReplicatedSession
+    ) {
+        if (session.stage != WarmupReplicatedStage.STOPPING) return
+        val finalOffsets = session.finalOffsets ?: return
         channel.send(DrainRecipient(
-            message.sessionId, configuration.instanceId, assignment.recipientInstanceId,
-            replica.view().generation, message.finalOffsets
+            sessionId, configuration.instanceId, session.assignment.recipientInstanceId,
+            replica.view().generation, finalOffsets
         ))
     }
 

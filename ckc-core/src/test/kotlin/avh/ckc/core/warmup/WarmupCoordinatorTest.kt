@@ -15,6 +15,7 @@ import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.mockito.kotlin.mock
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -23,6 +24,77 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
 class WarmupCoordinatorTest {
+    @Test
+    fun `scheduler handoff resumes accepted participant reports`() = runBlocking {
+        val bus = ControlBus()
+        val firstAuthority = AtomicBoolean(true)
+        val secondAuthority = AtomicBoolean(false)
+        val first = coordinator("active", bus, schedulingAuthority = firstAuthority::get).also {
+            it.register(TestParticipant())
+        }
+        val second = coordinator("active", bus, schedulingAuthority = secondAuthority::get).also {
+            it.register(TestParticipant())
+        }
+        try {
+            first.start()
+            second.start()
+            val generation = first.controlPlaneView().generation
+            val readySession = WarmupSessionId("ready-handoff")
+            val readyAssignment = WarmupSessionAssignment(
+                readySession, WarmupInstanceId("ready-donor"), WarmupInstanceId("ready-recipient"),
+                listOf(WarmupPartitionAssignment(
+                    WarmupConsumerId("remote"), "remote", "warmup-remote", 0
+                ))
+            )
+            val stoppedSession = WarmupSessionId("stopped-handoff")
+            val stoppedAssignment = WarmupSessionAssignment(
+                stoppedSession, WarmupInstanceId("stopped-donor"), WarmupInstanceId("stopped-recipient"),
+                listOf(WarmupPartitionAssignment(
+                    WarmupConsumerId("remote"), "remote", "warmup-remote", 1
+                ))
+            )
+            bus.publish(AssignmentProposed(
+                readySession, WarmupInstanceId("active"), generation, readyAssignment, 1_000
+            ))
+            bus.publish(RecipientReady(
+                readySession, readyAssignment.recipientInstanceId, WarmupInstanceId("active"),
+                setOf(WarmupConsumerId("remote"))
+            ))
+            bus.publish(AssignmentProposed(
+                stoppedSession, WarmupInstanceId("active"), generation, stoppedAssignment, 1_000
+            ))
+            bus.publish(StartForwarding(
+                stoppedSession, WarmupInstanceId("active"), stoppedAssignment.donorInstanceId,
+                generation, System.currentTimeMillis() + 10_000
+            ))
+            bus.publish(StopForwarding(
+                stoppedSession, WarmupInstanceId("active"), stoppedAssignment.donorInstanceId, generation
+            ))
+
+            firstAuthority.set(false)
+            bus.publish(ForwardingStopped(
+                stoppedSession, stoppedAssignment.donorInstanceId, WarmupInstanceId("active"),
+                listOf(WarmupFinalOffset(
+                    WarmupConsumerId("remote"), TopicPartition("warmup-remote", 1), 42
+                ))
+            ))
+            first.stop()
+            secondAuthority.set(true)
+            second.activateScheduling()
+
+            withTimeout(1_000) {
+                while (bus.messages.none { it is StartForwarding && it.sessionId == readySession } ||
+                    bus.messages.none { it is DrainRecipient && it.sessionId == stoppedSession }) delay(5)
+            }
+            val drain = bus.messages.filterIsInstance<DrainRecipient>()
+                .single { it.sessionId == stoppedSession }
+            assertEquals(42, drain.finalOffsets.single().offset)
+        } finally {
+            runCatching { second.stop() }
+            runCatching { first.stop() }
+        }
+    }
+
     @Test
     fun `assignment uses partitions discovered for the warm-up topic`() = runBlocking {
         val bus = ControlBus()
@@ -481,13 +553,15 @@ class WarmupCoordinatorTest {
         warmupPartitions: Collection<Int> = listOf(0),
         stageTimeout: kotlin.time.Duration = 120.milliseconds,
         limits: WarmupControlPlaneLimits = WarmupControlPlaneLimits(),
-        availableWarmupPartitions: Map<String, Set<Int>>? = null
+        availableWarmupPartitions: Map<String, Set<Int>>? = null,
+        schedulingAuthority: () -> Boolean = { true }
     ) = WarmupCoordinator(
         WarmupCoordinatorConfiguration(
             WarmupInstanceId(id), warmupPartitions, donorSearchTimeout = 20.milliseconds,
             stageTimeout = stageTimeout, heartbeatInterval = 20.milliseconds,
             electionTimeout = 80.milliseconds, controlPlaneLimits = limits,
-            availableWarmupPartitions = availableWarmupPartitions
+            availableWarmupPartitions = availableWarmupPartitions,
+            schedulingAuthority = schedulingAuthority
         ), Dispatchers.Default, bus::channel
     )
 

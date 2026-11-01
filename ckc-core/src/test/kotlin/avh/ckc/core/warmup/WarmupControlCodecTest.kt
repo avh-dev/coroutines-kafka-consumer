@@ -8,6 +8,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class WarmupControlCodecTest {
@@ -44,7 +45,13 @@ class WarmupControlCodecTest {
         val messages = listOf<WarmupControlMessage>(
             StateSyncRequest(session, recipient),
             StateSnapshot(session, donor, recipient, 3, donor, 12, 11, setOf(donor), listOf(
-                WarmupReplicatedSession(assignment, WarmupReplicatedStage.FORWARDING, 1_000, 2_000)
+                WarmupReplicatedSession(
+                    assignment, WarmupReplicatedStage.STOPPING, 1_000, 2_000,
+                    recipientReady = true,
+                    finalOffsets = listOf(WarmupFinalOffset(
+                        consumer, TopicPartition("warmup-orders", 2), 91
+                    ))
+                )
             )),
             InstanceReady(session, donor),
             CoordinatorHeartbeat(session, donor, 3),
@@ -82,6 +89,11 @@ class WarmupControlCodecTest {
             WarmupControlCodec.decode(WarmupControlCodec.encode(messages[7]))
         )
         assertEquals(capability, decodedOffer.capability)
+        val decodedSnapshot = assertIs<StateSnapshot>(
+            WarmupControlCodec.decode(WarmupControlCodec.encode(messages[1]))
+        )
+        assertTrue(decodedSnapshot.sessions.single().recipientReady)
+        assertEquals(91, decodedSnapshot.sessions.single().finalOffsets?.single()?.offset)
         val decodedStopped = assertIs<ForwardingStopped>(
             WarmupControlCodec.decode(WarmupControlCodec.encode(messages[12]))
         )

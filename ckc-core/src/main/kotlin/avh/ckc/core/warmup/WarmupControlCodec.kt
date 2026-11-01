@@ -286,6 +286,9 @@ internal object WarmupControlCodec {
         writeLong(value.warmupDurationMillis)
         writeBoolean(value.stopAtEpochMillis != null)
         value.stopAtEpochMillis?.let(::writeLong)
+        writeBoolean(value.recipientReady)
+        writeBoolean(value.finalOffsets != null)
+        value.finalOffsets?.let { offsets -> writeCollection(offsets) { writeFinalOffset(it) } }
     }
 
     private fun DataInputStream.readReplicatedSession(): WarmupReplicatedSession {
@@ -295,7 +298,11 @@ internal object WarmupControlCodec {
             ?: throw IllegalArgumentException("Unknown replicated session stage: $stageOrdinal")
         val warmupDurationMillis = readLong()
         val stopAtEpochMillis = if (readBoolean()) readLong() else null
-        return WarmupReplicatedSession(assignment, stage, warmupDurationMillis, stopAtEpochMillis)
+        val recipientReady = readBoolean()
+        val finalOffsets = if (readBoolean()) readCollection { readFinalOffset() } else null
+        return WarmupReplicatedSession(
+            assignment, stage, warmupDurationMillis, stopAtEpochMillis, recipientReady, finalOffsets
+        )
     }
 
     private fun DataOutputStream.writeFinalOffset(value: WarmupFinalOffset) {

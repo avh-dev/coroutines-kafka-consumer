@@ -6195,6 +6195,14 @@ of waiting for `stageTimeout`. Sibling engines with the same application `instan
 synchronize from the active local engine using their correlated snapshot request. Real-Kafka
 regressions cover both prompt shutdown after `StateSyncRequest` and successful orders warm-up
 after the active pod's local orders consumer has stopped while telemetry remains live.
+
+Protocol v4 also persists accepted `RecipientReady` and `ForwardingStopped` participant
+reports in replicated session state. Scheduler handoff now reconciles an assigned ready
+recipient into `StartForwarding` and a stopped donor with confirmed final offsets into
+`DrainRecipient`, so stopping the former scheduling engine cannot strand a live session.
+Reducer validation requires exact assignment coverage and refuses drain commands that do
+not match the journaled forwarding boundary. Controlled handoff coverage delivers both
+reports while no sibling owns scheduling and verifies that the promoted engine resumes them.
 Stopping during coordinator startup now cancels readiness and completes the startup job.
 Snapshot validation deduplicates a donor participant within one multi-topic session before
 checking cross-session conflicts. A real-Kafka test runs two consumers in both donor and
