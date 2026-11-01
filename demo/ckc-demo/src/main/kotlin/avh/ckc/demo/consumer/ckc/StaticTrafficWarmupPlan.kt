@@ -64,7 +64,10 @@ internal data class StaticTrafficWarmupPlan(
             participants: List<ParticipantInput>,
             auditEnabled: Boolean
         ) {
-            if (warmup.role == DemoApplicationProperties.TrafficWarmupRole.DISABLED) return
+            if (warmup.role !in setOf(
+                    DemoApplicationProperties.TrafficWarmupRole.DONOR,
+                    DemoApplicationProperties.TrafficWarmupRole.RECIPIENT
+                )) return
             WarmupSessionId(warmup.sessionId)
             require(AUDIT_FIELD_SEPARATOR !in warmup.sessionId) {
                 "demo.traffic-warmup.session-id must not contain '$AUDIT_FIELD_SEPARATOR'"
@@ -120,7 +123,10 @@ private data class ParticipantInput(
         warmup: DemoApplicationProperties.TrafficWarmup
     ): StaticTrafficWarmupParticipantPlan {
         val consumerId = WarmupConsumerId(configuration.consumerId.ifBlank { sourceTopic })
-        if (warmup.role == DemoApplicationProperties.TrafficWarmupRole.DISABLED || !configuration.enabled) {
+        if (warmup.role !in setOf(
+                DemoApplicationProperties.TrafficWarmupRole.DONOR,
+                DemoApplicationProperties.TrafficWarmupRole.RECIPIENT
+            ) || !configuration.enabled) {
             return StaticTrafficWarmupParticipantPlan(consumerId, DemoConsumerRoute.main(sourceTopic), false)
         }
         val destination = TopicPartition(configuration.topic, configuration.partition)

@@ -164,12 +164,19 @@ demo:
     cauldron-events: cauldron.events.v1
   traffic-warmup:
     role: ${TRAFFIC_WARMUP_ROLE:DISABLED}
+    instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:local}}
+    control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v1.control}
     session-id: ${TRAFFIC_WARMUP_SESSION_ID:static}
     kafka-bootstrap-servers: ${TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS:}
     recipient-group-id-prefix: ${TRAFFIC_WARMUP_RECIPIENT_GROUP_ID_PREFIX:ckc-traffic-warmup-v1-recipient}
     initial-fraction: ${TRAFFIC_WARMUP_INITIAL_FRACTION:0.0}
     target-fraction: ${TRAFFIC_WARMUP_TARGET_FRACTION:0.1}
     ramp-up-seconds: ${TRAFFIC_WARMUP_RAMP_UP_SECONDS:120}
+    hold-seconds: ${TRAFFIC_WARMUP_HOLD_SECONDS:0}
+    donor-search-timeout-seconds: ${TRAFFIC_WARMUP_DONOR_SEARCH_TIMEOUT_SECONDS:5}
+    stage-timeout-seconds: ${TRAFFIC_WARMUP_STAGE_TIMEOUT_SECONDS:30}
+    heartbeat-interval-ms: ${TRAFFIC_WARMUP_HEARTBEAT_INTERVAL_MS:1000}
+    election-timeout-ms: ${TRAFFIC_WARMUP_ELECTION_TIMEOUT_MS:5000}
     max-in-flight-sends: ${TRAFFIC_WARMUP_MAX_IN_FLIGHT_SENDS:32}
     order:
       enabled: ${TRAFFIC_WARMUP_ORDER_ENABLED:true}

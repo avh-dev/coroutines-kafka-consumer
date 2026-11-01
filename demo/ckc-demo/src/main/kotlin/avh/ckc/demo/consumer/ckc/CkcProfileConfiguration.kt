@@ -130,6 +130,7 @@ private class CkcConsumerRuntime(
 
     override fun start() {
         val trafficWarmup = StaticTrafficWarmupPlan.from(properties)
+        val automaticTrafficWarmup = AutomaticTrafficWarmupPlan.from(properties)
         val commonProperties = mapOf<String, Any>(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
@@ -143,7 +144,8 @@ private class CkcConsumerRuntime(
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.order.route
+            trafficWarmup.order.route,
+            automaticTrafficWarmup?.order
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
@@ -154,7 +156,8 @@ private class CkcConsumerRuntime(
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.batch.route
+            trafficWarmup.batch.route,
+            automaticTrafficWarmup?.batch
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
@@ -166,7 +169,8 @@ private class CkcConsumerRuntime(
             properties.consumers.retry,
             processingDispatcher,
             properties.consumers.processingEnabled,
-            trafficWarmup.telemetry.route
+            trafficWarmup.telemetry.route,
+            automaticTrafficWarmup?.telemetry
         ) { key, telemetry -> telemetryHandler(key, telemetry) }
 
         val startedConsumers = mutableListOf<CoroutinesKafkaConsumer<*, *>>()

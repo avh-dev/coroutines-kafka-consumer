@@ -41,6 +41,7 @@ internal object DemoConsumers {
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.ORDER_EVENTS),
+        automaticWarmup: AutomaticTrafficWarmupParticipantPlan? = null,
         handler: suspend (String?, OrderLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, OrderLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -51,6 +52,7 @@ internal object DemoConsumers {
 
         return coroutinesKafkaConsumer(properties) {
             configureRoute(route)
+            configureAutomaticTrafficWarmup(automaticWarmup, properties)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -84,6 +86,7 @@ internal object DemoConsumers {
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.BATCH_EVENTS),
+        automaticWarmup: AutomaticTrafficWarmupParticipantPlan? = null,
         handler: suspend (String?, BatchLifecycleEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, BatchLifecycleEvent> {
         val properties = baseProperties + mapOf(
@@ -94,6 +97,7 @@ internal object DemoConsumers {
 
         return coroutinesKafkaConsumer(properties) {
             configureRoute(route)
+            configureAutomaticTrafficWarmup(automaticWarmup, properties)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -128,6 +132,7 @@ internal object DemoConsumers {
         processingDispatcher: CoroutineDispatcher,
         processingEnabled: Boolean,
         route: DemoConsumerRoute = DemoConsumerRoute.main(DemoTopics.CAULDRON_EVENTS),
+        automaticWarmup: AutomaticTrafficWarmupParticipantPlan? = null,
         handler: suspend (String?, CauldronTelemetryEvent) -> Unit
     ): CoroutinesKafkaConsumer<String, CauldronTelemetryEvent> {
         val properties = baseProperties + mapOf(
@@ -138,6 +143,7 @@ internal object DemoConsumers {
 
         return coroutinesKafkaConsumer(properties) {
             configureRoute(route)
+            configureAutomaticTrafficWarmup(automaticWarmup, properties)
             processingMode = runtime.processingMode
             workerConcurrency = runtime.workerConcurrency
             consumerPollLoopConcurrency = runtime.pollLoopConcurrency
@@ -208,6 +214,21 @@ internal object DemoConsumers {
         route.assignedPartition?.let { assignedPartitionsAtEnd(it) } ?: topics(route.mainTopic!!)
         route.forwardingConfiguration?.let {
             warmupForwarding(it, route.forwardingObserver)
+        }
+    }
+
+    private fun <K, V> avh.ckc.core.CoroutinesKafkaConsumerBuilder<K, V>.configureAutomaticTrafficWarmup(
+        plan: AutomaticTrafficWarmupParticipantPlan?,
+        consumerProperties: Map<String, Any>
+    ) {
+        plan ?: return
+        trafficWarmup(plan.context) {
+            consumerId = plan.consumerId
+            warmupTopic(plan.sourceTopic, plan.warmupTopic)
+            warmupConsumerProperties = consumerProperties + plan.warmupConnectionProperties
+            forwardingProducerProperties = plan.forwardingProducerProperties
+            forwardingProfile = plan.forwardingProfile
+            forwardingObserver = plan.forwardingObserver
         }
     }
 }
