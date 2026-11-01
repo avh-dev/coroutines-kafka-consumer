@@ -33,4 +33,13 @@ class CkcSpringBootAutoConfiguration {
     @ConditionalOnMissingBean
     fun ckcTerminalFailureHaltHandler(): CkcTerminalFailureHaltHandler =
         CkcTerminalFailureHaltHandler { status -> Runtime.getRuntime().halt(status) }
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun ckcTerminalFailureCoordinator(
+        applicationContext: ApplicationContext,
+        exitHandler: CkcTerminalFailureExitHandler,
+        haltHandler: CkcTerminalFailureHaltHandler
+    ): CkcTerminalFailureCoordinator =
+        CkcTerminalFailureCoordinator(applicationContext, exitHandler, haltHandler)
 }

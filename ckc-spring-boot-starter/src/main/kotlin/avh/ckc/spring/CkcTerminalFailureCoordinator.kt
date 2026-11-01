@@ -8,17 +8,24 @@ import java.util.logging.Logger
 /**
  * Turns a managed CKC terminal failure into bounded Spring and JVM shutdown.
  *
- * The context first gets a grace period. Normal JVM exit is then requested, while an independent
- * watchdog calls [CkcTerminalFailureHaltHandler] if a shutdown hook prevents that exit from completing.
+ * The watchdog starts before Spring cleanup, so the entire shutdown procedure has one hard upper
+ * bound. The context first gets a grace period and normal JVM exit is then requested. If either
+ * cleanup or shutdown hooks exceed the total budget, [CkcTerminalFailureHaltHandler] terminates
+ * the JVM forcibly.
  */
-internal class CkcTerminalFailureCoordinator(
+class CkcTerminalFailureCoordinator(
     private val closeContext: () -> Unit,
     private val exitHandler: CkcTerminalFailureExitHandler,
     private val haltHandler: CkcTerminalFailureHaltHandler,
     private val closeTimeoutMillis: Long = 30_000L,
-    private val exitTimeoutMillis: Long = 5_000L
+    private val haltTimeoutMillis: Long = 35_000L
 ) {
     private val started = AtomicBoolean(false)
+
+    init {
+        require(closeTimeoutMillis > 0L) { "closeTimeoutMillis must be > 0" }
+        require(haltTimeoutMillis > 0L) { "haltTimeoutMillis must be > 0" }
+    }
 
     constructor(
         applicationContext: ApplicationContext,
@@ -36,6 +43,18 @@ internal class CkcTerminalFailureCoordinator(
 
     fun trigger() {
         if (!started.compareAndSet(false, true)) return
+        val haltWatchdog = Thread {
+            try {
+                Thread.sleep(haltTimeoutMillis)
+                haltHandler.halt(1)
+            } catch (_: InterruptedException) {
+                // System.exit returned (normally only in a test); forced halt is no longer needed.
+            }
+        }.apply {
+            name = "ckc-terminal-failure-halt"
+            isDaemon = true
+            start()
+        }
         Thread {
             try {
                 val closeThread = Thread(closeContext).apply {
@@ -50,18 +69,6 @@ internal class CkcTerminalFailureCoordinator(
             } catch (error: Throwable) {
                 logger.warning("Spring application context close failed: ${error.message}")
             } finally {
-                val haltWatchdog = Thread {
-                    try {
-                        Thread.sleep(exitTimeoutMillis)
-                        haltHandler.halt(1)
-                    } catch (_: InterruptedException) {
-                        // System.exit returned (normally only in a test); forced halt is no longer needed.
-                    }
-                }.apply {
-                    name = "ckc-terminal-failure-halt"
-                    isDaemon = true
-                    start()
-                }
                 exitHandler.exit(1)
                 haltWatchdog.interrupt()
             }

@@ -6017,10 +6017,12 @@ Kept the static donor/recipient mode for the completed hop experiment and added 
 automatic mode for natural scale-up without application-level orchestration APIs or
 application-configured warm-up partition counts. Added configuration and plan regression
 coverage. Automatic consumers are observed asynchronously after `start()`: readiness is
-published only after every handle is ready, while terminal failure marks the runtime and
-application health unhealthy and triggers sibling cleanup. Donor offers use the standard
-Micrometer `process.cpu.usage` gauge, treating missing or invalid initial samples as an
-unknown score. Ran the complete `:ckc-demo:test` suite.
+observed across every handle, while terminal failure triggers the shared bounded Spring/JVM
+termination mechanism from CORE-64. Its watchdog covers consumer cleanup, normal non-zero
+exit, and a forced halt when shutdown hangs; normal application stop and successful cold
+fallback do not trigger it. Donor offers use the standard Micrometer `process.cpu.usage`
+gauge, treating missing or invalid initial samples as an unknown score. Ran the complete
+`:ckc-demo:test` suite.
 
 <a id="infra-319"></a>
 ### INFRA-319 - Prepare the static real-traffic warm-up experiment

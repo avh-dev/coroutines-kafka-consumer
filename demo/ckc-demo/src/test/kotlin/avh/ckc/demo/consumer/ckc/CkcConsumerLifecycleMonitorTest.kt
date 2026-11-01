@@ -1,6 +1,8 @@
 package avh.ckc.demo.consumer.ckc
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicBoolean
@@ -37,7 +39,7 @@ class CkcConsumerLifecycleMonitorTest {
     }
 
     @Test
-    fun `terminal failure after successful start makes runtime externally unhealthy`() = runBlocking {
+    fun `terminal failure after successful start is reported once`() = runBlocking {
         val termination = CompletableDeferred<Unit>()
         val observedFailure = CompletableDeferred<Throwable>()
         val externallyHealthy = AtomicBoolean(true)
@@ -66,6 +68,30 @@ class CkcConsumerLifecycleMonitorTest {
         assertEquals(expected.message, actual.message)
         assertFalse(externallyHealthy.get())
         monitor.stop()
+    }
+
+    @Test
+    fun `application stop while readiness is pending does not report terminal failure`() = runBlocking {
+        val readiness = CompletableDeferred<Unit>()
+        val failureReported = AtomicBoolean(false)
+        val monitor = CkcConsumerLifecycleMonitor(
+            consumers = listOf(
+                MonitoredCkcConsumer(
+                    name = "orders",
+                    awaitReady = { readiness.await() },
+                    awaitTermination = { awaitCancellation() }
+                )
+            ),
+            observeReadiness = true,
+            onReady = {},
+            onTerminalFailure = { failureReported.set(true) }
+        )
+
+        monitor.start()
+        monitor.stop()
+        delay(50)
+
+        assertFalse(failureReported.get())
     }
 
     private fun monitoredConsumer(
