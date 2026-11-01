@@ -271,6 +271,15 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must define exactly"):
             validate_canonical_experiment(experiment, self.source, environment="internal-lab")
 
+    def test_rejects_removed_static_traffic_warmup_deployment_mode(self) -> None:
+        experiment = canonical_experiment()
+        experiment["targets"][0]["application"] = {
+            "deployment_mode": "static_traffic_warmup",
+        }
+
+        with self.assertRaisesRegex(ValueError, "must be combined or per_topic"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
     def test_rejects_application_placement_for_aws_and_unknown_values(self) -> None:
         experiment = canonical_experiment()
         experiment["targets"][0]["placement"] = {"application": "worker"}
