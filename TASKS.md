@@ -507,6 +507,7 @@
 | [INFRA-319](#infra-319) | Prepare the static real-traffic warm-up hop experiment, isolated Kafka resources, and forwarding-aware audit analysis. | DONE |
 | [INFRA-320](#infra-320) | Fix static warm-up topic provisioning discovered by the first lab run and shorten the diagnostic experiment. | DONE |
 | [INFRA-321](#infra-321) | Remove the completed static traffic warm-up experiment orchestration while preserving its evidence. | DONE |
+| [INFRA-322](#infra-322) | Add the first natural scale-up experiment for automatic traffic warm-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6105,6 +6106,21 @@ the ordinary application deployment; regression coverage materializes this path 
 internal-lab and AWS. Existing static-hop task records are explicitly historical. Shared
 orchestration, internal-lab, AWS session/topic, shell-syntax, and contract rejection tests
 pass. The installed lab was not updated and no experiment was launched.
+
+<a id="infra-322"></a>
+### INFRA-322 - Add automatic warm-up scale-up experiment
+
+_Date: 2026-11-01_
+
+Added an internal-lab A/B experiment that compares automatic real-traffic warm-up with an
+ordinary cold scale-up baseline. Both targets start from one small CKC pod, use the same
+unordered consumers and one-pod-per-three-minutes HPA policy, ramp linearly to 10k messages
+per second over forty minutes, hold for five minutes, and retain standard audit, metrics,
+logs, dashboard, and report evidence. Warm-up control and enabled data topics are materialized
+as fixed experiment-level infrastructure for both targets, while only the first target enables
+the feature through ordinary runtime configuration. Definition validation and shared,
+internal-lab, AWS session/topic, and shell-syntax tests pass. The installed lab was not
+updated and the experiment was not started.
 
 <a id="core-77"></a>
 ### CORE-77 - Complete the warm-up data plane

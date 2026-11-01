@@ -79,6 +79,9 @@ class DeploymentPlanTest(unittest.TestCase):
     def test_automatic_traffic_warmup_uses_standard_deployment_and_provisions_topics_in_both_environments(self) -> None:
         candidate = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
         target = candidate["targets"][0]
+        baseline = yaml.safe_load(yaml.safe_dump(target))
+        baseline["name"] = "baseline"
+        candidate["targets"].insert(0, baseline)
         target["runtime"]["env"].update({
             "TRAFFIC_WARMUP_ROLE": "AUTOMATIC",
             "TRAFFIC_WARMUP_CONTROL_TOPIC": "ckc.traffic-warmup.v1.test-control",
@@ -96,7 +99,8 @@ class DeploymentPlanTest(unittest.TestCase):
             with self.subTest(environment=environment):
                 resolved = resolve_experiment_definition(source, environment=environment)
                 root = Path(self.temp.name) / environment
-                materialized = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+                materialized_targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+                materialized = next(item for item in materialized_targets if item.target.name == "ckc")
                 definition = yaml.safe_load(materialized.definition_path.read_text(encoding="utf-8"))
                 plan = yaml.safe_load(materialized.deployment_plan_path.read_text(encoding="utf-8"))
                 topic_names = {
@@ -108,6 +112,15 @@ class DeploymentPlanTest(unittest.TestCase):
                     "ckc.traffic-warmup.v1.test-telemetry",
                 }.issubset(topic_names))
                 self.assertNotIn("ckc.traffic-warmup.v1.batch.events", topic_names)
+                for candidate_target in materialized_targets:
+                    candidate_definition = yaml.safe_load(
+                        candidate_target.definition_path.read_text(encoding="utf-8")
+                    )
+                    candidate_topics = {
+                        topic["name"]
+                        for topic in candidate_definition["deployment"]["kafka_topics"]
+                    }
+                    self.assertEqual(topic_names, candidate_topics)
 
                 manifests = render_project_manifests(plan, DeploymentBindings(
                     run_id=f"warmup-{environment}",
