@@ -29,7 +29,7 @@ import kotlin.time.Duration.Companion.seconds
  * MVP scope configuration. If every replica restarts and no active replica can answer a state
  * snapshot, a non-empty journal is not replayed: the pod cold-starts and stays election-ineligible.
  */
-class WarmupCoordinatorConfiguration(
+internal class WarmupCoordinatorConfiguration(
     val instanceId: WarmupInstanceId,
     warmupPartitions: Collection<Int> = listOf(0),
     val donorSearchTimeout: Duration = 5.seconds,
@@ -37,11 +37,22 @@ class WarmupCoordinatorConfiguration(
     val heartbeatInterval: Duration = 1.seconds,
     val electionTimeout: Duration = 5.seconds,
     val donorLoadScore: () -> Double? = { null },
-    internal val controlPlaneLimits: WarmupControlPlaneLimits = WarmupControlPlaneLimits()
+    internal val controlPlaneLimits: WarmupControlPlaneLimits = WarmupControlPlaneLimits(),
+    availableWarmupPartitions: Map<String, Set<Int>>? = null,
+    internal val schedulingAuthority: () -> Boolean = { true }
 ) {
     val warmupPartitions = immutableSetSnapshot(warmupPartitions)
+    internal val availableWarmupPartitions = availableWarmupPartitions?.mapValues { (_, partitions) ->
+        immutableSetSnapshot(partitions)
+    }?.toMap()
     init {
         require(this.warmupPartitions.isNotEmpty() && this.warmupPartitions.all { it >= 0 })
+        this.availableWarmupPartitions?.forEach { (topic, partitions) ->
+            validateTopicName("warmupTopic", topic)
+            require(partitions.isNotEmpty() && partitions.all { it >= 0 }) {
+                "Warm-up topic $topic must expose at least one non-negative partition"
+            }
+        }
         require(donorSearchTimeout.isPositive())
         require(stageTimeout.isPositive())
         require(heartbeatInterval.isPositive())
@@ -49,16 +60,16 @@ class WarmupCoordinatorConfiguration(
     }
 }
 
-enum class WarmupStartupResult { WARMED, NO_DONOR_FALLBACK }
+internal enum class WarmupStartupResult { WARMED, NO_DONOR_FALLBACK }
 
-enum class WarmupCoordinatorState {
+internal enum class WarmupCoordinatorState {
     NEW, CONTROL_STARTING, SYNCHRONIZING, SEEKING_DONOR, RECIPIENT_STARTING,
     RECIPIENT_WARMING, RECIPIENT_DRAINING, FALLBACK_STARTING, MAIN,
     DONOR_RESERVED, DONOR_FORWARDING, DONOR_STOPPING, FAILED, STOPPED
 }
 
 /** Public facade: replicated scheduling and local data-plane execution remain separate internally. */
-class WarmupCoordinator internal constructor(
+internal class WarmupCoordinator(
     private val configuration: WarmupCoordinatorConfiguration,
     parentContext: CoroutineContext,
     channelFactory: (WarmupControlMessageHandler) -> WarmupControlChannel
@@ -161,12 +172,16 @@ class WarmupCoordinator internal constructor(
                     withTimeout(configuration.stageTimeout) { synchronized.await() }
                 } catch (error: Throwable) {
                     syncRequests.cancel()
+                    if (state == WarmupCoordinatorState.STOPPED) throw CancellationException(
+                        "Warm-up coordinator stopped during synchronization", error
+                    )
                     return coldStart(error, electionEligible = false)
                 }
                 syncRequests.cancel()
             }
 
             scope.launch { electionLoop() }
+            if (replica.view().activeCoordinator == configuration.instanceId) startHeartbeat()
             val session = WarmupSessionId.random()
             val hadActiveCoordinator = replica.view().activeCoordinator != null
             ownSessionId = session
@@ -183,6 +198,9 @@ class WarmupCoordinator internal constructor(
             }
             return startup.await()
         } catch (error: Throwable) {
+            if (state == WarmupCoordinatorState.STOPPED) throw CancellationException(
+                "Warm-up coordinator stopped during startup", error
+            )
             if (!ownDataPlaneStarted()) return coldStart(error, electionEligible = false)
             fail(error, notify = true)
             return startup.await()
@@ -194,11 +212,26 @@ class WarmupCoordinator internal constructor(
     internal fun localSessionExecutorCount(): Int = sessionEffects.size
     internal fun pendingRequestCount(): Int = activeSessions.size
 
+    internal fun activateScheduling() {
+        if (!started.get() || !::replica.isInitialized || state == WarmupCoordinatorState.STOPPED ||
+            state == WarmupCoordinatorState.FAILED) return
+        scope.launch {
+            if (!hasSchedulingAuthority() || !isActive()) return@launch
+            activeSessions.values.forEach { session ->
+                if (session.request.sessionId !in replica.view().sessions) startDonorSearch(session.request)
+            }
+            reconcileActiveSessions()
+        }
+    }
+
     suspend fun awaitTermination() { termination.await()?.let { throw it } }
 
     suspend fun stop() {
         if (state == WarmupCoordinatorState.STOPPED) return
         state = WarmupCoordinatorState.STOPPED
+        val cancellation = CancellationException("Warm-up coordinator stopped before startup completed")
+        synchronized.completeExceptionally(cancellation)
+        startup.completeExceptionally(cancellation)
         timers.values.forEach(Job::cancel)
         sessionEffects.values.forEach { it.cancel() }
         donorEffects.close()
@@ -250,31 +283,57 @@ class WarmupCoordinator internal constructor(
             }
             is AssignmentProposed -> {
                 val assignment = message.assignment
-                if (assignment.donorInstanceId == configuration.instanceId ||
-                    assignment.recipientInstanceId == configuration.instanceId) {
+                activeSessions[message.sessionId]?.assignment = assignment
+                timers.remove(message.sessionId)?.cancel()
+                val belongsToLocalParticipant = assignment.partitions.any { it.consumerId in participants.keys }
+                if (belongsToLocalParticipant && (assignment.donorInstanceId == configuration.instanceId ||
+                    assignment.recipientInstanceId == configuration.instanceId)) {
                     localAssignments.putIfAbsent(message.sessionId, assignment)
                 }
-                if (assignment.donorInstanceId == configuration.instanceId) {
+                if (belongsToLocalParticipant && assignment.donorInstanceId == configuration.instanceId) {
                     enqueueDonorEffect(DonorEffect.Reserve(assignment))
                 }
-                if (assignment.recipientInstanceId == configuration.instanceId) {
+                if (belongsToLocalParticipant && assignment.recipientInstanceId == configuration.instanceId) {
                     ownAssignment = message.assignment
                     timers.remove(message.sessionId)?.cancel()
                     enqueueSessionEffect(message)
                 }
             }
-            is RecipientReady -> if (isActive()) enqueueSessionEffect(message)
+            is RecipientReady -> if (isActive() && hasSchedulingAuthority() &&
+                replica.view().sessions.containsKey(message.sessionId)) {
+                enqueueSessionEffect(message)
+            }
             is StartForwarding -> {
-                if (isActive()) scheduleReplicatedStop(message.sessionId)
+                val assignment = matchingAssignment(message.sessionId)
+                val localParticipant = assignment?.let(::participates) == true
+                if (isActive() && hasSchedulingAuthority()) scheduleReplicatedStop(message.sessionId)
                 if (ownSessionId == message.sessionId) {
                     dataPlaneStarted += message.sessionId
                     timers.remove(message.sessionId)?.cancel()
                 }
-                if (targeted(message)) enqueueDonorEffect(DonorEffect.Start(message))
+                if (targeted(message) && localParticipant &&
+                    assignment?.donorInstanceId == configuration.instanceId) {
+                    enqueueDonorEffect(DonorEffect.Start(message))
+                }
             }
-            is StopForwarding -> if (targeted(message)) enqueueDonorEffect(DonorEffect.Stop(message))
-            is ForwardingStopped -> if (isActive()) enqueueSessionEffect(message)
-            is DrainRecipient -> if (targeted(message)) enqueueSessionEffect(message)
+            is StopForwarding -> {
+                val assignment = matchingAssignment(message.sessionId)
+                if (targeted(message) && assignment?.let(::participates) == true &&
+                    assignment.donorInstanceId == configuration.instanceId) {
+                    enqueueDonorEffect(DonorEffect.Stop(message))
+                }
+            }
+            is ForwardingStopped -> if (isActive() && hasSchedulingAuthority() &&
+                replica.view().sessions.containsKey(message.sessionId)) {
+                enqueueSessionEffect(message)
+            }
+            is DrainRecipient -> {
+                val assignment = matchingAssignment(message.sessionId)
+                if (targeted(message) && assignment?.let(::participates) == true &&
+                    assignment.recipientInstanceId == configuration.instanceId) {
+                    enqueueSessionEffect(message)
+                }
+            }
             is SessionCompleted -> dispatchSessionCompleted(message)
             is SessionFailed -> dispatchSessionFailed(message)
         }
@@ -284,14 +343,19 @@ class WarmupCoordinator internal constructor(
         val assignment = localAssignments[message.sessionId]
             ?: ownAssignment.takeIf { it?.sessionId == message.sessionId }
             ?: activeSessions[message.sessionId]?.assignment
+            ?: replica.view().sessions[message.sessionId]?.assignment
         val existingExecutor = sessionEffects[message.sessionId]
-        if (assignment?.donorInstanceId == configuration.instanceId) {
-            enqueueDonorEffect(DonorEffect.Complete(message.sessionId))
-        }
         timers.remove(message.sessionId)?.cancel()
         activeSessions.remove(message.sessionId)
         offers.remove(message.sessionId)
-        if (assignment?.recipientInstanceId == configuration.instanceId && ownSessionId == message.sessionId) {
+        if (assignment == null || !participates(assignment)) {
+            existingExecutor?.let { enqueueExistingSessionEffect(message, it) }
+            return
+        }
+        if (assignment.donorInstanceId == configuration.instanceId) {
+            enqueueDonorEffect(DonorEffect.Complete(message.sessionId))
+        }
+        if (assignment.recipientInstanceId == configuration.instanceId && ownSessionId == message.sessionId) {
             enqueueSessionEffect(message)
         } else {
             existingExecutor?.let { enqueueExistingSessionEffect(message, it) }
@@ -301,15 +365,16 @@ class WarmupCoordinator internal constructor(
     }
 
     private fun dispatchSessionFailed(message: SessionFailed) {
-        terminalSessions += message.sessionId
-        sessionEffects.remove(message.sessionId)?.cancel()
-        currentDonorOperation.get()?.takeIf { it.first == message.sessionId }?.second?.cancel(
-            CancellationException("Warm-up session terminated")
-        )
+        val assignment = matchingAssignment(message.sessionId) ?: return
         timers.remove(message.sessionId)?.cancel()
         activeSessions.remove(message.sessionId)
         offers.remove(message.sessionId)
-        val assignment = matchingAssignment(message.sessionId) ?: return
+        terminalSessions += message.sessionId
+        sessionEffects.remove(message.sessionId)?.cancel()
+        if (!participates(assignment)) return
+        currentDonorOperation.get()?.takeIf { it.first == message.sessionId }?.second?.cancel(
+            CancellationException("Warm-up session terminated")
+        )
         val started = message.sessionId in dataPlaneStarted
         when {
             assignment.recipientInstanceId == configuration.instanceId && !started -> scope.launch {
@@ -412,8 +477,8 @@ class WarmupCoordinator internal constructor(
     private suspend fun handleSessionApplied(message: WarmupControlMessage) {
         when (message) {
             is AssignmentProposed -> startRecipient(message.assignment)
-            is RecipientReady -> if (isActive()) onRecipientReady(message)
-            is ForwardingStopped -> if (isActive()) onForwardingStopped(message)
+            is RecipientReady -> if (isActive() && hasSchedulingAuthority()) onRecipientReady(message)
+            is ForwardingStopped -> if (isActive() && hasSchedulingAuthority()) onForwardingStopped(message)
             is DrainRecipient -> if (targeted(message)) drainRecipient(message)
             is SessionCompleted -> onSessionCompleted(message)
             is StateSyncRequest, is StateSnapshot, is InstanceReady, is CoordinatorClaim,
@@ -423,9 +488,18 @@ class WarmupCoordinator internal constructor(
     }
 
     private fun scheduleRequest(request: WarmupRequest) {
-        if (request.senderInstanceId == configuration.instanceId ||
-            replica.view().sessions.containsKey(request.sessionId) || activeSessions.containsKey(request.sessionId)) return
+        if (replica.view().sessions.containsKey(request.sessionId) || activeSessions.containsKey(request.sessionId)) return
         activeSessions[request.sessionId] = ActiveSession(request)
+        if (hasSchedulingAuthority()) startDonorSearch(request)
+        else timers[request.sessionId] = scope.launch {
+            delay(configuration.donorSearchTimeout + configuration.stageTimeout)
+            if (request.sessionId !in replica.view().sessions) finishUnassignedRequest(request.sessionId)
+        }
+    }
+
+    private fun startDonorSearch(request: WarmupRequest) {
+        if (!hasSchedulingAuthority() || !isActive() || request.sessionId in replica.view().sessions) return
+        timers.remove(request.sessionId)?.cancel()
         val view = replica.view()
         view.readyInstances.filter { it != request.senderInstanceId }.forEach { donor ->
             scope.launch { runCatching { channel.send(DonorProbe(
@@ -440,14 +514,17 @@ class WarmupCoordinator internal constructor(
     }
 
     private suspend fun chooseDonor(sessionId: WarmupSessionId) {
-        if (!isActive()) {
-            finishUnassignedRequest(sessionId)
-            return
-        }
+        if (!isActive() || !hasSchedulingAuthority()) return
         val session = activeSessions[sessionId] ?: return
-        val busyDonors = replica.view().sessions.values.map { it.assignment.donorInstanceId }.toSet()
+        val requestedConsumerIds = session.request.participants.map { it.consumerId }.toSet()
+        val busyDonors = replica.view().sessions.values.flatMap { replicated ->
+            replicated.assignment.partitions.map { replicated.assignment.donorInstanceId to it.consumerId }
+        }.toSet()
         val selected = offers.remove(sessionId)?.values
-            ?.filter { it.instanceId !in busyDonors && fullyCompatible(session.request, it) }
+            ?.filter { capability ->
+                requestedConsumerIds.none { (capability.instanceId to it) in busyDonors } &&
+                    fullyCompatible(session.request, capability)
+            }
             ?.maxWithOrNull(compareBy<WarmupDonorCapability> { it.loadScore ?: 0.0 }
                 .thenBy { it.participants.sumOf { p -> p.topics.count(WarmupTopicCapability::hasObservedTraffic) } })
         if (selected == null) {
@@ -510,9 +587,17 @@ class WarmupCoordinator internal constructor(
         val session = replica.view().sessions[message.sessionId] ?: return
         if (session.assignment.recipientInstanceId != message.senderInstanceId ||
             message.consumerIds != session.assignment.partitions.map { it.consumerId }.toSet()) return
+        publishStartForwarding(message.sessionId, session)
+    }
+
+    private suspend fun publishStartForwarding(
+        sessionId: WarmupSessionId,
+        session: WarmupReplicatedSession
+    ) {
+        if (session.stage != WarmupReplicatedStage.ASSIGNED || !session.recipientReady) return
         val stopAtEpochMillis = System.currentTimeMillis() + session.warmupDurationMillis
         channel.send(StartForwarding(
-            message.sessionId, configuration.instanceId, session.assignment.donorInstanceId,
+            sessionId, configuration.instanceId, session.assignment.donorInstanceId,
             replica.view().generation, stopAtEpochMillis
         ))
     }
@@ -536,8 +621,23 @@ class WarmupCoordinator internal constructor(
     }
 
     private fun reconcileActiveSessions() {
+        if (!hasSchedulingAuthority()) return
         replica.view().sessions.forEach { (sessionId, session) ->
-            if (session.stage == WarmupReplicatedStage.FORWARDING) scheduleReplicatedStop(sessionId)
+            when {
+                session.stage == WarmupReplicatedStage.ASSIGNED && session.recipientReady -> scope.launch {
+                    val current = replica.view().sessions[sessionId] ?: return@launch
+                    if (isActive() && hasSchedulingAuthority()) runCatching {
+                        publishStartForwarding(sessionId, current)
+                    }
+                }
+                session.stage == WarmupReplicatedStage.FORWARDING -> scheduleReplicatedStop(sessionId)
+                session.stage == WarmupReplicatedStage.STOPPING && session.finalOffsets != null -> scope.launch {
+                    val current = replica.view().sessions[sessionId] ?: return@launch
+                    if (isActive() && hasSchedulingAuthority()) runCatching {
+                        publishDrainRecipient(sessionId, current)
+                    }
+                }
+            }
         }
     }
 
@@ -582,9 +682,19 @@ class WarmupCoordinator internal constructor(
     private suspend fun onForwardingStopped(message: ForwardingStopped) {
         val assignment = matchingAssignment(message.sessionId) ?: return
         if (assignment.donorInstanceId != message.senderInstanceId) return
+        val session = replica.view().sessions[message.sessionId] ?: return
+        publishDrainRecipient(message.sessionId, session)
+    }
+
+    private suspend fun publishDrainRecipient(
+        sessionId: WarmupSessionId,
+        session: WarmupReplicatedSession
+    ) {
+        if (session.stage != WarmupReplicatedStage.STOPPING) return
+        val finalOffsets = session.finalOffsets ?: return
         channel.send(DrainRecipient(
-            message.sessionId, configuration.instanceId, assignment.recipientInstanceId,
-            replica.view().generation, message.finalOffsets
+            sessionId, configuration.instanceId, session.assignment.recipientInstanceId,
+            replica.view().generation, finalOffsets
         ))
     }
 
@@ -712,7 +822,10 @@ class WarmupCoordinator internal constructor(
     }
 
     internal suspend fun onParticipantFailure(consumerId: WarmupConsumerId, error: Throwable) {
-        val wrapped = IllegalStateException("Warm-up consumer $consumerId failed", error)
+        val wrapped = IllegalStateException(
+            "Warm-up consumer $consumerId failed: ${error.message ?: error.javaClass.simpleName}",
+            error
+        )
         if (!ownDataPlaneStarted() && state == WarmupCoordinatorState.RECIPIENT_STARTING) coldStart(wrapped, true)
         else fail(wrapped, true)
     }
@@ -743,15 +856,22 @@ class WarmupCoordinator internal constructor(
     private fun allocate(request: WarmupRequest, donor: WarmupInstanceId): WarmupSessionAssignment? {
         val used = replica.view().sessions.values.flatMap { it.assignment.partitions }
             .map { it.topicPartition }.toSet()
-        val partition = configuration.warmupPartitions.sorted().firstOrNull { candidate ->
-            request.participants.all { participant -> participant.topicMappings.all { mapping ->
-                org.apache.kafka.common.TopicPartition(mapping.warmupTopic, candidate) !in used
-            } }
-        } ?: return null
-        return WarmupSessionAssignment(request.sessionId, donor, request.senderInstanceId,
-            request.participants.flatMap { participant -> participant.topicMappings.map { mapping ->
-                WarmupPartitionAssignment(participant.consumerId, mapping.sourceTopic, mapping.warmupTopic, partition)
-            } })
+        val assignments = mutableListOf<WarmupPartitionAssignment>()
+        request.participants.forEach { participant ->
+            participant.topicMappings.forEach { mapping ->
+                val available = mapping.availableWarmupPartitions.takeIf { it.isNotEmpty() }
+                    ?: configuration.availableWarmupPartitions?.get(mapping.warmupTopic)
+                    ?: configuration.warmupPartitions
+                val partition = available.sorted().firstOrNull { candidate ->
+                    org.apache.kafka.common.TopicPartition(mapping.warmupTopic, candidate) !in used &&
+                        assignments.none { it.topicPartition == org.apache.kafka.common.TopicPartition(mapping.warmupTopic, candidate) }
+                } ?: return null
+                assignments += WarmupPartitionAssignment(
+                    participant.consumerId, mapping.sourceTopic, mapping.warmupTopic, partition
+                )
+            }
+        }
+        return WarmupSessionAssignment(request.sessionId, donor, request.senderInstanceId, assignments)
     }
 
     private fun fullyCompatible(request: WarmupRequest, capability: WarmupDonorCapability): Boolean {
@@ -770,6 +890,11 @@ class WarmupCoordinator internal constructor(
     private fun matchingAssignment(sessionId: WarmupSessionId): WarmupSessionAssignment? =
         replica.view().sessions[sessionId]?.assignment ?: localAssignments[sessionId]
         ?: ownAssignment?.takeIf { it.sessionId == sessionId }
+
+    private fun participates(assignment: WarmupSessionAssignment): Boolean =
+        assignment.partitions.any { it.consumerId in participants.keys }
+
+    private fun hasSchedulingAuthority() = configuration.schedulingAuthority()
 
     private fun participantConfigurations() = participants.values.map(CoordinatorParticipant::configuration)
     private fun targeted(message: WarmupControlMessage) = message.targetInstanceId == configuration.instanceId

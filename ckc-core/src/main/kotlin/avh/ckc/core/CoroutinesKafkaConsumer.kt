@@ -55,6 +55,14 @@ fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
 }
 
+/** Internal lifecycle indirection used by optional library-managed features. */
+internal interface ManagedConsumerLifecycle {
+    fun start()
+    suspend fun awaitReady()
+    suspend fun stop()
+    suspend fun awaitTermination()
+}
+
 /**
  * Callback invoked when the user record handler fails after all configured retries are exhausted.
  *
@@ -139,6 +147,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
+    private var managedLifecycle: ManagedConsumerLifecycle? = null
     private val effectiveConsumerProperties = consumerProperties.withExplicitCommitManagement()
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
@@ -329,6 +338,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     )
 
     fun start() {
+        managedLifecycle?.let {
+            it.start()
+            return
+        }
+        startRuntime()
+    }
+
+    internal fun startRuntime() {
         check(!started) { "Consumer already started" }
         started = true
 
@@ -354,6 +371,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 
     /** Waits until every poll loop has established its Kafka assignment and initial positions. */
     suspend fun awaitReady() {
+        managedLifecycle?.let {
+            it.awaitReady()
+            return
+        }
+        awaitRuntimeReady()
+    }
+
+    internal suspend fun awaitRuntimeReady() {
         check(started) { "Consumer must be started before awaiting readiness" }
         try {
             pollLoops.map { it.readiness() }.awaitAll()
@@ -384,7 +409,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         check(started && stopDeferred == null) { "Consumer must be running" }
         try {
             withTimeout(shutdownDrainTimeout) {
-                awaitReady()
+                awaitRuntimeReady()
                 pollLoops.map { it.drainWarmup(boundary) }.awaitAll()
                 stop()
             }
@@ -399,6 +424,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     }
 
     suspend fun stop() {
+        managedLifecycle?.let {
+            it.stop()
+            return
+        }
+        stopRuntime()
+    }
+
+    internal suspend fun stopRuntime() {
         val deferred = prepareForStop()
         deferred.await()
         failure.get()?.let { throw it }
@@ -406,8 +439,24 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 
     /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
     suspend fun awaitTermination() {
+        managedLifecycle?.let {
+            it.awaitTermination()
+            return
+        }
+        awaitRuntimeTermination()
+    }
+
+    internal suspend fun awaitRuntimeTermination() {
         termination.await()?.let { throw it }
     }
+
+    internal fun attachManagedLifecycle(lifecycle: ManagedConsumerLifecycle) {
+        check(managedLifecycle == null) { "Consumer lifecycle is already managed" }
+        check(!started) { "Consumer lifecycle must be attached before start" }
+        managedLifecycle = lifecycle
+    }
+
+    internal fun isLifecycleManaged(): Boolean = managedLifecycle != null
 
     /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
     suspend fun awaitShutdownCompletion() {

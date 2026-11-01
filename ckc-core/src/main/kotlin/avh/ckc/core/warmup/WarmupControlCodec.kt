@@ -168,6 +168,8 @@ internal object WarmupControlCodec {
         writeCollection(value.topicMappings) {
             writeString(it.sourceTopic)
             writeString(it.warmupTopic)
+            writeNullableString(it.warmupClusterId)
+            writeCollection(it.availableWarmupPartitions.sorted()) { partition -> writeInt(partition) }
         }
         writeDouble(value.forwardingProfile.initialFraction)
         writeDouble(value.forwardingProfile.targetFraction)
@@ -187,7 +189,18 @@ internal object WarmupControlCodec {
 
     private fun DataInputStream.readParticipantConfiguration(): WarmupParticipantConfiguration {
         val consumerId = WarmupConsumerId(readString())
-        val mappings = readCollection { WarmupTopicMapping(readString(), readString()) }
+        val mappings = readCollection {
+            val sourceTopic = readString()
+            val warmupTopic = readString()
+            val clusterId = readNullableString()
+            val partitions = readCollection { readInt() }
+            if (clusterId == null) {
+                require(partitions.isEmpty()) { "Unresolved warm-up mapping contains partitions" }
+                WarmupTopicMapping(sourceTopic, warmupTopic)
+            } else {
+                WarmupTopicMapping.resolved(sourceTopic, warmupTopic, clusterId, partitions)
+            }
+        }
         val initialFraction = readDouble()
         val targetFraction = readDouble()
         val rampMillis = readLong().also { require(it >= 0) { "Negative ramp-up duration" } }
@@ -273,6 +286,9 @@ internal object WarmupControlCodec {
         writeLong(value.warmupDurationMillis)
         writeBoolean(value.stopAtEpochMillis != null)
         value.stopAtEpochMillis?.let(::writeLong)
+        writeBoolean(value.recipientReady)
+        writeBoolean(value.finalOffsets != null)
+        value.finalOffsets?.let { offsets -> writeCollection(offsets) { writeFinalOffset(it) } }
     }
 
     private fun DataInputStream.readReplicatedSession(): WarmupReplicatedSession {
@@ -282,7 +298,11 @@ internal object WarmupControlCodec {
             ?: throw IllegalArgumentException("Unknown replicated session stage: $stageOrdinal")
         val warmupDurationMillis = readLong()
         val stopAtEpochMillis = if (readBoolean()) readLong() else null
-        return WarmupReplicatedSession(assignment, stage, warmupDurationMillis, stopAtEpochMillis)
+        val recipientReady = readBoolean()
+        val finalOffsets = if (readBoolean()) readCollection { readFinalOffset() } else null
+        return WarmupReplicatedSession(
+            assignment, stage, warmupDurationMillis, stopAtEpochMillis, recipientReady, finalOffsets
+        )
     }
 
     private fun DataOutputStream.writeFinalOffset(value: WarmupFinalOffset) {

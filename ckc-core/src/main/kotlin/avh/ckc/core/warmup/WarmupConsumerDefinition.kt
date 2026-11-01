@@ -13,7 +13,7 @@ import org.apache.kafka.common.TopicPartition
  * warm-up consumer. The application supplies one handler/runtime configuration, not two consumer
  * lifecycles.
  */
-class WarmupConsumerDefinition<K, V>(
+internal class WarmupConsumerDefinition<K, V>(
     val configuration: WarmupParticipantConfiguration,
     mainConsumerProperties: Map<String, Any?>,
     warmupConsumerProperties: Map<String, Any?> = mainConsumerProperties,
@@ -24,6 +24,23 @@ class WarmupConsumerDefinition<K, V>(
     val mainConsumerProperties: Map<String, Any?> = immutableMapSnapshot(mainConsumerProperties)
     val warmupConsumerProperties: Map<String, Any?> = immutableMapSnapshot(warmupConsumerProperties)
     val forwardingProducerProperties: Map<String, Any?> = immutableMapSnapshot(forwardingProducerProperties)
+
+    fun resolved(metadata: ResolvedWarmupTopicMetadata): WarmupConsumerDefinition<K, V> =
+        WarmupConsumerDefinition(
+            configuration = WarmupParticipantConfiguration(
+                consumerId = configuration.consumerId,
+                topicMappings = configuration.topicMappings.map { mapping ->
+                    mapping.resolved(metadata.clusterId, metadata.partitionsByTopic.getValue(mapping.warmupTopic))
+                },
+                forwardingProfile = configuration.forwardingProfile,
+                processingMode = configuration.processingMode
+            ),
+            mainConsumerProperties = mainConsumerProperties,
+            warmupConsumerProperties = warmupConsumerProperties,
+            forwardingProducerProperties = forwardingProducerProperties,
+            forwardingObserver = forwardingObserver,
+            configure = configure
+        )
 }
 
 internal interface CoordinatorParticipant {
@@ -47,19 +64,19 @@ internal class KafkaCoordinatorParticipant<K, V>(
     private val scope: CoroutineScope,
     private val onConsumerFailure: suspend (Throwable) -> Unit,
     private val mainFactory: (() -> CoroutinesKafkaConsumer<K, V>)? = null,
-    private val warmupFactory: ((Set<TopicPartition>) -> CoroutinesKafkaConsumer<K, V>)? = null
+    private val warmupFactory: ((Set<TopicPartition>) -> CoroutinesKafkaConsumer<K, V>)? = null,
+    private val forwarding: SwitchableWarmupRecordForwarding<K, V> = SwitchableWarmupRecordForwarding()
 ) : CoordinatorParticipant {
     override val configuration: WarmupParticipantConfiguration = definition.configuration
     private val mutex = Mutex()
-    private val forwarding = SwitchableWarmupRecordForwarding<K, V>()
     private var main: CoroutinesKafkaConsumer<K, V>? = null
     private var recipient: WarmupRecipientLifecycle<K, V>? = null
     private var donorAssignment: List<WarmupPartitionAssignment>? = null
 
     override suspend fun startMain() = mutex.withLock {
         check(main == null && recipient == null) { "Consumer ${configuration.consumerId} already started" }
-        buildMain().also { main = it }.start()
-        requireNotNull(main).awaitReady()
+        buildMain().also { main = it }.startRuntime()
+        requireNotNull(main).awaitRuntimeReady()
         observeFailure(requireNotNull(main))
     }
 
@@ -157,7 +174,7 @@ internal class KafkaCoordinatorParticipant<K, V>(
     }
 
     override suspend fun stop() = mutex.withLock {
-        recipient?.stop() ?: main?.stop()
+        recipient?.stop() ?: main?.stopRuntime()
         forwarding.close()
     }
 
@@ -179,7 +196,7 @@ internal class KafkaCoordinatorParticipant<K, V>(
     private fun observeFailure(consumer: CoroutinesKafkaConsumer<K, V>) {
         scope.launch {
             try {
-                consumer.awaitTermination()
+                consumer.awaitRuntimeTermination()
             } catch (error: Throwable) {
                 onConsumerFailure(error)
             }

@@ -119,9 +119,12 @@ internal class WarmupControlPlaneReplica(
         check(destinations.toSet().size == destinations.size) {
             "Snapshot contains overlapping warm-up reservations"
         }
-        val donors = snapshot.sessions.map { it.assignment.donorInstanceId }
-        check(donors.toSet().size == donors.size) {
-            "Snapshot contains a donor reserved by multiple sessions"
+        val donorParticipants = snapshot.sessions.flatMap { session ->
+            session.assignment.partitions.map { it.consumerId }.toSet()
+                .map { session.assignment.donorInstanceId to it }
+        }
+        check(donorParticipants.toSet().size == donorParticipants.size) {
+            "Snapshot contains a donor consumer reserved by multiple sessions"
         }
         generation = snapshot.generation
         activeCoordinator = snapshot.activeCoordinator
@@ -148,8 +151,9 @@ internal class WarmupControlPlaneReplica(
 
     private fun applyMessage(offset: Long, message: WarmupControlMessage): Boolean {
         return when (message) {
-            is StateSyncRequest, is StateSnapshot, is WarmupRequest, is DonorOffer,
-            is RecipientReady, is ForwardingStopped -> true
+            is StateSyncRequest, is StateSnapshot, is WarmupRequest, is DonorOffer -> true
+            is RecipientReady -> applyRecipientReady(message)
+            is ForwardingStopped -> applyForwardingStopped(message)
             is DonorProbe -> commandIsCurrent(message)
             is InstanceReady -> {
                 if (readyInstances.size >= limits.maximumReadyInstances &&
@@ -167,7 +171,7 @@ internal class WarmupControlPlaneReplica(
             is AssignmentProposed -> applyAssignment(message)
             is StartForwarding -> updateForwarding(message)
             is StopForwarding -> updateStage(message, WarmupReplicatedStage.STOPPING)
-            is DrainRecipient -> updateStage(message, WarmupReplicatedStage.DRAINING)
+            is DrainRecipient -> applyDrainRecipient(message)
             is SessionCompleted -> {
                 val existing = sessions[message.sessionId]
                 if (existing != null && existing.assignment.recipientInstanceId == message.senderInstanceId &&
@@ -203,7 +207,13 @@ internal class WarmupControlPlaneReplica(
         if (sessions.size >= limits.maximumSessions) return false
         val used = sessions.values.flatMap { it.assignment.partitions }.map { it.topicPartition }.toSet()
         if (message.assignment.partitions.any { it.topicPartition in used }) return false
-        if (sessions.values.any { it.assignment.donorInstanceId == message.assignment.donorInstanceId }) return false
+        val requestedDonorParticipants = message.assignment.partitions
+            .map { message.assignment.donorInstanceId to it.consumerId }
+            .toSet()
+        val reservedDonorParticipants = sessions.values.flatMap { session ->
+            session.assignment.partitions.map { session.assignment.donorInstanceId to it.consumerId }
+        }.toSet()
+        if (requestedDonorParticipants.any { it in reservedDonorParticipants }) return false
         sessions[message.sessionId] = WarmupReplicatedSession(
             message.assignment, WarmupReplicatedStage.ASSIGNED, message.warmupDurationMillis
         )
@@ -221,6 +231,43 @@ internal class WarmupControlPlaneReplica(
             stage = WarmupReplicatedStage.FORWARDING,
             stopAtEpochMillis = message.stopAtEpochMillis
         )
+        return true
+    }
+
+    private fun applyRecipientReady(message: RecipientReady): Boolean {
+        val existing = sessions[message.sessionId] ?: return false
+        if (existing.assignment.recipientInstanceId != message.senderInstanceId ||
+            message.consumerIds != existing.assignment.partitions.map { it.consumerId }.toSet() ||
+            existing.stage == WarmupReplicatedStage.QUARANTINED) return false
+        if (existing.recipientReady) return true
+        if (existing.stage != WarmupReplicatedStage.ASSIGNED) return false
+        sessions[message.sessionId] = existing.copy(recipientReady = true)
+        return true
+    }
+
+    private fun applyForwardingStopped(message: ForwardingStopped): Boolean {
+        val existing = sessions[message.sessionId] ?: return false
+        if (existing.assignment.donorInstanceId != message.senderInstanceId ||
+            existing.stage == WarmupReplicatedStage.QUARANTINED) return false
+        val expectedDestinations = existing.assignment.partitions
+            .map { it.consumerId to it.topicPartition }.toSet()
+        val reportedDestinations = message.finalOffsets
+            .map { it.consumerId to it.topicPartition }.toSet()
+        if (reportedDestinations != expectedDestinations) return false
+        existing.finalOffsets?.let { return it.toSet() == message.finalOffsets.toSet() }
+        if (existing.stage != WarmupReplicatedStage.STOPPING) return false
+        sessions[message.sessionId] = existing.copy(finalOffsets = immutableListSnapshot(message.finalOffsets))
+        return true
+    }
+
+    private fun applyDrainRecipient(message: DrainRecipient): Boolean {
+        if (!commandIsCurrent(message)) return false
+        val existing = sessions[message.sessionId] ?: return false
+        val finalOffsets = existing.finalOffsets ?: return false
+        if (finalOffsets.toSet() != message.finalOffsets.toSet()) return false
+        if (existing.stage == WarmupReplicatedStage.DRAINING) return true
+        if (existing.stage != WarmupReplicatedStage.STOPPING) return false
+        sessions[message.sessionId] = existing.copy(stage = WarmupReplicatedStage.DRAINING)
         return true
     }
 

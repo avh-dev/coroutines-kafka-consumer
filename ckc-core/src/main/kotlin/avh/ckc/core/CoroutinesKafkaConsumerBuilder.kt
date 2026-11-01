@@ -4,6 +4,14 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.warmup.WarmupForwardingConfiguration
 import avh.ckc.core.warmup.WarmupForwardingObserver
 import avh.ckc.core.warmup.WarmupRecordForwarding
+import avh.ckc.core.warmup.SwitchableWarmupRecordForwarding
+import avh.ckc.core.warmup.TrafficWarmupContext
+import avh.ckc.core.warmup.WarmupConsumerDefinition
+import avh.ckc.core.warmup.WarmupConsumerId
+import avh.ckc.core.warmup.WarmupForwardingProfile
+import avh.ckc.core.warmup.WarmupParticipantConfiguration
+import avh.ckc.core.warmup.WarmupSessionId
+import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.kafkaWarmupRecordForwarding
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +129,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private var warmupForwardingConfiguration: WarmupForwardingConfiguration? = null
     private var warmupForwardingObserver: WarmupForwardingObserver = WarmupForwardingObserver.NOOP
     private var warmupRecordForwarding: WarmupRecordForwarding<K, V>? = null
+    private var trafficWarmup: TrafficWarmupConsumerConfiguration? = null
     private var handler: KafkaRecordHandler<K, V>? = null
 
     /**
@@ -182,6 +191,12 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         warmupRecordForwarding = forwarding
     }
 
+    /** Enables library-managed real-traffic warm-up without changing this consumer's lifecycle API. */
+    fun trafficWarmup(context: TrafficWarmupContext, block: TrafficWarmupConsumerBuilder.() -> Unit) {
+        check(trafficWarmup == null) { "Traffic warm-up can be configured only once" }
+        trafficWarmup = TrafficWarmupConsumerBuilder(context).apply(block).build()
+    }
+
     /**
      * Configures a callback invoked after the processing retry policy is exhausted.
      */
@@ -216,12 +231,80 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         require(warmupForwardingConfiguration == null || warmupRecordForwarding == null) {
             "Warm-up forwarding can be configured only once"
         }
+        val managedWarmup = trafficWarmup
+        require(managedWarmup == null || warmupForwardingConfiguration == null && warmupRecordForwarding == null) {
+            "Managed traffic warm-up cannot be combined with explicit warm-up forwarding"
+        }
+        if (managedWarmup != null) {
+            require(processingMode == ProcessingMode.AT_LEAST_ONCE_NO_ORDERING) {
+                "Real-traffic warm-up supports only AT_LEAST_ONCE_NO_ORDERING"
+            }
+            require(topics != null && topicsPattern == null && assignedPartitionsAtEnd == null) {
+                "Real-traffic warm-up requires an explicit topics subscription"
+            }
+            val configuredTopics = requireNotNull(topics).toSet()
+            val mappedTopics = managedWarmup.topicMappings.map(WarmupTopicMapping::sourceTopic).toSet()
+            require(configuredTopics == mappedTopics) {
+                "Every subscribed topic must have exactly one warm-up topic mapping"
+            }
+            val forwarding = SwitchableWarmupRecordForwarding<K, V>()
+            val main = buildConsumer(
+                consumerProperties,
+                configuredHandler,
+                topics,
+                topicsPattern,
+                assignedPartitionsAtEnd,
+                forwarding
+            )
+            val warmupProperties = managedWarmup.warmupConsumerProperties ?: consumerProperties
+            val definition = WarmupConsumerDefinition<K, V>(
+                configuration = WarmupParticipantConfiguration(
+                    WarmupConsumerId(managedWarmup.consumerId),
+                    managedWarmup.topicMappings,
+                    managedWarmup.forwardingProfile,
+                    processingMode
+                ),
+                mainConsumerProperties = consumerProperties,
+                warmupConsumerProperties = warmupProperties,
+                forwardingProducerProperties = managedWarmup.forwardingProducerProperties,
+                forwardingObserver = managedWarmup.forwardingObserver,
+                configure = { error("Managed traffic warm-up uses captured consumer configuration") }
+            )
+            managedWarmup.context.attach(definition, main, forwarding) { partitions ->
+                buildConsumer(
+                    warmupProperties,
+                    configuredHandler,
+                    null,
+                    null,
+                    partitions,
+                    null
+                )
+            }
+            return main
+        }
         val configuredWarmupRecordForwarding: WarmupRecordForwarding<K, V>? = warmupRecordForwarding
             ?: warmupForwardingConfiguration?.let {
             kafkaWarmupRecordForwarding(it, warmupForwardingObserver)
         }
 
-        return CoroutinesKafkaConsumer(
+        return buildConsumer(
+            consumerProperties,
+            configuredHandler,
+            topics,
+            topicsPattern,
+            assignedPartitionsAtEnd,
+            configuredWarmupRecordForwarding
+        )
+    }
+
+    private fun buildConsumer(
+        consumerProperties: Map<String, Any?>,
+        configuredHandler: KafkaRecordHandler<K, V>,
+        topics: List<String>?,
+        topicsPattern: Pattern?,
+        assignedPartitionsAtEnd: Set<TopicPartition>?,
+        forwarding: WarmupRecordForwarding<K, V>?
+    ): CoroutinesKafkaConsumer<K, V> = CoroutinesKafkaConsumer(
             consumerProperties = consumerProperties,
             processingMode = processingMode,
             workerConcurrency = workerConcurrency,
@@ -245,11 +328,51 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             topics = topics,
             topicsPattern = topicsPattern,
             assignedPartitionsAtEnd = assignedPartitionsAtEnd,
-            warmupRecordForwarding = configuredWarmupRecordForwarding,
+            warmupRecordForwarding = forwarding,
             handler = configuredHandler
+        )
+}
+
+class TrafficWarmupConsumerBuilder internal constructor(
+    internal val context: TrafficWarmupContext
+) {
+    var consumerId: String? = null
+    var warmupConsumerProperties: Map<String, Any?>? = null
+    var forwardingProducerProperties: Map<String, Any?> = emptyMap()
+    var forwardingProfile: WarmupForwardingProfile = WarmupForwardingProfile()
+    var forwardingObserver: (WarmupSessionId) -> WarmupForwardingObserver = { WarmupForwardingObserver.NOOP }
+    private val mappings = mutableListOf<WarmupTopicMapping>()
+
+    fun warmupTopic(source: String, destination: String) {
+        mappings += WarmupTopicMapping(source, destination)
+    }
+
+    internal fun build(): TrafficWarmupConsumerConfiguration {
+        val id = requireNotNull(consumerId) { "consumerId must be specified" }
+        require(forwardingProducerProperties.isNotEmpty()) {
+            "forwardingProducerProperties must be specified"
+        }
+        return TrafficWarmupConsumerConfiguration(
+            context,
+            id,
+            mappings.toList(),
+            warmupConsumerProperties?.toMap(),
+            forwardingProducerProperties.toMap(),
+            forwardingProfile,
+            forwardingObserver
         )
     }
 }
+
+internal data class TrafficWarmupConsumerConfiguration(
+    val context: TrafficWarmupContext,
+    val consumerId: String,
+    val topicMappings: List<WarmupTopicMapping>,
+    val warmupConsumerProperties: Map<String, Any?>?,
+    val forwardingProducerProperties: Map<String, Any?>,
+    val forwardingProfile: WarmupForwardingProfile,
+    val forwardingObserver: (WarmupSessionId) -> WarmupForwardingObserver
+)
 
 /**
  * Creates a [CoroutinesKafkaConsumer] using a Kotlin DSL.

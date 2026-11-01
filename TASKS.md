@@ -82,6 +82,7 @@
 | [CORE-77](#core-77) | Complete warm-up forwarding admission, final offsets and recipient drain before main subscription. | DONE |
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
 | [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
+| [CORE-80](#core-80) | Integrate traffic warm-up with the ordinary independent consumer DSL and lifecycle. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6142,6 +6143,70 @@ coordinator. A pod that finds a non-empty journal but cannot obtain a snapshot c
 main consumers and remains ineligible for election; warm-up stays unavailable until an
 operator starts from a deliberately reset control journal. This is fail-closed for reserved
 capacity. Durable checkpoints and automatic full-service recovery remain follow-up work.
+
+<a id="core-80"></a>
+### CORE-80 - Integrate traffic warm-up with the ordinary consumer lifecycle
+
+_Date: 2026-11-01_
+
+Add an explicit non-global traffic warm-up context that ordinary consumer DSL instances
+can share without exposing coordinator lifecycle operations to the application. Preserve
+independent `start`, `awaitReady`, `stop`, and `awaitTermination` semantics for every
+consumer, including consumers created or started later than their peers.
+
+Discover the available partitions of each pre-created warm-up topic from Kafka metadata;
+do not duplicate partition counts in application configuration. Keep participant
+registration, internal consumers, control transport, and session orchestration inside
+the library, while allowing multiple isolated contexts in one process.
+
+Implemented `trafficWarmupContext` as an explicit configuration scope and added
+`trafficWarmup(context)` to the ordinary consumer DSL. The public consumer still uses
+non-blocking `start()` and its own `awaitReady()`, `stop()`, and `awaitTermination()`;
+there is no aggregate registration barrier and stopping one consumer does not stop peers.
+The coordinator and definition types are now internal implementation details.
+
+The context lazily owns one physical control transport while consumer-scoped sessions
+remain attached. Warm-up topic mappings contain names only: core reads Kafka metadata
+from both recipient and forwarding clusters, verifies matching real partitions, and
+allocates journal-reserved partitions from that result. Missing or inconsistent metadata
+falls back safely to the ordinary main subscription before forwarding begins.
+
+Replicated donor reservations now use `(instanceId, consumerId)`, so different consumers
+on one hot pod may donate concurrently while one consumer remains single-session. Unit
+coverage verifies shared transport lifetime, discovered assignment, and reservation
+isolation. Real-Kafka tests verify automatic metadata discovery and the complete session,
+sequential independent startup, independent stop, and missing-topic fallback. The full
+core unit suite and complete real-Kafka integration suite pass.
+
+Review hardening routes every data-plane and terminal command by the assigned consumer,
+not only by pod instance, so sibling consumers sharing a context cannot execute or fail
+another consumer's session. Protocol v3 carries the broker cluster identity and discovered
+partition set for every warm-up mapping; producer and recipient metadata must match locally,
+and compatible donor offers must match the recipient's cluster and topology across pods.
+
+Context-wide scheduling authority is transferable between the independently managed local
+consumer engines. Stopping the engine that currently makes active-coordinator decisions now
+removes only its local participant: another live engine on the pod continues heartbeat and
+schedules requests for any consumer type from the replicated journal. The data plane remains
+strictly routed by assignment and `consumerId`.
+
+Stopping during state synchronization now completes the snapshot barrier immediately instead
+of waiting for `stageTimeout`. Sibling engines with the same application `instanceId` may
+synchronize from the active local engine using their correlated snapshot request. Real-Kafka
+regressions cover both prompt shutdown after `StateSyncRequest` and successful orders warm-up
+after the active pod's local orders consumer has stopped while telemetry remains live.
+
+Protocol v4 also persists accepted `RecipientReady` and `ForwardingStopped` participant
+reports in replicated session state. Scheduler handoff now reconciles an assigned ready
+recipient into `StartForwarding` and a stopped donor with confirmed final offsets into
+`DrainRecipient`, so stopping the former scheduling engine cannot strand a live session.
+Reducer validation requires exact assignment coverage and refuses drain commands that do
+not match the journaled forwarding boundary. Controlled handoff coverage delivers both
+reports while no sibling owns scheduling and verifies that the promoted engine resumes them.
+Stopping during coordinator startup now cancels readiness and completes the startup job.
+Snapshot validation deduplicates a donor participant within one multi-topic session before
+checking cross-session conflicts. A real-Kafka test runs two consumers in both donor and
+recipient contexts and verifies that warming one leaves its sibling healthy.
 
 Long-running sessions keep their warm-up deadline in replicated state, so a newly
 elected coordinator bounds forwarding without reconstructing the data plane. Session

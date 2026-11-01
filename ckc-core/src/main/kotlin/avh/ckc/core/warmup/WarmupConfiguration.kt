@@ -4,13 +4,50 @@ import avh.ckc.core.ProcessingMode
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-data class WarmupTopicMapping(
+class WarmupTopicMapping private constructor(
     val sourceTopic: String,
-    val warmupTopic: String
+    val warmupTopic: String,
+    internal val warmupClusterId: String?,
+    availableWarmupPartitions: Collection<Int>
 ) {
+    constructor(sourceTopic: String, warmupTopic: String) : this(sourceTopic, warmupTopic, null, emptySet())
+
+    internal val availableWarmupPartitions: Set<Int> = immutableSetSnapshot(availableWarmupPartitions)
+
     init {
         validateTopicName("sourceTopic", sourceTopic)
         validateTopicName("warmupTopic", warmupTopic)
+        warmupClusterId?.let { validateIdentifier("warmupClusterId", it) }
+        require(this.availableWarmupPartitions.all { it >= 0 }) {
+            "availableWarmupPartitions must not contain negative partitions"
+        }
+        require((warmupClusterId == null) == this.availableWarmupPartitions.isEmpty()) {
+            "Resolved warm-up mapping requires both cluster identity and available partitions"
+        }
+    }
+
+    internal fun resolved(clusterId: String, partitions: Collection<Int>): WarmupTopicMapping =
+        WarmupTopicMapping(sourceTopic, warmupTopic, clusterId, partitions)
+
+    override fun equals(other: Any?): Boolean =
+        this === other || other is WarmupTopicMapping &&
+            sourceTopic == other.sourceTopic && warmupTopic == other.warmupTopic &&
+            warmupClusterId == other.warmupClusterId &&
+            availableWarmupPartitions == other.availableWarmupPartitions
+
+    override fun hashCode(): Int =
+        arrayOf(sourceTopic, warmupTopic, warmupClusterId, availableWarmupPartitions).contentHashCode()
+
+    override fun toString(): String =
+        "WarmupTopicMapping(sourceTopic=$sourceTopic, warmupTopic=$warmupTopic)"
+
+    internal companion object {
+        fun resolved(
+            sourceTopic: String,
+            warmupTopic: String,
+            clusterId: String,
+            partitions: Collection<Int>
+        ) = WarmupTopicMapping(sourceTopic, warmupTopic, clusterId, partitions)
     }
 }
 
@@ -82,6 +119,11 @@ interface WarmupParticipant {
 }
 
 internal fun validateTopicName(name: String, value: String) {
+    require(value.isNotBlank()) { "$name must not be blank" }
+    require(value.none(Char::isISOControl)) { "$name must not contain control characters" }
+}
+
+private fun validateIdentifier(name: String, value: String) {
     require(value.isNotBlank()) { "$name must not be blank" }
     require(value.none(Char::isISOControl)) { "$name must not contain control characters" }
 }
