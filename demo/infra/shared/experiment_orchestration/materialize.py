@@ -20,10 +20,25 @@ from .planner import plan_target
 from .workload import write_resolved_test
 
 
-TRAFFIC_WARMUP_TOPICS = (
-    "ckc.traffic-warmup.v1.order.events",
-    "ckc.traffic-warmup.v1.batch.events",
-    "ckc.traffic-warmup.v1.cauldron.events",
+TRAFFIC_WARMUP_TOPIC_ENV = (
+    (
+        "TRAFFIC_WARMUP_ORDER_ENABLED",
+        "TRAFFIC_WARMUP_ORDER_TOPIC",
+        "ckc.traffic-warmup.v1.order.events",
+        True,
+    ),
+    (
+        "TRAFFIC_WARMUP_BATCH_ENABLED",
+        "TRAFFIC_WARMUP_BATCH_TOPIC",
+        "ckc.traffic-warmup.v1.batch.events",
+        True,
+    ),
+    (
+        "TRAFFIC_WARMUP_TELEMETRY_ENABLED",
+        "TRAFFIC_WARMUP_TELEMETRY_TOPIC",
+        "ckc.traffic-warmup.v1.cauldron.events",
+        False,
+    ),
 )
 
 
@@ -64,9 +79,11 @@ def materialize_target(
         repo_dir=repo_dir,
     )
 
-    deployment_mode = str((target.definition.get("application") or {}).get("deployment_mode") or "combined")
-    if deployment_mode == "static_traffic_warmup":
-        warmup_topics = [{"name": topic, "partitions": 1} for topic in TRAFFIC_WARMUP_TOPICS]
+    warmup_topics = [
+        {"name": topic, "partitions": 1}
+        for topic in automatic_traffic_warmup_topics(target)
+    ]
+    if warmup_topics:
         for document in (plan, values):
             lab = document.setdefault("lab", {})
             topics = lab.setdefault("kafkaTopics", [])
@@ -144,3 +161,29 @@ def materialize_experiment(
         )
         for target in experiment.targets
     )
+
+
+def automatic_traffic_warmup_topics(target: ResolvedTarget) -> tuple[str, ...]:
+    runtime_env = target.definition.get("env") or {}
+    if str(runtime_env.get("TRAFFIC_WARMUP_ROLE") or "").strip().upper() != "AUTOMATIC":
+        return ()
+    topics = [
+        str(
+            runtime_env.get("TRAFFIC_WARMUP_CONTROL_TOPIC")
+            or "ckc.traffic-warmup.v1.control"
+        ).strip()
+    ]
+    for enabled_name, topic_name, default_topic, enabled_by_default in TRAFFIC_WARMUP_TOPIC_ENV:
+        if _environment_flag(runtime_env.get(enabled_name), default=enabled_by_default):
+            topics.append(str(runtime_env.get(topic_name) or default_topic).strip())
+    if any(not topic for topic in topics):
+        raise ValueError("Automatic traffic warm-up topic names must not be empty")
+    return tuple(dict.fromkeys(topics))
+
+
+def _environment_flag(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"", "0", "false", "no", "off"}

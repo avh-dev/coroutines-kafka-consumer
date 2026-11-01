@@ -308,16 +308,6 @@ if configuration.get("deployment_mode") == "per_topic":
         str(values.get("group_id") or f"ckc-demo-{name}")
         for name, values in (configuration.get("workloads") or {}).items()
     ))
-elif configuration.get("deployment_mode") == "static_traffic_warmup":
-    runtime_env = ((plan.get("application") or {}).get("runtime") or {}).get("env") or {}
-    prefix = str(runtime_env.get("TRAFFIC_WARMUP_RECIPIENT_GROUP_ID_PREFIX") or "ckc-traffic-warmup-v1-recipient")
-    session = str(runtime_env.get("TRAFFIC_WARMUP_SESSION_ID") or "static")
-    consumer_ids = (
-        str(runtime_env.get("TRAFFIC_WARMUP_ORDER_CONSUMER_ID") or "order_events"),
-        str(runtime_env.get("TRAFFIC_WARMUP_BATCH_CONSUMER_ID") or "batch_events"),
-        str(runtime_env.get("TRAFFIC_WARMUP_TELEMETRY_CONSUMER_ID") or "cauldron_events"),
-    )
-    print(",".join(["ckc-demo", *(f"{prefix}-{session}-{consumer_id}" for consumer_id in consumer_ids)]))
 else:
     print("ckc-demo")
 PY

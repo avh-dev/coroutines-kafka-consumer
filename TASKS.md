@@ -506,6 +506,7 @@
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-319](#infra-319) | Prepare the static real-traffic warm-up hop experiment, isolated Kafka resources, and forwarding-aware audit analysis. | DONE |
 | [INFRA-320](#infra-320) | Fix static warm-up topic provisioning discovered by the first lab run and shorten the diagnostic experiment. | DONE |
+| [INFRA-321](#infra-321) | Remove the completed static traffic warm-up experiment orchestration while preserving its evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6087,6 +6088,23 @@ a 15-second cooldown for both targets. Unit and canonical experiment validation
 cover the topic-source precedence and shortened measurement window.
 Run the static warm-up target before the direct baseline so provisioning or readiness
 regressions fail fast instead of waiting for a successful control target first.
+The runnable static experiment definition was removed by INFRA-321 after the hop-cost
+experiment completed; these task entries describe historical evidence and are not current
+run instructions.
+
+<a id="infra-321"></a>
+### INFRA-321 - Remove static traffic warm-up orchestration
+
+_Date: 2026-11-01_
+
+Removed the static donor/recipient deployment mode, readiness polling, isolated recipient
+group cleanup, runnable experiment definition, schema option, and static-only tests from
+shared and internal-lab infrastructure. General forwarding-aware analysis remains intact.
+Automatic warm-up now provisions its configured control and enabled data topics while using
+the ordinary application deployment; regression coverage materializes this path for both
+internal-lab and AWS. Existing static-hop task records are explicitly historical. Shared
+orchestration, internal-lab, AWS session/topic, shell-syntax, and contract rejection tests
+pass. The installed lab was not updated and no experiment was launched.
 
 <a id="core-77"></a>
 ### CORE-77 - Complete the warm-up data plane
