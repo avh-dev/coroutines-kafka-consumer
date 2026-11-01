@@ -5,6 +5,9 @@ import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import org.apache.kafka.clients.producer.ProducerConfig
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -86,6 +89,24 @@ class AutomaticTrafficWarmupPlanTest {
         properties.audit.enabled = false
         val plan = requireNotNull(AutomaticTrafficWarmupPlan.from(properties))
         assertEquals("custom.warmup.orders", plan.order?.warmupTopic)
+    }
+
+    @Test
+    fun `process CPU score is absent until a valid measurement is available`() {
+        val registry = SimpleMeterRegistry()
+        val score = processCpuLoadScore(registry)
+
+        assertNull(score())
+
+        val value = AtomicReference(Double.NaN)
+        Gauge.builder("process.cpu.usage", value) { it.get() }.register(registry)
+        assertNull(score())
+
+        value.set(0.73)
+        assertEquals(0.73, score())
+
+        value.set(1.1)
+        assertNull(score())
     }
 
     private fun automaticProperties() = DemoApplicationProperties().also {

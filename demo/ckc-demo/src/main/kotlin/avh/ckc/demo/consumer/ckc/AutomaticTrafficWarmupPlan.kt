@@ -17,6 +17,7 @@ import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringSerializer
+import io.micrometer.core.instrument.MeterRegistry
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -37,7 +38,10 @@ internal data class AutomaticTrafficWarmupPlan(
     val telemetry: AutomaticTrafficWarmupParticipantPlan?
 ) {
     companion object {
-        fun from(properties: DemoApplicationProperties): AutomaticTrafficWarmupPlan? {
+        fun from(
+            properties: DemoApplicationProperties,
+            donorLoadScore: () -> Double? = { null }
+        ): AutomaticTrafficWarmupPlan? {
             val warmup = properties.trafficWarmup
             if (warmup.role != DemoApplicationProperties.TrafficWarmupRole.AUTOMATIC) return null
 
@@ -53,6 +57,7 @@ internal data class AutomaticTrafficWarmupPlan(
                 stageTimeout = warmup.stageTimeoutSeconds.seconds
                 heartbeatInterval = warmup.heartbeatIntervalMs.milliseconds
                 electionTimeout = warmup.electionTimeoutMs.milliseconds
+                this.donorLoadScore = donorLoadScore
             }
             val profile = WarmupForwardingProfile(
                 initialFraction = warmup.initialFraction,
@@ -139,4 +144,11 @@ private data class AutomaticParticipantInput(
     )
 }
 
+internal fun processCpuLoadScore(meterRegistry: MeterRegistry): () -> Double? = {
+    meterRegistry.find(PROCESS_CPU_USAGE_METRIC).gauge()?.value()?.takeIf {
+        it.isFinite() && it in 0.0..1.0
+    }
+}
+
 private const val AUTOMATIC_AUDIT_FIELD_SEPARATOR = '|'
+private const val PROCESS_CPU_USAGE_METRIC = "process.cpu.usage"

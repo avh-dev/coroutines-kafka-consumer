@@ -27,4 +27,22 @@ class TrafficWarmupRecipientReadinessTest {
 
         assertEquals(true, readiness.isReady())
     }
+
+    @Test
+    fun `automatic warm-up is unhealthy until consumers become ready and after failure`() {
+        val properties = DemoApplicationProperties().also {
+            it.trafficWarmup.role = DemoApplicationProperties.TrafficWarmupRole.AUTOMATIC
+        }
+        val readiness = TrafficWarmupRecipientReadiness(properties)
+
+        assertEquals(false, readiness.isReady())
+        assertEquals("DOWN", readiness.health().status.code)
+
+        readiness.markReady()
+        assertEquals("UP", readiness.health().status.code)
+
+        readiness.markFailed()
+        assertEquals(false, readiness.isReady())
+        assertEquals("DOWN", readiness.health().status.code)
+    }
 }

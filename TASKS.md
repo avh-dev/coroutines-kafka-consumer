@@ -6016,7 +6016,11 @@ topic mapping, Kafka connection, forwarding profile, serializers, and audit obse
 Kept the static donor/recipient mode for the completed hop experiment and added an opt-in
 automatic mode for natural scale-up without application-level orchestration APIs or
 application-configured warm-up partition counts. Added configuration and plan regression
-coverage and ran the complete `:ckc-demo:test` suite.
+coverage. Automatic consumers are observed asynchronously after `start()`: readiness is
+published only after every handle is ready, while terminal failure marks the runtime and
+application health unhealthy and triggers sibling cleanup. Donor offers use the standard
+Micrometer `process.cpu.usage` gauge, treating missing or invalid initial samples as an
+unknown score. Ran the complete `:ckc-demo:test` suite.
 
 <a id="infra-319"></a>
 ### INFRA-319 - Prepare the static real-traffic warm-up experiment

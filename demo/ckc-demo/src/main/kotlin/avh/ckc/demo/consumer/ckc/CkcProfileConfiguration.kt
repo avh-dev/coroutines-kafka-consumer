@@ -17,7 +17,13 @@ import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import io.micrometer.core.instrument.MeterRegistry
+import org.slf4j.LoggerFactory
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -54,7 +60,8 @@ class CkcProfileConfiguration {
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher,
-        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
+        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
+        meterRegistry: MeterRegistry
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -65,7 +72,8 @@ class CkcProfileConfiguration {
             orderConsumerMetrics,
             batchConsumerMetrics,
             workerDispatcher,
-            trafficWarmupRecipientReadiness
+            trafficWarmupRecipientReadiness,
+            meterRegistry
         )
 }
 
@@ -95,7 +103,8 @@ class CkcSyncProfileConfiguration {
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
         @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher,
-        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
+        trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
+        meterRegistry: MeterRegistry
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -106,7 +115,8 @@ class CkcSyncProfileConfiguration {
             orderConsumerMetrics,
             batchConsumerMetrics,
             processingDispatcher,
-            trafficWarmupRecipientReadiness
+            trafficWarmupRecipientReadiness,
+            meterRegistry
         )
 }
 
@@ -119,18 +129,27 @@ private class CkcConsumerRuntime(
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
     private val processingDispatcher: CoroutineDispatcher,
-    private val trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness
+    private val trafficWarmupRecipientReadiness: TrafficWarmupRecipientReadiness,
+    private val meterRegistry: MeterRegistry
 ) : SmartLifecycle {
+    private val logger = LoggerFactory.getLogger(javaClass)
+    private val failureCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
     private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
     private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
     private val recipientConsumers = mutableListOf<CoroutinesKafkaConsumer<*, *>>()
+    private var lifecycleMonitor: CkcConsumerLifecycleMonitor? = null
     @Volatile
     private var running = false
+    @Volatile
+    private var lifecycleStarted = false
 
     override fun start() {
         val trafficWarmup = StaticTrafficWarmupPlan.from(properties)
-        val automaticTrafficWarmup = AutomaticTrafficWarmupPlan.from(properties)
+        val automaticTrafficWarmup = AutomaticTrafficWarmupPlan.from(
+            properties,
+            processCpuLoadScore(meterRegistry)
+        )
         val commonProperties = mapOf<String, Any>(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
@@ -188,9 +207,24 @@ private class CkcConsumerRuntime(
             runBlocking {
                 recipientConsumers.forEach { it.awaitReady() }
             }
-            trafficWarmupRecipientReadiness.markReady()
+            if (automaticTrafficWarmup == null) {
+                trafficWarmupRecipientReadiness.markReady()
+            }
+            lifecycleStarted = true
             running = true
+            lifecycleMonitor = createLifecycleMonitor(
+                listOf(
+                    "order" to orderConsumer,
+                    "batch" to batchConsumer,
+                    "telemetry" to telemetryConsumer
+                ),
+                observeReadiness = automaticTrafficWarmup != null
+            ).also(CkcConsumerLifecycleMonitor::start)
         } catch (startupFailure: Throwable) {
+            lifecycleMonitor?.stop()
+            lifecycleMonitor = null
+            running = false
+            lifecycleStarted = false
             trafficWarmupRecipientReadiness.markFailed()
             runBlocking {
                 startedConsumers.asReversed().forEach { consumer ->
@@ -205,9 +239,11 @@ private class CkcConsumerRuntime(
     }
 
     override fun stop() {
-        if (!running) {
+        if (!lifecycleStarted) {
             return
         }
+        lifecycleMonitor?.stop()
+        lifecycleMonitor = null
         trafficWarmupRecipientReadiness.markStopped()
         try {
             runBlocking {
@@ -217,12 +253,39 @@ private class CkcConsumerRuntime(
             }
         } finally {
             running = false
+            lifecycleStarted = false
         }
     }
 
     override fun isRunning(): Boolean = running
 
     override fun isAutoStartup(): Boolean = true
+
+    private fun createLifecycleMonitor(
+        consumers: List<Pair<String, CoroutinesKafkaConsumer<*, *>>>,
+        observeReadiness: Boolean
+    ): CkcConsumerLifecycleMonitor = CkcConsumerLifecycleMonitor(
+        consumers = consumers.map { (name, consumer) ->
+            MonitoredCkcConsumer(name, consumer::awaitReady, consumer::awaitTermination)
+        },
+        observeReadiness = observeReadiness,
+        onReady = trafficWarmupRecipientReadiness::markReady,
+        onTerminalFailure = ::handleTerminalFailure
+    )
+
+    private fun handleTerminalFailure(failure: Throwable) {
+        logger.error("CKC consumer reached terminal failure", failure)
+        running = false
+        trafficWarmupRecipientReadiness.markFailed()
+        failureCleanupScope.launch {
+            listOf(telemetryConsumer, batchConsumer, orderConsumer).forEach { consumer ->
+                runCatching { consumer.stop() }
+                    .onFailure { cleanupFailure ->
+                        if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                    }
+            }
+        }
+    }
 
     private fun consumerProperties(
         commonProperties: Map<String, Any>,
