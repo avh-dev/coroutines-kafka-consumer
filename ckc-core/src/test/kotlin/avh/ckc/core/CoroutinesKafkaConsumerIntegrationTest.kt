@@ -168,6 +168,103 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
+    fun `parallel warm-up drains do not share the main consumer group`() = runBlocking {
+        val ordersTopic = "isolated-orders-${UUID.randomUUID()}"
+        val telemetryTopic = "isolated-telemetry-${UUID.randomUUID()}"
+        val ordersWarmup = "isolated-orders-warmup-${UUID.randomUUID()}"
+        val telemetryWarmup = "isolated-telemetry-warmup-${UUID.randomUUID()}"
+        val controlTopic = "isolated-control-${UUID.randomUUID()}"
+        listOf(ordersTopic, telemetryTopic, ordersWarmup, telemetryWarmup, controlTopic).forEach(::createTopic)
+        val mainGroup = "isolated-main-${UUID.randomUUID()}"
+        val kafkaProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+        )
+        fun context(id: String) = TrafficWarmupContext(TrafficWarmupContextConfiguration(
+            instanceId = WarmupInstanceId("isolated-$id-${UUID.randomUUID()}"),
+            controlTopic = controlTopic,
+            kafkaProperties = kafkaProperties,
+            donorSearchTimeout = 150.milliseconds,
+            stageTimeout = 10_000.milliseconds,
+            heartbeatInterval = 50.milliseconds,
+            electionTimeout = 250.milliseconds
+        ))
+        val donorContext = context("donor")
+        val recipientContext = context("recipient")
+        fun managed(
+            warmupContext: TrafficWarmupContext,
+            id: String,
+            source: String,
+            destination: String,
+            holdMilliseconds: Long,
+            warmupCounter: AtomicInteger
+        ) = coroutinesKafkaConsumer<String, String>(consumerProperties(mainGroup)) {
+            topics(source)
+            workerConcurrency = 2
+            commitIntervalMs = 50
+            commitRecordsThreshold = 1
+            trafficWarmup(warmupContext) {
+                consumerId = id
+                warmupTopic(source, destination)
+                // Deliberately inherit mainGroup. Core must replace it with an isolated
+                // internal group for every assigned recipient.
+                forwardingProducerProperties = kafkaProperties
+                forwardingProfile = WarmupForwardingProfile(
+                    initialFraction = 1.0,
+                    targetFraction = 1.0,
+                    rampUpDuration = 0.milliseconds,
+                    holdDuration = holdMilliseconds.milliseconds
+                )
+            }
+            handle { if (it.topic() == destination) warmupCounter.incrementAndGet() }
+        }
+        val orderWarmups = AtomicInteger()
+        val telemetryWarmups = AtomicInteger()
+        val donorOrders = managed(donorContext, "orders", ordersTopic, ordersWarmup, 400, AtomicInteger())
+        val donorTelemetry = managed(donorContext, "telemetry", telemetryTopic, telemetryWarmup, 1_200, AtomicInteger())
+        val recipientOrders = managed(recipientContext, "orders", ordersTopic, ordersWarmup, 400, orderWarmups)
+        val recipientTelemetry = managed(
+            recipientContext, "telemetry", telemetryTopic, telemetryWarmup, 1_200, telemetryWarmups
+        )
+
+        try {
+            donorOrders.start()
+            donorTelemetry.start()
+            withTimeout(15_000) {
+                donorOrders.awaitReady()
+                donorTelemetry.awaitReady()
+            }
+            val traffic = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(kafkaProperties).use { producer ->
+                    repeat(300) { index ->
+                        producer.send(ProducerRecord(ordersTopic, "order-$index", "value-$index")).get()
+                        producer.send(ProducerRecord(telemetryTopic, "telemetry-$index", "value-$index")).get()
+                        delay(8)
+                    }
+                }
+            }
+            recipientOrders.start()
+            recipientTelemetry.start()
+            withTimeout(20_000) {
+                recipientOrders.awaitReady()
+                recipientTelemetry.awaitReady()
+            }
+            traffic.join()
+
+            assertTrue(orderWarmups.get() > 0)
+            assertTrue(telemetryWarmups.get() > 0)
+            listOf(donorOrders, donorTelemetry, recipientOrders, recipientTelemetry).forEach {
+                assertFalse(it.stateSnapshot().failed, it.stateSnapshot().toString())
+            }
+        } finally {
+            listOf(recipientOrders, recipientTelemetry, donorOrders, donorTelemetry).forEach {
+                runCatching { it.stop() }
+            }
+        }
+    }
+
+    @Test
     fun `stop during donor search cancels managed readiness and startup`() = runBlocking {
         val sourceTopic = "stop-readiness-source-${UUID.randomUUID()}"
         val warmupTopic = "stop-readiness-warmup-${UUID.randomUUID()}"
