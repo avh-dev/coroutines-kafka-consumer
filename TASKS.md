@@ -83,6 +83,7 @@
 | [CORE-78](#core-78) | Add the versioned warm-up control protocol codec and shared Kafka transport readiness barrier. | DONE |
 | [CORE-79](#core-79) | Add the minimal automatic warm-up coordinator and single happy-path session state machine. | DONE |
 | [CORE-80](#core-80) | Integrate traffic warm-up with the ordinary independent consumer DSL and lifecycle. | DONE |
+| [CORE-81](#core-81) | Isolate internal warm-up consumer groups from main consumers and parallel warm-up sessions. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6307,3 +6308,19 @@ Donor activation is terminal from before the first participant is enabled, so ca
 of a partially activated set stops every participant instead of releasing it as unused.
 Successful completion also closes any executor created by the active coordinator, allowing
 the configured executor bound to be reused across sequential warm-up sessions.
+
+<a id="core-81"></a>
+### CORE-81 - Isolate internal warm-up consumer groups
+
+_Date: 2026-11-01_
+
+Assign every library-owned warm-up recipient consumer a unique service group identity that
+cannot rebalance the application's main consumer group or another concurrent warm-up session.
+Preserve the ordinary public consumer configuration and lifecycle while keeping the generated
+identity internal to the warm-up context. Add a real-Kafka regression with multiple consumers
+whose drains complete at different times, reproducing the first automatic scale-up failure.
+Core now always replaces the inherited application `group.id` for an internal assigned
+recipient with a unique library-owned identity. The regression runs two simultaneous sessions
+with different warm-up durations and verifies that the first main-group join cannot invalidate
+the second recipient's final commit. The complete core unit suite (264 tests) and real-Kafka
+integration suite (35 tests) pass.
