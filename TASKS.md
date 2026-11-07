@@ -510,6 +510,7 @@
 | [INFRA-321](#infra-321) | Remove the completed static traffic warm-up experiment orchestration while preserving its evidence. | DONE |
 | [INFRA-322](#infra-322) | Add the first natural scale-up experiment for automatic traffic warm-up. | DONE |
 | [INFRA-323](#infra-323) | Raise the automatic warm-up scale-up experiment to 20k TPS and one CPU per application pod. | DONE |
+| [INFRA-324](#infra-324) | Keep pod identities visible and series labels stable in pod-grouped Grafana panels. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6140,6 +6141,18 @@ isolated UUID-based consumer groups, matching the earlier successful qualificati
 The complete core unit suite and real-Kafka integration suite pass, including the parallel
 warm-up drain regression. The installed internal lab is updated, the interrupted experiment
 and noisy-neighbor pod are stopped, and a dry-run request passes without launching workload.
+
+<a id="infra-324"></a>
+### INFRA-324 - Keep pod-grouped Grafana series stable
+
+_Date: 2026-11-07_
+
+Keep the `pod` label in Grafana legends whenever the dashboard is grouped by pod, including
+the interval where only one pod exists. Remove the multi-pod threshold that changed a running
+pod into a second visual series when another pod appeared. Preserve the compact combined view
+while keeping each physical pod's label set stable across scale-up. Dashboard unit tests pass.
+The provisioned live dashboard was updated during the active experiment without restarting
+Grafana or any workload; Grafana API verification confirms all 96 affected queries are live.
 
 <a id="core-77"></a>
 ### CORE-77 - Complete the warm-up data plane
