@@ -509,6 +509,7 @@
 | [INFRA-320](#infra-320) | Fix static warm-up topic provisioning discovered by the first lab run and shorten the diagnostic experiment. | DONE |
 | [INFRA-321](#infra-321) | Remove the completed static traffic warm-up experiment orchestration while preserving its evidence. | DONE |
 | [INFRA-322](#infra-322) | Add the first natural scale-up experiment for automatic traffic warm-up. | DONE |
+| [INFRA-323](#infra-323) | Raise the automatic warm-up scale-up experiment to 20k TPS and one CPU per application pod. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6122,6 +6123,23 @@ as fixed experiment-level infrastructure for both targets, while only the first 
 the feature through ordinary runtime configuration. Definition validation and shared,
 internal-lab, AWS session/topic, and shell-syntax tests pass. The installed lab was not
 updated and the experiment was not started.
+
+<a id="infra-323"></a>
+### INFRA-323 - Raise the automatic warm-up experiment to 20k TPS
+
+_Date: 2026-11-06_
+
+Raised the latest GLOBAL-3 automatic real-traffic warm-up A/B experiment from 10k to
+20k messages per second and increased each CKC application pod CPU request from 400m to
+one core. Kept the existing forty-minute linear ramp, five-minute plateau, HPA policy,
+and warm-up-versus-cold-baseline comparison. Renamed the experiment and its labels so
+generated evidence consistently identifies the new 20k load. Canonical definition
+validation and exact resolved-value checks pass. Integrated the previously completed
+CORE-81 child through the GLOBAL-3 umbrella so internal warm-up recipients again use
+isolated UUID-based consumer groups, matching the earlier successful qualification runs.
+The complete core unit suite and real-Kafka integration suite pass, including the parallel
+warm-up drain regression. The installed internal lab is updated, the interrupted experiment
+and noisy-neighbor pod are stopped, and a dry-run request passes without launching workload.
 
 <a id="core-77"></a>
 ### CORE-77 - Complete the warm-up data plane

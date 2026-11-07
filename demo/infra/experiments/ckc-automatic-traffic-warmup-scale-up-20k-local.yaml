@@ -1,9 +1,9 @@
 schema_version: 2
-name: ckc-automatic-traffic-warmup-scale-up-10k-local
+name: ckc-automatic-traffic-warmup-scale-up-20k-local
 description: >-
   Compare ordinary CKC cold scale-up with library-managed real-traffic warm-up
-  while one small pod grows naturally under HPA during a forty-minute linear
-  ramp from zero to 10k messages per second.
+  while one pod grows naturally under HPA during a forty-minute linear
+  ramp from zero to 20k messages per second.
 workload:
   stubs:
     error_rate_percent: 0
@@ -20,8 +20,8 @@ workload:
     shards: 1
     workers: 100
     dispatcher_threads: 2
-    base_tps: 10000
-    producer_capacity_tps: {order: 10000, batch: 10000, telemetry: 10000}
+    base_tps: 20000
+    producer_capacity_tps: {order: 20000, batch: 20000, telemetry: 20000}
     load_profile: >-
       0 -> (40m, linear-ramp-up) -> 100 -> (5m, steady) -> 100 ->
       (2m, cool-down) -> 0
@@ -55,20 +55,20 @@ workload:
   - {name: ramp-10-20m, start: 10m, duration: 10m}
   - {name: ramp-20-30m, start: 20m, duration: 10m}
   - {name: ramp-30-40m, start: 30m, duration: 10m}
-  - {name: steady-10k, start: 40m, duration: 5m}
+  - {name: steady-20k, start: 40m, duration: 5m}
   topics:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
 - name: ckc.automatic-traffic-warmup
-  annotation_label: CKC · automatic real-traffic warm-up · local 10k scale-up
+  annotation_label: CKC · automatic real-traffic warm-up · local 20k scale-up
   implementation: ckc
   application: &scale_application
     placement: worker
     replicas: 1
     resources:
-      requests: {cpu: 400m, memory: 512Mi}
+      requests: {cpu: '1', memory: 512Mi}
       limits: {memory: 1280Mi}
     java_options: -Xms256m -Xmx768m -Xss256k -XX:+UseSerialGC
     hpa:
@@ -122,7 +122,7 @@ targets:
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
 - name: ckc.cold-scale-up
-  annotation_label: CKC · ordinary cold scale-up · local 10k baseline
+  annotation_label: CKC · ordinary cold scale-up · local 20k baseline
   implementation: ckc
   application: *scale_application
   runtime:
