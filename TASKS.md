@@ -511,6 +511,7 @@
 | [INFRA-322](#infra-322) | Add the first natural scale-up experiment for automatic traffic warm-up. | DONE |
 | [INFRA-323](#infra-323) | Raise the automatic warm-up scale-up experiment to 20k TPS and one CPU per application pod. | DONE |
 | [INFRA-324](#infra-324) | Keep pod identities visible and series labels stable in pod-grouped Grafana panels. | DONE |
+| [INFRA-325](#infra-325) | Raise internal-lab Redis capacity for sustained 20k TPS experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6341,3 +6342,16 @@ recipient with a unique library-owned identity. The regression runs two simultan
 with different warm-up durations and verifies that the first main-group join cannot invalidate
 the second recipient's final commit. The complete core unit suite (264 tests) and real-Kafka
 integration suite (35 tests) pass.
+
+<a id="infra-325"></a>
+### INFRA-325 - Raise internal-lab Redis capacity
+
+_Date: 2026-11-09_
+
+Increase the internal-lab Redis dataset allowance for sustained 20k TPS experiments while
+retaining a separate container-memory safety margin and the non-evicting correctness policy.
+Keep captured environment evidence consistent with the deployed runtime limit and cover the
+new capacity contract with focused infrastructure validation. Redis now allows a 3 GiB
+dataset inside a 4 GiB container, and the installed runtime reports those exact limits.
+Focused environment-evidence tests and Compose validation pass; the lab was updated without
+starting an experiment.
