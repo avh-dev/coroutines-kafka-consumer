@@ -512,6 +512,7 @@
 | [INFRA-323](#infra-323) | Raise the automatic warm-up scale-up experiment to 20k TPS and one CPU per application pod. | DONE |
 | [INFRA-324](#infra-324) | Keep pod identities visible and series labels stable in pod-grouped Grafana panels. | DONE |
 | [INFRA-325](#infra-325) | Raise internal-lab Redis capacity for sustained 20k TPS experiments. | DONE |
+| [INFRA-326](#infra-326) | Compare controlled G1 and tuned Serial GC under identical automatic warm-up scale-up traffic. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6355,3 +6356,16 @@ new capacity contract with focused infrastructure validation. Redis now allows a
 dataset inside a 4 GiB container, and the installed runtime reports those exact limits.
 Focused environment-evidence tests and Compose validation pass; the lab was updated without
 starting an experiment.
+
+<a id="infra-326"></a>
+### INFRA-326 - Compare G1 and tuned Serial GC
+
+_Date: 2026-11-09_
+
+Add a dedicated internal-lab experiment whose two targets use the same automatic real-traffic
+warm-up, workload, HPA, and infrastructure while differing only in controlled G1 versus tuned
+Serial GC settings. Preserve exact per-pod GC and safepoint evidence through unified JVM logs
+exported with the ordinary workload logs, alongside the existing JVM and Thread Stats metrics.
+The G1 target fixes parallel, concurrent, and refinement work to one thread; the Serial target
+fixes heap sizing while retaining objects in survivor space longer. Focused materialization and
+Java 21 option validation pass, and the experiment is installed without starting a run.
