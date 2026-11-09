@@ -232,6 +232,59 @@ class MaterializeTest(unittest.TestCase):
         scale_up = warm_plan["application"]["configuration"]["hpa"]["hot_pod_cpu"]["scale_up"]
         self.assertEqual({"max_pods": 1, "period_seconds": 180, "tolerance": 0.1}, scale_up)
 
+    def test_materializes_automatic_warmup_gc_comparison_with_only_gc_options_changed(self) -> None:
+        source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-automatic-warmup-gc-comparison-20k-local.yaml"
+        )
+        experiment = resolve_experiment_definition(source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plans = {
+                target.target.name: yaml.safe_load(
+                    target.deployment_plan_path.read_text(encoding="utf-8")
+                )
+                for target in materialized
+            }
+
+        self.assertEqual(
+            ["ckc.automatic-warmup-g1", "ckc.automatic-warmup-serial-tuned"],
+            [target.target.name for target in materialized],
+        )
+        g1 = plans["ckc.automatic-warmup-g1"]
+        serial = plans["ckc.automatic-warmup-serial-tuned"]
+        self.assertEqual(g1["workload"], serial["workload"])
+        self.assertEqual(g1["application"]["runtime"], serial["application"]["runtime"])
+        self.assertEqual(
+            "AUTOMATIC",
+            g1["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ROLE"],
+        )
+
+        g1_configuration = dict(g1["application"]["configuration"])
+        serial_configuration = dict(serial["application"]["configuration"])
+        g1_options = g1_configuration.pop("java_options")
+        serial_options = serial_configuration.pop("java_options")
+        self.assertEqual(g1_configuration, serial_configuration)
+        self.assertIn("-XX:+UseG1GC", g1_options)
+        self.assertIn("-XX:ParallelGCThreads=1", g1_options)
+        self.assertIn("-XX:ConcGCThreads=1", g1_options)
+        self.assertIn("-XX:G1ConcRefinementThreads=1", g1_options)
+        self.assertIn("-XX:+UseSerialGC", serial_options)
+        self.assertIn("-XX:TargetSurvivorRatio=90", serial_options)
+        self.assertIn("-XX:MaxTenuringThreshold=15", serial_options)
+        for options in (g1_options, serial_options):
+            self.assertIn("-Xms768m -Xmx768m -Xss256k", options)
+            self.assertIn(
+                "-Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info:"
+                "stdout:time,uptime,level,tags",
+                options,
+            )
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
