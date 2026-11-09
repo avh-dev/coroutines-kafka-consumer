@@ -15,6 +15,8 @@ from typing import Any
 
 
 COMMAND_TIMEOUT_SECONDS = 5
+REDIS_CPU_LIMIT = 1
+REDIS_MEMORY_LIMIT_GIB = 4
 
 
 def command_json(arguments: list[str]) -> dict[str, Any]:
@@ -403,7 +405,12 @@ def main() -> int:
             "cpu_limit_per_broker": resources.get("cpu_per_broker") or (1 if topology == "cluster" else 2),
             "memory_limit_gib_per_broker": memory_per_broker_gib,
         },
-        "redis": {"mode": "Docker container", "version": "7.4", "cpu_limit": 1, "memory_limit_gib": 2},
+        "redis": {
+            "mode": "Docker container",
+            "version": "7.4",
+            "cpu_limit": REDIS_CPU_LIMIT,
+            "memory_limit_gib": REDIS_MEMORY_LIMIT_GIB,
+        },
         "observability": {
             "kubernetes": [
                 {"name": "Prometheus", "version": "3.3.1", "role": "metrics"},
