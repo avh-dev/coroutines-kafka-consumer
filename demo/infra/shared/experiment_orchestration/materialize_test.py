@@ -392,6 +392,45 @@ class MaterializeTest(unittest.TestCase):
             candidate_definition["workload"]["measurement_windows"],
         )
 
+    def test_materializes_tuned_serial_as_16k_g1_collector_variant(self) -> None:
+        g1_source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-fixed-four-pod-step-16k-g1-pause30-local.yaml"
+        )
+        serial_source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-fixed-four-pod-step-16k-serial-tuned-local.yaml"
+        )
+        g1 = resolve_experiment_definition(g1_source, environment="internal-lab")
+        serial = resolve_experiment_definition(serial_source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            g1_target = materialize_experiment(
+                g1,
+                output_dir=Path(directory) / "g1",
+                repo_dir=REPO_ROOT,
+            )[0]
+            serial_target = materialize_experiment(
+                serial,
+                output_dir=Path(directory) / "serial",
+                repo_dir=REPO_ROOT,
+            )[0]
+            g1_plan = yaml.safe_load(g1_target.deployment_plan_path.read_text(encoding="utf-8"))
+            serial_plan = yaml.safe_load(serial_target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(g1_plan["workload"], serial_plan["workload"])
+        self.assertEqual(g1_plan["application"]["runtime"], serial_plan["application"]["runtime"])
+        g1_configuration = dict(g1_plan["application"]["configuration"])
+        serial_configuration = dict(serial_plan["application"]["configuration"])
+        g1_options = g1_configuration.pop("java_options")
+        serial_options = serial_configuration.pop("java_options")
+        self.assertEqual(g1_configuration, serial_configuration)
+        self.assertIn("-XX:+UseG1GC", g1_options)
+        self.assertIn("-XX:MaxGCPauseMillis=30", g1_options)
+        self.assertIn("-XX:+UseSerialGC", serial_options)
+        self.assertIn("-XX:TargetSurvivorRatio=90", serial_options)
+        self.assertIn("-XX:MaxTenuringThreshold=15", serial_options)
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(

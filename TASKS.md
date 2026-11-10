@@ -516,6 +516,7 @@
 | [INFRA-327](#infra-327) | Isolate late synchronized latency cascades with four prestarted G1 pods and a 2k-to-20k load step. | DONE |
 | [INFRA-328](#infra-328) | Repeat the fixed four-pod load-step diagnostic with a 30 ms G1 pause target. | DONE |
 | [INFRA-329](#infra-329) | Repeat the fixed four-pod G1 diagnostic with a five-minute warm-up and a 16k TPS ceiling. | DONE |
+| [INFRA-330](#infra-330) | Repeat the fixed four-pod 16k TPS diagnostic with tuned Serial GC. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6410,3 +6411,15 @@ application resources, Kafka batching, stubs, and infrastructure so the run isol
 20% throughput headroom prevents synchronized GC pauses from growing into a queue and
 downstream-latency cascade. Focused materialization, deployment-plan, contract, and
 internal-lab planning tests pass, and Java 21 accepts the exact G1 options.
+
+<a id="infra-330"></a>
+### INFRA-330 - Test tuned Serial GC in the four-pod 16k diagnostic
+
+_Date: 2026-11-10_
+
+Repeat the five-minute 2k warm-up and 16k TPS load step with the same four fixed pods,
+application resources, Kafka settings, stubs, and infrastructure as INFRA-329. Replace only
+the application collector with the tuned Serial GC configuration from INFRA-326 so its
+pause pattern and recovery behavior can be compared directly with the 30 ms G1 run. Focused
+materialization, deployment-plan, contract, and internal-lab planning tests pass, and Java 21
+accepts the exact tuned Serial GC options.
