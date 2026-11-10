@@ -520,6 +520,7 @@
 | [INFRA-330](#infra-330) | Repeat the fixed four-pod 16k TPS diagnostic with tuned Serial GC. | DONE |
 | [INFRA-331](#infra-331) | Compare automatic warm-up with cold HPA scale-up at 16k TPS using tuned Serial GC. | DONE |
 | [INFRA-332](#infra-332) | Run automatic traffic warm-up through an ephemeral single-broker Kafka deployed with the application. | DONE |
+| [INFRA-333](#infra-333) | Explicitly provision topics on the ephemeral warm-up Kafka broker before it becomes ready. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6473,3 +6474,16 @@ the broker pod for consistent scheduling pressure. Focused contract, materializa
 deployment-plan, and internal-lab synchronization tests pass. The exact Kafka image and
 configuration were started successfully, a topic was created, and the rendered Kubernetes
 resources pass server-side client dry-run validation.
+
+<a id="infra-333"></a>
+### INFRA-333 - Provision ephemeral warm-up Kafka topics
+
+_Date: 2026-11-10_
+
+Create every resolved automatic warm-up topic explicitly on the ephemeral Kafka broker
+instead of relying on broker-side auto-creation, which the warm-up clients do not trigger.
+Keep provisioning best-effort and colocated with the broker, and expose the broker service
+only after the topic provisioner has completed. This is a child task of GLOBAL-3.
+The broker pod now contains a low-resource provisioner that retries topic creation locally,
+disables accidental auto-creation, and gates readiness on a completed topic set. Focused
+contract, materialization, deployment-plan, synchronization, and runner tests pass.
