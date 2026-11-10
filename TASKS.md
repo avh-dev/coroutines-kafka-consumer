@@ -514,6 +514,7 @@
 | [INFRA-325](#infra-325) | Raise internal-lab Redis capacity for sustained 20k TPS experiments. | DONE |
 | [INFRA-326](#infra-326) | Compare controlled G1 and tuned Serial GC under identical automatic warm-up scale-up traffic. | DONE |
 | [INFRA-327](#infra-327) | Isolate late synchronized latency cascades with four prestarted G1 pods and a 2k-to-20k load step. | DONE |
+| [INFRA-328](#infra-328) | Repeat the fixed four-pod load-step diagnostic with a 30 ms G1 pause target. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6384,3 +6385,15 @@ scale-up effects while retaining the workload, Kafka client, GC, and safepoint s
 the preceding comparison. Focused orchestration, deployment-plan, contract, and internal-lab
 planning tests pass; Java 21 accepts the controlled G1 options, and the experiment is installed
 without starting a run.
+
+<a id="infra-328"></a>
+### INFRA-328 - Test a 30 ms G1 pause target
+
+_Date: 2026-11-10_
+
+Repeat the fixed four-pod 2k-to-20k load-step diagnostic without changing Kafka batching,
+fetching, workload, pod resources, or infrastructure. Change only the application G1 pause
+goal to 30 ms so the result isolates whether smaller, more frequent young collections prevent
+the synchronized stop-the-world queue cascade observed in the baseline run. Focused
+materialization, deployment-plan, contract, and internal-lab planning tests pass; Java 21
+accepts the exact G1 options, and the experiment is installed without starting a run.
