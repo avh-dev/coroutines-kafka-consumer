@@ -5,6 +5,7 @@ import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.clients.CommonClientConfigs
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.util.concurrent.atomic.AtomicReference
@@ -21,7 +22,9 @@ class AutomaticTrafficWarmupPlanTest {
     fun `automatic mode creates independent participants sharing one context`() {
         val properties = automaticProperties().also {
             it.kafka.bootstrapServers = "main:9092"
+            it.kafka.securityProtocol = "SSL"
             it.trafficWarmup.kafkaBootstrapServers = "warmup:9093"
+            it.trafficWarmup.kafkaSecurityProtocol = "PLAINTEXT"
             it.trafficWarmup.initialFraction = 0.02
             it.trafficWarmup.targetFraction = 0.25
             it.trafficWarmup.rampUpSeconds = 45
@@ -38,6 +41,10 @@ class AutomaticTrafficWarmupPlanTest {
         assertEquals(DemoTopics.ORDER_EVENTS, order.sourceTopic)
         assertEquals(DemoTopics.TRAFFIC_WARMUP_ORDER_EVENTS, order.warmupTopic)
         assertEquals("warmup:9093", order.warmupConnectionProperties[ProducerConfig.BOOTSTRAP_SERVERS_CONFIG])
+        assertEquals(
+            "PLAINTEXT",
+            order.warmupConnectionProperties[CommonClientConfigs.SECURITY_PROTOCOL_CONFIG]
+        )
         assertEquals(
             OrderLifecycleEventSerializer::class.java,
             order.forwardingProducerProperties[ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG]

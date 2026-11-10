@@ -48,7 +48,13 @@ internal data class AutomaticTrafficWarmupPlan(
             val dataBootstrapServers = warmup.kafkaBootstrapServers.ifBlank {
                 properties.kafka.bootstrapServers
             }
-            val warmupConnection = properties.kafkaConnectionProperties(dataBootstrapServers)
+            val dataSecurityProtocol = warmup.kafkaSecurityProtocol.ifBlank {
+                properties.kafka.securityProtocol
+            }
+            val warmupConnection = properties.kafkaConnectionProperties(
+                dataBootstrapServers,
+                dataSecurityProtocol
+            )
             val context = trafficWarmupContext {
                 instanceId = warmup.instanceId
                 controlTopic = warmup.controlTopic

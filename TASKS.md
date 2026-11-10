@@ -192,6 +192,7 @@
 | [DEMO-106](#demo-106) | Wire fixed donor and recipient roles for the first real-traffic warm-up experiment. | DONE |
 | [DEMO-107](#demo-107) | Wire automatic library-managed traffic warm-up into ordinary demo CKC consumers. | DONE |
 | [DEMO-108](#demo-108) | Remove the completed static traffic warm-up donor and recipient demo modes. | DONE |
+| [DEMO-109](#demo-109) | Allow automatic traffic warm-up to use transport settings independent from the main Kafka cluster. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6048,6 +6049,21 @@ experiment. Ordinary consumers now always subscribe to their main topics, with a
 warm-up remaining an optional addition through the standard consumer DSL. Shared forwarding
 and audit primitives and historical experiment evidence remain intact. Infrastructure
 orchestration and deployment cleanup remain a separate INFRA task. The complete
+`:ckc-demo:test` suite passes.
+
+<a id="demo-109"></a>
+### DEMO-109 - Separate warm-up Kafka transport settings
+
+_Date: 2026-11-10_
+
+Allow the automatic traffic warm-up control and data clients to connect to a
+best-effort Kafka broker whose security protocol differs from the main business
+Kafka cluster. Preserve the existing bootstrap fallback while making plaintext
+warm-up Kafka usable alongside a TLS main cluster, with focused configuration and
+plan tests. This is a child task of the local-only GLOBAL-3 umbrella.
+Added an optional warm-up security protocol alongside the existing independent
+bootstrap address. Blank values retain the main Kafka protocol, while experiments
+can now use a plaintext best-effort broker beside a TLS business cluster. The full
 `:ckc-demo:test` suite passes.
 
 <a id="infra-319"></a>
