@@ -83,7 +83,11 @@ def materialize_target(
         {"name": topic, "partitions": 1}
         for topic in experiment_traffic_warmup_topics(experiment)
     ]
-    if warmup_topics:
+    warmup_kafka = copy.deepcopy(
+        ((experiment.environment_definition or {}).get("warmup_kafka") or {})
+    )
+    dedicated_warmup_kafka = bool(warmup_kafka.get("enabled"))
+    if warmup_topics and not dedicated_warmup_kafka:
         for document in (plan, values):
             lab = document.setdefault("lab", {})
             topics = lab.setdefault("kafkaTopics", [])
@@ -110,6 +114,12 @@ def materialize_target(
         "values": values,
         "run_plan": plan,
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),
+        **({
+            "warmup_kafka": {
+                **warmup_kafka,
+                "topics": copy.deepcopy(warmup_topics),
+            }
+        } if dedicated_warmup_kafka else {}),
     }
     definition_path = target_dir / "resolved-test.yaml"
     definition_path.write_text(yaml.safe_dump(definition, sort_keys=False), encoding="utf-8")
@@ -118,7 +128,13 @@ def materialize_target(
         deployment_plan_path = target_dir / "deployment-plan.yaml"
         write_deployment_plan(
             deployment_plan_path,
-            build_deployment_plan(experiment, target, plan, values),
+            build_deployment_plan(
+                experiment,
+                target,
+                plan,
+                values,
+                warmup_topics=warmup_topics if dedicated_warmup_kafka else (),
+            ),
         )
     return MaterializedTarget(
         target=target,

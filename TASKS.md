@@ -519,6 +519,7 @@
 | [INFRA-329](#infra-329) | Repeat the fixed four-pod G1 diagnostic with a five-minute warm-up and a 16k TPS ceiling. | DONE |
 | [INFRA-330](#infra-330) | Repeat the fixed four-pod 16k TPS diagnostic with tuned Serial GC. | DONE |
 | [INFRA-331](#infra-331) | Compare automatic warm-up with cold HPA scale-up at 16k TPS using tuned Serial GC. | DONE |
+| [INFRA-332](#infra-332) | Run automatic traffic warm-up through an ephemeral single-broker Kafka deployed with the application. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6453,3 +6454,22 @@ drives HPA through four replicas. Keep the workload shape, HPA policy, Kafka beh
 memory, and warm-up protocol unchanged to isolate the value of pre-warming new replicas.
 Focused materialization, deployment-plan, contract, and internal-lab planning tests pass,
 and Java 21 accepts the exact tuned Serial GC options.
+
+<a id="infra-332"></a>
+### INFRA-332 - Add an ephemeral warm-up Kafka broker
+
+_Date: 2026-11-10_
+
+Extend the shared experiment model with an optional best-effort warm-up Kafka service.
+For internal-lab experiments, deploy one ephemeral KRaft broker on the application node,
+provision only the automatic warm-up control and data topics there, and inject its
+plaintext bootstrap address into the demo application. Keep the broker present in every
+target for resource parity, record its resolved configuration in evidence, and enable it
+for the tuned-Serial 16k warm-up comparison. This is a child task of GLOBAL-3.
+The shared renderer now creates a one-pod, one-core, ephemeral KRaft service on the
+application node and injects its plaintext connection only into warm-up clients. Warm-up
+topics no longer belong to the primary Kafka definition; both comparison targets retain
+the broker pod for consistent scheduling pressure. Focused contract, materialization,
+deployment-plan, and internal-lab synchronization tests pass. The exact Kafka image and
+configuration were started successfully, a topic was created, and the rendered Kubernetes
+resources pass server-side client dry-run validation.
