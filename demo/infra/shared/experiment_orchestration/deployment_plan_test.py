@@ -221,8 +221,25 @@ class DeploymentPlanTest(unittest.TestCase):
             item["name"]: item["value"]
             for item in broker_spec["containers"][0]["env"]
         }
-        self.assertEqual("true", broker_env["KAFKA_AUTO_CREATE_TOPICS_ENABLE"])
+        self.assertEqual("false", broker_env["KAFKA_AUTO_CREATE_TOPICS_ENABLE"])
         self.assertEqual("-Xms512m -Xmx512m", broker_env["KAFKA_HEAP_OPTS"])
+        provisioner = broker_spec["containers"][1]
+        self.assertEqual("topic-provisioner", provisioner["name"])
+        self.assertEqual("apache/kafka:4.3.1", provisioner["image"])
+        self.assertEqual(["bash", "-ec"], provisioner["command"])
+        self.assertEqual(
+            [
+                "ckc.traffic-warmup.v1.test-control", "1",
+                "ckc.traffic-warmup.v1.test-orders", "1",
+                "ckc.traffic-warmup.v1.test-telemetry", "1",
+            ],
+            provisioner["args"][2:],
+        )
+        self.assertIn("kafka-topics.sh", provisioner["args"][0])
+        self.assertEqual(
+            ["test", "-f", "/tmp/warmup-topics-ready"],
+            provisioner["readinessProbe"]["exec"]["command"],
+        )
         application = next(
             item for item in manifests
             if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"

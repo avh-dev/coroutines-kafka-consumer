@@ -791,9 +791,14 @@ def _warmup_kafka_manifests(
     )
     heap = str(configuration.get("heap") or "512Mi")
     jvm_heap = heap.removesuffix("Mi") + "m" if heap.endswith("Mi") else heap.removesuffix("Gi") + "g"
+    image = str(configuration.get("image") or "apache/kafka:4.3.1")
+    topics = [
+        (str(topic["name"]), int(topic.get("partitions") or 1))
+        for topic in (configuration.get("topics") or [])
+    ]
     container = {
         "name": "kafka",
-        "image": str(configuration.get("image") or "apache/kafka:4.3.1"),
+        "image": image,
         "imagePullPolicy": "IfNotPresent",
         "ports": [
             {"name": "kafka", "containerPort": WARMUP_KAFKA_PORT},
@@ -809,7 +814,7 @@ def _warmup_kafka_manifests(
             "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT",
             "KAFKA_INTER_BROKER_LISTENER_NAME": "PLAINTEXT",
             "KAFKA_CONTROLLER_LISTENER_NAMES": "CONTROLLER",
-            "KAFKA_AUTO_CREATE_TOPICS_ENABLE": "true",
+            "KAFKA_AUTO_CREATE_TOPICS_ENABLE": "false",
             "KAFKA_NUM_PARTITIONS": 1,
             "KAFKA_DEFAULT_REPLICATION_FACTOR": 1,
             "KAFKA_MIN_INSYNC_REPLICAS": 1,
@@ -831,9 +836,44 @@ def _warmup_kafka_manifests(
         },
         "volumeMounts": [{"name": "data", "mountPath": "/var/lib/kafka/data"}],
     }
+    provisioner_script = """\
+until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1; do
+  sleep 1
+done
+while [ "$#" -gt 0 ]; do
+  topic="$1"
+  partitions="$2"
+  shift 2
+  until /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \\
+    --create --if-not-exists --topic "$topic" --partitions "$partitions" --replication-factor 1; do
+    sleep 1
+  done
+done
+touch /tmp/warmup-topics-ready
+exec sleep infinity
+"""
+    topic_arguments = [value for topic in topics for value in (topic[0], str(topic[1]))]
+    provisioner = {
+        "name": "topic-provisioner",
+        "image": image,
+        "imagePullPolicy": "IfNotPresent",
+        "command": ["bash", "-ec"],
+        "args": [provisioner_script, "--", *topic_arguments],
+        "env": _environment_entries({"KAFKA_HEAP_OPTS": "-Xms64m -Xmx128m"}),
+        "resources": {
+            "requests": {"cpu": "10m", "memory": "64Mi"},
+            "limits": {"cpu": "200m", "memory": "256Mi"},
+        },
+        "readinessProbe": {
+            "exec": {"command": ["test", "-f", "/tmp/warmup-topics-ready"]},
+            "periodSeconds": 1,
+            "timeoutSeconds": 1,
+            "failureThreshold": 60,
+        },
+    }
     pod_spec: dict[str, Any] = {
         "securityContext": {"fsGroup": 1000, "fsGroupChangePolicy": "OnRootMismatch"},
-        "containers": [container],
+        "containers": [container, provisioner],
         "volumes": [{"name": "data", "emptyDir": {}}],
     }
     if node_selector:
