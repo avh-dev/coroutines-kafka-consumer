@@ -347,6 +347,51 @@ class MaterializeTest(unittest.TestCase):
             candidate_options.replace(" -XX:MaxGCPauseMillis=30", ""),
         )
 
+    def test_materializes_16k_step_as_30ms_g1_throughput_variant(self) -> None:
+        baseline_source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-fixed-four-pod-step-20k-g1-pause30-local.yaml"
+        )
+        candidate_source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-fixed-four-pod-step-16k-g1-pause30-local.yaml"
+        )
+        candidate_definition = yaml.safe_load(candidate_source.read_text(encoding="utf-8"))
+        baseline = resolve_experiment_definition(baseline_source, environment="internal-lab")
+        candidate = resolve_experiment_definition(candidate_source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_target = materialize_experiment(
+                baseline,
+                output_dir=Path(directory) / "baseline",
+                repo_dir=REPO_ROOT,
+            )[0]
+            candidate_target = materialize_experiment(
+                candidate,
+                output_dir=Path(directory) / "candidate",
+                repo_dir=REPO_ROOT,
+            )[0]
+            baseline_plan = yaml.safe_load(baseline_target.deployment_plan_path.read_text(encoding="utf-8"))
+            candidate_plan = yaml.safe_load(candidate_target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(baseline_plan["application"], candidate_plan["application"])
+        self.assertEqual(baseline_plan["workload"]["stubs"], candidate_plan["workload"]["stubs"])
+        candidate_load = candidate_definition["workload"]["load"]
+        self.assertEqual(20000, candidate_load["base_tps"])
+        self.assertEqual(
+            "0 -> (5m, warmup-to-2k) -> 10 -> (1s, step-to-16k) -> 80 -> "
+            "(15m, hold-16k) -> 80 -> (2m, cool-down) -> 0",
+            candidate_load["load_profile"],
+        )
+        self.assertEqual(
+            [
+                {"name": "warmup-0-5m", "start": "0m", "duration": "5m"},
+                {"name": "post-step-0-5m", "start": "5m", "duration": "5m"},
+                {"name": "post-step-5-15m", "start": "10m", "duration": "10m"},
+            ],
+            candidate_definition["workload"]["measurement_windows"],
+        )
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
