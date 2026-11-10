@@ -310,6 +310,43 @@ class MaterializeTest(unittest.TestCase):
         self.assertNotIn("TRAFFIC_WARMUP_ROLE", application["runtime"]["env"])
         self.assertIn("-XX:+UseG1GC", application["configuration"]["java_options"])
 
+    def test_materializes_30ms_g1_pause_step_diagnostic_as_baseline_variant(self) -> None:
+        baseline_source = REPO_ROOT / "demo/infra/experiments/ckc-fixed-four-pod-step-20k-local.yaml"
+        candidate_source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-fixed-four-pod-step-20k-g1-pause30-local.yaml"
+        )
+        baseline = resolve_experiment_definition(baseline_source, environment="internal-lab")
+        candidate = resolve_experiment_definition(candidate_source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_target = materialize_experiment(
+                baseline,
+                output_dir=Path(directory) / "baseline",
+                repo_dir=REPO_ROOT,
+            )[0]
+            candidate_target = materialize_experiment(
+                candidate,
+                output_dir=Path(directory) / "candidate",
+                repo_dir=REPO_ROOT,
+            )[0]
+            baseline_plan = yaml.safe_load(baseline_target.deployment_plan_path.read_text(encoding="utf-8"))
+            candidate_plan = yaml.safe_load(candidate_target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(baseline_plan["workload"], candidate_plan["workload"])
+        self.assertEqual(baseline_plan["application"]["runtime"], candidate_plan["application"]["runtime"])
+        baseline_configuration = dict(baseline_plan["application"]["configuration"])
+        candidate_configuration = dict(candidate_plan["application"]["configuration"])
+        baseline_options = baseline_configuration.pop("java_options")
+        candidate_options = candidate_configuration.pop("java_options")
+        self.assertEqual(baseline_configuration, candidate_configuration)
+        self.assertNotIn("-XX:MaxGCPauseMillis", baseline_options)
+        self.assertIn("-XX:MaxGCPauseMillis=30", candidate_options)
+        self.assertEqual(
+            baseline_options,
+            candidate_options.replace(" -XX:MaxGCPauseMillis=30", ""),
+        )
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
