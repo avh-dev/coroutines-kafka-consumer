@@ -285,6 +285,31 @@ class MaterializeTest(unittest.TestCase):
                 options,
             )
 
+    def test_materializes_fixed_four_pod_step_diagnostic(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-fixed-four-pod-step-20k-local.yaml"
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        experiment = resolve_experiment_definition(source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plan = yaml.safe_load(materialized[0].deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(["ckc.fixed-four-pod-step-g1"], [target.target.name for target in materialized])
+        self.assertEqual(
+            "0 -> (10m, warmup-to-2k) -> 10 -> (1s, step-to-20k) -> 100 -> "
+            "(15m, hold-20k) -> 100 -> (2m, cool-down) -> 0",
+            candidate["workload"]["load"]["load_profile"],
+        )
+        application = plan["application"]
+        self.assertEqual(4, application["configuration"]["replicas"])
+        self.assertFalse(application["configuration"]["hpa"]["enabled"])
+        self.assertNotIn("TRAFFIC_WARMUP_ROLE", application["runtime"]["env"])
+        self.assertIn("-XX:+UseG1GC", application["configuration"]["java_options"])
+
     def test_materializes_ckc_poller_and_partition_comparison_at_2k(self) -> None:
         baseline = yaml.safe_load(
             (REPO_ROOT / "demo/infra/experiments/spring-ckc-no-chaos-e2e-tuning-5k.yaml").read_text(
