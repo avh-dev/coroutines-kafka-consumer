@@ -285,6 +285,56 @@ class MaterializeTest(unittest.TestCase):
                 options,
             )
 
+    def test_materializes_16k_tuned_serial_warmup_comparison(self) -> None:
+        source = (
+            REPO_ROOT
+            / "demo/infra/experiments/ckc-automatic-traffic-warmup-scale-up-16k-serial-tuned-local.yaml"
+        )
+        candidate = yaml.safe_load(source.read_text(encoding="utf-8"))
+        experiment = resolve_experiment_definition(source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            plans = {
+                target.target.name: yaml.safe_load(
+                    target.deployment_plan_path.read_text(encoding="utf-8")
+                )
+                for target in materialized
+            }
+
+        self.assertEqual(
+            [
+                "ckc.automatic-traffic-warmup-serial-tuned-16k",
+                "ckc.cold-scale-up-serial-tuned-16k",
+            ],
+            [target.target.name for target in materialized],
+        )
+        self.assertEqual(16000, candidate["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            {"order": 16000, "batch": 16000, "telemetry": 16000},
+            candidate["workload"]["load"]["producer_capacity_tps"],
+        )
+        warm = plans["ckc.automatic-traffic-warmup-serial-tuned-16k"]
+        cold = plans["ckc.cold-scale-up-serial-tuned-16k"]
+        self.assertEqual(warm["workload"], cold["workload"])
+        self.assertEqual(warm["application"]["configuration"], cold["application"]["configuration"])
+        configuration = warm["application"]["configuration"]
+        self.assertEqual("800m", configuration["resources"]["requests"]["cpu"])
+        options = configuration["java_options"]
+        self.assertIn("-Xms768m -Xmx768m -Xss256k", options)
+        self.assertIn("-XX:+UseSerialGC", options)
+        self.assertIn("-XX:TargetSurvivorRatio=90", options)
+        self.assertIn("-XX:MaxTenuringThreshold=15", options)
+        self.assertEqual(
+            "AUTOMATIC",
+            warm["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ROLE"],
+        )
+        self.assertNotIn("TRAFFIC_WARMUP_ROLE", cold["application"]["runtime"]["env"])
+
     def test_materializes_fixed_four_pod_step_diagnostic(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/ckc-fixed-four-pod-step-20k-local.yaml"
         candidate = yaml.safe_load(source.read_text(encoding="utf-8"))

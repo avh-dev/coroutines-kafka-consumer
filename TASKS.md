@@ -517,6 +517,7 @@
 | [INFRA-328](#infra-328) | Repeat the fixed four-pod load-step diagnostic with a 30 ms G1 pause target. | DONE |
 | [INFRA-329](#infra-329) | Repeat the fixed four-pod G1 diagnostic with a five-minute warm-up and a 16k TPS ceiling. | DONE |
 | [INFRA-330](#infra-330) | Repeat the fixed four-pod 16k TPS diagnostic with tuned Serial GC. | DONE |
+| [INFRA-331](#infra-331) | Compare automatic warm-up with cold HPA scale-up at 16k TPS using tuned Serial GC. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6423,3 +6424,16 @@ the application collector with the tuned Serial GC configuration from INFRA-326 
 pause pattern and recovery behavior can be compared directly with the 30 ms G1 run. Focused
 materialization, deployment-plan, contract, and internal-lab planning tests pass, and Java 21
 accepts the exact tuned Serial GC options.
+
+<a id="infra-331"></a>
+### INFRA-331 - Compare automatic warm-up and cold scale-up at 16k TPS
+
+_Date: 2026-11-10_
+
+Repeat the two-target automatic real-traffic warm-up comparison at a stable 16k TPS ceiling.
+Use the tuned Serial GC configuration qualified by INFRA-330 on both targets, and reduce the
+application CPU request from 1000m to 800m so the proportional load-to-request curve still
+drives HPA through four replicas. Keep the workload shape, HPA policy, Kafka behavior, pod
+memory, and warm-up protocol unchanged to isolate the value of pre-warming new replicas.
+Focused materialization, deployment-plan, contract, and internal-lab planning tests pass,
+and Java 21 accepts the exact tuned Serial GC options.
