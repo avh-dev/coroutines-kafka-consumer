@@ -58,6 +58,7 @@ class DemoApplicationPropertiesTest {
         assertEquals("local", properties.trafficWarmup.instanceId)
         assertEquals("ckc.traffic-warmup.v1.control", properties.trafficWarmup.controlTopic)
         assertEquals("", properties.trafficWarmup.kafkaBootstrapServers)
+        assertEquals("", properties.trafficWarmup.kafkaSecurityProtocol)
         assertEquals("ckc.traffic-warmup.v1.order.events", properties.trafficWarmup.order.topic)
         assertEquals(false, properties.trafficWarmup.telemetry.enabled)
         assertEquals(0, properties.trafficWarmup.holdSeconds)
@@ -118,6 +119,7 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.instance-id" to "demo-pod-9",
                 "demo.traffic-warmup.control-topic" to "ckc.traffic-warmup.v1.test-control",
                 "demo.traffic-warmup.kafka-bootstrap-servers" to "warmup:9093",
+                "demo.traffic-warmup.kafka-security-protocol" to "plaintext",
                 "demo.traffic-warmup.target-fraction" to "0.25",
                 "demo.traffic-warmup.ramp-up-seconds" to "30",
                 "demo.traffic-warmup.hold-seconds" to "10",
@@ -178,6 +180,7 @@ class DemoApplicationPropertiesTest {
         assertEquals("demo-pod-9", properties.trafficWarmup.instanceId)
         assertEquals("ckc.traffic-warmup.v1.test-control", properties.trafficWarmup.controlTopic)
         assertEquals("warmup:9093", properties.trafficWarmup.kafkaBootstrapServers)
+        assertEquals("plaintext", properties.trafficWarmup.kafkaSecurityProtocol)
         assertEquals(0.25, properties.trafficWarmup.targetFraction)
         assertEquals(30, properties.trafficWarmup.rampUpSeconds)
         assertEquals(10, properties.trafficWarmup.holdSeconds)

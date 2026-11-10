@@ -144,6 +144,7 @@ data class DemoApplicationProperties(
         var instanceId: String = "local",
         var controlTopic: String = DemoTopics.TRAFFIC_WARMUP_CONTROL,
         var kafkaBootstrapServers: String = "",
+        var kafkaSecurityProtocol: String = "",
         var initialFraction: Double = 0.0,
         var targetFraction: Double = 0.1,
         var rampUpSeconds: Long = 120,

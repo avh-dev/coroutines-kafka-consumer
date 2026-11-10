@@ -167,6 +167,7 @@ demo:
     instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:local}}
     control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v1.control}
     kafka-bootstrap-servers: ${TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS:}
+    kafka-security-protocol: ${TRAFFIC_WARMUP_KAFKA_SECURITY_PROTOCOL:}
     initial-fraction: ${TRAFFIC_WARMUP_INITIAL_FRACTION:0.0}
     target-fraction: ${TRAFFIC_WARMUP_TARGET_FRACTION:0.1}
     ramp-up-seconds: ${TRAFFIC_WARMUP_RAMP_UP_SECONDS:120}

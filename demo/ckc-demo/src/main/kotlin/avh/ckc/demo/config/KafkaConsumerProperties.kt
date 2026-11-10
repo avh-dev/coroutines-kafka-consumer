@@ -27,10 +27,11 @@ internal fun DemoApplicationProperties.kafkaConsumerProperties(
 }
 
 internal fun DemoApplicationProperties.kafkaConnectionProperties(
-    bootstrapServers: String
+    bootstrapServers: String,
+    securityProtocol: String = kafka.securityProtocol
 ): Map<String, Any> = buildMap {
     put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
-    put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, kafka.securityProtocol)
+    put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol)
     kafka.sslTruststoreCertificates.takeIf(String::isNotBlank)?.let {
         put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, it)
         put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM")
