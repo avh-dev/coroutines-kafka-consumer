@@ -513,6 +513,7 @@
 | [INFRA-324](#infra-324) | Keep pod identities visible and series labels stable in pod-grouped Grafana panels. | DONE |
 | [INFRA-325](#infra-325) | Raise internal-lab Redis capacity for sustained 20k TPS experiments. | DONE |
 | [INFRA-326](#infra-326) | Compare controlled G1 and tuned Serial GC under identical automatic warm-up scale-up traffic. | DONE |
+| [INFRA-327](#infra-327) | Isolate late synchronized latency cascades with four prestarted G1 pods and a 2k-to-20k load step. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6369,3 +6370,17 @@ exported with the ordinary workload logs, alongside the existing JVM and Thread 
 The G1 target fixes parallel, concurrent, and refinement work to one thread; the Serial target
 fixes heap sizing while retaining objects in survivor space longer. Focused materialization and
 Java 21 option validation pass, and the experiment is installed without starting a run.
+
+<a id="infra-327"></a>
+### INFRA-327 - Isolate late synchronized latency cascades
+
+_Date: 2026-11-10_
+
+Add a single-target internal-lab diagnostic with four G1 application pods present before
+traffic starts and HPA disabled. Warm every pod with a ten-minute linear ramp to 2k TPS,
+step to 20k TPS in one second, and hold full load for fifteen minutes. This separates
+post-warm-up synchronized latency and GC cascades from pod startup, assignment, and HPA
+scale-up effects while retaining the workload, Kafka client, GC, and safepoint settings of
+the preceding comparison. Focused orchestration, deployment-plan, contract, and internal-lab
+planning tests pass; Java 21 accepts the controlled G1 options, and the experiment is installed
+without starting a run.
