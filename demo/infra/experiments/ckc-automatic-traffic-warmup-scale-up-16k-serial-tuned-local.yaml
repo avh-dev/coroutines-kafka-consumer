@@ -153,9 +153,17 @@ environments:
       profile: installed
       kafka:
         implementation: apache-kafka
-        topology: cluster
+        topology: single
         transport: tls
-        brokers: 3
-        replication_factor: 3
-        min_insync_replicas: 2
+        brokers: 1
+        replication_factor: 1
+        min_insync_replicas: 1
         resources: {cpu_per_broker: 1, memory_per_broker: 2Gi, heap_per_broker: 1Gi}
+    warmup_kafka:
+      enabled: true
+      image: apache/kafka:4.3.1
+      placement: application
+      heap: 512Mi
+      resources:
+        requests: {cpu: 500m, memory: 768Mi}
+        limits: {cpu: "1", memory: 1Gi}

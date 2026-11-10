@@ -466,5 +466,31 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not exceed memory_per_broker"):
             validate_canonical_experiment(invalid, self.source, environment="internal-lab")
 
+    def test_ephemeral_warmup_kafka_configuration_is_normalized_and_validated(self) -> None:
+        experiment = canonical_experiment()
+        experiment["environments"]["internal-lab"]["warmup_kafka"] = {
+            "enabled": True,
+            "placement": "application",
+            "resources": {
+                "requests": {"cpu": "250m", "memory": "512Mi"},
+                "limits": {"cpu": "1", "memory": "1Gi"},
+            },
+        }
+        snapshot = validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+        warmup = snapshot["environment"]["configuration"]["warmup_kafka"]
+        self.assertEqual("apache/kafka:4.3.1", warmup["image"])
+        self.assertEqual("512Mi", warmup["heap"])
+        self.assertEqual("250m", warmup["resources"]["requests"]["cpu"])
+
+        invalid = copy.deepcopy(experiment)
+        invalid["environments"]["internal-lab"]["warmup_kafka"]["image"] = "apache/kafka:latest"
+        with self.assertRaisesRegex(ValueError, "pinned container image"):
+            validate_canonical_experiment(invalid, self.source, environment="internal-lab")
+
+        invalid = copy.deepcopy(experiment)
+        invalid["environments"]["internal-lab"]["warmup_kafka"]["heap"] = "2Gi"
+        with self.assertRaisesRegex(ValueError, "must not exceed the memory limit"):
+            validate_canonical_experiment(invalid, self.source, environment="internal-lab")
+
 if __name__ == "__main__":
     unittest.main()

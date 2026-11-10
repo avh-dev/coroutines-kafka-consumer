@@ -322,6 +322,20 @@ class MaterializeTest(unittest.TestCase):
         cold = plans["ckc.cold-scale-up-serial-tuned-16k"]
         self.assertEqual(warm["workload"], cold["workload"])
         self.assertEqual(warm["application"]["configuration"], cold["application"]["configuration"])
+        self.assertEqual("single", warm["environment"]["lab"]["kafka"]["topology"])
+        self.assertEqual(1, warm["environment"]["lab"]["kafka"]["brokers"])
+        self.assertTrue(warm["environment"]["warmup_kafka"]["enabled"])
+        self.assertEqual("application", warm["environment"]["warmup_kafka"]["placement"])
+        self.assertEqual(
+            {
+                "ckc.traffic-warmup.v1.control",
+                "ckc.traffic-warmup.v1.order.events",
+                "ckc.traffic-warmup.v1.batch.events",
+                "ckc.traffic-warmup.v1.cauldron.events",
+            },
+            {topic["name"] for topic in warm["environment"]["warmup_kafka"]["topics"]},
+        )
+        self.assertEqual(warm["environment"]["warmup_kafka"], cold["environment"]["warmup_kafka"])
         configuration = warm["application"]["configuration"]
         self.assertEqual("800m", configuration["resources"]["requests"]["cpu"])
         options = configuration["java_options"]

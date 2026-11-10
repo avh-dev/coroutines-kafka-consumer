@@ -133,7 +133,8 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter)', rebuild)
         self.assertIn(
             'all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest '
-            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"',
+            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest '
+            'apache/kafka:4.3.1"',
             rebuild,
         )
         self.assertIn("docker save ${all_image_names}", rebuild)

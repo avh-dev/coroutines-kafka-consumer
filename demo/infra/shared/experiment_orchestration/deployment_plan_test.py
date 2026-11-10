@@ -144,6 +144,97 @@ class DeploymentPlanTest(unittest.TestCase):
                 }
                 self.assertEqual("AUTOMATIC", application_env["TRAFFIC_WARMUP_ROLE"])
 
+    def test_dedicated_warmup_kafka_is_ephemeral_colocated_and_not_on_the_main_cluster(self) -> None:
+        candidate = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
+        candidate["environments"] = {"internal-lab": candidate["environments"]["internal-lab"]}
+        candidate["environments"]["internal-lab"]["warmup_kafka"] = {
+            "enabled": True,
+            "image": "apache/kafka:4.3.1",
+            "placement": "application",
+            "heap": "512Mi",
+            "resources": {
+                "requests": {"cpu": "500m", "memory": "768Mi"},
+                "limits": {"cpu": "1", "memory": "1Gi"},
+            },
+        }
+        warm = candidate["targets"][0]
+        cold = yaml.safe_load(yaml.safe_dump(warm))
+        cold["name"] = "cold"
+        candidate["targets"].insert(0, cold)
+        warm["runtime"]["env"].update({
+            "TRAFFIC_WARMUP_ROLE": "AUTOMATIC",
+            "TRAFFIC_WARMUP_CONTROL_TOPIC": "ckc.traffic-warmup.v1.test-control",
+            "TRAFFIC_WARMUP_ORDER_TOPIC": "ckc.traffic-warmup.v1.test-orders",
+            "TRAFFIC_WARMUP_BATCH_ENABLED": False,
+            "TRAFFIC_WARMUP_TELEMETRY_ENABLED": True,
+            "TRAFFIC_WARMUP_TELEMETRY_TOPIC": "ckc.traffic-warmup.v1.test-telemetry",
+        })
+        for topic in ("order", "batch", "telemetry"):
+            warm["runtime"]["topics"][topic]["processing_mode"] = "AT_LEAST_ONCE_NO_ORDERING"
+        source = Path(self.temp.name) / "dedicated-warmup-kafka.yaml"
+        source.write_text(yaml.safe_dump(candidate, sort_keys=False), encoding="utf-8")
+
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "dedicated"
+        materialized_targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+        expected_topics = {
+            "ckc.traffic-warmup.v1.test-control",
+            "ckc.traffic-warmup.v1.test-orders",
+            "ckc.traffic-warmup.v1.test-telemetry",
+        }
+        for materialized in materialized_targets:
+            definition = yaml.safe_load(materialized.definition_path.read_text(encoding="utf-8"))
+            main_topics = {topic["name"] for topic in definition["deployment"]["kafka_topics"]}
+            self.assertTrue(expected_topics.isdisjoint(main_topics))
+            self.assertEqual(
+                expected_topics,
+                {topic["name"] for topic in definition["deployment"]["warmup_kafka"]["topics"]},
+            )
+
+        warm_target = next(item for item in materialized_targets if item.target.name == "ckc")
+        plan = yaml.safe_load(warm_target.deployment_plan_path.read_text(encoding="utf-8"))
+        self.assertIn("warmup-kafka", plan["project_resources"])
+        self.assertEqual(
+            expected_topics,
+            {topic["name"] for topic in plan["environment"]["warmup_kafka"]["topics"]},
+        )
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="warmup-kafka-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="main-kafka:19092",
+            kafka_security_protocol="SSL",
+            redis_host="redis",
+            audit_host="audit",
+            application_node_selector={"kubernetes.io/hostname": "worker"},
+        ))
+        broker = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-warmup-kafka"
+        )
+        broker_spec = broker["spec"]["template"]["spec"]
+        self.assertEqual({"kubernetes.io/hostname": "worker"}, broker_spec["nodeSelector"])
+        self.assertEqual(1000, broker_spec["securityContext"]["fsGroup"])
+        self.assertEqual({}, broker_spec["volumes"][0]["emptyDir"])
+        broker_env = {
+            item["name"]: item["value"]
+            for item in broker_spec["containers"][0]["env"]
+        }
+        self.assertEqual("true", broker_env["KAFKA_AUTO_CREATE_TOPICS_ENABLE"])
+        self.assertEqual("-Xms512m -Xmx512m", broker_env["KAFKA_HEAP_OPTS"])
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        application_env = {
+            item["name"]: item["value"]
+            for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual("main-kafka:19092", application_env["KAFKA_BOOTSTRAP_SERVERS"])
+        self.assertEqual("ckc-warmup-kafka:9092", application_env["TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS"])
+        self.assertEqual("PLAINTEXT", application_env["TRAFFIC_WARMUP_KAFKA_SECURITY_PROTOCOL"])
+
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")
