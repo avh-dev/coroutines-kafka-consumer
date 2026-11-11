@@ -240,6 +240,11 @@ class DeploymentPlanTest(unittest.TestCase):
             ["test", "-f", "/tmp/warmup-topics-ready"],
             provisioner["readinessProbe"]["exec"]["command"],
         )
+        broker_service = next(
+            item for item in manifests
+            if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-warmup-kafka"
+        )
+        self.assertTrue(broker_service["spec"]["publishNotReadyAddresses"])
         application = next(
             item for item in manifests
             if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
