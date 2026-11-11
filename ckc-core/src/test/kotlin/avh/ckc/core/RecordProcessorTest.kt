@@ -1,8 +1,14 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -78,9 +84,10 @@ class RecordProcessorTest {
             }
         )
 
-        processor.process(typedTestRecord(offset = 9L))
+        val outcome = processor.process(typedTestRecord(offset = 9L))
 
         assertEquals(2, attempts.get())
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, outcome)
     }
 
     @Test
@@ -103,7 +110,7 @@ class RecordProcessorTest {
             awaitRetryPermission = { _, _ -> false }
         )
 
-        processor.process(typedTestRecord(offset = 9L))
+        val outcome = processor.process(typedTestRecord(offset = 9L))
 
         assertEquals(1, attempts.get())
         assertEquals(0, failureHandlerCalls.get())
@@ -111,6 +118,10 @@ class RecordProcessorTest {
         assertEquals(emptyList<Int>(), metrics.retries.map { it.attempt })
         assertEquals(0, metrics.failed.size)
         assertEquals(0, metrics.processed.size)
+        assertEquals(
+            RecordProcessingOutcome.HandedOff(avh.ckc.core.metrics.RecordHandoffReason.ASSIGNMENT_ENDED),
+            outcome
+        )
     }
 
     @Test
@@ -161,7 +172,7 @@ class RecordProcessorTest {
             onRecordProcessed = { processedRecordOffset = it.offset() }
         )
 
-        processor.process(ConsumerRecord("topic-a", 0, 12L, 0L, 0L))
+        val outcome = processor.process(ConsumerRecord("topic-a", 0, 12L, 0L, 0L))
 
         assertEquals(0L to "12:boom", withTimeout(2_000) { recovered.await() })
         assertEquals(12L, processedRecordOffset)
@@ -170,6 +181,57 @@ class RecordProcessorTest {
         assertEquals("boom", metrics.failed.single().error.message)
         assertEquals(0L, metrics.failed.single().key)
         assertEquals(0L, metrics.failed.single().value)
+        assertEquals("boom", (outcome as RecordProcessingOutcome.HandlerFailed).error.message)
+    }
+
+    @Test
+    fun `interceptor may complete admitted record without invoking local handler`() = runBlocking {
+        val record = typedTestRecord(offset = 14L)
+        val metrics = RecordingMetrics<String, String>()
+        val processedCalls = AtomicInteger()
+        val observed = mutableListOf<RecordProcessingOutcome>()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> { error("local handler must not run") },
+            metrics = metrics,
+            onRecordProcessed = { processedCalls.incrementAndGet() },
+            interceptor = AdmittedRecordInterceptor { intercepted, _ ->
+                assertSame(record, intercepted)
+                RecordProcessingOutcome.HandlerSucceeded
+            },
+            outcomeObserver = RecordProcessingOutcomeObserver { _, outcome ->
+                assertEquals(1, processedCalls.get())
+                assertEquals(1, metrics.processed.size)
+                observed += outcome
+            }
+        )
+
+        val outcome = processor.process(record)
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, outcome)
+        assertEquals(listOf(RecordProcessingOutcome.HandlerSucceeded), observed)
+    }
+
+    @Test
+    fun `interceptor policy discard remains distinct from handler success`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val processedCalls = AtomicInteger()
+        val observed = mutableListOf<RecordProcessingOutcome>()
+        val expected = RecordProcessingOutcome.PolicyDiscarded(RecordDropReason.STALE_AGE)
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> { error("local handler must not run") },
+            metrics = metrics,
+            onRecordProcessed = { processedCalls.incrementAndGet() },
+            interceptor = AdmittedRecordInterceptor { _, _ -> expected },
+            outcomeObserver = RecordProcessingOutcomeObserver { _, outcome -> observed += outcome }
+        )
+
+        val outcome = processor.process(typedTestRecord(offset = 15L))
+
+        assertEquals(expected, outcome)
+        assertEquals(0, processedCalls.get())
+        assertEquals(0, metrics.processed.size)
+        assertEquals(listOf(RecordDropReason.STALE_AGE), metrics.dropped.map { it.reason })
+        assertEquals(listOf(expected), observed)
     }
 
     @Test
@@ -358,6 +420,8 @@ class RecordProcessorTest {
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {},
+        interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+        outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver(),
         awaitRetryPermission: suspend (ConsumerRecord<K, V>, kotlin.time.Duration) -> Boolean = { _, delay ->
             if (delay.isPositive()) kotlinx.coroutines.delay(delay)
             true
@@ -370,6 +434,8 @@ class RecordProcessorTest {
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = onRecordProcessed,
+        interceptor = interceptor,
+        outcomeObserver = outcomeObserver,
         awaitRetryPermission = awaitRetryPermission,
         recordProcessingContext = recordProcessingContext,
         currentTimeMillis = currentTimeMillis

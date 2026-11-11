@@ -7,9 +7,15 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
@@ -53,7 +59,9 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    private val outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver()
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -61,6 +69,9 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
+        outcomeObserver = outcomeObserver,
+        handoffReason = ::handoffReason,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
@@ -105,6 +116,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
             processedRecordTracker.discard(record)
+            reportPolicyDiscard(record, RecordDropReason.ALREADY_PROCESSED)
             return true
         }
         if (!acceptingRecords.get()) {
@@ -141,10 +153,12 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         replacedRecord?.let {
             metrics.onRecordDropped(it, RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD)
             processedRecordTracker.discard(it)
+            reportPolicyDiscard(it, RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD)
         }
         if (dropIncoming) {
             metrics.onRecordDropped(record, RecordDropReason.NEW_KEY_QUEUE_FULL)
             processedRecordTracker.discard(record)
+            reportPolicyDiscard(record, RecordDropReason.NEW_KEY_QUEUE_FULL)
             return true
         }
 
@@ -192,20 +206,28 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
             if (!processedRecordTracker.tryStart(record)) {
                 metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
                 processedRecordTracker.discard(record)
+                reportHandoff(record)
                 finish(envelope.key)
                 continue
             }
             runtimeStats.onWorkerStarted()
             try {
-                if (!recordDropPolicy.shouldDrop(record)) {
+                if (recordDropPolicy.shouldDrop(record)) {
+                    reportPolicyDiscard(record, RecordDropReason.STALE_AGE)
+                } else {
                     supervisorScope {
                         val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(record) }
                         processedRecordTracker.attach(record, pipeline)
                         pipeline.start()
                         try {
-                            pipeline.await()
+                            if (pipeline.await() is RecordProcessingOutcome.HandedOff) {
+                                metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
+                                reportHandoff(record)
+                            }
                         } catch (error: CancellationException) {
                             if (!processedRecordTracker.isCancellationRequested(record)) throw error
+                            metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
+                            reportHandoff(record)
                             // Lost-generation cancellation is local to this record pipeline.
                         }
                     }
@@ -265,25 +287,46 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         }
         if (released) {
             processedRecordTracker.discard(envelope.record)
+            reportHandoff(envelope.record)
             admissionBudget.release()
         }
     }
 
     private fun releaseAllQueuedEnvelopes() {
         states.forEach { (key, _) ->
+            var releasedRecord: ConsumerRecord<K, V>? = null
             states.compute(key) { _, state ->
                 if (state != null && state.queued != null) {
-                    processedRecordTracker.discard(state.queued!!.record)
+                    releasedRecord = state.queued!!.record
                     state.queued = null
                     admissionBudget.release()
                 }
                 null
+            }
+            releasedRecord?.let { record ->
+                processedRecordTracker.discard(record)
+                reportHandoff(record)
             }
         }
     }
 
     private fun keyFor(record: ConsumerRecord<K, V>): RecordKeyIdentity =
         RecordKeyIdentity.from(record.key())
+
+    private fun reportPolicyDiscard(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
+        outcomeObserver.onOutcome(record, RecordProcessingOutcome.PolicyDiscarded(reason))
+    }
+
+    private fun handoffReason(): RecordHandoffReason =
+        if (processedRecordTracker.isTerminallyClosed()) {
+            RecordHandoffReason.CONSUMER_FAILED
+        } else {
+            RecordHandoffReason.ASSIGNMENT_ENDED
+        }
+
+    private fun reportHandoff(record: ConsumerRecord<K, V>) {
+        outcomeObserver.onOutcome(record, RecordProcessingOutcome.HandedOff(handoffReason()))
+    }
 
     private class KeyState<K, V>(
         var queued: Envelope<K, V>? = null,

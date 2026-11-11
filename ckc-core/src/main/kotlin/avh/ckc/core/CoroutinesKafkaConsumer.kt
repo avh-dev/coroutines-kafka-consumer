@@ -7,11 +7,15 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
@@ -91,7 +95,9 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V>,
+    outcomeObserver: RecordProcessingOutcomeObserver<K, V>
 ) -> RecordProcessingRuntime<K, V>
 
 /**
@@ -129,6 +135,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
+    private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    private val processingOutcomeObserver: RecordProcessingOutcomeObserver<K, V> =
+        noOpRecordProcessingOutcomeObserver(),
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
@@ -169,7 +178,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         retryPolicy,
         recordProcessingContext,
         processingFailureHandler,
-        processedRecordTracker
+        processedRecordTracker,
+        admittedRecordInterceptor,
+        processingOutcomeObserver
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
@@ -556,7 +567,9 @@ internal fun <K, V> defaultProcessingRuntime(
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver()
 ): RecordProcessingRuntime<K, V> =
     when (processingMode) {
         ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceNoOrderingRecordProcessingRuntime(
@@ -569,7 +582,9 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor,
+            outcomeObserver = outcomeObserver
         )
 
         ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
@@ -583,7 +598,9 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor,
+            outcomeObserver = outcomeObserver
         )
 
         ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
@@ -597,7 +614,9 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor,
+            outcomeObserver = outcomeObserver
         )
 
         ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstDropOldestRecordProcessingRuntime(
@@ -611,7 +630,9 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor,
+            outcomeObserver = outcomeObserver
         )
 
         ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstReplacePendingByKeyRecordProcessingRuntime(
@@ -625,6 +646,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor,
+            outcomeObserver = outcomeObserver
         )
     }

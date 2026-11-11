@@ -9,9 +9,13 @@ import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
@@ -42,7 +46,9 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    private val outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver()
 ) : RecordProcessingRuntime<K, V> {
     enum class Ordering {
         BY_KEY,
@@ -55,6 +61,9 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
+        outcomeObserver = outcomeObserver,
+        handoffReason = ::handoffReason,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
@@ -116,6 +125,10 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
             processedRecordTracker.discard(record)
+            outcomeObserver.onOutcome(
+                record,
+                RecordProcessingOutcome.PolicyDiscarded(RecordDropReason.ALREADY_PROCESSED)
+            )
             return true
         }
         if (!acceptingRecords.get() || !admissionBudget.tryAcquire()) {
@@ -185,6 +198,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             releaseDispatchedRecord(workItem.key)
             admissionBudget.release()
             processedRecordTracker.discard(workItem.record)
+            reportAssignmentEnd(workItem.record)
             throw error
         }
     }
@@ -194,8 +208,8 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             var workItem = workerChannel.receiveCatching().getOrNull() ?: break
             while (true) {
                 if (!processedRecordTracker.tryStart(workItem.record)) {
-                    reportAssignmentEnd(workItem.record)
                     processedRecordTracker.discard(workItem.record)
+                    reportAssignmentEnd(workItem.record)
                     admissionBudget.release()
                     val nextRecord = nextRecordFor(workItem.key) ?: break
                     workItem = WorkItem(workItem.key, nextRecord)
@@ -208,7 +222,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
                         processedRecordTracker.attach(workItem.record, pipeline)
                         pipeline.start()
                         try {
-                            if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                            if (pipeline.await() is RecordProcessingOutcome.HandedOff) {
                                 reportAssignmentEnd(workItem.record)
                             }
                         } catch (error: CancellationException) {
@@ -263,17 +277,20 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
 
     private fun releaseBufferedKeyQueues() {
         states.forEach { (key, _) ->
+            val releasedRecords = mutableListOf<ConsumerRecord<K, V>>()
             states.compute(key) { _, state ->
                 if (state != null) {
                     repeat(state.queue.size) {
-                        val record = state.queue.removeFirst()
-                        reportAssignmentEnd(record)
-                        processedRecordTracker.discard(record)
-                        admissionBudget.release()
-                        runtimeStats.onOrderingWorkDequeued()
+                        releasedRecords += state.queue.removeFirst()
                     }
                 }
                 null
+            }
+            releasedRecords.forEach { record ->
+                processedRecordTracker.discard(record)
+                reportAssignmentEnd(record)
+                admissionBudget.release()
+                runtimeStats.onOrderingWorkDequeued()
             }
         }
     }
@@ -286,13 +303,17 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             Ordering.BY_PARTITION -> OrderingKey.Partition(record.topic(), record.partition())
         }
 
-    private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
-        val reason = if (processedRecordTracker.isTerminallyClosed()) {
+    private fun handoffReason(): RecordHandoffReason =
+        if (processedRecordTracker.isTerminallyClosed()) {
             RecordHandoffReason.CONSUMER_FAILED
         } else {
             RecordHandoffReason.ASSIGNMENT_ENDED
         }
+
+    private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
+        val reason = handoffReason()
         metrics.onRecordHandedOff(record, reason)
+        outcomeObserver.onOutcome(record, RecordProcessingOutcome.HandedOff(reason))
     }
 
     private class KeyState<K, V>(

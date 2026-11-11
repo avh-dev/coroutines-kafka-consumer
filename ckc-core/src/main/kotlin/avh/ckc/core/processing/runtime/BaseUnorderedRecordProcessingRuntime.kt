@@ -9,9 +9,13 @@ import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
@@ -34,6 +38,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     protected val processedRecordTracker: ProcessedRecordTracker,
+    private val interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    protected val outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver(),
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null,
     private val handoffOnAssignmentEnd: Boolean = false
@@ -44,6 +50,9 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
+        outcomeObserver = outcomeObserver,
+        handoffReason = ::handoffReason,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
@@ -68,19 +77,24 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                     val record = workChannel.receiveCatching().getOrNull() ?: break
                     runtimeStats.onWorkDequeued()
                     if (!processedRecordTracker.tryStart(record)) {
-                        reportAssignmentEnd(record)
                         processedRecordTracker.discard(record)
+                        reportAssignmentEnd(record)
                         continue
                     }
                     runtimeStats.onWorkerStarted()
                     try {
-                        if (recordDropPolicy?.shouldDrop(record) != true) {
+                        if (recordDropPolicy?.shouldDrop(record) == true) {
+                            outcomeObserver.onOutcome(
+                                record,
+                                RecordProcessingOutcome.PolicyDiscarded(RecordDropReason.STALE_AGE)
+                            )
+                        } else {
                             supervisorScope {
                                 val pipeline = async(start = CoroutineStart.LAZY) { recordProcessor.process(record) }
                                 processedRecordTracker.attach(record, pipeline)
                                 pipeline.start()
                                 try {
-                                    if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                                    if (pipeline.await() is RecordProcessingOutcome.HandedOff) {
                                         reportAssignmentEnd(record)
                                     }
                                 } catch (error: kotlinx.coroutines.CancellationException) {
@@ -113,6 +127,10 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         if (processedRecordTracker.isProcessed(record)) {
             metrics.onRecordDropped(record, RecordDropReason.ALREADY_PROCESSED)
             processedRecordTracker.discard(record)
+            outcomeObserver.onOutcome(
+                record,
+                RecordProcessingOutcome.PolicyDiscarded(RecordDropReason.ALREADY_PROCESSED)
+            )
             return true
         }
 
@@ -142,11 +160,13 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     }
 
     protected fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
+        val reason = handoffReason()
         if (handoffOnAssignmentEnd) {
-            metrics.onRecordHandedOff(record, handoffReason())
+            metrics.onRecordHandedOff(record, reason)
         } else {
             metrics.onRecordDropped(record, RecordDropReason.LIFECYCLE_DISCARD)
         }
+        outcomeObserver.onOutcome(record, RecordProcessingOutcome.HandedOff(reason))
     }
 
     protected fun handoffReason(): RecordHandoffReason =

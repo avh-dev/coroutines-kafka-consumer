@@ -7,6 +7,10 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -23,7 +27,9 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver()
 ) : BaseUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency = workerConcurrency,
     workChannelCapacity = workChannelCapacity,
@@ -35,6 +41,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
     processedRecordTracker = processedRecordTracker,
+    interceptor = interceptor,
+    outcomeObserver = outcomeObserver,
     handoffOnAssignmentEnd = true
 ) {
     override fun createChannel(
@@ -46,8 +54,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
             onBufferOverflow = BufferOverflow.SUSPEND,
             onUndeliveredElement = {
                 runtimeStats.onWorkDequeued()
-                metrics.onRecordHandedOff(it, handoffReason())
                 processedRecordTracker.discard(it)
+                reportAssignmentEnd(it)
             }
         )
 }
