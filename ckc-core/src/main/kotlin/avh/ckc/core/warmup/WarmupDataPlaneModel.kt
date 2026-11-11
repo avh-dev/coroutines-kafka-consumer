@@ -2,11 +2,36 @@ package avh.ckc.core.warmup
 
 import avh.ckc.core.metrics.RecordDropReason
 import org.apache.kafka.common.TopicPartition
+import java.util.UUID
+
+private const val MAX_WARMUP_IDENTIFIER_LENGTH = 255
+
+@JvmInline
+value class WarmupInstanceId(val value: String) {
+    init {
+        validateWarmupIdentifier("instanceId", value)
+    }
+
+    companion object {
+        fun random(): WarmupInstanceId = WarmupInstanceId(UUID.randomUUID().toString())
+    }
+}
+
+@JvmInline
+value class WarmupConsumerId(val value: String) {
+    init {
+        validateWarmupIdentifier("consumerId", value)
+    }
+}
 
 @JvmInline
 value class WarmupSessionId(val value: String) {
     init {
-        require(value.isNotBlank()) { "Warm-up session id must not be blank" }
+        validateWarmupIdentifier("sessionId", value)
+    }
+
+    companion object {
+        fun random(): WarmupSessionId = WarmupSessionId(UUID.randomUUID().toString())
     }
 }
 
@@ -53,4 +78,12 @@ fun interface WarmupForwardingObserver {
 fun interface WarmupCompletionPublisher {
     /** Must enqueue without blocking; transport I/O belongs to the control loop. */
     fun publish(completed: WarmupRecordCompleted)
+}
+
+private fun validateWarmupIdentifier(name: String, value: String) {
+    require(value.isNotBlank()) { "$name must not be blank" }
+    require(value.length <= MAX_WARMUP_IDENTIFIER_LENGTH) {
+        "$name must be at most $MAX_WARMUP_IDENTIFIER_LENGTH characters"
+    }
+    require(value.none(Char::isISOControl)) { "$name must not contain control characters" }
 }

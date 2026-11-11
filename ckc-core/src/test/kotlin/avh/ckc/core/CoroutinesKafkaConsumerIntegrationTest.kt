@@ -9,11 +9,19 @@ import avh.ckc.core.warmup.FixedLinkWarmupDataPlane
 import avh.ckc.core.warmup.KafkaWarmupRecordSender
 import avh.ckc.core.warmup.WarmupDestination
 import avh.ckc.core.warmup.WarmupDestinationResolver
+import avh.ckc.core.warmup.WarmupControlMessageHandler
+import avh.ckc.core.warmup.WarmupControlRecord
+import avh.ckc.core.warmup.WarmupControlTransport
+import avh.ckc.core.warmup.WarmupControlTransportConfiguration
+import avh.ckc.core.warmup.WarmupConsumerId
 import avh.ckc.core.warmup.WarmupForwardingObserver
+import avh.ckc.core.warmup.WarmupInstanceId
 import avh.ckc.core.warmup.WarmupRecordCompleted
 import avh.ckc.core.warmup.WarmupRecordId
 import avh.ckc.core.warmup.WarmupRemoteOutcome
+import avh.ckc.core.warmup.WarmupRequested
 import avh.ckc.core.warmup.WarmupSessionId
+import avh.ckc.core.warmup.WarmupTopicMapping
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -64,6 +72,51 @@ import kotlin.time.Duration.Companion.seconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    fun `control broadcast is delivered once to each library context`() = runBlocking {
+        val controlTopic = "ckc-control-it-${UUID.randomUUID()}"
+        createTopic(controlTopic)
+        val firstInstance = WarmupInstanceId("first-${UUID.randomUUID()}")
+        val secondInstance = WarmupInstanceId("second-${UUID.randomUUID()}")
+        val firstReceived = CopyOnWriteArrayList<WarmupControlRecord>()
+        val secondReceived = CopyOnWriteArrayList<WarmupControlRecord>()
+        val first = controlTransport(controlTopic, firstInstance, firstReceived)
+        val second = controlTransport(controlTopic, secondInstance, secondReceived)
+
+        try {
+            first.start()
+            second.start()
+            withTimeout(10_000) {
+                first.awaitReady()
+                second.awaitReady()
+            }
+            val now = System.currentTimeMillis()
+            val request = WarmupRequested(
+                sessionId = WarmupSessionId("session-${UUID.randomUUID()}"),
+                senderInstanceId = firstInstance,
+                mappings = listOf(
+                    WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders")
+                ),
+                offerDeadlineEpochMillis = now + 10_000,
+                configurationFingerprint = "integration-test",
+                expiresAtEpochMillis = now + 60_000
+            )
+
+            val acknowledgement = withTimeout(10_000) { first.send(request) }
+            withTimeout(10_000) {
+                while (firstReceived.none { it.message == request } || secondReceived.none { it.message == request }) {
+                    delay(10)
+                }
+            }
+
+            assertEquals(acknowledgement.offset(), firstReceived.single { it.message == request }.offset)
+            assertEquals(acknowledgement.offset(), secondReceived.single { it.message == request }.offset)
+        } finally {
+            first.stop()
+            second.stop()
+        }
+    }
 
     @Test
     @Suppress("UNCHECKED_CAST")
@@ -127,6 +180,22 @@ class CoroutinesKafkaConsumerIntegrationTest {
             plane.close()
         }
     }
+
+    private fun controlTransport(
+        topic: String,
+        instanceId: WarmupInstanceId,
+        received: MutableList<WarmupControlRecord>
+    ) = WarmupControlTransport(
+        configuration = WarmupControlTransportConfiguration(
+            instanceId = instanceId,
+            topic = topic,
+            producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+            consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers),
+            pollTimeout = 20.milliseconds,
+            sendTimeout = 10.seconds
+        ),
+        handler = WarmupControlMessageHandler { received += it }
+    )
 
     @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
