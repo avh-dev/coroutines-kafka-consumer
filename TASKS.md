@@ -503,7 +503,7 @@
 | [INFRA-338](#infra-338) | Preserve stable pod identities in Grafana legends during scale-up. | DONE |
 | [INFRA-339](#infra-339) | Align internal-lab Redis capacity and captured resource evidence. | DONE |
 | [INFRA-340](#infra-340) | Prepare worker-local ephemeral warm-up Kafka infrastructure and lifecycle. | DONE |
-| [INFRA-341](#infra-341) | Separate source and warm-up audit categories in analysis and experiment reports. | IN_PROGRESS |
+| [INFRA-341](#infra-341) | Separate source and warm-up audit categories in analysis and experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6057,3 +6057,8 @@ _Date: 2026-11-11_
 Teach shared audit analysis and reporting to classify configured source and warm-up topic sets.
 Keep source publication-to-terminal correctness unchanged, report warm-up outcomes separately
 without requiring generator publications, and retain forwarding records only as diagnostics.
+The analyzer accepts explicit disjoint topic sets, preserves the legacy source totals/topics
+shape, validates `W` records without correlating them, and excludes them from publication cohorts.
+The experiment report renders acknowledged delegations and warm-up terminal outcomes in a
+separate outcome-only section, including per-topic rows and no missing-publication errors.
+Verification: all 26 shared audit tests and all 43 internal-lab experiment-report tests pass.

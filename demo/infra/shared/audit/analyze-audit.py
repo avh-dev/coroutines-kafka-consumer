@@ -1505,7 +1505,11 @@ def cohort_keys(args: argparse.Namespace) -> set[RecordKey] | None:
                 if not line.strip() or line.startswith("S|"):
                     continue
                 record = parse_record(line)
-                if record.record_type == "P" and args.published_from_ms <= record.audit_timestamp_ms < args.published_until_ms:
+                if (
+                    isinstance(record, AuditRecord)
+                    and record.record_type == "P"
+                    and args.published_from_ms <= record.audit_timestamp_ms < args.published_until_ms
+                ):
                     selected.add(record.key)
     return selected
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 
@@ -82,6 +84,24 @@ class AuditAnalyzerFairnessTest(unittest.TestCase):
                 ["order.events.v1"],
                 ["order.events.v1"],
             )
+
+    def test_forwarding_diagnostics_do_not_enter_publication_cohort_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "audit.log"
+            path.write_text(
+                "W|session-1|1|0|7|101|0|3|1050\n"
+                "P|1|0|7|1000|1100|order-a\n",
+                encoding="utf-8",
+            )
+            args = Namespace(
+                published_from_ms=1000,
+                published_until_ms=1200,
+                input_file=[str(path)],
+                input_dir=None,
+                glob="*.log.gz",
+            )
+
+            self.assertEqual({analyzer.RecordKey(1, 0, 7)}, analyzer.cohort_keys(args))
 
     def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
         accumulator = analyzer.MultiWindowAuditAccumulator(
