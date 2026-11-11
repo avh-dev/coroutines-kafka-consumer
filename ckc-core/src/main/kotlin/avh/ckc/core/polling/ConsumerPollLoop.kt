@@ -179,6 +179,7 @@ internal class ConsumerPollLoop<K, V>(
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
     private val finalizedShutdownSignal = CompletableDeferred<Unit>()
+    private val readinessSignal = CompletableDeferred<Unit>()
 
     @Volatile
     private var finalizationRequested = false
@@ -198,6 +199,8 @@ internal class ConsumerPollLoop<K, V>(
         job = scope.launch { runLoop() }
         return job!!
     }
+
+    override fun readiness(): Deferred<Unit> = readinessSignal
 
     /**
      * Phase 1 shutdown: request draining and pause poll().
@@ -325,6 +328,9 @@ internal class ConsumerPollLoop<K, V>(
                     }
                 }
             }
+        } catch (error: Throwable) {
+            readinessSignal.completeExceptionally(error)
+            throw error
         } finally {
             if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
             running = false
@@ -333,6 +339,11 @@ internal class ConsumerPollLoop<K, V>(
             // but it is already safe for the owner to join the completed job.
             readyForShutdownSignal.complete(Unit)
             finalizedShutdownSignal.complete(Unit)
+            if (!readinessSignal.isCompleted) {
+                readinessSignal.completeExceptionally(
+                    CancellationException("Kafka consumer #$id stopped before assignment readiness")
+                )
+            }
         }
     }
 
@@ -457,6 +468,12 @@ internal class ConsumerPollLoop<K, V>(
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        if (partitions.isEmpty()) {
+            if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
+            refreshAssignedPartitionSnapshot()
+            readinessSignal.complete(Unit)
+            return
+        }
         val recoveryCallTimeout = remainingRecoveryCallTimeout()
         val committedOffsets = if (recoveryCallTimeout == null) {
             consumer.committed(partitions.toSet())
@@ -490,6 +507,7 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     private fun remainingRecoveryCallTimeout(): Duration? {

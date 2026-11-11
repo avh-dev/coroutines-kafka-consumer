@@ -28,6 +28,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
@@ -322,6 +323,18 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
                 prepareForStop()
             }
         }
+    }
+
+    /** Waits until every poll loop has established its first Kafka assignment and initial positions. */
+    suspend fun awaitReady() {
+        check(started) { "Consumer must be started before awaiting readiness" }
+        try {
+            pollLoops.map { it.readiness() }.awaitAll()
+        } catch (error: Throwable) {
+            failure.get()?.let { throw it }
+            throw error
+        }
+        failure.get()?.let { throw it }
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
