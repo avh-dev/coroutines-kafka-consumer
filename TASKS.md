@@ -524,6 +524,7 @@
 | [INFRA-334](#infra-334) | Colocate HTTP stubs with application pods in the 16k warm-up comparison to reduce cross-node packet pressure. | DONE |
 | [INFRA-335](#infra-335) | Publish the warm-up Kafka endpoint during topic provisioning to avoid a readiness deadlock. | DONE |
 | [INFRA-336](#infra-336) | Gate application deployment on complete ephemeral warm-up Kafka topic provisioning. | DONE |
+| [INFRA-337](#infra-337) | Remove the ephemeral warm-up Kafka broker during experiment cleanup. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6531,3 +6532,16 @@ without a ready donor. This is a child task of GLOBAL-3.
 The internal-lab runner now applies the labeled broker resources first, waits for the
 readiness-gated deployment rollout, and only then applies the complete project manifest.
 Focused warm-up orchestration, synchronization, and shell syntax checks pass.
+
+<a id="infra-337"></a>
+### INFRA-337 - Clean up ephemeral warm-up Kafka
+
+_Date: 2026-11-11_
+
+Delete the dedicated warm-up Kafka deployment and Service after application pods have
+stopped, and wait for its pod to terminate. This prevents an obsolete control journal and
+broker process from surviving a cancelled or completed experiment. This is a child task of
+GLOBAL-3.
+Cleanup now preserves the broker through application shutdown, deletes its labeled Deployment
+and Service afterward, and waits for the broker pod to disappear. Focused synchronization and
+shell syntax checks pass.
