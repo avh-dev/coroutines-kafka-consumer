@@ -59,6 +59,8 @@ internal class WarmupControlTransportConfiguration(
 
     init {
         require(topic.isNotBlank()) { "Control topic must not be blank" }
+        require(topic.length <= 249) { "Control topic must be at most 249 characters" }
+        require(topic.none(Char::isISOControl)) { "Control topic must not contain control characters" }
         require(groupIdPrefix.isNotBlank()) { "Control group id prefix must not be blank" }
         require(historyRecordLimit > 0) { "Control history record limit must be positive" }
         require(pollTimeout.isPositive() && pollTimeout.inWholeMilliseconds > 0) {
@@ -95,9 +97,14 @@ internal fun interface WarmupInvalidControlRecordHandler {
     fun onInvalidRecord(key: String?, error: Throwable)
 
     companion object {
-        val NOOP = WarmupInvalidControlRecordHandler { _, _ -> }
+        val FAIL = WarmupInvalidControlRecordHandler { key, error ->
+            throw InvalidWarmupControlRecordException(key, error)
+        }
     }
 }
+
+internal class InvalidWarmupControlRecordException(key: String?, cause: Throwable) :
+    IllegalArgumentException("Invalid warm-up control record with key ${key ?: "<null>"}", cause)
 
 internal interface WarmupControlChannel {
     fun start()
@@ -112,7 +119,7 @@ internal interface WarmupControlChannel {
 internal class WarmupControlTransport(
     private val configuration: WarmupControlTransportConfiguration,
     private val handler: WarmupControlMessageHandler,
-    private val invalidRecordHandler: WarmupInvalidControlRecordHandler = WarmupInvalidControlRecordHandler.NOOP,
+    private val invalidRecordHandler: WarmupInvalidControlRecordHandler = WarmupInvalidControlRecordHandler.FAIL,
     parentContext: CoroutineContext = Dispatchers.IO,
     private val producerFactory: (Map<String, Any?>) -> Producer<String, ByteArray> = { KafkaProducer(it) },
     private val consumerFactory: (Map<String, Any?>) -> Consumer<String, ByteArray> = { KafkaConsumer(it) },
@@ -120,6 +127,7 @@ internal class WarmupControlTransport(
 ) : WarmupControlChannel {
     private sealed interface DispatchItem {
         data class Record(val record: WarmupControlRecord) : DispatchItem
+        data class InvalidRecord(val key: String?, val error: Throwable) : DispatchItem
         data object ReplayComplete : DispatchItem
     }
 
@@ -215,7 +223,7 @@ internal class WarmupControlTransport(
                             }
                         }
                     } catch (error: Exception) {
-                        invalidRecordHandler.onInvalidRecord(record.key(), error)
+                        enqueue(DispatchItem.InvalidRecord(record.key(), error))
                         return@forEach
                     }
                     enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
@@ -238,6 +246,7 @@ internal class WarmupControlTransport(
         for (item in commands) {
             when (item) {
                 is DispatchItem.Record -> handler.onMessage(item.record)
+                is DispatchItem.InvalidRecord -> invalidRecordHandler.onInvalidRecord(item.key, item.error)
                 DispatchItem.ReplayComplete -> readiness.complete(Unit)
             }
         }

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.Consumer
@@ -110,6 +111,49 @@ class WarmupControlTransportTest {
         }
     }
 
+    @Test
+    fun `malformed replay record fails closed before readiness`() {
+        val request = request("session")
+        val transport = transport(
+            mock(),
+            replayConsumer(listOf(request), beginning = 0L, end = 1L) { "wrong-session-key" }
+        ) { }
+
+        transport.start()
+        try {
+            assertThrows(InvalidWarmupControlRecordException::class.java) {
+                runBlocking { withTimeout(1_000) { transport.awaitReady() } }
+            }
+        } finally {
+            runBlocking { transport.stop() }
+        }
+    }
+
+    @Test
+    fun `cancelled stop caller does not cancel shared bounded cleanup`() = runBlocking {
+        val closeEntered = CompletableDeferred<Unit>()
+        val releaseClose = CountDownLatch(1)
+        val producer = mock<Producer<String, ByteArray>>()
+        doAnswer {
+            closeEntered.complete(Unit)
+            releaseClose.await()
+            Unit
+        }.whenever(producer).close(any<JavaDuration>())
+        val transport = transport(producer, replayConsumer(emptyList(), 0L, 0L)) { }
+        transport.start()
+        withTimeout(1_000) { transport.awaitReady() }
+
+        val firstStop = async(Dispatchers.Default) { transport.stop() }
+        withTimeout(1_000) { closeEntered.await() }
+        firstStop.cancelAndJoin()
+        val repeatedStop = async(Dispatchers.Default) { transport.stop() }
+        assertFalse(repeatedStop.isCompleted)
+
+        releaseClose.countDown()
+        withTimeout(1_000) { repeatedStop.await() }
+        verify(producer).close(any<JavaDuration>())
+    }
+
     private fun transport(
         producer: Producer<String, ByteArray>,
         consumer: Consumer<String, ByteArray>,
@@ -139,7 +183,8 @@ class WarmupControlTransportTest {
     private fun replayConsumer(
         messages: List<WarmupControlMessage>,
         beginning: Long,
-        end: Long
+        end: Long,
+        recordKey: (WarmupControlMessage) -> String = { it.sessionId.value }
     ): Consumer<String, ByteArray> {
         val consumer = mock<Consumer<String, ByteArray>>()
         val listener = AtomicReference<ConsumerRebalanceListener>()
@@ -163,7 +208,7 @@ class WarmupControlTransportTest {
                                 "control",
                                 0,
                                 firstOffset + index,
-                                message.sessionId.value,
+                                recordKey(message),
                                 WarmupControlCodec.encode(message)
                             )
                         }

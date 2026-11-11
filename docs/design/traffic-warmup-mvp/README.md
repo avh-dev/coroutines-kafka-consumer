@@ -134,7 +134,8 @@ CORE-85 implements this boundary with a configured record replay limit. The tran
 retained beginning, chosen replay start, and initial end offsets, and reports invalid records; the
 CORE-86 lifecycle must choose cold fallback when that evidence is insufficient. Replay is fully
 dispatched before transport readiness. Business/lifecycle handlers run on the separate dispatch
-coroutine and can never hold the Kafka poll loop.
+coroutine and can never hold the Kafka poll loop. A malformed record fails the transport by
+default; an explicitly supplied invalid-record handler also runs on dispatch rather than polling.
 
 The MVP permits one active session per control namespace. This deliberately conservative limit
 provides exclusive warm-up destination partitions without distributed reservations.

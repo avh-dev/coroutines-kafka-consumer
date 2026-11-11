@@ -48,7 +48,7 @@ internal object WarmupControlCodec {
                 }
                 is RecipientDrained -> data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
                 is SessionEnded -> {
-                    data.writeByte(message.state.ordinal)
+                    data.writeByte(message.state.wireId())
                     data.writeNullableString(message.reason)
                 }
             }
@@ -115,8 +115,7 @@ internal object WarmupControlCodec {
                 )
                 TYPE_SESSION_ENDED -> SessionEnded(
                     sessionId, sender,
-                    WarmupSessionEndState.entries.getOrNull(data.readUnsignedByte())
-                        ?: throw IllegalArgumentException("Unknown warm-up session end state"),
+                    sessionEndState(data.readUnsignedByte()),
                     data.readNullableString(), fingerprint, deadline, version
                 )
                 else -> throw IllegalArgumentException("Unknown warm-up control message type: $type")
@@ -169,7 +168,7 @@ internal object WarmupControlCodec {
             WarmupRemoteOutcome.TerminalFailure -> writeByte(OUTCOME_TERMINAL_FAILURE)
             is WarmupRemoteOutcome.Discarded -> {
                 writeByte(OUTCOME_DISCARDED)
-                writeByte(outcome.reason.ordinal)
+                writeByte(outcome.reason.wireId())
             }
         }
     }
@@ -180,8 +179,7 @@ internal object WarmupControlCodec {
             OUTCOME_SUCCEEDED -> WarmupRemoteOutcome.Succeeded
             OUTCOME_TERMINAL_FAILURE -> WarmupRemoteOutcome.TerminalFailure
             OUTCOME_DISCARDED -> WarmupRemoteOutcome.Discarded(
-                RecordDropReason.entries.getOrNull(readUnsignedByte())
-                    ?: throw IllegalArgumentException("Unknown warm-up discard reason")
+                recordDropReason(readUnsignedByte())
             )
             else -> throw IllegalArgumentException("Unknown warm-up remote outcome: $type")
         }
@@ -240,6 +238,38 @@ internal object WarmupControlCodec {
     private fun requireTarget(target: WarmupInstanceId?, type: String): WarmupInstanceId =
         requireNotNull(target) { "$type target is missing" }
 
+    private fun WarmupSessionEndState.wireId(): Int = when (this) {
+        WarmupSessionEndState.COMPLETED -> SESSION_COMPLETED
+        WarmupSessionEndState.FAILED -> SESSION_FAILED
+        WarmupSessionEndState.COLD_FALLBACK -> SESSION_COLD_FALLBACK
+    }
+
+    private fun sessionEndState(id: Int): WarmupSessionEndState = when (id) {
+        SESSION_COMPLETED -> WarmupSessionEndState.COMPLETED
+        SESSION_FAILED -> WarmupSessionEndState.FAILED
+        SESSION_COLD_FALLBACK -> WarmupSessionEndState.COLD_FALLBACK
+        else -> throw IllegalArgumentException("Unknown warm-up session end state: $id")
+    }
+
+    private fun RecordDropReason.wireId(): Int = when (this) {
+        RecordDropReason.ALREADY_PROCESSED -> DISCARD_ALREADY_PROCESSED
+        RecordDropReason.QUEUE_OVERFLOW -> DISCARD_QUEUE_OVERFLOW
+        RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD -> DISCARD_REPLACED_BY_NEWER_KEY_RECORD
+        RecordDropReason.NEW_KEY_QUEUE_FULL -> DISCARD_NEW_KEY_QUEUE_FULL
+        RecordDropReason.STALE_AGE -> DISCARD_STALE_AGE
+        RecordDropReason.LIFECYCLE_DISCARD -> DISCARD_LIFECYCLE
+    }
+
+    private fun recordDropReason(id: Int): RecordDropReason = when (id) {
+        DISCARD_ALREADY_PROCESSED -> RecordDropReason.ALREADY_PROCESSED
+        DISCARD_QUEUE_OVERFLOW -> RecordDropReason.QUEUE_OVERFLOW
+        DISCARD_REPLACED_BY_NEWER_KEY_RECORD -> RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD
+        DISCARD_NEW_KEY_QUEUE_FULL -> RecordDropReason.NEW_KEY_QUEUE_FULL
+        DISCARD_STALE_AGE -> RecordDropReason.STALE_AGE
+        DISCARD_LIFECYCLE -> RecordDropReason.LIFECYCLE_DISCARD
+        else -> throw IllegalArgumentException("Unknown warm-up discard reason: $id")
+    }
+
     private const val TYPE_REQUESTED = 1
     private const val TYPE_DONOR_OFFERED = 2
     private const val TYPE_SESSION_ACCEPTED = 3
@@ -253,6 +283,15 @@ internal object WarmupControlCodec {
     private const val OUTCOME_SUCCEEDED = 1
     private const val OUTCOME_TERMINAL_FAILURE = 2
     private const val OUTCOME_DISCARDED = 3
+    private const val SESSION_COMPLETED = 1
+    private const val SESSION_FAILED = 2
+    private const val SESSION_COLD_FALLBACK = 3
+    private const val DISCARD_ALREADY_PROCESSED = 1
+    private const val DISCARD_QUEUE_OVERFLOW = 2
+    private const val DISCARD_REPLACED_BY_NEWER_KEY_RECORD = 3
+    private const val DISCARD_NEW_KEY_QUEUE_FULL = 4
+    private const val DISCARD_STALE_AGE = 5
+    private const val DISCARD_LIFECYCLE = 6
 }
 
 private class SizeLimitedByteArrayOutputStream(private val maximumSize: Int) : ByteArrayOutputStream() {

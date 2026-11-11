@@ -95,12 +95,14 @@ internal class WarmupSingleSessionProtocol(
             is SessionAccepted,
             is RecipientReady,
             is ControlRecordCompleted,
-            is RecipientDrained,
+            is RecipientDrained ->
+                message.senderInstanceId == recipient && message.targetInstanceId != recipient
             is SessionEnded -> message.senderInstanceId == recipient
             is DonorOffered,
             is DonorAccepted,
             is SessionRejected,
-            is ForwardingStopped -> message.targetInstanceId == recipient
+            is ForwardingStopped ->
+                message.senderInstanceId != recipient && message.targetInstanceId == recipient
         }
 }
 

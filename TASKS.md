@@ -6008,8 +6008,10 @@ Add a versioned control message model and codec, one physical Kafka control cons
 library context with local participant routing, and the reviewed conservative protocol
 for one active session per namespace. Reject conflict and ambiguity instead of adding
 elections, generations, snapshots, reservations, or distributed recovery.
-The bounded replay completes through the dispatch coroutine before readiness; invalid or
-truncated history remains explicit evidence for CORE-86 to choose cold fallback.
-Verification: all 293 core, Micrometer, and Spring starter unit tests pass; all 25
+The bounded replay completes through the dispatch coroutine before readiness; truncated
+history remains explicit evidence for CORE-86 to choose cold fallback. Review made malformed
+records fail closed off the poll loop, tightened donor/recipient role validation, preserved
+shared cleanup across caller cancellation, and replaced enum ordinals with stable wire IDs.
+Verification: all 295 core, Micrometer, and Spring starter unit tests pass; all 25
 real-Kafka integration tests pass, including delivery of one control broadcast to two
 independent library contexts through their instance-specific control groups.

@@ -69,13 +69,28 @@ class WarmupSingleSessionProtocolTest {
         )
         assertEquals(request.sessionId, protocol.activeSessionId())
         assertEquals(
+            WarmupControlDecisionKind.IGNORED_STALE,
+            protocol.evaluate(
+                record(
+                    7,
+                    DonorAccepted(
+                        request.sessionId,
+                        recipient,
+                        recipient,
+                        request.configurationFingerprint,
+                        request.expiresAtEpochMillis
+                    )
+                )
+            ).kind
+        )
+        assertEquals(
             WarmupControlDecisionKind.ENDED,
-            protocol.evaluate(record(7, ended(request))).kind
+            protocol.evaluate(record(8, ended(request))).kind
         )
         assertEquals(null, protocol.activeSessionId())
         assertEquals(
             WarmupControlDecisionKind.IGNORED_STALE,
-            protocol.evaluate(record(8, accepted(request, local))).kind
+            protocol.evaluate(record(9, accepted(request, local))).kind
         )
     }
 
