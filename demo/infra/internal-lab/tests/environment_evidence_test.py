@@ -6,8 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "assets/helpers/capture-environment-evidence.py"
+COMPOSE = SCRIPT.parents[1] / "compose/docker-compose.host-services.yml"
 SPEC = importlib.util.spec_from_file_location("capture_environment_evidence", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -15,6 +18,18 @@ SPEC.loader.exec_module(MODULE)
 
 
 class EnvironmentEvidenceTest(unittest.TestCase):
+    def test_redis_capacity_keeps_runtime_headroom_and_matches_evidence(self) -> None:
+        redis = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["redis"]
+        command = redis["command"]
+        maxmemory = command[command.index("--maxmemory") + 1]
+        container_memory = redis["deploy"]["resources"]["limits"]["memory"]
+
+        self.assertEqual("3gb", maxmemory)
+        self.assertEqual("noeviction", command[command.index("--maxmemory-policy") + 1])
+        self.assertEqual("4G", container_memory)
+        self.assertLess(int(maxmemory.removesuffix("gb")), int(container_memory.removesuffix("G")))
+        self.assertEqual(4, MODULE.REDIS_MEMORY_LIMIT_GIB)
+
     def test_external_command_timeout_returns_no_evidence(self) -> None:
         with patch.object(MODULE.subprocess, "run", side_effect=subprocess.TimeoutExpired(["probe"], 5)):
             self.assertEqual({}, MODULE.command_json(["probe"]))
