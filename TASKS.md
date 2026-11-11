@@ -80,6 +80,7 @@
 | [CORE-83](#core-83) | Add semantic terminal processing outcomes and one admitted-record interception seam across every processing mode. | DONE |
 | [CORE-84](#core-84) | Implement fixed-link real-traffic delegation with interval quota, explicit outcomes, bounded tracking, deadlines, and local fallback. | DONE |
 | [CORE-85](#core-85) | Implement the minimal versioned warm-up control codec, shared Kafka transport, and conservative single-session protocol. | DONE |
+| [CORE-86](#core-86) | Implement the library-owned recipient, drain, cold-fallback, and main-consumer lifecycle with a public warm-up context API. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6015,3 +6016,13 @@ shared cleanup across caller cancellation, and replaced enum ordinals with stabl
 Verification: all 295 core, Micrometer, and Spring starter unit tests pass; all 25
 real-Kafka integration tests pass, including delivery of one control broadcast to two
 independent library contexts through their instance-specific control groups.
+
+<a id="core-86"></a>
+### CORE-86 - Implement the library-owned warm-up lifecycle
+
+_Date: 2026-11-11_
+
+Own discovery, recipient preparation, readiness, forwarding shutdown, tail drain, and
+the warm-up-to-main transition inside one non-global library context. Expose configuration
+and consumer definitions without requiring applications to create warm-up consumers or a
+coordinator, and preserve bounded cold fallback plus shutdown-without-main semantics.

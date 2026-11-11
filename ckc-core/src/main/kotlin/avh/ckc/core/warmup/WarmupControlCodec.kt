@@ -37,7 +37,10 @@ internal object WarmupControlCodec {
                     writeTopicMapping(donor.mapping)
                     writeCollection(donor.sourcePartitions.sorted()) { writeInt(it) }
                 }
-                is SessionAccepted -> data.writeCollection(message.assignments) { writeAssignment(it) }
+                is SessionAccepted -> {
+                    data.writeLong(message.stopAtEpochMillis)
+                    data.writeCollection(message.assignments) { writeAssignment(it) }
+                }
                 is DonorAccepted -> Unit
                 is SessionRejected -> data.writeString(message.reason)
                 is RecipientReady -> data.writeCollection(message.assignments) { writeAssignment(it) }
@@ -86,10 +89,13 @@ internal object WarmupControlCodec {
                         WarmupDonorMapping(readTopicMapping(), readCollection { readInt() }.toSet())
                     }, fingerprint, deadline, version
                 )
-                TYPE_SESSION_ACCEPTED -> SessionAccepted(
-                    sessionId, sender, requireTarget(target, "SessionAccepted"),
-                    data.readCollection { readAssignment() }, fingerprint, deadline, version
-                )
+                TYPE_SESSION_ACCEPTED -> {
+                    val stopAtEpochMillis = data.readLong()
+                    SessionAccepted(
+                        sessionId, sender, requireTarget(target, "SessionAccepted"),
+                        data.readCollection { readAssignment() }, stopAtEpochMillis, fingerprint, deadline, version
+                    )
+                }
                 TYPE_DONOR_ACCEPTED -> DonorAccepted(
                     sessionId, sender, requireTarget(target, "DonorAccepted"), fingerprint, deadline, version
                 )

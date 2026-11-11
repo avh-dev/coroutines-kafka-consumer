@@ -1,9 +1,21 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
+import avh.ckc.core.warmup.KafkaWarmupParticipant
+import avh.ckc.core.warmup.SwitchableWarmupDataPlane
+import avh.ckc.core.warmup.TrafficWarmupConsumerConfiguration
+import avh.ckc.core.warmup.TrafficWarmupContext
+import avh.ckc.core.warmup.WarmupConsumerId
+import avh.ckc.core.warmup.WarmupTopicMapping
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.common.TopicPartition
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
@@ -16,6 +28,12 @@ import kotlin.time.Duration.Companion.seconds
  * failure handling, and the main record handler into a single user-facing definition.
  */
 class CoroutinesKafkaConsumerBuilder<K, V> {
+    private data class WarmupDefinition(
+        val context: TrafficWarmupContext,
+        val consumerId: WarmupConsumerId,
+        val configuration: TrafficWarmupConsumerConfiguration
+    )
+
     /**
      * Processing semantics used by the consumer runtime.
      */
@@ -113,6 +131,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private var topics: List<String>? = null
     private var topicsPattern: Pattern? = null
     private var handler: KafkaRecordHandler<K, V>? = null
+    private var warmupDefinition: WarmupDefinition? = null
 
     /**
      * Subscribes the consumer to the provided topic names.
@@ -153,6 +172,23 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     }
 
     /**
+     * Registers this consumer in a library-owned traffic warm-up context.
+     * The ordinary handler and processing mode are reused by the temporary recipient consumer.
+     */
+    fun trafficWarmup(
+        context: TrafficWarmupContext,
+        consumerId: String,
+        block: TrafficWarmupConsumerConfiguration.() -> Unit
+    ) {
+        check(warmupDefinition == null) { "Traffic warm-up is already configured for this consumer" }
+        warmupDefinition = WarmupDefinition(
+            context,
+            WarmupConsumerId(consumerId),
+            TrafficWarmupConsumerConfiguration().apply(block)
+        )
+    }
+
+    /**
      * Builds a low-level [CoroutinesKafkaConsumer] from the accumulated builder state.
      */
     internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> {
@@ -161,11 +197,79 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             "Exactly one of topics or topicsPattern must be specified"
         }
 
-        return CoroutinesKafkaConsumer(
+        val warmup = warmupDefinition
+        if (warmup == null) return buildRuntime(consumerProperties, configuredHandler)
+
+        require(warmup.configuration.mappings.isNotEmpty()) { "At least one warm-up topic mapping is required" }
+        listOf(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG
+        ).forEach { property ->
+            require(warmup.configuration.forwardingProducerProperties.containsKey(property)) {
+                "Kafka property '$property' must be specified for warm-up forwarding"
+            }
+        }
+        topics?.let { configuredTopics ->
+            require(warmup.configuration.mappings.keys.all(configuredTopics::contains)) {
+                "Every warm-up source topic must belong to the main consumer subscription"
+            }
+        }
+        val mappings = warmup.configuration.mappings.map { (source, destination) ->
+            WarmupTopicMapping(warmup.consumerId, source, destination)
+        }
+        val switchable = SwitchableWarmupDataPlane<K, V>()
+        val main = buildRuntime(
+            consumerProperties,
+            configuredHandler,
+            admittedRecordInterceptor = switchable
+        )
+        val settings = warmup.context.participantSettings()
+        val participant = KafkaWarmupParticipant(
+            consumerId = warmup.consumerId,
+            mappings = mappings,
+            main = main,
+            switchableDataPlane = switchable,
+            createWarmup = { partitions, observer ->
+                buildRuntime(
+                    consumerProperties = warmup.context.recipientConsumerProperties(
+                        consumerProperties,
+                        warmup.configuration.warmupConsumerProperties,
+                        warmup.consumerId
+                    ),
+                    configuredHandler = configuredHandler,
+                    assignedPartitions = partitions,
+                    processingOutcomeObserver = observer,
+                    pollLoopConcurrency = 1
+                )
+            },
+            producerProperties = warmup.configuration.forwardingProducerProperties,
+            metrics = metrics,
+            forwardingObserver = warmup.configuration.forwardingObserver,
+            scope = settings.scope,
+            quota = settings.quota,
+            quotaInterval = settings.quotaInterval,
+            delegationTimeout = settings.delegationTimeout,
+            cleanupTimeout = settings.cleanupTimeout,
+            completionBufferCapacity = settings.completionBufferCapacity
+        )
+        warmup.context.register(participant)
+        main.attachManagedLifecycle(warmup.context)
+        return main
+    }
+
+    private fun buildRuntime(
+        consumerProperties: Map<String, Any?>,
+        configuredHandler: KafkaRecordHandler<K, V>,
+        assignedPartitions: Set<TopicPartition>? = null,
+        admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+        processingOutcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver(),
+        pollLoopConcurrency: Int = consumerPollLoopConcurrency
+    ): CoroutinesKafkaConsumer<K, V> = CoroutinesKafkaConsumer(
             consumerProperties = consumerProperties,
             processingMode = processingMode,
             workerConcurrency = workerConcurrency,
-            consumerPollLoopConcurrency = consumerPollLoopConcurrency,
+            consumerPollLoopConcurrency = pollLoopConcurrency,
             commitIntervalMs = commitIntervalMs,
             commitRecordsThreshold = commitRecordsThreshold,
             maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition,
@@ -182,11 +286,13 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,
-            topics = topics,
-            topicsPattern = topicsPattern,
+            topics = if (assignedPartitions == null) topics else null,
+            topicsPattern = if (assignedPartitions == null) topicsPattern else null,
+            assignedPartitionsAtEnd = assignedPartitions,
+            admittedRecordInterceptor = admittedRecordInterceptor,
+            processingOutcomeObserver = processingOutcomeObserver,
             handler = configuredHandler
         )
-    }
 }
 
 /**
