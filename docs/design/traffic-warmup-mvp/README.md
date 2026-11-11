@@ -238,6 +238,9 @@ user instruction.
 
 ## Transfer plan from GLOBAL-3
 
+The adapted opt-in infrastructure configuration is described in
+[MVP lab infrastructure](lab-infrastructure.md).
+
 Transfer reviewed final behavior in scoped child branches from GLOBAL-4. Use selected file or
 function patches with source task/commit references; use cherry-pick only when a commit is truly
 self-contained. Do not import old TASKS rows, coordinator machinery, or the correlation-dependent

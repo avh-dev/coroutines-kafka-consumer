@@ -218,6 +218,88 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
     }
 
 
+def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
+    context = "Experiment environment.warmup_kafka"
+    warmup = require_mapping(value, context)
+    unknown = sorted(set(warmup) - {"enabled", "image", "placement", "heap", "resources", "topics"})
+    if unknown:
+        raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
+
+    enabled = warmup.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError(f"{context}.enabled must be boolean")
+    topics = warmup.get("topics", [])
+    if not isinstance(topics, list) or (enabled and not topics):
+        raise ValueError(f"{context}.topics must be a non-empty list when enabled")
+    normalized_topics = []
+    seen = set()
+    for topic in topics:
+        if not isinstance(topic, dict) or set(topic) - {"name", "partitions"}:
+            raise ValueError(f"{context}.topics entries must define name and optional partitions")
+        name = topic.get("name")
+        if not isinstance(name, str) or not re.fullmatch(r"ckc\.traffic-warmup\.v1\.[a-zA-Z0-9._-]+", name) or len(name) > 249:
+            raise ValueError(f"{context}.topics names must use the ckc.traffic-warmup.v1 namespace")
+        if name in seen:
+            raise ValueError(f"{context}.topics contains duplicate topic {name}")
+        partitions = topic.get("partitions", 1)
+        if isinstance(partitions, bool) or not isinstance(partitions, int) or partitions < 1:
+            raise ValueError(f"{context}.topics partitions must be a positive integer")
+        seen.add(name)
+        normalized_topics.append({"name": name, "partitions": partitions})
+    image = str(warmup.get("image") or "apache/kafka:4.3.1").strip()
+    if not image or image.endswith(":latest"):
+        raise ValueError(f"{context}.image must be a pinned container image")
+    placement = str(warmup.get("placement") or "application").strip()
+    if placement not in {"application", "support"}:
+        raise ValueError(f"{context}.placement must be application or support")
+
+    memory_pattern = re.compile(r"([1-9][0-9]*)(Mi|Gi)")
+    heap = str(warmup.get("heap") or "512Mi")
+    if not memory_pattern.fullmatch(heap):
+        raise ValueError(f"{context}.heap must use Mi or Gi, for example 512Mi")
+
+    defaults = {
+        "requests": {"cpu": "500m", "memory": "768Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    resources = require_mapping(warmup.get("resources") or {}, f"{context}.resources")
+    unknown_resources = sorted(set(resources) - set(defaults))
+    if unknown_resources:
+        raise ValueError(f"{context}.resources contains unknown fields: {', '.join(unknown_resources)}")
+    normalized_resources: dict[str, dict[str, str]] = {}
+    for group, group_defaults in defaults.items():
+        settings = require_mapping(resources.get(group) or {}, f"{context}.resources.{group}")
+        unknown_settings = sorted(set(settings) - {"cpu", "memory"})
+        if unknown_settings:
+            raise ValueError(
+                f"{context}.resources.{group} contains unknown fields: {', '.join(unknown_settings)}"
+            )
+        cpu = str(settings.get("cpu") or group_defaults["cpu"])
+        if not re.fullmatch(r"(?:[1-9][0-9]*m|[1-9][0-9]*(?:\.[0-9]+)?)", cpu):
+            raise ValueError(f"{context}.resources.{group}.cpu must be a positive Kubernetes CPU quantity")
+        memory = str(settings.get("memory") or group_defaults["memory"])
+        if not memory_pattern.fullmatch(memory):
+            raise ValueError(f"{context}.resources.{group}.memory must use Mi or Gi")
+        normalized_resources[group] = {"cpu": cpu, "memory": memory}
+
+    def memory_mib(quantity: str) -> int:
+        match = memory_pattern.fullmatch(quantity)
+        assert match is not None
+        return int(match.group(1)) * (1024 if match.group(2) == "Gi" else 1)
+
+    if memory_mib(heap) > memory_mib(normalized_resources["limits"]["memory"]):
+        raise ValueError(f"{context}.heap must not exceed the memory limit")
+
+    return {
+        "enabled": enabled,
+        "image": image,
+        "placement": placement,
+        "heap": heap,
+        "resources": normalized_resources,
+        "topics": normalized_topics,
+    }
+
+
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
     workload = require_mapping(experiment.get("workload"), "Experiment workload", non_empty=True)
     allowed = {
@@ -747,6 +829,12 @@ def validate_canonical_experiment(
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
+    if "warmup_kafka" in environment_definition:
+        environment_definition["warmup_kafka"] = normalize_warmup_kafka(
+            environment_definition["warmup_kafka"]
+        )
+        if environment_name != "internal-lab" and environment_definition["warmup_kafka"]["enabled"]:
+            raise ValueError("Dedicated warmup_kafka is currently supported only by internal-lab")
     if environment_name != "internal-lab" and any(
         "placement" in (target.get("application") or {}) or target.get("placement")
         for target in resolved_targets

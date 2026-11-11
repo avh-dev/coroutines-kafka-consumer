@@ -48,4 +48,21 @@ for application in ${deployments}; do
   fi
 done
 
+# Keep the broker available while application pods stop, then remove the
+# experiment-scoped warm-up transport and its in-memory control journal.
+kubectl -n "${NAMESPACE}" delete deployment,service \
+  -l ckc.dev/component=warmup-kafka --ignore-not-found=true \
+  --timeout="${TIMEOUT_SECONDS}s" >/dev/null
+if ! timeout "${TIMEOUT_SECONDS}" sh -c '
+  namespace="$1"
+  while :; do
+    remaining="$(kubectl -n "${namespace}" get deployment,service,pods -l ckc.dev/component=warmup-kafka -o name)" || exit 1
+    [ -n "${remaining}" ] || break
+    sleep 1
+  done
+' sh "${NAMESPACE}"; then
+  echo "Could not verify removal of ephemeral warm-up Kafka resources within ${TIMEOUT_SECONDS}s." >&2
+  exit 1
+fi
+
 echo "Internal-lab application workloads are stopped."
