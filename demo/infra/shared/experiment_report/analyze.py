@@ -1134,6 +1134,12 @@ def analyze_experiment(
         status = load_json(status_path) if status_path.is_file() else {}
         audit_document = load_yaml(audit_path) if audit_path.is_file() else {}
         audit = audit_document.get("audit") if isinstance(audit_document.get("audit"), dict) else {}
+        audit_categories = audit.get("categories") if isinstance(audit.get("categories"), dict) else {}
+        warmup_audit = (
+            audit_categories.get("warmup")
+            if isinstance(audit_categories.get("warmup"), dict)
+            else {}
+        )
         configured_target = configured_targets.get(report_target_name, {})
         implementation = str(
             target.get("implementation")
@@ -1347,6 +1353,18 @@ def analyze_experiment(
                 window_delivery=window_delivery,
                 topic_evidence=audit.get("topics", {}) if isinstance(audit.get("topics"), dict) else {},
                 window_topic_evidence=window_topic_evidence,
+                warmup_delivery=(
+                    warmup_audit.get("totals", {})
+                    if isinstance(warmup_audit.get("totals"), dict) else {}
+                ),
+                warmup_topic_evidence=(
+                    warmup_audit.get("topics", {})
+                    if isinstance(warmup_audit.get("topics"), dict) else {}
+                ),
+                warmup_forwarding_records=(
+                    int(audit["forwarding_records"])
+                    if isinstance(audit.get("forwarding_records"), int) else None
+                ),
                 measurements=measurements,
                 window_measurements=window_measurements,
                 measurement_windows=measurement_window_results,

@@ -53,6 +53,9 @@ class TargetReport:
     window_delivery: dict[str, Any]
     topic_evidence: dict[str, Any]
     window_topic_evidence: dict[str, Any]
+    warmup_delivery: dict[str, Any]
+    warmup_topic_evidence: dict[str, Any]
+    warmup_forwarding_records: int | None
     measurements: dict[str, float | None]
     window_measurements: dict[str, float | None]
     measurement_windows: list[dict[str, Any]]

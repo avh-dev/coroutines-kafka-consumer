@@ -1354,7 +1354,7 @@ def render_markdown(report: ExperimentReport) -> str:
             [handoff_records(delivery) for delivery in deliveries],
         )
         optional_plain_count_row(
-            "Ownership handoff · reprocessed",
+            "Lifecycle handoff · reprocessed",
             [lifecycle_handoff_reprocessed(delivery) for delivery in deliveries],
         )
         optional_plain_count_row(
@@ -1619,7 +1619,7 @@ def render_markdown(report: ExperimentReport) -> str:
                 [replay_drop_reason(value, "already_processed") for value in values],
             )
             optional_plain_count_row(
-                "Ownership handoff · reprocessed",
+                "Lifecycle handoff · reprocessed",
                 [lifecycle_handoff_reprocessed(value) for value in values],
             )
             optional_plain_count_row(
@@ -1674,7 +1674,7 @@ def render_markdown(report: ExperimentReport) -> str:
             [replay_drop_reason(target.delivery, "already_processed") for target in targets],
         )
         optional_plain_count_row(
-            "Ownership handoff · reprocessed",
+            "Lifecycle handoff · reprocessed",
             [lifecycle_handoff_reprocessed(target.delivery) for target in targets],
         )
         optional_plain_count_row(
@@ -1693,6 +1693,37 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Application pod-hours", compared([target.measurements.get("application_pod_hours") for target in targets], 3, " pod·h"), "prometheus")
         row("Requested application CPU", compared([target.measurements.get("application_requested_vcpu_hours") for target in targets], 3, " vCPU·h"), "prometheus")
         row("Requested application memory", compared([target.measurements.get("application_requested_gib_hours") for target in targets], 3, " GiB·h"), "prometheus")
+
+    if any(
+        target.warmup_forwarding_records
+        or any(target.warmup_delivery.get(field) for field in ("processed", "failed", "dropped", "terminal"))
+        for target in targets
+    ):
+        section("Warm-up traffic · outcome-only")
+        subsection("Warm-up outcomes")
+        row("Producer-acknowledged delegations", counts([target.warmup_forwarding_records for target in targets]), "audit")
+        row("Successfully processed", counts([target.warmup_delivery.get("processed") for target in targets]), "audit")
+        row("Failed processing", counts([target.warmup_delivery.get("failed") for target in targets]), "audit")
+        row("Intentionally discarded", counts([target.warmup_delivery.get("dropped") for target in targets]), "audit")
+        row(
+            "Duplicate warm-up outcomes",
+            counts([
+                sum(int((target.warmup_delivery.get("duplicates") or {}).get(field) or 0) for field in ("processed", "failed", "dropped"))
+                for target in targets
+            ]),
+            "audit",
+        )
+        available_warmup_topics = {
+            topic for target in targets for topic in target.warmup_topic_evidence
+            if isinstance(target.warmup_topic_evidence.get(topic), dict)
+            and any(target.warmup_topic_evidence[topic].get(field) for field in ("processed", "failed", "dropped"))
+        }
+        for topic in sorted(available_warmup_topics):
+            topic_subsection(topic)
+            values = [target.warmup_topic_evidence.get(topic, {}) for target in targets]
+            row("Successfully processed", counts([value.get("processed") for value in values]), "audit")
+            row("Failed processing", counts([value.get("failed") for value in values]), "audit")
+            row("Intentionally discarded", counts([value.get("dropped") for value in values]), "audit")
 
     has_network_counters = bool(network_counter_rows)
     if has_network_counters or diagnostic_steps:
