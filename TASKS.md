@@ -76,6 +76,7 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
+| [CORE-82](#core-82) | Expose poll-loop assignment readiness independently from warm-up assignment and preserve initialization failures. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5947,3 +5948,17 @@ new lifecycle tests pass. Shell syntax and whitespace checks pass. Manual diff r
 readiness ordering, topic isolation, worker placement, and cleanup failure handling. No lab
 installation, broker deployment, or experiment was launched; configuration examples are in
 `docs/design/traffic-warmup-mvp/lab-infrastructure.md`.
+
+<a id="core-82"></a>
+### CORE-82 - Expose poll-loop assignment readiness
+
+_Date: 2026-11-11_
+
+Extract the generally useful readiness behavior from historical CORE-75 without
+bringing its explicit warm-up assignment or old session contracts into GLOBAL-4.
+Complete readiness after each poll loop receives its first assignment callback and
+restores positions; treat an empty assignment as initialized, preserve startup errors,
+and report cancellation when a loop stops before readiness.
+Verification: the complete core, Micrometer, and Spring starter unit suites pass,
+including aggregate multi-loop readiness and the three initialization edge cases;
+all 23 real-Kafka core integration tests pass.

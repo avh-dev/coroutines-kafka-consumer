@@ -185,7 +185,7 @@ checks. Forwarding correlation is optional diagnostics, not a report dependency.
 These IDs avoid the historical GLOBAL-3 child IDs. They are proposals only and are not added to
 `TASKS.md` or started until this design is approved.
 
-1. `CORE-82`: reimplement the independent poll-loop readiness completion fix.
+1. `CORE-82` (done): reimplement the independent poll-loop readiness completion fix.
 2. `CORE-83`: introduce terminal processing outcomes and a mode-independent admitted-record seam;
    verify all ordering and freshness modes without warm-up.
 3. `CORE-84`: implement fixed-link quota, producer deadline, result tracker, outcome application,

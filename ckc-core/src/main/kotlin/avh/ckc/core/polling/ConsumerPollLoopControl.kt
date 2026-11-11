@@ -8,6 +8,9 @@ import kotlin.time.Duration
 internal interface ConsumerPollLoopControl {
     fun start(): Job
 
+    /** Completes after Kafka assignment and initial positions are established. */
+    fun readiness(): Deferred<Unit> = kotlinx.coroutines.CompletableDeferred(Unit)
+
     fun prepareForShutdown(): Deferred<Unit>
 
     fun prepareForShutdown(deadlineNanos: Long): Deferred<Unit> = prepareForShutdown()

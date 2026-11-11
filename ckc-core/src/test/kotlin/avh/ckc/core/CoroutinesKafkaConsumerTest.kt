@@ -399,6 +399,34 @@ class CoroutinesKafkaConsumerTest {
     }
 
     @Test
+    fun `awaitReady waits for every poll loop`() = runBlocking {
+        val loops = mutableListOf<TrackingPollLoop>()
+        val consumer = lifecycleTestConsumer(consumerPollLoopConcurrency = 2) { _, context ->
+            TrackingPollLoop(context).also(loops::add)
+        }
+
+        consumer.start()
+        val waiting = async { consumer.awaitReady() }
+        loops[0].markReady()
+        assertFalse(waiting.isCompleted)
+
+        loops[1].markReady()
+        withTimeout(2_000) { waiting.await() }
+        consumer.stop()
+    }
+
+    @Test
+    fun `awaitReady before start is rejected`() {
+        val consumer = lifecycleTestConsumer { _, context -> TrackingPollLoop(context) }
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            runBlocking { consumer.awaitReady() }
+        }
+
+        assertEquals("Consumer must be started before awaiting readiness", error.message)
+    }
+
+    @Test
     fun `when poll loop startup fails then started and unstarted loop resources are released`() = runBlocking {
         val failure = IllegalStateException("poll loop start failed")
         val parentJob = Job()
@@ -782,6 +810,7 @@ class CoroutinesKafkaConsumerTest {
         private val startFailure: Throwable? = null
     ) : ConsumerPollLoopControl {
         private val terminalFailure = CompletableDeferred<Throwable?>()
+        private val ready = CompletableDeferred<Unit>()
         val releaseCalls = AtomicInteger()
         var job: Job? = null
             private set
@@ -794,6 +823,8 @@ class CoroutinesKafkaConsumerTest {
         }
 
         override fun prepareForShutdown() = CompletableDeferred(Unit)
+
+        override fun readiness() = ready
 
         override fun finalizeShutdown(): CompletableDeferred<Unit> {
             terminalFailure.complete(null)
@@ -808,6 +839,10 @@ class CoroutinesKafkaConsumerTest {
 
         fun fail(error: Throwable) {
             terminalFailure.complete(error)
+        }
+
+        fun markReady() {
+            ready.complete(Unit)
         }
     }
 }
