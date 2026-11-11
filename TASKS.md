@@ -494,6 +494,7 @@
 | [INFRA-316](#infra-316) | Add a triangular 10k autoscaling experiment for the internal lab. | DONE |
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
+| [INFRA-338](#infra-338) | Preserve stable pod identities in Grafana legends during scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -5897,3 +5898,15 @@ Move the proposal into `docs/design/traffic-warmup-mvp/README.md` so its experim
 design scope is clear. Explain the controller/support role of optilab and the application
 worker role of optilab2 without assuming readers know the local hostnames.
 Update the GLOBAL-4 design link; keep the complete internal-lab guide as separate future work.
+
+<a id="infra-338"></a>
+### INFRA-338 - Preserve stable pod legends during scale-up
+
+_Date: 2026-11-11_
+
+Adapt the independent Grafana fix from GLOBAL-3 task INFRA-324 (`d4b781e`).
+Keep pod identities visible in pod-grouped panels even when only one pod is present,
+so scaling does not split its history into differently labeled series. Preserve the
+combined view and carry the regression test into GLOBAL-4.
+Verification: all 29 dashboard tests and whitespace checks pass. Diff review confirms
+the dashboard and regression test match the historical fix; no lab deployment was performed.
