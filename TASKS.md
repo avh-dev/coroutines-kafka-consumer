@@ -525,6 +525,7 @@
 | [INFRA-335](#infra-335) | Publish the warm-up Kafka endpoint during topic provisioning to avoid a readiness deadlock. | DONE |
 | [INFRA-336](#infra-336) | Gate application deployment on complete ephemeral warm-up Kafka topic provisioning. | DONE |
 | [INFRA-337](#infra-337) | Remove the ephemeral warm-up Kafka broker during experiment cleanup. | DONE |
+| [INFRA-338](#infra-338) | Add internal-lab Kubernetes node utilization to the experiment dashboard. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6545,3 +6546,13 @@ GLOBAL-3.
 Cleanup now preserves the broker through application shutdown, deletes its labeled Deployment
 and Service afterward, and waits for the broker pod to disappear. Focused synchronization and
 shell syntax checks pass.
+
+<a id="infra-338"></a>
+### INFRA-338 - Add Kubernetes node utilization dashboard
+
+_Date: 2026-11-11_
+
+Add internal-lab CPU and memory utilization panels for every Kubernetes node using the
+existing cAdvisor root-cgroup and machine-capacity metrics. Keep the row out of AWS dashboards,
+where host capacity is represented by environment-specific infrastructure evidence. This is a
+child task of GLOBAL-3.

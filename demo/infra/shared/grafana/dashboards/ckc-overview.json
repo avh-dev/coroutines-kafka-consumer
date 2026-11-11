@@ -4481,6 +4481,41 @@
     },
     {
       "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Whole-node CPU utilization from the cAdvisor root cgroup, divided by the node's logical CPU capacity. This includes Kubernetes workloads and host processes.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "id": 166,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "100 * rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", id=\"/\", cpu=\"total\"}[$__rate_interval]) / on (node) machine_cpu_cores{job=\"kubernetes-cadvisor\"}", "legendFormat": "{{node}}", "refId": "A"}
+          ],
+          "title": "Node CPU Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Whole-node working-set memory from the cAdvisor root cgroup as a percentage of detected machine memory.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "id": 167,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "100 * container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", id=\"/\"} / on (node) machine_memory_bytes{job=\"kubernetes-cadvisor\"}", "legendFormat": "{{node}}", "refId": "A"}
+          ],
+          "title": "Node Memory Utilization",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Kubernetes Nodes",
+      "type": "row",
+      "id": 165
+    },
+    {
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
