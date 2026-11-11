@@ -387,6 +387,15 @@ for override in "${ENV_OVERRIDES[@]}"; do
   RENDER_ARGS+=(--env "${override}")
 done
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
+WARMUP_KAFKA_ENABLED="$(python3 -c 'import sys, yaml; plan = yaml.safe_load(open(sys.argv[1], encoding="utf-8")); print("true" if ((plan.get("environment") or {}).get("warmup_kafka") or {}).get("enabled") else "false")' "${DEPLOYMENT_PLAN_PATH}")"
+if [[ "${WARMUP_KAFKA_ENABLED}" == "true" ]]; then
+  # The initial application pod must not enter automatic warm-up until the
+  # dedicated broker has created every control and data topic. Applying these
+  # two labeled resources first turns the broker pod readiness gate into a
+  # deployment-order barrier for the subsequent full project manifest.
+  kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka
+  kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=10m
+fi
 kubectl apply -f "${PROJECT_MANIFEST}"
 
 mapfile -t APPLICATION_DEPLOYMENTS < <(

@@ -496,6 +496,7 @@
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-338](#infra-338) | Preserve stable pod identities in Grafana legends during scale-up. | DONE |
 | [INFRA-339](#infra-339) | Align internal-lab Redis capacity and captured resource evidence. | DONE |
+| [INFRA-340](#infra-340) | Prepare worker-local ephemeral warm-up Kafka infrastructure and lifecycle. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -5926,3 +5927,23 @@ The full internal-lab suite runs 188 tests with two failures and one import erro
 three issues reproduce on the unchanged GLOBAL-4 baseline (187 tests): chaos helper import,
 lifecycle-handoff report text, and scheduled-generator notification text. No lab update or
 experiment was launched. Diff review confirms the transfer matches historical INFRA-325.
+
+<a id="infra-340"></a>
+### INFRA-340 - Prepare worker-local warm-up infrastructure
+
+_Date: 2026-11-11_
+
+Adapt final infrastructure behavior from GLOBAL-3 INFRA-332 through INFRA-337.
+Provide explicit infrastructure-owned topics, a worker-local ephemeral Kafka broker,
+provisioning/readiness ordering, and shutdown-ordered verified cleanup. Preserve worker-local
+stub placement through the existing placement contract, without importing the old demo API.
+The optional environment configuration owns the explicit topic list; both comparison targets
+retain the same broker. Cleanup now verifies Deployment, Service, and pod removal and propagates
+API failures. AWS enablement is rejected pending qualification; Kubernetes pulls the optional
+broker image rather than making it mandatory for every application-image rebuild.
+Verification: 82 orchestration and 97 AWS unit tests pass. Internal-lab runs 191 tests with
+the same two failures and one import error established on the INFRA-339 baseline; all three
+new lifecycle tests pass. Shell syntax and whitespace checks pass. Manual diff review covered
+readiness ordering, topic isolation, worker placement, and cleanup failure handling. No lab
+installation, broker deployment, or experiment was launched; configuration examples are in
+`docs/design/traffic-warmup-mvp/lab-infrastructure.md`.

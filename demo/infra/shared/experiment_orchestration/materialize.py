@@ -72,6 +72,13 @@ def materialize_target(
         "run_plan": plan,
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),
     }
+    warmup_kafka = copy.deepcopy((experiment.environment_definition or {}).get("warmup_kafka") or {})
+    if warmup_kafka.get("enabled"):
+        warmup_names = {topic["name"] for topic in warmup_kafka["topics"]}
+        main_names = {topic["name"] for topic in definition["deployment"]["kafka_topics"]}
+        if main_names & warmup_names:
+            raise ValueError("Warm-up Kafka topics must not be provisioned on the primary Kafka cluster")
+        definition["deployment"]["warmup_kafka"] = warmup_kafka
     definition_path = target_dir / "resolved-test.yaml"
     definition_path.write_text(yaml.safe_dump(definition, sort_keys=False), encoding="utf-8")
     deployment_plan_path = None
