@@ -495,6 +495,7 @@
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-338](#infra-338) | Preserve stable pod identities in Grafana legends during scale-up. | DONE |
+| [INFRA-339](#infra-339) | Align internal-lab Redis capacity and captured resource evidence. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -5910,3 +5911,18 @@ so scaling does not split its history into differently labeled series. Preserve 
 combined view and carry the regression test into GLOBAL-4.
 Verification: all 29 dashboard tests and whitespace checks pass. Diff review confirms
 the dashboard and regression test match the historical fix; no lab deployment was performed.
+
+<a id="infra-339"></a>
+### INFRA-339 - Align Redis capacity and evidence
+
+_Date: 2026-11-11_
+
+Transfer the independent Redis capacity changes from GLOBAL-3 task INFRA-325 (`fb8752c`).
+Allow a 3 GiB dataset inside a 4 GiB container while retaining the noeviction policy.
+Keep captured environment evidence consistent with the configured resource limits and
+preserve the regression test checking headroom and evidence consistency.
+Verification: all 10 environment-evidence tests, Compose validation, and whitespace checks pass.
+The full internal-lab suite runs 188 tests with two failures and one import error; the same
+three issues reproduce on the unchanged GLOBAL-4 baseline (187 tests): chaos helper import,
+lifecycle-handoff report text, and scheduled-generator notification text. No lab update or
+experiment was launched. Diff review confirms the transfer matches historical INFRA-325.
