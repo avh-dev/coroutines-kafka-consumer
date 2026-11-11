@@ -496,6 +496,7 @@
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
+| [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -5870,3 +5871,18 @@ _Date: 2026-10-29_
 
 Mark the remaining CORE and INFRA task-tracker entries as complete so `TASKS.md`
 contains no stale `IN_PROGRESS` status after the sequential CORE work finished.
+
+<a id="global-4"></a>
+### GLOBAL-4 - Simplify real-traffic warm-up
+
+_Date: 2026-11-03_
+
+Start a new local-only umbrella from `master` while preserving
+`GLOBAL-3_real_traffic_unordered_warmup_mvp` and its experiment evidence as historical work.
+Reframe warm-up as a runtime-owned processing wrapper that retains source responsibility until
+an explicit per-record outcome, with interval quotas and bounded fallback. Begin with inventory
+and protocol/lifecycle design before creating implementation, demo, reporting, and experiment tasks.
+The proposal for review is maintained in `docs/simplified-real-traffic-warmup-design.md`.
+Updated the proposal on 2026-11-11 with GLOBAL-3 transfer candidates through `b0c2c80`,
+worker-local stubs and ephemeral Kafka, network limitations, and deferred AWS sizing checks.
+Implementation and protocol approval remain pending; child task IDs are proposals only.
