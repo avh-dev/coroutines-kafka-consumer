@@ -18,6 +18,15 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn('print(",".join(', prepare)
         self.assertIn('name="${application#*/}"', quiesce)
 
+    def test_cleanup_removes_ephemeral_warmup_kafka_after_applications_stop(self) -> None:
+        quiesce = QUIESCE_APPLICATION.read_text(encoding="utf-8")
+
+        application_wait = 'for application in ${deployments}; do'
+        broker_delete = '-l ckc.dev/component=warmup-kafka --ignore-not-found=true'
+        broker_wait = 'get pods -l ckc.dev/component=warmup-kafka -o name'
+        self.assertLess(quiesce.index(application_wait), quiesce.index(broker_delete))
+        self.assertLess(quiesce.index(broker_delete), quiesce.index(broker_wait))
+
     def test_target_runner_exports_topology_to_environment_evidence_collector(self) -> None:
         script = TARGET_RUNNER.read_text(encoding="utf-8")
 
