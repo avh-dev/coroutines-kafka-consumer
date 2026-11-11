@@ -521,6 +521,7 @@
 | [INFRA-331](#infra-331) | Compare automatic warm-up with cold HPA scale-up at 16k TPS using tuned Serial GC. | DONE |
 | [INFRA-332](#infra-332) | Run automatic traffic warm-up through an ephemeral single-broker Kafka deployed with the application. | DONE |
 | [INFRA-333](#infra-333) | Explicitly provision topics on the ephemeral warm-up Kafka broker before it becomes ready. | DONE |
+| [INFRA-334](#infra-334) | Colocate HTTP stubs with application pods in the 16k warm-up comparison to reduce cross-node packet pressure. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6487,3 +6488,17 @@ only after the topic provisioner has completed. This is a child task of GLOBAL-3
 The broker pod now contains a low-resource provisioner that retries topic creation locally,
 disables accidental auto-creation, and gates readiness on a completed topic set. Focused
 contract, materialization, deployment-plan, synchronization, and runner tests pass.
+
+<a id="infra-334"></a>
+### INFRA-334 - Colocate HTTP stubs with application pods
+
+_Date: 2026-11-11_
+
+Place both HTTP stub replicas on the application worker for the tuned-Serial 16k warm-up
+comparison, while leaving the generator, Redis, and primary Kafka on the controller side.
+Apply the same placement to both targets so the comparison remains symmetric and isolates
+the effect of removing HTTP traffic from the physical inter-node link. This is a child task
+of GLOBAL-3.
+Both targets now resolve application and stubs to the worker and retain the generator on
+the controller. Focused contract, materialization, deployment-plan, experiment-runner, and
+internal-lab synchronization tests pass.
