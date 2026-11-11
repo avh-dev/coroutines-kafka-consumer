@@ -64,6 +64,10 @@ targets:
 - name: ckc.automatic-traffic-warmup-serial-tuned-16k
   annotation_label: CKC · automatic real-traffic warm-up · tuned Serial · local 16k
   implementation: ckc
+  placement: &colocated_stubs
+    application: worker
+    stubs: worker
+    generator: controller
   application: &scale_application
     placement: worker
     replicas: 1
@@ -127,6 +131,7 @@ targets:
 - name: ckc.cold-scale-up-serial-tuned-16k
   annotation_label: CKC · ordinary cold scale-up · tuned Serial · local 16k baseline
   implementation: ckc
+  placement: *colocated_stubs
   application: *scale_application
   runtime:
     env:

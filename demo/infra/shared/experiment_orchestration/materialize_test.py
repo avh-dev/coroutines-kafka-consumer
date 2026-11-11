@@ -320,6 +320,13 @@ class MaterializeTest(unittest.TestCase):
         )
         warm = plans["ckc.automatic-traffic-warmup-serial-tuned-16k"]
         cold = plans["ckc.cold-scale-up-serial-tuned-16k"]
+        expected_placement = {
+            "application": "worker",
+            "stubs": "worker",
+            "generator": "controller",
+        }
+        self.assertEqual(expected_placement, warm["placement"])
+        self.assertEqual(expected_placement, cold["placement"])
         self.assertEqual(warm["workload"], cold["workload"])
         self.assertEqual(warm["application"]["configuration"], cold["application"]["configuration"])
         self.assertEqual("single", warm["environment"]["lab"]["kafka"]["topology"])
