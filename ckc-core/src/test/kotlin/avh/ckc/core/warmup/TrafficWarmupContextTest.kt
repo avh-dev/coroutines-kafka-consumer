@@ -2,12 +2,15 @@ package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
@@ -77,6 +80,20 @@ class TrafficWarmupContextTest {
     fun `missing donor performs bounded cold start`() = runBlocking {
         val participant = FakeParticipant(consumerId, listOf(mapping))
         val context = context { handler -> FakeControlChannel(handler) }
+        context.register(participant)
+
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        assertEquals(listOf("main"), participant.events)
+        context.stop()
+    }
+
+    @Test
+    fun `unready control transport falls back to main within readiness deadline`() = runBlocking {
+        val participant = FakeParticipant(consumerId, listOf(mapping))
+        val neverReady = CompletableDeferred<Unit>()
+        val context = context { handler -> FakeControlChannel(handler, readiness = neverReady) }
         context.register(participant)
 
         context.start()
@@ -160,6 +177,43 @@ class TrafficWarmupContextTest {
         context.stop()
     }
 
+    @Test
+    fun `cancelled stop caller does not cancel shared context cleanup`() = runBlocking {
+        val stopEntered = CompletableDeferred<Unit>()
+        val releaseStop = CompletableDeferred<Unit>()
+        val participant = BlockingStopParticipant(consumerId, listOf(mapping), stopEntered, releaseStop)
+        val context = context { handler -> FakeControlChannel(handler) }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        val firstStop = async { runCatching { context.stop() } }
+        withTimeout(2_000) { stopEntered.await() }
+        firstStop.cancelAndJoin()
+        val repeatedStop = async { context.stop() }
+        assertFalse(repeatedStop.isCompleted)
+
+        releaseStop.complete(Unit)
+        withTimeout(2_000) { repeatedStop.await() }
+        assertEquals(1, participant.stopCalls)
+    }
+
+    @Test
+    fun `main failure is preserved when cleanup reports the same error`() = runBlocking {
+        val failure = IllegalStateException("main failed")
+        val participant = FailingParticipant(consumerId, listOf(mapping), failure)
+        val context = context { handler -> FakeControlChannel(handler) }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        val terminal = withTimeout(2_000) { runCatching { context.awaitTermination() }.exceptionOrNull() }
+        val stopFailure = runCatching { context.stop() }.exceptionOrNull()
+
+        assertSame(failure, terminal)
+        assertSame(failure, stopFailure)
+    }
+
     private fun context(
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
@@ -171,6 +225,7 @@ class TrafficWarmupContextTest {
             warmupDuration = 20.milliseconds
             delegationTimeout = 100.milliseconds
             cleanupTimeout = 100.milliseconds
+            controlReadinessTimeout = 100.milliseconds
             parentContext = Dispatchers.Default
         }
         return TrafficWarmupContext(configuration, factory)
@@ -178,6 +233,7 @@ class TrafficWarmupContextTest {
 
     private class FakeControlChannel(
         private val handler: WarmupControlMessageHandler,
+        private val readiness: CompletableDeferred<Unit>? = null,
         private val response: suspend (WarmupControlMessage, FakeControlChannel) -> Unit = { _, _ -> }
     ) : WarmupControlChannel {
         private val offset = AtomicLong()
@@ -186,7 +242,10 @@ class TrafficWarmupContextTest {
         private var started = false
 
         override fun start() { started = true }
-        override suspend fun awaitReady() = check(started)
+        override suspend fun awaitReady() {
+            check(started)
+            readiness?.await()
+        }
         override fun logPosition() = WarmupControlLogPosition(TopicPartition("control", 0), 0, 0, 0)
 
         override suspend fun send(message: WarmupControlMessage): RecordMetadata {
@@ -283,5 +342,49 @@ class TrafficWarmupContextTest {
         override suspend fun startMain() { mainStarted = true }
         override suspend fun stop() = Unit
         override suspend fun awaitTermination() = CompletableDeferred<Unit>().await()
+    }
+
+    private class BlockingStopParticipant(
+        override val consumerId: WarmupConsumerId,
+        override val mappings: List<WarmupTopicMapping>,
+        private val stopEntered: CompletableDeferred<Unit>,
+        private val releaseStop: CompletableDeferred<Unit>
+    ) : RegisteredWarmupParticipant {
+        var stopCalls = 0
+        override fun donorMappings(requested: Collection<WarmupTopicMapping>) = emptyList<WarmupDonorMapping>()
+        override fun prepareDonor(sessionId: WarmupSessionId, assignments: List<WarmupPartitionAssignment>) =
+            error("not expected")
+        override fun prepareRecipient(
+            sessionId: WarmupSessionId,
+            assignments: List<WarmupPartitionAssignment>,
+            donorByDestination: Map<TopicPartition, WarmupInstanceId>,
+            sendCompletion: suspend (WarmupInstanceId, WarmupRecordCompleted) -> Unit
+        ): PreparedWarmupRecipient = error("not expected")
+        override suspend fun startMain() = Unit
+        override suspend fun stop() {
+            stopCalls++
+            stopEntered.complete(Unit)
+            releaseStop.await()
+        }
+        override suspend fun awaitTermination() = CompletableDeferred<Unit>().await()
+    }
+
+    private class FailingParticipant(
+        override val consumerId: WarmupConsumerId,
+        override val mappings: List<WarmupTopicMapping>,
+        private val failure: Throwable
+    ) : RegisteredWarmupParticipant {
+        override fun donorMappings(requested: Collection<WarmupTopicMapping>) = emptyList<WarmupDonorMapping>()
+        override fun prepareDonor(sessionId: WarmupSessionId, assignments: List<WarmupPartitionAssignment>) =
+            error("not expected")
+        override fun prepareRecipient(
+            sessionId: WarmupSessionId,
+            assignments: List<WarmupPartitionAssignment>,
+            donorByDestination: Map<TopicPartition, WarmupInstanceId>,
+            sendCompletion: suspend (WarmupInstanceId, WarmupRecordCompleted) -> Unit
+        ): PreparedWarmupRecipient = error("not expected")
+        override suspend fun startMain() = Unit
+        override suspend fun stop(): Unit = throw failure
+        override suspend fun awaitTermination(): Unit = throw failure
     }
 }

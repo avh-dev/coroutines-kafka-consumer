@@ -201,12 +201,14 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         if (warmup == null) return buildRuntime(consumerProperties, configuredHandler)
 
         require(warmup.configuration.mappings.isNotEmpty()) { "At least one warm-up topic mapping is required" }
+        val forwardingProducerProperties = warmup.configuration.forwardingProducerProperties.toMap()
+        val warmupConsumerProperties = warmup.configuration.warmupConsumerProperties.toMap()
         listOf(
             ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
             ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG
         ).forEach { property ->
-            require(warmup.configuration.forwardingProducerProperties.containsKey(property)) {
+            require(forwardingProducerProperties.containsKey(property)) {
                 "Kafka property '$property' must be specified for warm-up forwarding"
             }
         }
@@ -234,7 +236,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
                 buildRuntime(
                     consumerProperties = warmup.context.recipientConsumerProperties(
                         consumerProperties,
-                        warmup.configuration.warmupConsumerProperties,
+                        warmupConsumerProperties,
                         warmup.consumerId
                     ),
                     configuredHandler = configuredHandler,
@@ -243,7 +245,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
                     pollLoopConcurrency = 1
                 )
             },
-            producerProperties = warmup.configuration.forwardingProducerProperties,
+            producerProperties = forwardingProducerProperties,
             metrics = metrics,
             forwardingObserver = warmup.configuration.forwardingObserver,
             scope = settings.scope,

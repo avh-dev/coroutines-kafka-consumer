@@ -5,9 +5,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -38,6 +40,7 @@ class TrafficWarmupContextConfiguration {
     var offerWindow: Duration = 2.seconds
     var negotiationTimeout: Duration = 10.seconds
     var cleanupTimeout: Duration = 30.seconds
+    var controlReadinessTimeout: Duration = 30.seconds
     var completionBufferCapacity: Int = 1_024
     var controlHistoryRecordLimit: Int = 10_000
     var parentContext: CoroutineContext = Dispatchers.Default
@@ -55,6 +58,7 @@ class TrafficWarmupConsumerConfiguration internal constructor() {
 
     var forwardingObserver: WarmupForwardingObserver = WarmupForwardingObserver { }
 
+    /** Maps one main topic to a warm-up topic created by infrastructure. */
     fun mapTopic(sourceTopic: String, warmupTopic: String) {
         require(mappings.putIfAbsent(sourceTopic, warmupTopic) == null) {
             "Source topic $sourceTopic already has a warm-up mapping"
@@ -93,6 +97,9 @@ class TrafficWarmupContext internal constructor(
     private val scope = CoroutineScope(
         configuration.parentContext.minusKey(Job) + lifecycleJob + CoroutineName("TrafficWarmupContext")
     )
+    private val shutdownScope = CoroutineScope(
+        configuration.parentContext.minusKey(Job) + SupervisorJob() + CoroutineName("TrafficWarmupContextShutdown")
+    )
     private val router = WarmupControlRouter(configuration.instanceId)
     private val protocol = WarmupSingleSessionProtocol(configuration.instanceId)
     private val participants = linkedMapOf<WarmupConsumerId, RegisteredWarmupParticipant>()
@@ -105,6 +112,8 @@ class TrafficWarmupContext internal constructor(
     private val ready = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
     private val lifecycleFailure = AtomicReference<Throwable?>()
+    private val shutdownJob = AtomicReference<Job?>()
+    private val activeRecipientRequest = AtomicReference<WarmupRequested?>()
     private lateinit var fingerprint: String
     private var recipientJob: Job? = null
     private val transport: WarmupControlChannel
@@ -170,25 +179,21 @@ class TrafficWarmupContext internal constructor(
         transport.start()
         recipientJob = scope.launch {
             try {
-                transport.awaitReady()
+                withTimeout(configuration.controlReadinessTimeout) { transport.awaitReady() }
                 if (transport.logPosition().replayWasTruncated) {
                     coldStart("control history was truncated")
                 } else {
                     runRecipientSession()
                 }
+            } catch (timeout: TimeoutCancellationException) {
+                fallbackToCold(timeout)
             } catch (cancelled: CancellationException) {
                 if (!stopping.get()) fail(cancelled)
                 throw cancelled
             } catch (error: MainConsumerStartException) {
                 fail(error)
             } catch (error: Throwable) {
-                if (stopping.get()) return@launch
-                try {
-                    coldStart(error.message ?: error::class.java.simpleName)
-                } catch (fallbackError: Throwable) {
-                    fallbackError.addSuppressed(error)
-                    fail(fallbackError)
-                }
+                fallbackToCold(error)
             }
         }
     }
@@ -199,10 +204,23 @@ class TrafficWarmupContext internal constructor(
     }
 
     override suspend fun stop() {
-        if (!stopping.compareAndSet(false, true)) {
-            termination.await()?.let { throw it }
-            return
+        shutdownOperation().join()
+        termination.await()?.let { throw it }
+    }
+
+    private fun shutdownOperation(): Job {
+        shutdownJob.get()?.let { return it }
+        val created = shutdownScope.launch(start = CoroutineStart.LAZY) { shutdown() }
+        if (shutdownJob.compareAndSet(null, created)) {
+            created.start()
+            return created
         }
+        created.cancel()
+        return requireNotNull(shutdownJob.get())
+    }
+
+    private suspend fun shutdown() {
+        stopping.set(true)
         recipientJob?.cancelAndJoin()
         lifecycleJob.cancel()
         val failures = mutableListOf<Throwable>()
@@ -218,9 +236,10 @@ class TrafficWarmupContext internal constructor(
         }
         runCatching { transport.stop() }.exceptionOrNull()?.let(failures::add)
         if (!ready.isCompleted) ready.completeExceptionally(CancellationException("Warm-up context stopped"))
-        val failure = failures.firstOrNull()?.also { first -> failures.drop(1).forEach(first::addSuppressed) }
+        val failure = failures.firstOrNull()?.also { first ->
+            failures.drop(1).filter { it !== first }.forEach(first::addSuppressed)
+        }
         termination.complete(failure)
-        failure?.let { throw it }
     }
 
     override suspend fun awaitTermination() {
@@ -293,6 +312,7 @@ class TrafficWarmupContext internal constructor(
                     prepared
                 )
             }
+            scheduleDonorExpiry(accepted.sessionId, accepted.expiresAtEpochMillis)
             send(
                 DonorAccepted(
                     accepted.sessionId,
@@ -392,6 +412,13 @@ class TrafficWarmupContext internal constructor(
         donor?.prepared?.forEach(PreparedWarmupDonor::finish)
     }
 
+    private fun scheduleDonorExpiry(sessionId: WarmupSessionId, expiresAtEpochMillis: Long) {
+        scope.launch {
+            delay(max(0, expiresAtEpochMillis - System.currentTimeMillis()))
+            finishDonor(sessionId)
+        }
+    }
+
     private suspend fun runRecipientSession() {
         val now = System.currentTimeMillis()
         val session = WarmupSessionId.random()
@@ -401,16 +428,16 @@ class TrafficWarmupContext internal constructor(
         val expiresAt = stopAt + configuration.cleanupTimeout.inWholeMilliseconds * 2 +
             configuration.delegationTimeout.inWholeMilliseconds
         val mappings = participants.values.flatMap(RegisteredWarmupParticipant::mappings)
-        send(
-            WarmupRequested(
-                session,
-                configuration.instanceId,
-                mappings,
-                offerDeadline,
-                fingerprint,
-                expiresAt
-            )
+        val request = WarmupRequested(
+            session,
+            configuration.instanceId,
+            mappings,
+            offerDeadline,
+            fingerprint,
+            expiresAt
         )
+        activeRecipientRequest.set(request)
+        send(request)
         awaitObservation(offerDeadline) {
             it.record.message is WarmupRequested &&
                 it.record.message.sessionId == session &&
@@ -535,6 +562,7 @@ class TrafficWarmupContext internal constructor(
                 expiresAt
             )
         )
+        activeRecipientRequest.compareAndSet(request, null)
         try {
             prepared.forEach { it.startMain() }
         } catch (error: Throwable) {
@@ -550,11 +578,14 @@ class TrafficWarmupContext internal constructor(
         offers: List<DonorOffered>
     ): Map<WarmupTopicMapping, WarmupInstanceId> = mappings.associateWith { mapping ->
         offers.asSequence()
-            .filter { offer -> offer.mappings.any { it.mapping == mapping } }
-            .map(DonorOffered::senderInstanceId)
-            .distinct()
-            .sortedBy(WarmupInstanceId::value)
+            .mapNotNull { offer ->
+                offer.mappings.firstOrNull { it.mapping == mapping }
+                    ?.let { offered -> offer.senderInstanceId to offered.sourcePartitions.size }
+            }
+            .distinctBy { it.first }
+            .sortedWith(compareByDescending<Pair<WarmupInstanceId, Int>> { it.second }.thenBy { it.first.value })
             .firstOrNull()
+            ?.first
             ?: error("no donor offered ${mapping.consumerId.value}:${mapping.sourceTopic}")
     }
 
@@ -565,21 +596,20 @@ class TrafficWarmupContext internal constructor(
                 recipientPrepared.toList().forEach { prepared -> runCatching { prepared.stop() } }
             }
         }
-        observationSnapshot().lastOrNull { it.record.message is WarmupRequested }
-            ?.record?.message?.let { request ->
-                if (request.senderInstanceId == configuration.instanceId) runCatching {
-                    send(
-                        SessionEnded(
-                            request.sessionId,
-                            configuration.instanceId,
-                            WarmupSessionEndState.COLD_FALLBACK,
-                            reason.take(4_096).ifBlank { "warm-up unavailable" },
-                            request.configurationFingerprint,
-                            request.expiresAtEpochMillis
-                        )
+        activeRecipientRequest.getAndSet(null)?.let { request ->
+            runCatching {
+                send(
+                    SessionEnded(
+                        request.sessionId,
+                        configuration.instanceId,
+                        WarmupSessionEndState.COLD_FALLBACK,
+                        reason.take(4_096).ifBlank { "warm-up unavailable" },
+                        request.configurationFingerprint,
+                        request.expiresAtEpochMillis
                     )
-                }
+                )
             }
+        }
         try {
             participants.values.forEach { it.startMain() }
         } catch (error: Throwable) {
@@ -588,6 +618,16 @@ class TrafficWarmupContext internal constructor(
         }
         ready.complete(Unit)
         monitorMainConsumers()
+    }
+
+    private suspend fun fallbackToCold(error: Throwable) {
+        if (stopping.get()) return
+        try {
+            coldStart(error.message ?: error::class.java.simpleName)
+        } catch (fallbackError: Throwable) {
+            fallbackError.addSuppressed(error)
+            fail(fallbackError)
+        }
     }
 
     private fun monitorMainConsumers() {
@@ -659,7 +699,8 @@ class TrafficWarmupContext internal constructor(
             "delegationTimeout" to configuration.delegationTimeout,
             "offerWindow" to configuration.offerWindow,
             "negotiationTimeout" to configuration.negotiationTimeout,
-            "cleanupTimeout" to configuration.cleanupTimeout
+            "cleanupTimeout" to configuration.cleanupTimeout,
+            "controlReadinessTimeout" to configuration.controlReadinessTimeout
         ).forEach { (name, duration) -> require(duration.isPositive()) { "$name must be positive" } }
         require(configuration.completionBufferCapacity > 0) { "completionBufferCapacity must be positive" }
         require(configuration.controlHistoryRecordLimit > 0) { "controlHistoryRecordLimit must be positive" }
