@@ -46,6 +46,14 @@ class DemoApplicationPropertiesTest {
         assertEquals(5170, properties.audit.port)
         assertEquals("local", properties.audit.runId)
         assertEquals("demo", properties.audit.writerId)
+        assertEquals(false, properties.trafficWarmup.enabled)
+        assertEquals("localhost:9092", properties.trafficWarmup.bootstrapServers)
+        assertEquals("ckc.traffic-warmup.v1.control", properties.trafficWarmup.controlTopic)
+        assertEquals(10, properties.trafficWarmup.quotaPerInterval)
+        assertEquals(1_000, properties.trafficWarmup.quotaIntervalMs)
+        assertEquals(120, properties.trafficWarmup.durationSeconds)
+        assertEquals(30, properties.trafficWarmup.timeoutSeconds)
+        assertEquals(15, properties.trafficWarmup.producerLingerMs)
         assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)
         assertEquals("", properties.model.etaBaseUrl)
         assertEquals("", properties.model.flavourBaseUrl)
@@ -95,6 +103,15 @@ class DemoApplicationPropertiesTest {
                 "demo.audit.port" to "5511",
                 "demo.audit.run-id" to "run-9",
                 "demo.audit.writer-id" to "demo-pod-1",
+                "demo.traffic-warmup.enabled" to "true",
+                "demo.traffic-warmup.bootstrap-servers" to "warmup-kafka:9092",
+                "demo.traffic-warmup.security-protocol" to "SSL",
+                "demo.traffic-warmup.control-topic" to "ckc.traffic-warmup.v1.test-control",
+                "demo.traffic-warmup.quota-per-interval" to "12",
+                "demo.traffic-warmup.quota-interval-ms" to "2000",
+                "demo.traffic-warmup.duration-seconds" to "90",
+                "demo.traffic-warmup.timeout-seconds" to "20",
+                "demo.traffic-warmup.producer-linger-ms" to "10",
                 "demo.model.base-url" to "http://models.example",
                 "demo.model.eta-base-url" to "http://eta.example",
                 "demo.model.flavour-base-url" to "http://flavour.example",
@@ -143,6 +160,15 @@ class DemoApplicationPropertiesTest {
         assertEquals(5511, properties.audit.port)
         assertEquals("run-9", properties.audit.runId)
         assertEquals("demo-pod-1", properties.audit.writerId)
+        assertEquals(true, properties.trafficWarmup.enabled)
+        assertEquals("warmup-kafka:9092", properties.trafficWarmup.bootstrapServers)
+        assertEquals("SSL", properties.trafficWarmup.securityProtocol)
+        assertEquals("ckc.traffic-warmup.v1.test-control", properties.trafficWarmup.controlTopic)
+        assertEquals(12, properties.trafficWarmup.quotaPerInterval)
+        assertEquals(2_000, properties.trafficWarmup.quotaIntervalMs)
+        assertEquals(90, properties.trafficWarmup.durationSeconds)
+        assertEquals(20, properties.trafficWarmup.timeoutSeconds)
+        assertEquals(10, properties.trafficWarmup.producerLingerMs)
         assertEquals("http://models.example", properties.model.baseUrl)
         assertEquals("http://eta.example", properties.model.etaBaseUrl)
         assertEquals("http://flavour.example", properties.model.flavourBaseUrl)

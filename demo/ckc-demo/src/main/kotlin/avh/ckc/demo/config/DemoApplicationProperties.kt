@@ -12,6 +12,7 @@ data class DemoApplicationProperties(
     var model: Model = Model(),
     var registry: Registry = Registry(),
     var audit: Audit = Audit(),
+    var trafficWarmup: TrafficWarmup = TrafficWarmup(),
     var consumers: Consumers = Consumers()
 ) {
     data class Kafka(
@@ -69,6 +70,18 @@ data class DemoApplicationProperties(
         var port: Int = 5170,
         var runId: String = "local",
         var writerId: String = "demo"
+    )
+
+    data class TrafficWarmup(
+        var enabled: Boolean = false,
+        var bootstrapServers: String = "localhost:9092",
+        var securityProtocol: String = "PLAINTEXT",
+        var controlTopic: String = "ckc.traffic-warmup.v1.control",
+        var quotaPerInterval: Int = 10,
+        var quotaIntervalMs: Long = 1_000,
+        var durationSeconds: Long = 120,
+        var timeoutSeconds: Long = 30,
+        var producerLingerMs: Int = 15
     )
 
     data class Consumers(

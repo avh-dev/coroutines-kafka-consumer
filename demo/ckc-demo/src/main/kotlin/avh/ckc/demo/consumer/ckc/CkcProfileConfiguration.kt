@@ -2,6 +2,7 @@ package avh.ckc.demo.consumer.ckc
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.warmup.trafficWarmupContext
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
@@ -17,13 +18,17 @@ import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.runBlocking
+import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @Configuration(proxyBeanMethods = false)
 @Profile("ckc")
@@ -126,6 +131,7 @@ private class CkcConsumerRuntime(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to properties.kafka.bootstrapServers,
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
         )
+        val trafficWarmup = createTrafficWarmup()
 
         orderConsumer = DemoConsumers.orderConsumer(
             commonProperties + properties.kafkaConsumerProperties(properties.consumers.order) +
@@ -135,7 +141,8 @@ private class CkcConsumerRuntime(
             properties.consumers.order,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup
         ) { key, event -> orderHandler(key, event) }
 
         batchConsumer = DemoConsumers.batchConsumer(
@@ -146,7 +153,8 @@ private class CkcConsumerRuntime(
             properties.consumers.batch,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup
         ) { key, event -> batchHandler(key, event) }
 
         telemetryConsumer = DemoConsumers.telemetryConsumer(
@@ -158,7 +166,8 @@ private class CkcConsumerRuntime(
             properties.consumers.freshnessFirstMaxRecordAgeSeconds,
             properties.consumers.retry,
             processingDispatcher,
-            properties.consumers.processingEnabled
+            properties.consumers.processingEnabled,
+            trafficWarmup
         ) { key, telemetry -> telemetryHandler(key, telemetry) }
 
         orderConsumer.start()
@@ -185,4 +194,31 @@ private class CkcConsumerRuntime(
     override fun isRunning(): Boolean = running
 
     override fun isAutoStartup(): Boolean = true
+
+    private fun createTrafficWarmup(): DemoConsumers.TrafficWarmup? {
+        val warmup = properties.trafficWarmup
+        if (!warmup.enabled) return null
+        val kafkaProperties = mapOf<String, Any?>(
+            CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG to warmup.bootstrapServers,
+            CommonClientConfigs.SECURITY_PROTOCOL_CONFIG to warmup.securityProtocol
+        )
+        val context = trafficWarmupContext {
+            controlTopic = warmup.controlTopic
+            controlKafkaProperties = kafkaProperties
+            quotaPerInterval = warmup.quotaPerInterval
+            quotaInterval = warmup.quotaIntervalMs.milliseconds
+            warmupDuration = warmup.durationSeconds.seconds
+            delegationTimeout = warmup.timeoutSeconds.seconds
+            cleanupTimeout = warmup.timeoutSeconds.seconds
+            controlReadinessTimeout = warmup.timeoutSeconds.seconds
+        }
+        return DemoConsumers.TrafficWarmup(
+            context = context,
+            consumerProperties = kafkaProperties,
+            producerProperties = kafkaProperties + mapOf(
+                ProducerConfig.ACKS_CONFIG to "all",
+                ProducerConfig.LINGER_MS_CONFIG to warmup.producerLingerMs
+            )
+        )
+    }
 }
