@@ -94,6 +94,8 @@ The result tracker uses one short lock and performs no network operations while 
 supports both registration orders, idempotent duplicates, and a single atomic winner between
 result, timeout/session failure, and lifecycle cancellation. Early results are limited by count
 and TTL; overflow fails the session instead of silently evicting a potentially valid result.
+Completed identifiers use a separate count-bounded tombstone set, so a result repeated after the
+early-result TTL is still treated as a duplicate rather than reintroduced as an early result.
 
 The fixed-link implementation is split into these narrowly scoped classes:
 

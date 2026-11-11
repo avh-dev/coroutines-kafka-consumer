@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -80,6 +81,46 @@ class FixedLinkWarmupDataPlaneTest {
         assertInstanceOf(RecordProcessingOutcome.HandlerFailed::class.java, outcome)
         assertEquals(1, localCalls.get())
         assertEquals(listOf(WarmupFallbackReason.REMOTE_TERMINAL_FAILURE), metrics.fallbacks)
+    }
+
+    @Test
+    fun `local pipeline failure after remote terminal failure is not retried as delegation failure`() {
+        val localCalls = AtomicInteger()
+        val senderCalls = AtomicInteger()
+        lateinit var plane: FixedLinkWarmupDataPlane<String, String>
+        plane = plane(
+            sender = WarmupRecordSender { _, _ -> acknowledgement(senderCalls.getAndIncrement().toLong()) },
+            observer = WarmupForwardingObserver { event ->
+                plane.accept(
+                    completed(
+                        event,
+                        if (event.sourceOffset == 1L) {
+                            WarmupRemoteOutcome.TerminalFailure
+                        } else {
+                            WarmupRemoteOutcome.Succeeded
+                        }
+                    )
+                )
+            }
+        )
+
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                plane.process(record(offset = 1L)) {
+                    localCalls.incrementAndGet()
+                    throw IllegalStateException("local pipeline failed")
+                }
+            }
+        }
+        runBlocking {
+            assertEquals(
+                RecordProcessingOutcome.HandlerSucceeded,
+                plane.process(record(offset = 2L)) { error("fallback not expected") }
+            )
+        }
+
+        assertEquals(1, localCalls.get())
+        assertEquals(2, senderCalls.get())
     }
 
     @Test
@@ -195,6 +236,59 @@ class FixedLinkWarmupDataPlaneTest {
     }
 
     @Test
+    fun `session failure releases every unconfirmed delegation to local fallback`() = runBlocking {
+        val events = CopyOnWriteArrayList<WarmupForwardedEvent>()
+        val localCalls = AtomicInteger()
+        val plane = plane(
+            sender = WarmupRecordSender { source, _ ->
+                if (source.offset() == 3L) throw IllegalStateException("send failed")
+                acknowledgement(source.offset())
+            },
+            observer = WarmupForwardingObserver { events += it }
+        )
+        val first = async {
+            plane.process(record(offset = 1L)) {
+                localCalls.incrementAndGet()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        val second = async {
+            plane.process(record(offset = 2L)) {
+                localCalls.incrementAndGet()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        withTimeout(1_000) { while (events.size != 2) kotlinx.coroutines.yield() }
+
+        val failedSend = plane.process(record(offset = 3L)) {
+            localCalls.incrementAndGet()
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, failedSend)
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, first.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, second.await())
+        assertEquals(3, localCalls.get())
+    }
+
+    @Test
+    fun `fatal JVM error from sender propagates without local fallback`() {
+        val localCalls = AtomicInteger()
+        val plane = plane(sender = WarmupRecordSender { _, _ -> throw LinkageError("fatal") })
+
+        assertThrows(LinkageError::class.java) {
+            runBlocking {
+                plane.process(record()) {
+                    localCalls.incrementAndGet()
+                    RecordProcessingOutcome.HandlerSucceeded
+                }
+            }
+        }
+
+        assertEquals(0, localCalls.get())
+    }
+
+    @Test
     fun `monitoring observer failure does not change processing outcome`() = runBlocking {
         lateinit var plane: FixedLinkWarmupDataPlane<String, String>
         plane = plane(
@@ -242,6 +336,50 @@ class FixedLinkWarmupDataPlaneTest {
     }
 
     @Test
+    fun `closing data plane cancels pending wait without local fallback`() = runBlocking {
+        val forwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val localCalls = AtomicInteger()
+        val plane = plane(observer = WarmupForwardingObserver { forwarded.complete(it) })
+        val delegated = async {
+            plane.process(record()) {
+                localCalls.incrementAndGet()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        val event = withTimeout(1_000) { forwarded.await() }
+
+        plane.close()
+
+        assertTrue(runCatching { delegated.await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertEquals(0, localCalls.get())
+        assertEquals(
+            WarmupResultTracker.Completion.IGNORED,
+            plane.accept(completed(event, WarmupRemoteOutcome.Succeeded))
+        )
+    }
+
+    @Test
+    fun `stopping delegation keeps current wait and routes new record locally`() = runBlocking {
+        val forwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val localCalls = AtomicInteger()
+        val plane = plane(observer = WarmupForwardingObserver { forwarded.complete(it) })
+        val delegated = async { plane.process(record(offset = 1L)) { error("fallback not expected") } }
+        val event = withTimeout(1_000) { forwarded.await() }
+
+        plane.stopDelegating()
+        val local = plane.process(record(offset = 2L)) {
+            localCalls.incrementAndGet()
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+        assertFalse(delegated.isCompleted)
+        plane.accept(completed(event, WarmupRemoteOutcome.Succeeded))
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, local)
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, delegated.await())
+        assertEquals(1, localCalls.get())
+    }
+
+    @Test
     fun `interval quota routes excess records locally`() = runBlocking {
         val senderCalls = AtomicInteger()
         val localCalls = AtomicInteger()
@@ -266,6 +404,30 @@ class FixedLinkWarmupDataPlaneTest {
 
         assertEquals(2, senderCalls.get())
         assertEquals(1, localCalls.get())
+    }
+
+    @Test
+    fun `new interval delegates while previous interval result is still pending`() = runBlocking {
+        val now = AtomicLong(0L)
+        val events = CopyOnWriteArrayList<WarmupForwardedEvent>()
+        val sends = AtomicInteger()
+        val plane = plane(
+            quota = 1,
+            nanoTime = now::get,
+            sender = WarmupRecordSender { _, _ -> acknowledgement(sends.getAndIncrement().toLong()) },
+            observer = WarmupForwardingObserver { events += it }
+        )
+        val first = async { plane.process(record(offset = 1L)) { error("fallback not expected") } }
+        withTimeout(1_000) { while (events.size != 1) kotlinx.coroutines.yield() }
+
+        now.set(1.seconds.inWholeNanoseconds)
+        val second = async { plane.process(record(offset = 2L)) { error("fallback not expected") } }
+        withTimeout(1_000) { while (events.size != 2) kotlinx.coroutines.yield() }
+
+        events.forEach { plane.accept(completed(it, WarmupRemoteOutcome.Succeeded)) }
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, first.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, second.await())
+        assertEquals(2, sends.get())
     }
 
     @Test
@@ -365,7 +527,8 @@ class FixedLinkWarmupDataPlaneTest {
         observer: WarmupForwardingObserver = WarmupForwardingObserver { },
         metrics: TestMetrics = TestMetrics(),
         maxEarlyResults: Int = 1_024,
-        supportsRemoteDiscard: Boolean = false
+        supportsRemoteDiscard: Boolean = false,
+        nanoTime: () -> Long = System::nanoTime
     ) = FixedLinkWarmupDataPlane(
         sessionId = session,
         quota = quota,
@@ -376,7 +539,8 @@ class FixedLinkWarmupDataPlaneTest {
         forwardingObserver = observer,
         metrics = metrics,
         maxEarlyResults = maxEarlyResults,
-        supportsRemoteDiscard = { supportsRemoteDiscard }
+        supportsRemoteDiscard = { supportsRemoteDiscard },
+        nanoTime = nanoTime
     )
 
     private fun acknowledgement(offset: Long = 11L) =

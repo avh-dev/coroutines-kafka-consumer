@@ -61,6 +61,21 @@ class WarmupResultTrackerTest {
     }
 
     @Test
+    fun `completed result remains an idempotent duplicate after early result TTL`() = runBlocking {
+        val now = AtomicLong(0L)
+        val tracker = tracker(now = now)
+        val completed = completed(3L)
+        val waiting = async { tracker.await(completed.recordId, 1.seconds) }
+        withTimeout(1_000) { while (tracker.pendingCount() != 1) kotlinx.coroutines.yield() }
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, tracker.complete(completed))
+        assertEquals(WarmupRemoteOutcome.Succeeded, waiting.await())
+
+        now.set(2.seconds.inWholeNanoseconds)
+
+        assertEquals(WarmupResultTracker.Completion.DUPLICATE, tracker.complete(completed))
+    }
+
+    @Test
     fun `foreign session is ignored`() {
         val tracker = tracker()
         val foreign = WarmupRecordCompleted(

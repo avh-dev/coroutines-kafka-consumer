@@ -5991,6 +5991,9 @@ interval quota, retain the source slot through producer acknowledgement and expl
 remote outcome, and fall back locally after infrastructure failure or deadline.
 Bound and clean early results, preserve lifecycle cancellation without fallback, emit
 forwarding diagnostics only after ACK, and expose low-cardinality warm-up metrics.
-Verification: all 277 core, Micrometer, and Spring starter unit tests pass; all 24
+Review separated remote delegation failures from local fallback execution, preventing a
+failed local pipeline from being invoked twice; fatal JVM errors now propagate directly,
+and completed-result tombstones remain idempotent beyond the early-result TTL.
+Verification: all 284 core, Micrometer, and Spring starter unit tests pass; all 24
 real-Kafka integration tests pass, including proof that producer ACK does not complete
 the source before its explicit remote outcome.

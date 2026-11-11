@@ -1,5 +1,6 @@
 package avh.ckc.core.warmup
 
+import avh.ckc.core.isFatalJvmError
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.WarmupFallbackReason
 import avh.ckc.core.metrics.WarmupResultMetricOutcome
@@ -64,8 +65,8 @@ internal class FixedLinkWarmupDataPlane<K, V>(
         }
 
         var acknowledged = false
-        return try {
-            val remote = withTimeout(delegationTimeout) {
+        val remote = try {
+            withTimeout(delegationTimeout) {
                 val sendStarted = System.nanoTime()
                 val acknowledgement = sender.send(record, destination)
                 acknowledged = true
@@ -89,39 +90,21 @@ internal class FixedLinkWarmupDataPlane<K, V>(
                 metrics.onWarmupResult(record, outcome.metricOutcome(), System.nanoTime() - waitStarted)
                 outcome
             }
-            when (remote) {
-                WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceeded
-                WarmupRemoteOutcome.TerminalFailure -> {
-                    metrics.onWarmupFallback(record, WarmupFallbackReason.REMOTE_TERMINAL_FAILURE)
-                    processLocally()
-                }
-                is WarmupRemoteOutcome.Discarded -> {
-                    if (!supportsRemoteDiscard(remote.reason)) {
-                        val error = InvalidWarmupRemoteOutcomeException(
-                            "Remote discard ${remote.reason} is not supported by the source processing mode"
-                        )
-                        failSession(error)
-                        throw error
-                    }
-                    RecordProcessingOutcome.PolicyDiscarded(remote.reason)
-                }
-            }
         } catch (error: TimeoutCancellationException) {
             failSession(WarmupDelegationFailedException("Warm-up delegation deadline expired", error))
             metrics.onWarmupFallback(
                 record,
                 if (acknowledged) WarmupFallbackReason.RESULT_TIMEOUT else WarmupFallbackReason.SEND_FAILURE
             )
-            processLocally()
+            return processLocally()
         } catch (error: WarmupResultTimeoutException) {
             failSession(WarmupDelegationFailedException("Warm-up result deadline expired", error))
             metrics.onWarmupFallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
-            processLocally()
+            return processLocally()
         } catch (error: CancellationException) {
             throw error
-        } catch (error: InvalidWarmupRemoteOutcomeException) {
-            throw error
         } catch (error: Throwable) {
+            if (error.isFatalJvmError()) throw error
             val reason = if (acknowledged) {
                 WarmupFallbackReason.SESSION_FAILURE
             } else {
@@ -129,7 +112,25 @@ internal class FixedLinkWarmupDataPlane<K, V>(
             }
             failSession(error)
             metrics.onWarmupFallback(record, reason)
-            processLocally()
+            return processLocally()
+        }
+
+        return when (remote) {
+            WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceeded
+            WarmupRemoteOutcome.TerminalFailure -> {
+                metrics.onWarmupFallback(record, WarmupFallbackReason.REMOTE_TERMINAL_FAILURE)
+                processLocally()
+            }
+            is WarmupRemoteOutcome.Discarded -> {
+                if (!supportsRemoteDiscard(remote.reason)) {
+                    val error = InvalidWarmupRemoteOutcomeException(
+                        "Remote discard ${remote.reason} is not supported by the source processing mode"
+                    )
+                    failSession(error)
+                    throw error
+                }
+                RecordProcessingOutcome.PolicyDiscarded(remote.reason)
+            }
         }
     }
 

@@ -31,7 +31,8 @@ internal class WarmupResultTracker(
     private val lock = Any()
     private val waiters = mutableMapOf<WarmupRecordId, CompletableDeferred<WarmupRemoteOutcome>>()
     private val early = linkedMapOf<WarmupRecordId, TimedOutcome>()
-    private val retired = linkedMapOf<WarmupRecordId, Long>()
+    private val retired = linkedSetOf<WarmupRecordId>()
+    private val retiredLimit = (maxEarlyResults.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     private var failure: Throwable? = null
     private var closed = false
 
@@ -49,7 +50,7 @@ internal class WarmupResultTracker(
             failure?.let { throw it }
             check(!closed) { "Warm-up result tracker is closed" }
             early.remove(recordId)?.let {
-                retire(recordId, nanoTime())
+                retire(recordId)
                 return it.outcome
             }
             check(recordId !in retired) { "Warm-up result $recordId is already completed" }
@@ -63,7 +64,7 @@ internal class WarmupResultTracker(
             val timeoutWon = synchronized(lock) {
                 if (waiters[recordId] === waiter) {
                     waiters.remove(recordId)
-                    retire(recordId, nanoTime())
+                    retire(recordId)
                     onPendingChanged(waiters.size)
                     true
                 } else false
@@ -74,7 +75,7 @@ internal class WarmupResultTracker(
             synchronized(lock) {
                 if (waiters[recordId] === waiter) {
                     waiters.remove(recordId)
-                    retire(recordId, nanoTime())
+                    retire(recordId)
                     onPendingChanged(waiters.size)
                 }
             }
@@ -90,7 +91,7 @@ internal class WarmupResultTracker(
         if (recordId in retired || recordId in early) return@synchronized Completion.DUPLICATE
         val waiter = waiters.remove(recordId)
         if (waiter != null) {
-            retire(recordId, now)
+            retire(recordId)
             waiter.complete(completed.outcome)
             onPendingChanged(waiters.size)
             Completion.DELIVERED
@@ -109,6 +110,7 @@ internal class WarmupResultTracker(
             val snapshot = waiters.values.toList()
             waiters.clear()
             early.clear()
+            retired.clear()
             onPendingChanged(0)
             snapshot
         }
@@ -122,6 +124,7 @@ internal class WarmupResultTracker(
             val snapshot = waiters.values.toList()
             waiters.clear()
             early.clear()
+            retired.clear()
             onPendingChanged(0)
             snapshot
         }
@@ -134,13 +137,12 @@ internal class WarmupResultTracker(
     private fun purgeExpired(now: Long) {
         val ttlNanos = earlyResultTtl.inWholeNanoseconds
         early.entries.removeIf { now - it.value.receivedAt >= ttlNanos || now < it.value.receivedAt }
-        retired.entries.removeIf { now - it.value >= ttlNanos || now < it.value }
     }
 
-    private fun retire(recordId: WarmupRecordId, now: Long) {
-        retired[recordId] = now
-        while (retired.size > maxEarlyResults * 2) {
-            retired.remove(retired.entries.first().key)
+    private fun retire(recordId: WarmupRecordId) {
+        retired += recordId
+        while (retired.size > retiredLimit) {
+            retired.remove(retired.first())
         }
     }
 }
