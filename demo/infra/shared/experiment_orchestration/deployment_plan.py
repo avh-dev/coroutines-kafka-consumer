@@ -896,6 +896,10 @@ exec sleep infinity
         "kind": "Service",
         "metadata": _metadata(WARMUP_KAFKA_SERVICE, bindings.application_namespace, labels),
         "spec": {
+            # The broker advertises this service address. Publish its endpoint while the
+            # topic-provisioner readiness gate is still closed so the provisioner can
+            # follow Kafka metadata and create the topics that make the pod ready.
+            "publishNotReadyAddresses": True,
             "selector": {"app.kubernetes.io/name": WARMUP_KAFKA_SERVICE},
             "ports": [{"name": "kafka", "port": WARMUP_KAFKA_PORT, "targetPort": WARMUP_KAFKA_PORT}],
         },

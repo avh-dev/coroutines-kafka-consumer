@@ -522,6 +522,7 @@
 | [INFRA-332](#infra-332) | Run automatic traffic warm-up through an ephemeral single-broker Kafka deployed with the application. | DONE |
 | [INFRA-333](#infra-333) | Explicitly provision topics on the ephemeral warm-up Kafka broker before it becomes ready. | DONE |
 | [INFRA-334](#infra-334) | Colocate HTTP stubs with application pods in the 16k warm-up comparison to reduce cross-node packet pressure. | DONE |
+| [INFRA-335](#infra-335) | Publish the warm-up Kafka endpoint during topic provisioning to avoid a readiness deadlock. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6502,3 +6503,17 @@ of GLOBAL-3.
 Both targets now resolve application and stubs to the worker and retain the generator on
 the controller. Focused contract, materialization, deployment-plan, experiment-runner, and
 internal-lab synchronization tests pass.
+
+<a id="infra-335"></a>
+### INFRA-335 - Publish warm-up Kafka during provisioning
+
+_Date: 2026-11-11_
+
+Publish the ephemeral broker's Service endpoint before the pod readiness gate opens. Kafka
+advertises the Service address even to the colocated topic provisioner, so withholding the
+endpoint until topics exist creates a circular dependency. Keep application readiness gated
+on explicit topic creation while allowing the provisioner to follow broker metadata. This is
+a child task of GLOBAL-3.
+The rendered Service now publishes not-ready endpoints, and the deployment-plan regression
+test verifies that the readiness-gated provisioner can reach the broker through its advertised
+address. Focused deployment-plan, materialization, and synchronization tests pass.
