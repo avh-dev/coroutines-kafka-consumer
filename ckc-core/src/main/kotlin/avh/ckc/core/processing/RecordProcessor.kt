@@ -6,6 +6,7 @@ import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.isFatalJvmError
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordHandoffReason
 import kotlinx.coroutines.CancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import kotlin.time.Duration
@@ -24,6 +25,9 @@ internal class RecordProcessor<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     private val onRecordProcessed: (ConsumerRecord<K, V>) -> Unit,
+    private val interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    private val outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver(),
+    private val handoffReason: () -> RecordHandoffReason = { RecordHandoffReason.ASSIGNMENT_ENDED },
     private val awaitRetryPermission: suspend (ConsumerRecord<K, V>, Duration) -> Boolean = { _, delay ->
         if (delay.isPositive()) kotlinx.coroutines.delay(delay)
         true
@@ -49,37 +53,39 @@ internal class RecordProcessor<K, V>(
         val key = record.key()
         val value = record.value()
         try {
-            try {
-                val completed = executeWithRetry(record, key, value) {
-                    handler.process(record)
-                }
-                if (!completed) return RecordProcessingOutcome.HANDED_OFF
-            } catch (error: Throwable) {
-                if (error.isCancellation() || error.isFatalJvmError()) {
-                    throw error
-                }
-
-                processingFailureHandler.handle(record, error)
-                onRecordProcessed(record)
-                metrics.onRecordFailed(
-                    key = key,
-                    value = value,
-                    record = record,
-                    error = error,
-                    durationNanos = System.nanoTime() - startedAt
-                )
-                return RecordProcessingOutcome.COMPLETED
+            val outcome = interceptor.process(record) {
+                processLocally(record, key, value)
             }
-
-            onRecordProcessed(record)
-            metrics.onRecordProcessed(
-                key = key,
-                value = value,
-                record = record,
-                endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
-                durationNanos = System.nanoTime() - startedAt
-            )
-            return RecordProcessingOutcome.COMPLETED
+            when (outcome) {
+                RecordProcessingOutcome.HandlerSucceeded -> {
+                    onRecordProcessed(record)
+                    metrics.onRecordProcessed(
+                        key = key,
+                        value = value,
+                        record = record,
+                        endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
+                        durationNanos = System.nanoTime() - startedAt
+                    )
+                }
+                is RecordProcessingOutcome.HandlerFailed -> {
+                    onRecordProcessed(record)
+                    metrics.onRecordFailed(
+                        key = key,
+                        value = value,
+                        record = record,
+                        error = outcome.error,
+                        durationNanos = System.nanoTime() - startedAt
+                    )
+                }
+                is RecordProcessingOutcome.PolicyDiscarded ->
+                    metrics.onRecordDropped(record, outcome.reason)
+                is RecordProcessingOutcome.HandedOff -> Unit
+            }
+            // Lifecycle handoff metrics are mode-specific and are applied by the owning runtime.
+            if (outcome !is RecordProcessingOutcome.HandedOff) {
+                outcomeObserver.onOutcome(record, outcome)
+            }
+            return outcome
         } catch (error: Throwable) {
             if (error.isCancellation() || error.isFatalJvmError()) {
                 throw error
@@ -92,6 +98,30 @@ internal class RecordProcessor<K, V>(
                 durationNanos = System.nanoTime() - startedAt
             )
             throw error
+        }
+    }
+
+    private suspend fun processLocally(
+        record: ConsumerRecord<K, V>,
+        key: K?,
+        value: V?
+    ): RecordProcessingOutcome {
+        return try {
+            val completed = executeWithRetry(record, key, value) {
+                handler.process(record)
+            }
+            if (completed) {
+                RecordProcessingOutcome.HandlerSucceeded
+            } else {
+                RecordProcessingOutcome.HandedOff(handoffReason())
+            }
+        } catch (error: Throwable) {
+            if (error.isCancellation() || error.isFatalJvmError()) {
+                throw error
+            }
+
+            processingFailureHandler.handle(record, error)
+            RecordProcessingOutcome.HandlerFailed(error)
         }
     }
 
@@ -130,9 +160,4 @@ internal class RecordProcessor<K, V>(
     }
 
     private fun Throwable.isCancellation(): Boolean = this is CancellationException
-}
-
-internal enum class RecordProcessingOutcome {
-    COMPLETED,
-    HANDED_OFF
 }

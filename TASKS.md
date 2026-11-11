@@ -77,6 +77,7 @@
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-82](#core-82) | Expose poll-loop assignment readiness independently from warm-up assignment and preserve initialization failures. | DONE |
+| [CORE-83](#core-83) | Add semantic terminal processing outcomes and one admitted-record interception seam across every processing mode. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5962,3 +5963,18 @@ and report cancellation when a loop stops before readiness.
 Verification: the complete core, Micrometer, and Spring starter unit suites pass,
 including aggregate multi-loop readiness and the three initialization edge cases;
 all 23 real-Kafka core integration tests pass.
+
+<a id="core-83"></a>
+### CORE-83 - Add terminal outcomes and an admitted-record seam
+
+_Date: 2026-11-11_
+
+Introduce one internal interception point around the complete local handler, retry,
+and failure-handler pipeline after runtime admission. Report semantic handler success,
+handled terminal failure, policy discard, and lifecycle handoff outcomes across every
+ordering and freshness mode without adding warm-up transport or control behavior.
+Keep existing offset, retry, failure-handler, ordering, and metrics behavior while
+making policy discards outside the handler visible to the same outcome observer.
+Verification: the complete core, Micrometer, and Spring starter unit suites pass;
+all five processing modes exercise the seam, both freshness modes report pre-handler
+stale discards, and all 23 real-Kafka integration tests pass.

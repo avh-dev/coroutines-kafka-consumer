@@ -49,6 +49,11 @@ The current `ProcessingFailureHandler.skip()` is not a distinct successful handl
 reported as `HandlerFailed`, because the business handler did not succeed. There is no separate
 core skip policy today; a future explicit skip outcome may be added without calling it success.
 
+CORE-83 implements this as the internal `RecordProcessingOutcome` model. Every runtime invokes
+one `AdmittedRecordInterceptor` around the complete local pipeline while retaining its normal
+worker/key/partition slot. A separate `RecordProcessingOutcomeObserver` also covers policy
+discards that happen before the interceptor, such as freshness replacement and queue overflow.
+
 Initial donor mapping is:
 
 - `SUCCEEDED`: terminalize the source as processed and emit its ordinary source metrics/audit;
@@ -186,7 +191,7 @@ These IDs avoid the historical GLOBAL-3 child IDs. They are proposals only and a
 `TASKS.md` or started until this design is approved.
 
 1. `CORE-82` (done): reimplement the independent poll-loop readiness completion fix.
-2. `CORE-83`: introduce terminal processing outcomes and a mode-independent admitted-record seam;
+2. `CORE-83` (done): introduce terminal processing outcomes and a mode-independent admitted-record seam;
    verify all ordering and freshness modes without warm-up.
 3. `CORE-84`: implement fixed-link quota, producer deadline, result tracker, outcome application,
    cancellation semantics, forwarding event, metrics, and real-Kafka integration tests.

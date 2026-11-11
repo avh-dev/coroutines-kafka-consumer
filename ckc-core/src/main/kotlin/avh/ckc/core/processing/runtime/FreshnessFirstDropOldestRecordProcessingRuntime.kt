@@ -8,6 +8,11 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.noOpRecordProcessingOutcomeObserver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -27,7 +32,9 @@ internal class FreshnessFirstDropOldestRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    outcomeObserver: RecordProcessingOutcomeObserver<K, V> = noOpRecordProcessingOutcomeObserver()
 ) : BaseUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency = workerConcurrency,
     workChannelCapacity = workChannelCapacity,
@@ -39,6 +46,8 @@ internal class FreshnessFirstDropOldestRecordProcessingRuntime<K, V>(
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
     processedRecordTracker = processedRecordTracker,
+    interceptor = interceptor,
+    outcomeObserver = outcomeObserver,
     recordDropPolicy = FreshnessRecordAgeDropPolicy(freshnessMaxRecordAge, metrics)
 ) {
     private val acceptingRecords = AtomicBoolean(true)
@@ -55,6 +64,15 @@ internal class FreshnessFirstDropOldestRecordProcessingRuntime<K, V>(
                 processedRecordTracker.discard(record)
                 if (acceptingRecords.get()) {
                     metrics.onRecordDropped(record, RecordDropReason.QUEUE_OVERFLOW)
+                    outcomeObserver.onOutcome(
+                        record,
+                        RecordProcessingOutcome.PolicyDiscarded(RecordDropReason.QUEUE_OVERFLOW)
+                    )
+                } else {
+                    outcomeObserver.onOutcome(
+                        record,
+                        RecordProcessingOutcome.HandedOff(handoffReason())
+                    )
                 }
             }
         )
