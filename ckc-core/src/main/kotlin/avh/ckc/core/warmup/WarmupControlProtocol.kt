@@ -97,6 +97,7 @@ internal data class SessionAccepted(
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
     val assignments: List<WarmupPartitionAssignment>,
+    val stopAtEpochMillis: Long,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
@@ -109,6 +110,9 @@ internal data class SessionAccepted(
         }
         require(assignments.map { it.destination }.distinct().size == assignments.size) {
             "Warm-up destination partitions must be exclusive within an acceptance"
+        }
+        require(stopAtEpochMillis > 0 && stopAtEpochMillis <= expiresAtEpochMillis) {
+            "Warm-up stop time must be positive and not exceed the session deadline"
         }
     }
 }

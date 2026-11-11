@@ -380,6 +380,33 @@ class FixedLinkWarmupDataPlaneTest {
     }
 
     @Test
+    fun `stop boundary waits for producer acknowledgement but not remote outcome`() = runBlocking {
+        val sendEntered = CompletableDeferred<Unit>()
+        val releaseSend = CompletableDeferred<Unit>()
+        val event = CompletableDeferred<WarmupForwardedEvent>()
+        val plane = plane(
+            sender = WarmupRecordSender { _, _ ->
+                sendEntered.complete(Unit)
+                releaseSend.await()
+                acknowledgement(17L)
+            },
+            observer = WarmupForwardingObserver { event.complete(it) }
+        )
+        val processing = async { plane.process(record()) { error("fallback not expected") } }
+        sendEntered.await()
+        val stopping = async { plane.stopDelegatingAndAwaitSends(1.seconds) }
+        assertFalse(stopping.isCompleted)
+
+        releaseSend.complete(Unit)
+        val finalOffsets = stopping.await()
+
+        assertEquals(listOf(WarmupFinalOffset(destination.topicPartition(), 17L)), finalOffsets)
+        assertFalse(processing.isCompleted)
+        plane.accept(completed(event.await(), WarmupRemoteOutcome.Succeeded))
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, processing.await())
+    }
+
+    @Test
     fun `interval quota routes excess records locally`() = runBlocking {
         val senderCalls = AtomicInteger()
         val localCalls = AtomicInteger()
@@ -545,6 +572,8 @@ class FixedLinkWarmupDataPlaneTest {
 
     private fun acknowledgement(offset: Long = 11L) =
         WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), offset)
+
+    private fun WarmupDestination.topicPartition() = TopicPartition(topic, partition)
 
     private fun completed(event: WarmupForwardedEvent, outcome: WarmupRemoteOutcome) =
         WarmupRecordCompleted(

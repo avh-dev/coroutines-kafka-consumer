@@ -70,6 +70,7 @@ internal class ConsumerPollLoop<K, V>(
     private val topicsPattern: Pattern?,
     private val recordSink: PolledRecordSink<K, V>,
     private val partitionStateRegistry: PartitionRegistry,
+    private val assignedPartitionsAtEnd: Set<TopicPartition>? = null,
     private val kafkaConsumerFactory:
         (consumerProperties: Map<String, Any?>) -> KafkaConsumer<K, V> = {
             KafkaConsumer(it)
@@ -348,11 +349,27 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     private fun subscribe(consumer: KafkaConsumer<K, V>) {
-        if (topicsPattern != null) {
+        if (assignedPartitionsAtEnd != null) {
+            consumer.assign(assignedPartitionsAtEnd)
+            val endOffsets = consumer.endOffsets(assignedPartitionsAtEnd)
+            assignedPartitionsAtEnd.forEach { consumer.seek(it, endOffsets.getValue(it)) }
+            handleExplicitPartitionsAssigned(endOffsets)
+        } else if (topicsPattern != null) {
             consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
         } else {
             consumer.subscribe(topics, createRebalanceListener(consumer, processingMode))
         }
+    }
+
+    private fun handleExplicitPartitionsAssigned(endOffsets: Map<TopicPartition, Long>) {
+        val states = partitionStateRegistry.onPartitionsAssigned(endOffsets.keys)
+        states.forEach { state ->
+            state.init(endOffsets.getValue(state.topicPartition), forceReset = true)
+            metrics.bindPartitionMetrics(id, state)
+        }
+        assignedPartitions += states
+        refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     /**

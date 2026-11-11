@@ -1,6 +1,9 @@
 package avh.ckc.core
 
+import avh.ckc.core.warmup.trafficWarmupContext
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -23,6 +26,28 @@ class CoroutinesKafkaConsumerBuilderTest {
     fun `when builder is configured with topics pattern then consumer is created`() {
         val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
             topicsPattern(Pattern.compile("topic-.*"))
+            handle { }
+        }
+
+        assertEquals(CoroutinesKafkaConsumer::class, consumer::class)
+    }
+
+    @Test
+    fun `traffic warmup registers a managed consumer through the ordinary builder`() {
+        val context = trafficWarmupContext {
+            controlTopic = "ckc.traffic-warmup.v1.control"
+            controlKafkaProperties = stringSerdeProperties()
+        }
+        val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+            topics("topic-a")
+            trafficWarmup(context, "orders") {
+                mapTopic("topic-a", "ckc.traffic-warmup.v1.orders")
+                forwardingProducerProperties = mapOf(
+                    ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092",
+                    ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                    ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+                )
+            }
             handle { }
         }
 

@@ -22,11 +22,15 @@ import avh.ckc.core.warmup.WarmupRemoteOutcome
 import avh.ckc.core.warmup.WarmupRequested
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.core.warmup.WarmupTopicMapping
+import avh.ckc.core.warmup.trafficWarmupContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.AdminClient
@@ -178,6 +182,94 @@ class CoroutinesKafkaConsumerIntegrationTest {
             assertEquals(0, localCalls.get())
         } finally {
             plane.close()
+        }
+    }
+
+    @Test
+    fun `library context warms a cold consumer before starting its main subscription`() = runBlocking {
+        val sourceTopic = "ckc-source-it-${UUID.randomUUID()}"
+        val warmupTopic = "ckc-warmup-it-${UUID.randomUUID()}"
+        val controlTopic = "ckc-control-it-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(warmupTopic)
+        createTopic(controlTopic)
+        val controlProperties = mapOf<String, Any?>(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers
+        )
+        val producerProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all"
+        )
+        fun newContext(instance: String) = trafficWarmupContext {
+            instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
+            this.controlTopic = controlTopic
+            controlKafkaProperties = controlProperties
+            quotaPerInterval = 10
+            quotaInterval = 100.milliseconds
+            warmupDuration = 2.seconds
+            delegationTimeout = 5.seconds
+            offerWindow = 200.milliseconds
+            negotiationTimeout = 2.seconds
+            cleanupTimeout = 5.seconds
+        }
+
+        val donorContext = newContext("donor")
+        val donorForwarded = CompletableDeferred<Unit>()
+        val donor = coroutinesKafkaConsumer<String, String>(consumerProperties("donor-${UUID.randomUUID()}")) {
+            topics(sourceTopic)
+            trafficWarmup(donorContext, "orders") {
+                mapTopic(sourceTopic, warmupTopic)
+                forwardingProducerProperties = producerProperties
+                forwardingObserver = WarmupForwardingObserver { donorForwarded.complete(Unit) }
+            }
+            handle { }
+        }
+        val recipientContext = newContext("recipient")
+        val recipientHandledWarmup = CompletableDeferred<Unit>()
+        val recipient = coroutinesKafkaConsumer<String, String>(consumerProperties("recipient-${UUID.randomUUID()}")) {
+            topics(sourceTopic)
+            trafficWarmup(recipientContext, "orders") {
+                mapTopic(sourceTopic, warmupTopic)
+                forwardingProducerProperties = producerProperties
+            }
+            handle { record ->
+                if (record.topic() == warmupTopic) recipientHandledWarmup.complete(Unit)
+            }
+        }
+
+        var producerJob: Job? = null
+        try {
+            donor.start()
+            withTimeout(15_000) { donor.awaitReady() }
+
+            recipient.start()
+            val recipientReady = async { recipient.awaitReady() }
+            producerJob = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(producerProperties).use { producer ->
+                    var index = 0
+                    while (isActive && !recipientReady.isCompleted) {
+                        producer.send(ProducerRecord(sourceTopic, "key-$index", "value-$index")).get()
+                        index++
+                        delay(30)
+                    }
+                }
+            }
+
+            withTimeout(15_000) {
+                donorForwarded.await()
+                recipientHandledWarmup.await()
+            }
+            assertFalse(recipientReady.isCompleted)
+            assertFalse(recipient.stateSnapshot().started)
+
+            withTimeout(15_000) { recipientReady.await() }
+            assertTrue(recipient.stateSnapshot().started)
+        } finally {
+            producerJob?.cancel()
+            recipient.stop()
+            donor.stop()
         }
     }
 

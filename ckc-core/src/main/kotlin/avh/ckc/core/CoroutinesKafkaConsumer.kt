@@ -54,6 +54,14 @@ fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
 }
 
+/** Internal lifecycle indirection used by library-owned optional features. */
+internal interface ManagedConsumerLifecycle {
+    fun start()
+    suspend fun awaitReady()
+    suspend fun stop()
+    suspend fun awaitTermination()
+}
+
 /**
  * Callback invoked when the user record handler fails after all configured retries are exhausted.
  *
@@ -135,12 +143,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
+    private val assignedPartitionsAtEnd: Set<org.apache.kafka.common.TopicPartition>? = null,
     private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
     private val processingOutcomeObserver: RecordProcessingOutcomeObserver<K, V> =
         noOpRecordProcessingOutcomeObserver(),
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
+    private var managedLifecycle: ManagedConsumerLifecycle? = null
     private val effectiveConsumerProperties = consumerProperties.withExplicitCommitManagement()
     private val lifecycleMutex = Mutex()
     private val failure = AtomicReference<Throwable?>(null)
@@ -248,8 +258,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             it.configureProcessingCancellationTimeout(processingCancellationTimeout)
             it.configureRecovery(recoveryTimeout, recoveryRetryBackoff)
         }
-        require((topics == null) != (topicsPattern == null)) {
-            "Exactly one of topics or topicsPattern must be specified"
+        require(listOf(topics, topicsPattern, assignedPartitionsAtEnd).count { it != null } == 1) {
+            "Exactly one of topics, topicsPattern, or internal explicit assignment must be specified"
+        }
+        require(assignedPartitionsAtEnd == null || assignedPartitionsAtEnd.isNotEmpty()) {
+            "Explicit assignment must not be empty"
+        }
+        require(assignedPartitionsAtEnd == null || consumerPollLoopConcurrency == 1) {
+            "Explicit assignment requires consumerPollLoopConcurrency = 1"
         }
         require(consumerProperties.containsKey(KEY_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$KEY_DESERIALIZER_CLASS_CONFIG' must be specified"
@@ -283,6 +299,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
+        assignedPartitionsAtEnd: Set<org.apache.kafka.common.TopicPartition>? = null,
+        admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+        processingOutcomeObserver: RecordProcessingOutcomeObserver<K, V> =
+            noOpRecordProcessingOutcomeObserver(),
         handler: KafkaRecordHandler<K, V>
     ) : this(
         processingMode = processingMode,
@@ -308,11 +328,22 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext = parentContext,
         topics = topics,
         topicsPattern = topicsPattern,
-        pollLoopFactory = defaultPollLoopFactory(),
+        assignedPartitionsAtEnd = assignedPartitionsAtEnd,
+        admittedRecordInterceptor = admittedRecordInterceptor,
+        processingOutcomeObserver = processingOutcomeObserver,
+        pollLoopFactory = defaultPollLoopFactory(assignedPartitionsAtEnd),
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
     fun start() {
+        managedLifecycle?.let {
+            it.start()
+            return
+        }
+        startRuntime()
+    }
+
+    internal fun startRuntime() {
         check(!started) { "Consumer already started" }
         started = true
 
@@ -338,6 +369,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 
     /** Waits until every poll loop has established its first Kafka assignment and initial positions. */
     suspend fun awaitReady() {
+        managedLifecycle?.let {
+            it.awaitReady()
+            return
+        }
+        awaitRuntimeReady()
+    }
+
+    internal suspend fun awaitRuntimeReady() {
         check(started) { "Consumer must be started before awaiting readiness" }
         try {
             pollLoops.map { it.readiness() }.awaitAll()
@@ -353,6 +392,14 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     }
 
     suspend fun stop() {
+        managedLifecycle?.let {
+            it.stop()
+            return
+        }
+        stopRuntime()
+    }
+
+    internal suspend fun stopRuntime() {
         val deferred = prepareForStop()
         deferred.await()
         failure.get()?.let { throw it }
@@ -360,7 +407,21 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
 
     /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
     suspend fun awaitTermination() {
+        managedLifecycle?.let {
+            it.awaitTermination()
+            return
+        }
+        awaitRuntimeTermination()
+    }
+
+    internal suspend fun awaitRuntimeTermination() {
         termination.await()?.let { throw it }
+    }
+
+    internal fun attachManagedLifecycle(lifecycle: ManagedConsumerLifecycle) {
+        check(managedLifecycle == null) { "Consumer lifecycle is already managed" }
+        check(!started) { "Consumer lifecycle must be attached before start" }
+        managedLifecycle = lifecycle
     }
 
     /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
@@ -537,7 +598,9 @@ private fun Map<String, Any?>.withExplicitCommitManagement(): Map<String, Any?> 
 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
-private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
+private fun <K, V> defaultPollLoopFactory(
+    assignedPartitionsAtEnd: Set<org.apache.kafka.common.TopicPartition>? = null
+): PollLoopFactory<K, V> =
     { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
         ConsumerPollLoop<K, V>(
             id = id,
@@ -551,7 +614,8 @@ private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
             topics = loopTopics,
             topicsPattern = loopTopicsPattern,
             recordSink = recordSink,
-            partitionStateRegistry = registry
+            partitionStateRegistry = registry,
+            assignedPartitionsAtEnd = assignedPartitionsAtEnd
         )
     }
 

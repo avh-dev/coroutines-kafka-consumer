@@ -26,7 +26,7 @@ class WarmupControlCodecTest {
                 session, donor, recipient, listOf(WarmupDonorMapping(mapping, setOf(3, 1))),
                 fingerprint, deadline
             ),
-            SessionAccepted(session, recipient, donor, listOf(assignment), fingerprint, deadline),
+            SessionAccepted(session, recipient, donor, listOf(assignment), 9_000L, fingerprint, deadline),
             DonorAccepted(session, donor, recipient, fingerprint, deadline),
             SessionRejected(session, donor, recipient, "busy", fingerprint, deadline),
             RecipientReady(session, recipient, donor, listOf(assignment), fingerprint, deadline),
