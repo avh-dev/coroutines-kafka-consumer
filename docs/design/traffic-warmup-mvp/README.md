@@ -1,6 +1,6 @@
 # Real-traffic warm-up MVP design
 
-Status: proposal for `GLOBAL-4`; implementation is intentionally not started.
+Status: approved `GLOBAL-4` design; fixed-link data plane is implemented through `CORE-84`.
 
 Updated: 2026-11-11. Infrastructure findings below include subsequent GLOBAL-3 work
 through `b0c2c80`. Protocol and lifecycle choices remain subject to review.
@@ -83,8 +83,8 @@ HTTP API.
 7. The winning terminal result is mapped to the source outcome; the tracker entry is removed.
 
 The deadline starts before the producer call and covers serialization/metadata blocking, ACK, and
-result wait. The producer call runs on an interruptible blocking dispatcher and its Kafka timeouts
-are capped by the delegation timeout. A late ACK or result cannot terminalize a source after
+result wait. The producer call runs on an interruptible blocking dispatcher, so waiting for it
+cannot bypass the delegation deadline. A late ACK or result cannot terminalize a source after
 fallback.
 
 There is no `maxInFlight` gate. A new interval receives a full quota regardless of prior waits;
@@ -94,6 +94,20 @@ The result tracker uses one short lock and performs no network operations while 
 supports both registration orders, idempotent duplicates, and a single atomic winner between
 result, timeout/session failure, and lifecycle cancellation. Early results are limited by count
 and TTL; overflow fails the session instead of silently evicting a potentially valid result.
+Completed identifiers use a separate count-bounded tombstone set, so a result repeated after the
+early-result TTL is still treated as a duplicate rather than reintroduced as an early result.
+
+The fixed-link implementation is split into these narrowly scoped classes:
+
+| Class | Responsibility |
+| --- | --- |
+| `FixedLinkWarmupDataPlane` | Wrap the admitted-record local pipeline, acquire interval quota, send remotely, await an explicit outcome, apply fallback, and stop the session after infrastructure failure. |
+| `IntervalQuota` | Atomically roll a lazy time interval and grant at most its configured number of delegations, without carrying unused quota forward. |
+| `KafkaWarmupRecordSender` | Copy key, value, headers, and timestamp to the fixed destination and return only a validated Kafka ACK coordinate from an interruptible blocking call. |
+| `WarmupResultTracker` | Match `RecordCompleted` to suspended donors, retain bounded early results, resolve timeout/result races once, and retire completed identifiers. |
+| `WarmupRecipientOutcomePublisher` | Convert terminal recipient runtime outcomes into non-blocking `RecordCompleted` publications; lifecycle handoff produces no result. |
+| `WarmupDataPlaneModel` types | Define session, destination, record identity, remote outcomes, forwarding diagnostics, and the narrow sender/publisher callback contracts. |
+| `ConsumerMetrics` warm-up callbacks | Expose delegated sends, explicit results, fallback reasons, and pending waits without high-cardinality metric tags. |
 
 ## Result publication
 
@@ -193,7 +207,7 @@ These IDs avoid the historical GLOBAL-3 child IDs. They are proposals only and a
 1. `CORE-82` (done): reimplement the independent poll-loop readiness completion fix.
 2. `CORE-83` (done): introduce terminal processing outcomes and a mode-independent admitted-record seam;
    verify all ordering and freshness modes without warm-up.
-3. `CORE-84`: implement fixed-link quota, producer deadline, result tracker, outcome application,
+3. `CORE-84` (done): implement fixed-link quota, producer deadline, result tracker, outcome application,
    cancellation semantics, forwarding event, metrics, and real-Kafka integration tests.
 4. `CORE-85`: implement the reduced control codec/transport and the reviewed single-session
    protocol, including simultaneous-request rejection and stale-message filtering.

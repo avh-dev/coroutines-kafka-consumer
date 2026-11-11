@@ -78,6 +78,7 @@
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-82](#core-82) | Expose poll-loop assignment readiness independently from warm-up assignment and preserve initialization failures. | DONE |
 | [CORE-83](#core-83) | Add semantic terminal processing outcomes and one admitted-record interception seam across every processing mode. | DONE |
+| [CORE-84](#core-84) | Implement fixed-link real-traffic delegation with interval quota, explicit outcomes, bounded tracking, deadlines, and local fallback. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5978,3 +5979,21 @@ making policy discards outside the handler visible to the same outcome observer.
 Verification: the complete core, Micrometer, and Spring starter unit suites pass;
 all five processing modes exercise the seam, both freshness modes report pre-handler
 stale discards, and all 23 real-Kafka integration tests pass.
+
+<a id="core-84"></a>
+### CORE-84 - Implement the fixed-link warm-up data plane
+
+_Date: 2026-11-11_
+
+Add the control-plane-independent donor and recipient primitives used by integration
+tests and the later automatic lifecycle. Delegate admitted records under an atomic
+interval quota, retain the source slot through producer acknowledgement and explicit
+remote outcome, and fall back locally after infrastructure failure or deadline.
+Bound and clean early results, preserve lifecycle cancellation without fallback, emit
+forwarding diagnostics only after ACK, and expose low-cardinality warm-up metrics.
+Review separated remote delegation failures from local fallback execution, preventing a
+failed local pipeline from being invoked twice; fatal JVM errors now propagate directly,
+and completed-result tombstones remain idempotent beyond the early-result TTL.
+Verification: all 284 core, Micrometer, and Spring starter unit tests pass; all 24
+real-Kafka integration tests pass, including proof that producer ACK does not complete
+the source before its explicit remote outcome.

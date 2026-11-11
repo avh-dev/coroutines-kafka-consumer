@@ -8,6 +8,8 @@ import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.core.metrics.WarmupFallbackReason
+import avh.ckc.core.metrics.WarmupResultMetricOutcome
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge
@@ -31,12 +33,20 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val runtimeMeters = mutableListOf<Meter>()
     private val partitionMeters = mutableMapOf<Pair<String, Int>, PartitionMeterBinding>()
     private val recoveringPollLoops = AtomicInteger(0)
+    private val pendingWarmupResults = AtomicInteger(0)
     private val recoveryActiveGauge: Gauge = Gauge.builder(
         schema.metricName(RECOVERY_ACTIVE),
         recoveringPollLoops
     ) { if (it.get() > 0) 1.0 else 0.0 }
         .tags(consumerTags)
         .register(schema.meterRegistry)
+    @Suppress("unused")
+    private val warmupPendingGauge: Gauge = Gauge.builder(
+        schema.metricName(WARMUP_PENDING),
+        pendingWarmupResults
+    ) {
+        it.get().toDouble()
+    }.tags(consumerTags).register(schema.meterRegistry)
 
     override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) {
         if (!schema.kafkaClientMetricsEnabled) {
@@ -159,6 +169,33 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
             RECORD_HANDED_OFF,
             tags("topic" to record.topic(), "reason" to reason.name.lowercase())
         ).increment()
+    }
+
+    override fun onWarmupDelegated(record: ConsumerRecord<K, V>, sendDurationNanos: Long) {
+        val tags = tags("topic" to record.topic())
+        counter(WARMUP_DELEGATED, tags).increment()
+        timer(WARMUP_SEND_DURATION, tags).record(sendDurationNanos, TimeUnit.NANOSECONDS)
+    }
+
+    override fun onWarmupResult(
+        record: ConsumerRecord<K, V>,
+        outcome: WarmupResultMetricOutcome,
+        waitDurationNanos: Long
+    ) {
+        val tags = tags("topic" to record.topic(), "outcome" to outcome.name.lowercase())
+        counter(WARMUP_RESULT, tags).increment()
+        timer(WARMUP_RESULT_WAIT_DURATION, tags).record(waitDurationNanos, TimeUnit.NANOSECONDS)
+    }
+
+    override fun onWarmupFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) {
+        counter(
+            WARMUP_FALLBACK,
+            tags("topic" to record.topic(), "reason" to reason.name.lowercase())
+        ).increment()
+    }
+
+    override fun onWarmupPendingChanged(pending: Int) {
+        pendingWarmupResults.set(pending.coerceAtLeast(0))
     }
 
     override fun onRetry(

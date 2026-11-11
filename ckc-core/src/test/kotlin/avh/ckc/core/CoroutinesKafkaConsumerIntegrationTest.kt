@@ -3,10 +3,22 @@ package avh.ckc.core
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
+import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.warmup.FixedLinkWarmupDataPlane
+import avh.ckc.core.warmup.KafkaWarmupRecordSender
+import avh.ckc.core.warmup.WarmupDestination
+import avh.ckc.core.warmup.WarmupDestinationResolver
+import avh.ckc.core.warmup.WarmupForwardingObserver
+import avh.ckc.core.warmup.WarmupRecordCompleted
+import avh.ckc.core.warmup.WarmupRecordId
+import avh.ckc.core.warmup.WarmupRemoteOutcome
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.AdminClient
@@ -16,6 +28,7 @@ import org.apache.kafka.clients.admin.RecordsToDelete
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerInterceptor
 import org.apache.kafka.clients.consumer.ConsumerRecords
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.clients.producer.KafkaProducer
@@ -46,10 +59,74 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class CoroutinesKafkaConsumerIntegrationTest {
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `fixed warm-up link waits for explicit outcome after real kafka acknowledgement`() = runBlocking {
+        val warmupTopic = "ckc-warmup-it-${UUID.randomUUID()}"
+        createTopic(warmupTopic)
+        val session = WarmupSessionId("session-${UUID.randomUUID()}")
+        val forwarded = CompletableDeferred<avh.ckc.core.warmup.WarmupForwardedEvent>()
+        val localCalls = AtomicInteger()
+        val sender = KafkaWarmupRecordSender<String, String>(
+            producerProperties = mapOf(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.ACKS_CONFIG to "all"
+            )
+        )
+        val plane = FixedLinkWarmupDataPlane(
+            sessionId = session,
+            quota = 10,
+            quotaInterval = 1.seconds,
+            delegationTimeout = 10.seconds,
+            destinationResolver = WarmupDestinationResolver { WarmupDestination(warmupTopic, 0) },
+            sender = sender,
+            forwardingObserver = WarmupForwardingObserver { forwarded.complete(it) },
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
+        )
+        val source = ConsumerRecord("source-orders", 2, 7L, "key-7", "payload-7")
+
+        try {
+            val processing = async {
+                plane.process(source) {
+                    localCalls.incrementAndGet()
+                    RecordProcessingOutcome.HandlerSucceeded
+                }
+            }
+            val event = withTimeout(10_000) { forwarded.await() }
+            assertFalse(processing.isCompleted)
+
+            KafkaConsumer<String, String>(consumerProperties("warmup-it-${UUID.randomUUID()}")).use { consumer ->
+                val partition = TopicPartition(warmupTopic, 0)
+                consumer.assign(setOf(partition))
+                consumer.seekToBeginning(setOf(partition))
+                val received = awaitForBlocking {
+                    consumer.poll(java.time.Duration.ofMillis(100)).records(partition).firstOrNull()
+                }
+                assertEquals("key-7", received.key())
+                assertEquals("payload-7", received.value())
+                assertEquals(event.destinationOffset, received.offset())
+            }
+
+            plane.accept(
+                WarmupRecordCompleted(
+                    WarmupRecordId(session, event.destinationTopicPartition, event.destinationOffset),
+                    WarmupRemoteOutcome.Succeeded
+                )
+            )
+            assertEquals(RecordProcessingOutcome.HandlerSucceeded, withTimeout(10_000) { processing.await() })
+            assertEquals(0, localCalls.get())
+        } finally {
+            plane.close()
+        }
+    }
 
     @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
