@@ -506,6 +506,7 @@
 | [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 | [DOC-8](#doc-8) | Document replay after failures and the scope of ordered at-least-once processing guarantees. | DONE |
 | [DOC-9](#doc-9) | Close the remaining stale in-progress entries in the repository task tracker. | DONE |
+| [DOC-10](#doc-10) | Organize the traffic warm-up MVP design and explain internal-lab host roles. | DONE |
 
 ## Task Details
 
@@ -5882,7 +5883,17 @@ Start a new local-only umbrella from `master` while preserving
 Reframe warm-up as a runtime-owned processing wrapper that retains source responsibility until
 an explicit per-record outcome, with interval quotas and bounded fallback. Begin with inventory
 and protocol/lifecycle design before creating implementation, demo, reporting, and experiment tasks.
-The proposal for review is maintained in `docs/simplified-real-traffic-warmup-design.md`.
+The proposal for review is maintained in [the MVP design](docs/design/traffic-warmup-mvp/README.md).
 Updated the proposal on 2026-11-11 with GLOBAL-3 transfer candidates through `b0c2c80`,
 worker-local stubs and ephemeral Kafka, network limitations, and deferred AWS sizing checks.
 Implementation and protocol approval remain pending; child task IDs are proposals only.
+
+<a id="doc-10"></a>
+### DOC-10 - Organize the traffic warm-up MVP design
+
+_Date: 2026-11-11_
+
+Move the proposal into `docs/design/traffic-warmup-mvp/README.md` so its experimental
+design scope is clear. Explain the controller/support role of optilab and the application
+worker role of optilab2 without assuming readers know the local hostnames.
+Update the GLOBAL-4 design link; keep the complete internal-lab guide as separate future work.

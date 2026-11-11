@@ -1,4 +1,4 @@
-# Simplified real-traffic warm-up design
+# Real-traffic warm-up MVP design
 
 Status: proposal for `GLOBAL-4`; implementation is intentionally not started.
 
@@ -204,6 +204,12 @@ Each child is branched from and merged back only into `GLOBAL-4_simplified_real_
 after implementation, tests, separate review, and review fixes.
 
 ## Local-lab findings and deployment assumptions
+
+The internal lab uses two Linux hosts: `optilab` is the controller/support host, and
+`optilab2` is the Kubernetes worker used for application workloads. These are local-lab
+hostnames, not production deployment requirements. This section describes the topology
+needed to interpret the MVP experiments; a general internal-lab guide can document the
+complete setup separately.
 
 The operator's subsequent GLOBAL-3 investigation identified cross-host network packet pressure
 as a limitation of the local lab. Its network interfaces have a single RX queue. Distributing
