@@ -186,7 +186,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
-| [DEMO-110](#demo-110) | Wire the simplified traffic warm-up library API into the demo and record forwarding diagnostics through the existing observation path. | IN_PROGRESS |
+| [DEMO-110](#demo-110) | Wire the simplified traffic warm-up library API into the demo and record forwarding diagnostics through the existing observation path. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6042,3 +6042,8 @@ _Date: 2026-11-11_
 Configure the CKC demo through the normal library-owned warm-up context and consumer DSL.
 Reuse the ordinary handlers and lifecycle, publish forwarding diagnostics through the existing
 metrics/audit observation path, and do not introduce a demo-side coordinator or state machine.
+Move standard completion audit to the terminal runtime callback so both local and remotely
+completed source records retain the ordinary donor audit, while recipients audit warm-up topics
+under separate topic IDs. Keep demo warm-up topic names fixed to the audit contract and expose
+only safe runtime and broker settings as environment configuration.
+Verification: all 106 demo tests pass through `:ckc-demo:check`.

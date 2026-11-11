@@ -186,9 +186,6 @@ demo:
     bootstrap-servers: ${TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     security-protocol: ${TRAFFIC_WARMUP_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
     control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v1.control}
-    order-topic: ${TRAFFIC_WARMUP_ORDER_TOPIC:ckc.traffic-warmup.v1.order.events}
-    batch-topic: ${TRAFFIC_WARMUP_BATCH_TOPIC:ckc.traffic-warmup.v1.batch.events}
-    cauldron-topic: ${TRAFFIC_WARMUP_CAULDRON_TOPIC:ckc.traffic-warmup.v1.cauldron.events}
     quota-per-interval: ${TRAFFIC_WARMUP_QUOTA_PER_INTERVAL:10}
     quota-interval-ms: ${TRAFFIC_WARMUP_QUOTA_INTERVAL_MS:1000}
     duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:120}

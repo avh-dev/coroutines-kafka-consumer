@@ -218,10 +218,7 @@ private class CkcConsumerRuntime(
             producerProperties = kafkaProperties + mapOf(
                 ProducerConfig.ACKS_CONFIG to "all",
                 ProducerConfig.LINGER_MS_CONFIG to warmup.producerLingerMs
-            ),
-            orderTopic = warmup.orderTopic,
-            batchTopic = warmup.batchTopic,
-            cauldronTopic = warmup.cauldronTopic
+            )
         )
     }
 }

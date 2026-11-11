@@ -41,10 +41,7 @@ object DemoConsumers {
     data class TrafficWarmup(
         val context: TrafficWarmupContext,
         val consumerProperties: Map<String, Any?>,
-        val producerProperties: Map<String, Any?>,
-        val orderTopic: String,
-        val batchTopic: String,
-        val cauldronTopic: String
+        val producerProperties: Map<String, Any?>
     )
 
     fun orderConsumer(
@@ -77,7 +74,7 @@ object DemoConsumers {
                 trafficWarmup,
                 "order-events",
                 DemoTopics.ORDER_EVENTS,
-                trafficWarmup?.orderTopic,
+                DemoTopics.WARMUP_ORDER_EVENTS,
                 OrderLifecycleEventSerializer::class.java,
                 audit
             )
@@ -127,7 +124,7 @@ object DemoConsumers {
                 trafficWarmup,
                 "batch-events",
                 DemoTopics.BATCH_EVENTS,
-                trafficWarmup?.batchTopic,
+                DemoTopics.WARMUP_BATCH_EVENTS,
                 BatchLifecycleEventSerializer::class.java,
                 audit
             )
@@ -181,7 +178,7 @@ object DemoConsumers {
                 trafficWarmup,
                 "cauldron-events",
                 DemoTopics.CAULDRON_EVENTS,
-                trafficWarmup?.cauldronTopic,
+                DemoTopics.WARMUP_CAULDRON_EVENTS,
                 CauldronTelemetryEventSerializer::class.java,
                 audit
             )
@@ -253,13 +250,13 @@ object DemoConsumers {
         warmup: TrafficWarmup?,
         consumerId: String,
         sourceTopic: String,
-        warmupTopic: String?,
+        warmupTopic: String,
         valueSerializer: Class<*>,
         audit: DemoApplicationProperties.Audit
     ) {
         if (warmup == null) return
         trafficWarmup(warmup.context, consumerId) {
-            mapTopic(sourceTopic, requireNotNull(warmupTopic))
+            mapTopic(sourceTopic, warmupTopic)
             warmupConsumerProperties = warmup.consumerProperties
             forwardingProducerProperties = warmup.producerProperties + mapOf(
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,

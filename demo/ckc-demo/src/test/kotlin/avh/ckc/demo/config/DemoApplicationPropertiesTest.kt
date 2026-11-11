@@ -49,7 +49,6 @@ class DemoApplicationPropertiesTest {
         assertEquals(false, properties.trafficWarmup.enabled)
         assertEquals("localhost:9092", properties.trafficWarmup.bootstrapServers)
         assertEquals("ckc.traffic-warmup.v1.control", properties.trafficWarmup.controlTopic)
-        assertEquals("ckc.traffic-warmup.v1.order.events", properties.trafficWarmup.orderTopic)
         assertEquals(10, properties.trafficWarmup.quotaPerInterval)
         assertEquals(1_000, properties.trafficWarmup.quotaIntervalMs)
         assertEquals(120, properties.trafficWarmup.durationSeconds)
@@ -108,7 +107,6 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.bootstrap-servers" to "warmup-kafka:9092",
                 "demo.traffic-warmup.security-protocol" to "SSL",
                 "demo.traffic-warmup.control-topic" to "ckc.traffic-warmup.v1.test-control",
-                "demo.traffic-warmup.order-topic" to "ckc.traffic-warmup.v1.test-orders",
                 "demo.traffic-warmup.quota-per-interval" to "12",
                 "demo.traffic-warmup.quota-interval-ms" to "2000",
                 "demo.traffic-warmup.duration-seconds" to "90",
@@ -166,7 +164,6 @@ class DemoApplicationPropertiesTest {
         assertEquals("warmup-kafka:9092", properties.trafficWarmup.bootstrapServers)
         assertEquals("SSL", properties.trafficWarmup.securityProtocol)
         assertEquals("ckc.traffic-warmup.v1.test-control", properties.trafficWarmup.controlTopic)
-        assertEquals("ckc.traffic-warmup.v1.test-orders", properties.trafficWarmup.orderTopic)
         assertEquals(12, properties.trafficWarmup.quotaPerInterval)
         assertEquals(2_000, properties.trafficWarmup.quotaIntervalMs)
         assertEquals(90, properties.trafficWarmup.durationSeconds)
