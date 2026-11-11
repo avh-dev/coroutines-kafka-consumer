@@ -2619,6 +2619,47 @@ class ExperimentReportTest(unittest.TestCase):
                 markdown,
             )
 
+    def test_report_renders_warmup_outcomes_in_a_separate_section(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            audit_path = root / "results/runs/run-a/audit/summary.yaml"
+            audit = yaml.safe_load(audit_path.read_text(encoding="utf-8"))
+            audit["audit"]["forwarding_records"] = 12
+            audit["audit"]["categories"] = {
+                "source": {
+                    "totals": audit["audit"]["totals"],
+                    "topics": audit["audit"].get("topics", {}),
+                },
+                "warmup": {
+                    "semantics": "outcome_only",
+                    "totals": {
+                        "processed": 11,
+                        "failed": 1,
+                        "dropped": 0,
+                        "terminal": 12,
+                        "duplicates": {"processed": 0, "failed": 0, "dropped": 0},
+                    },
+                    "topics": {
+                        "ckc.traffic-warmup.v1.order.events": {
+                            "processed": 11,
+                            "failed": 1,
+                            "dropped": 0,
+                        }
+                    },
+                },
+            }
+            self.write_yaml(audit_path, audit)
+
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+            markdown = outputs[0].read_text(encoding="utf-8")
+
+            self.assertIn("Warm-up traffic · outcome-only", markdown)
+            self.assertIn("Producer-acknowledged delegations", markdown)
+            self.assertIn("ckc.traffic-warmup.v1.order.events", markdown)
+            self.assertNotIn("Terminal outcomes without publish", markdown.split("Warm-up traffic · outcome-only", 1)[1])
+
     def test_report_omits_network_analysis_without_configured_capture_steps(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

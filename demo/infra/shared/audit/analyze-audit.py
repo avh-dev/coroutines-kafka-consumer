@@ -19,7 +19,12 @@ TOPIC_NAMES = {
     1: "order.events.v1",
     2: "batch.events.v1",
     3: "cauldron.events.v1",
+    101: "ckc.traffic-warmup.v1.order.events",
+    102: "ckc.traffic-warmup.v1.batch.events",
+    103: "ckc.traffic-warmup.v1.cauldron.events",
 }
+SOURCE_TOPIC_IDS = frozenset({1, 2, 3})
+WARMUP_TOPIC_IDS = frozenset({101, 102, 103})
 
 class RecordKey(NamedTuple):
     topic_id: int
@@ -150,6 +155,14 @@ class AuditRecord:
     kafka_timestamp_ms: int | None = None
     drop_reason: str | None = None
     handoff_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ForwardingAuditRecord:
+    session_id: str
+    source: RecordKey
+    destination: RecordKey
+    audit_timestamp_ms: int
 
 
 @dataclass(slots=True)
@@ -1097,6 +1110,8 @@ class AuditAccumulator:
         latency_limits_ms: dict[int, int | float] | None = None,
         cohort_keys: set[RecordKey] | None = None,
         key_order_spool: ExactKeyOrderSpool | None = None,
+        source_topic_ids: frozenset[int] = SOURCE_TOPIC_IDS,
+        warmup_topic_ids: frozenset[int] = WARMUP_TOPIC_IDS,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
         self.latency_sla_rules = latency_sla_rules
@@ -1117,6 +1132,9 @@ class AuditAccumulator:
             for topic_id in TOPIC_NAMES
         }
         self.record_count = 0
+        self.forwarding_records = 0
+        self.source_topic_ids = source_topic_ids
+        self.warmup_topic_ids = warmup_topic_ids
         self.cohort_keys = cohort_keys
 
     def add(self, record: AuditRecord) -> None:
@@ -1128,6 +1146,10 @@ class AuditAccumulator:
             topic_stats = self._new_topic_stats(record.key.topic_id)
             self.by_topic[record.key.topic_id] = topic_stats
         topic_stats.add(record)
+
+    def add_forwarding(self, _: ForwardingAuditRecord) -> None:
+        self.record_count += 1
+        self.forwarding_records += 1
 
     def finish(self) -> None:
         for stats in self.by_topic.values():
@@ -1185,6 +1207,8 @@ class MultiWindowAuditAccumulator:
         windows: tuple[MeasurementWindow, ...],
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
+        source_topic_ids: frozenset[int] = SOURCE_TOPIC_IDS,
+        warmup_topic_ids: frozenset[int] = WARMUP_TOPIC_IDS,
     ) -> None:
         self.key_order_spool = ExactKeyOrderSpool() if open_record_ttl_ms is None else None
         self.complete = AuditAccumulator(
@@ -1192,6 +1216,8 @@ class MultiWindowAuditAccumulator:
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
             key_order_spool=self.key_order_spool,
+            source_topic_ids=source_topic_ids,
+            warmup_topic_ids=warmup_topic_ids,
         )
         self.windows = tuple(
             (
@@ -1201,6 +1227,8 @@ class MultiWindowAuditAccumulator:
                     latency_sla_rules=latency_sla_rules,
                     latency_limits_ms=latency_limits_ms,
                     key_order_spool=self.key_order_spool,
+                    source_topic_ids=source_topic_ids,
+                    warmup_topic_ids=warmup_topic_ids,
                 ),
             )
             for window in windows
@@ -1235,6 +1263,9 @@ class MultiWindowAuditAccumulator:
         if state is not None and state.published is None:
             self.pending_before_publish.setdefault(record.key, []).append(record)
 
+    def add_forwarding(self, record: ForwardingAuditRecord) -> None:
+        self.complete.add_forwarding(record)
+
     def finish(self) -> None:
         self.complete.finish()
         for _, accumulator in self.windows:
@@ -1250,6 +1281,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-dir")
     parser.add_argument("--glob", default="*.log.gz")
     parser.add_argument("--metadata-file")
+    parser.add_argument(
+        "--source-topic",
+        action="append",
+        help="Topic name included in normal publication-to-terminal correctness (repeatable).",
+    )
+    parser.add_argument(
+        "--warmup-topic",
+        action="append",
+        help="Topic name included in the outcome-only warm-up category (repeatable).",
+    )
     parser.add_argument(
         "--sla-profile-file",
         help="Resolved JSON SLA profile containing optional latency.rules definitions.",
@@ -1273,7 +1314,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_record(value: str) -> AuditRecord:
+def parse_record(value: str) -> AuditRecord | ForwardingAuditRecord:
     parts = value.rstrip("\n").split("|")
     record_type = parts[0] if parts else ""
 
@@ -1315,6 +1356,17 @@ def parse_record(value: str) -> AuditRecord:
             handoff_reason=detail[0] if detail and record_type == "H" else None,
         )
 
+    if record_type == "W":
+        if len(parts) != 9:
+            raise ValueError(f"expected 9 forwarding audit fields, got {len(parts)}: {value!r}")
+        _, session_id, source_topic, source_partition, source_offset, destination_topic, destination_partition, destination_offset, audit_ts = parts
+        return ForwardingAuditRecord(
+            session_id=session_id,
+            source=RecordKey(int(source_topic), int(source_partition), int(source_offset)),
+            destination=RecordKey(int(destination_topic), int(destination_partition), int(destination_offset)),
+            audit_timestamp_ms=int(audit_ts),
+        )
+
     raise ValueError(f"unexpected audit record type: {record_type}")
 
 
@@ -1329,7 +1381,11 @@ def add_line(line: str, accumulator: AuditAccumulator | MultiWindowAuditAccumula
         return 0
     if line.startswith("S|"):
         return 0
-    accumulator.add(parse_record(line))
+    record = parse_record(line)
+    if isinstance(record, ForwardingAuditRecord):
+        accumulator.add_forwarding(record)
+    else:
+        accumulator.add(record)
     return 1
 
 
@@ -1571,7 +1627,9 @@ def load_latency_sla_rules(path_value: str | None) -> tuple[LatencySlaRule, ...]
         return ()
     if not isinstance(latency, dict) or not isinstance(latency.get("rules"), list):
         raise ValueError(f"SLA profile latency.rules must be a list: {path}")
-    topic_ids_by_name = {name: topic_id for topic_id, name in TOPIC_NAMES.items()}
+    topic_ids_by_name = {
+        name: topic_id for topic_id, name in TOPIC_NAMES.items() if topic_id in SOURCE_TOPIC_IDS
+    }
     used_topics: set[str] = set()
     identifiers: set[str] = set()
     rules = []
@@ -1620,7 +1678,9 @@ def load_latency_limits(path_value: str | None) -> dict[int, int | float]:
     value = json.loads(Path(path_value).read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError("Latency limits must contain an object")
-    topic_ids = {name: identifier for identifier, name in TOPIC_NAMES.items()}
+    topic_ids = {
+        name: identifier for identifier, name in TOPIC_NAMES.items() if identifier in SOURCE_TOPIC_IDS
+    }
     result: dict[int, int | float] = {}
     for topic, limit in value.items():
         if topic not in topic_ids or not isinstance(limit, int | float) or isinstance(limit, bool) or limit < 0:
@@ -1661,10 +1721,43 @@ def load_measurement_windows(path_value: str | None) -> tuple[MeasurementWindow,
     return tuple(windows)
 
 
-def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
+def resolve_topic_categories(
+    source_topics: list[str] | None,
+    warmup_topics: list[str] | None,
+) -> tuple[frozenset[int], frozenset[int]]:
+    topic_ids = {name: identifier for identifier, name in TOPIC_NAMES.items()}
+
+    def resolve(values: list[str] | None, defaults: frozenset[int], option: str) -> frozenset[int]:
+        if values is None:
+            return defaults
+        unknown = sorted(set(values) - set(topic_ids))
+        if unknown:
+            raise ValueError(f"Unknown {option} topics: {unknown}")
+        return frozenset(topic_ids[value] for value in values)
+
+    source_ids = resolve(source_topics, SOURCE_TOPIC_IDS, "source")
+    warmup_ids = resolve(warmup_topics, WARMUP_TOPIC_IDS, "warm-up")
+    overlap = source_ids & warmup_ids
+    if overlap:
+        raise ValueError(
+            "Source and warm-up topic sets must be disjoint: "
+            + ", ".join(TOPIC_NAMES[topic_id] for topic_id in sorted(overlap))
+        )
+    return source_ids, warmup_ids
+
+
+def aggregate_stats(
+    accumulator: AuditAccumulator,
+    topic_ids: frozenset[int] | None = None,
+) -> AuditStats:
+    selected_latency_rules = tuple(
+        rule
+        for rule in accumulator.latency_sla_rules
+        if topic_ids is None or bool(rule.topic_ids & topic_ids)
+    )
     aggregate = AuditStats(
         open_record_ttl_ms=accumulator.open_record_ttl_ms,
-        latency_sla_rules=accumulator.latency_sla_rules,
+        latency_sla_rules=selected_latency_rules,
     )
     scalar_fields = (
         "published_records",
@@ -1693,7 +1786,10 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )
-    for stats in accumulator.by_topic.values():
+    selected = accumulator.by_topic.items()
+    if topic_ids is not None:
+        selected = ((topic_id, stats) for topic_id, stats in selected if topic_id in topic_ids)
+    for _, stats in selected:
         for field_name in scalar_fields:
             setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
         for reason, count in stats.dropped_by_reason.items():
@@ -1730,9 +1826,38 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
     return aggregate
 
 
+def outcome_only_stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, object]:
+    summary = stats_summary(stats, topic_id)
+    summary.pop("published", None)
+    summary.pop("missing_terminal", None)
+    summary.pop("without_publish", None)
+    summary["not_successfully_processed"] = stats.dropped_unique + stats.failed_unique
+    duplicates = summary.get("duplicates")
+    if isinstance(duplicates, dict):
+        duplicates.pop("published", None)
+    return summary
+
+
+def topic_summaries(
+    accumulator: AuditAccumulator,
+    topic_ids: frozenset[int],
+    outcome_only: bool = False,
+) -> dict[str, object]:
+    return {
+        TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): (
+            outcome_only_stats_summary(stats, topic_id) if outcome_only else stats_summary(stats, topic_id)
+        )
+        for topic_id, stats in accumulator.by_topic.items()
+        if topic_id in topic_ids
+    }
+
+
 def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
+    source_topics = topic_summaries(accumulator, accumulator.source_topic_ids)
+    warmup_topics = topic_summaries(accumulator, accumulator.warmup_topic_ids, outcome_only=True)
     return {
         "records_read": accumulator.record_count,
+        "forwarding_records": accumulator.forwarding_records,
         "delivery_matching": {
             "mode": "bounded_ttl" if accumulator.open_record_ttl_ms is not None else "exact",
             "open_record_ttl_seconds": (
@@ -1741,10 +1866,20 @@ def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
                 else None
             ),
         },
-        "totals": stats_summary(aggregate_stats(accumulator)),
-        "topics": {
-            TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
-            for topic_id, topic_stats in accumulator.by_topic.items()
+        "totals": stats_summary(aggregate_stats(accumulator, accumulator.source_topic_ids)),
+        "topics": source_topics,
+        "categories": {
+            "source": {
+                "totals": stats_summary(aggregate_stats(accumulator, accumulator.source_topic_ids)),
+                "topics": source_topics,
+            },
+            "warmup": {
+                "totals": outcome_only_stats_summary(
+                    aggregate_stats(accumulator, accumulator.warmup_topic_ids)
+                ),
+                "topics": warmup_topics,
+                "semantics": "outcome_only",
+            },
         },
     }
 
@@ -1846,6 +1981,10 @@ def main() -> int:
     latency_sla_rules = load_latency_sla_rules(args.sla_profile_file)
     latency_limits_ms = load_latency_limits(args.latency_limits_file)
     measurement_windows = load_measurement_windows(args.measurement_windows_file)
+    source_topic_ids, warmup_topic_ids = resolve_topic_categories(
+        args.source_topic,
+        args.warmup_topic,
+    )
     accumulator: AuditAccumulator | MultiWindowAuditAccumulator
     if measurement_windows:
         accumulator = MultiWindowAuditAccumulator(
@@ -1853,6 +1992,8 @@ def main() -> int:
             windows=measurement_windows,
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
+            source_topic_ids=source_topic_ids,
+            warmup_topic_ids=warmup_topic_ids,
         )
     else:
         accumulator = AuditAccumulator(
@@ -1860,6 +2001,8 @@ def main() -> int:
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
             cohort_keys=cohort_keys(args),
+            source_topic_ids=source_topic_ids,
+            warmup_topic_ids=warmup_topic_ids,
         )
     read_files(args.input_file, accumulator)
     if args.input_dir:

@@ -52,6 +52,37 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_separates_warmup_outcomes_from_source_delivery_correctness(self) -> None:
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None)
+        for line in (
+            "P|1|0|7|1000|1010|order-a",
+            "C|1|0|7|1200|order-a",
+            "C|101|0|3|1150|order-a",
+            "F|101|0|4|1160|order-b",
+            "W|session-1|1|0|7|101|0|3|1100",
+        ):
+            analyzer.add_line(line, accumulator)
+        accumulator.finish()
+
+        audit = analyzer.summary_document(accumulator, {})["audit"]
+        self.assertEqual(1, audit["totals"]["published"])
+        self.assertEqual(1, audit["totals"]["processed"])
+        self.assertEqual(0, audit["totals"]["without_publish"]["processed"])
+        self.assertEqual(1, audit["forwarding_records"])
+        self.assertNotIn("ckc.traffic-warmup.v1.order.events", audit["topics"])
+        warmup = audit["categories"]["warmup"]
+        self.assertEqual("outcome_only", warmup["semantics"])
+        self.assertEqual(1, warmup["totals"]["processed"])
+        self.assertEqual(1, warmup["totals"]["failed"])
+        self.assertNotIn("without_publish", warmup["totals"])
+
+    def test_rejects_overlapping_source_and_warmup_topic_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be disjoint"):
+            analyzer.resolve_topic_categories(
+                ["order.events.v1"],
+                ["order.events.v1"],
+            )
+
     def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
         accumulator = analyzer.MultiWindowAuditAccumulator(
             open_record_ttl_ms=None,
