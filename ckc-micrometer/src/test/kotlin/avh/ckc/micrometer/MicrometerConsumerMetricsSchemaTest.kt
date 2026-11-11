@@ -8,6 +8,8 @@ import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.core.metrics.WarmupFallbackReason
+import avh.ckc.core.metrics.WarmupResultMetricOutcome
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -32,6 +34,48 @@ class MicrometerConsumerMetricsSchemaTest {
     private data class TestLifecycleEvent(
         val eventType: String
     )
+
+    @Test
+    fun `warm-up metrics expose low cardinality outcomes durations and pending count`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        ) { consumerId = "orders" }
+        val record = testRecord<String, TestLifecycleEvent>(topic = "orders", partition = 2)
+
+        metrics.onWarmupDelegated(record, TimeUnit.MILLISECONDS.toNanos(4))
+        metrics.onWarmupResult(
+            record,
+            WarmupResultMetricOutcome.SUCCEEDED,
+            TimeUnit.MILLISECONDS.toNanos(12)
+        )
+        metrics.onWarmupFallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
+        metrics.onWarmupPendingChanged(3)
+
+        assertEquals(1.0, registry.get("test.ckc.warmup.delegated").tag("topic", "orders").counter().count())
+        assertEquals(
+            4.0,
+            registry.get("test.ckc.warmup.send.duration").tag("topic", "orders")
+                .timer().totalTime(TimeUnit.MILLISECONDS)
+        )
+        assertEquals(
+            1.0,
+            registry.get("test.ckc.warmup.result").tag("topic", "orders")
+                .tag("outcome", "succeeded").counter().count()
+        )
+        assertEquals(
+            12.0,
+            registry.get("test.ckc.warmup.result.wait.duration").tag("topic", "orders")
+                .tag("outcome", "succeeded").timer().totalTime(TimeUnit.MILLISECONDS)
+        )
+        assertEquals(
+            1.0,
+            registry.get("test.ckc.warmup.fallback").tag("topic", "orders")
+                .tag("reason", "result_timeout").counter().count()
+        )
+        assertEquals(3.0, registry.get("test.ckc.warmup.pending").gauge().value())
+        assertTrue(registry.meters.none { it.id.tags.any { tag -> tag.key.contains("offset") || tag.key == "session" } })
+    }
 
     @Test
     fun `kafka client metrics are tagged and removed with poll loop lifecycle`() {

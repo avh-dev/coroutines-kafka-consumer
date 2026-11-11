@@ -101,6 +101,20 @@ interface ConsumerMetrics<K, V> {
      */
     fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) = Unit
 
+    /** Records one producer-acknowledged delegation; identifiers and offsets are intentionally not metric tags. */
+    fun onWarmupDelegated(record: ConsumerRecord<K, V>, sendDurationNanos: Long) = Unit
+
+    /** Records an explicit remote result and the time spent waiting after producer acknowledgement. */
+    fun onWarmupResult(
+        record: ConsumerRecord<K, V>,
+        outcome: WarmupResultMetricOutcome,
+        waitDurationNanos: Long
+    ) = Unit
+
+    fun onWarmupFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) = Unit
+
+    fun onWarmupPendingChanged(pending: Int) = Unit
+
     /**
      * Records a retry of the user handler.
      *
@@ -189,4 +203,17 @@ enum class RecordHandoffReason {
     ASSIGNMENT_ENDED,
     /** The consumer failed before reaching a terminal outcome; Kafka may replay the record. */
     CONSUMER_FAILED
+}
+
+enum class WarmupResultMetricOutcome {
+    SUCCEEDED,
+    TERMINAL_FAILURE,
+    DISCARDED
+}
+
+enum class WarmupFallbackReason {
+    SEND_FAILURE,
+    RESULT_TIMEOUT,
+    SESSION_FAILURE,
+    REMOTE_TERMINAL_FAILURE
 }
