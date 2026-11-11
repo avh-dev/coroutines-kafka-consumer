@@ -130,6 +130,13 @@ library group ID, so every context sees the same ordered stream; dispatch never 
 poll loop. On startup the context replays only the bounded session horizon needed to prove that no
 unexpired session exists. Missing history, malformed state, or ambiguity causes cold start.
 
+CORE-85 implements this boundary with a configured record replay limit. The transport exposes the
+retained beginning, chosen replay start, and initial end offsets, and reports invalid records; the
+CORE-86 lifecycle must choose cold fallback when that evidence is insufficient. Replay is fully
+dispatched before transport readiness. Business/lifecycle handlers run on the separate dispatch
+coroutine and can never hold the Kafka poll loop. A malformed record fails the transport by
+default; an explicitly supplied invalid-record handler also runs on dispatch rather than polling.
+
 The MVP permits one active session per control namespace. This deliberately conservative limit
 provides exclusive warm-up destination partitions without distributed reservations.
 
@@ -156,6 +163,16 @@ session in a local `idle/active` gate. Conflicts, partial acceptance, expired de
 participant messages terminate warm-up rather than trigger recovery. Every non-result message is
 validated against the exact session ID, participants, configuration fingerprint, and deadline.
 No failed session is recovered or transferred to another coordinator.
+
+The control implementation is split into these components:
+
+| Class | Responsibility |
+| --- | --- |
+| `WarmupControlProtocol` types | Define the ten versioned wire messages, mappings, fixed destinations, final offsets, deadlines, fingerprints, and terminal session states. |
+| `WarmupControlCodec` | Encode and decode the bounded binary v1 format with explicit type IDs, size limits, validation, and no dependency on application serialization. |
+| `WarmupControlTransport` | Own one producer and one instance-group consumer, replay bounded history before readiness, publish with an ACK deadline, and keep polling separate from dispatch. |
+| `WarmupControlRouter` | Route broadcast and locally targeted records from the single context transport to registered local participants. |
+| `WarmupSingleSessionProtocol` | Atomically select the first valid request by control offset and reject expired, foreign, out-of-order, conflicting, or stale-session messages without recovery. |
 
 The local transitions stay deliberately small:
 
@@ -209,7 +226,7 @@ These IDs avoid the historical GLOBAL-3 child IDs. They are proposals only and a
    verify all ordering and freshness modes without warm-up.
 3. `CORE-84` (done): implement fixed-link quota, producer deadline, result tracker, outcome application,
    cancellation semantics, forwarding event, metrics, and real-Kafka integration tests.
-4. `CORE-85`: implement the reduced control codec/transport and the reviewed single-session
+4. `CORE-85` (done): implement the reduced control codec/transport and the reviewed single-session
    protocol, including simultaneous-request rejection and stale-message filtering.
 5. `CORE-86`: implement library-owned recipient/drain/main lifecycle and the public non-global
    context/API, including cold fallback and shutdown behavior.

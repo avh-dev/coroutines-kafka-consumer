@@ -79,6 +79,7 @@
 | [CORE-82](#core-82) | Expose poll-loop assignment readiness independently from warm-up assignment and preserve initialization failures. | DONE |
 | [CORE-83](#core-83) | Add semantic terminal processing outcomes and one admitted-record interception seam across every processing mode. | DONE |
 | [CORE-84](#core-84) | Implement fixed-link real-traffic delegation with interval quota, explicit outcomes, bounded tracking, deadlines, and local fallback. | DONE |
+| [CORE-85](#core-85) | Implement the minimal versioned warm-up control codec, shared Kafka transport, and conservative single-session protocol. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5997,3 +5998,20 @@ and completed-result tombstones remain idempotent beyond the early-result TTL.
 Verification: all 284 core, Micrometer, and Spring starter unit tests pass; all 24
 real-Kafka integration tests pass, including proof that producer ACK does not complete
 the source before its explicit remote outcome.
+
+<a id="core-85"></a>
+### CORE-85 - Implement the minimal warm-up control protocol
+
+_Date: 2026-11-11_
+
+Add a versioned control message model and codec, one physical Kafka control consumer per
+library context with local participant routing, and the reviewed conservative protocol
+for one active session per namespace. Reject conflict and ambiguity instead of adding
+elections, generations, snapshots, reservations, or distributed recovery.
+The bounded replay completes through the dispatch coroutine before readiness; truncated
+history remains explicit evidence for CORE-86 to choose cold fallback. Review made malformed
+records fail closed off the poll loop, tightened donor/recipient role validation, preserved
+shared cleanup across caller cancellation, and replaced enum ordinals with stable wire IDs.
+Verification: all 295 core, Micrometer, and Spring starter unit tests pass; all 25
+real-Kafka integration tests pass, including delivery of one control broadcast to two
+independent library contexts through their instance-specific control groups.
