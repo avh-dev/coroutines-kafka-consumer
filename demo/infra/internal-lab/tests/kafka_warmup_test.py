@@ -82,6 +82,16 @@ Topic: order.events.v1 Partition: 1 Leader: 2 Replicas: 2,3,1 Isr: 2,3,1
         self.assertNotIn("--grafana-url", reset)
         self.assertNotIn("api/annotations", warmup)
 
+    def test_dedicated_warmup_kafka_is_ready_before_application_apply(self) -> None:
+        prepare = (ROOT / "assets/libexec/prepare-test.sh").read_text(encoding="utf-8")
+
+        broker_apply = 'kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka'
+        broker_ready = "kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=10m"
+        project_apply = 'kubectl apply -f "${PROJECT_MANIFEST}"\n'
+        self.assertIn('get("warmup_kafka")', prepare)
+        self.assertLess(prepare.index(broker_apply), prepare.index(broker_ready))
+        self.assertLess(prepare.index(broker_ready), prepare.index(project_apply))
+
     def test_tls_warmup_reuses_the_broker_client_configuration(self) -> None:
         reset = (ROOT / "assets/libexec/reset-kafka-redis.sh").read_text(encoding="utf-8")
         compose = (ROOT / "assets/compose/docker-compose.host-services.yml").read_text(encoding="utf-8")

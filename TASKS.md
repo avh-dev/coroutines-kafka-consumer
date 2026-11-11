@@ -523,6 +523,7 @@
 | [INFRA-333](#infra-333) | Explicitly provision topics on the ephemeral warm-up Kafka broker before it becomes ready. | DONE |
 | [INFRA-334](#infra-334) | Colocate HTTP stubs with application pods in the 16k warm-up comparison to reduce cross-node packet pressure. | DONE |
 | [INFRA-335](#infra-335) | Publish the warm-up Kafka endpoint during topic provisioning to avoid a readiness deadlock. | DONE |
+| [INFRA-336](#infra-336) | Gate application deployment on complete ephemeral warm-up Kafka topic provisioning. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
@@ -6517,3 +6518,13 @@ a child task of GLOBAL-3.
 The rendered Service now publishes not-ready endpoints, and the deployment-plan regression
 test verifies that the readiness-gated provisioner can reach the broker through its advertised
 address. Focused deployment-plan, materialization, and synchronization tests pass.
+
+<a id="infra-336"></a>
+### INFRA-336 - Gate applications on warm-up Kafka readiness
+
+_Date: 2026-11-11_
+
+Wait for the ephemeral warm-up Kafka deployment, including its topic-provisioner readiness
+gate, before allowing application pods to start. The initial application otherwise falls back
+before the explicitly provisioned control and data topics exist, leaving later HPA replicas
+without a ready donor. This is a child task of GLOBAL-3.
