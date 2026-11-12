@@ -96,8 +96,12 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(2, plan["application"]["configuration"]["replicas"])
         self.assertEqual(2, plan["application"]["configuration"]["hpa"]["min_replicas"])
         self.assertEqual(4, plan["application"]["configuration"]["hpa"]["max_replicas"])
-        self.assertEqual(15000, definition["load_test"]["base_tps"])
-        self.assertIn("(10m, gradual-ramp-to-15k)", definition["load_test"]["load_profile"])
+        self.assertEqual(14000, definition["load_test"]["base_tps"])
+        self.assertIn("(10m, gradual-ramp-to-14k)", definition["load_test"]["load_profile"])
+        self.assertEqual(
+            80,
+            plan["application"]["configuration"]["hpa"]["hot_pod_cpu"]["target_utilization_percentage"],
+        )
 
     def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"

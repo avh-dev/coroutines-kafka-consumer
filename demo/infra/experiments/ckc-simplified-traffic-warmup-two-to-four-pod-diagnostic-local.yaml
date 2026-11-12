@@ -2,7 +2,7 @@ schema_version: 2
 name: ckc-simplified-traffic-warmup-two-to-four-pod-diagnostic-local
 description: >-
   Short Grafana diagnostic for two consecutive simplified real-traffic warm-ups. Start
-  with two unordered CKC pods at 7.5k, ramp gradually to 15k, and inspect the third
+  with two unordered CKC pods at 7k, ramp gradually to 14k, and inspect the third
   and fourth pods without running the full A/B comparison.
 workload:
   stubs:
@@ -20,11 +20,11 @@ workload:
     shards: 1
     workers: 100
     dispatcher_threads: 2
-    base_tps: 15000
-    producer_capacity_tps: {order: 15000, batch: 15000, telemetry: 15000}
+    base_tps: 14000
+    producer_capacity_tps: {order: 14000, batch: 14000, telemetry: 14000}
     load_profile: >-
-      0 -> (1m, ramp-to-7.5k) -> 50 -> (2m, hold-7.5k) -> 50 ->
-      (10m, gradual-ramp-to-15k) -> 100 -> (5m, hold-15k) -> 100 ->
+      0 -> (1m, ramp-to-7k) -> 50 -> (2m, hold-7k) -> 50 ->
+      (10m, gradual-ramp-to-14k) -> 100 -> (5m, hold-14k) -> 100 ->
       (1m, cool-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
@@ -61,7 +61,7 @@ workload:
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
 - name: ckc.simplified-traffic-warmup-two-to-four-pod-diagnostic
-  annotation_label: CKC · simplified warm-up · 2→4 pod diagnostic · local 15k
+  annotation_label: CKC · simplified warm-up · 2→4 pod diagnostic · local 14k
   implementation: ckc
   placement:
     application: worker
@@ -86,7 +86,7 @@ targets:
         source: thread_stats_excluding_jit
         strategy: replica_demand
         replace_cpu_trigger: true
-        target_utilization_percentage: 85
+        target_utilization_percentage: 80
         averaging_window: 30s
         observation_window: 1m
         query_step: 15s
