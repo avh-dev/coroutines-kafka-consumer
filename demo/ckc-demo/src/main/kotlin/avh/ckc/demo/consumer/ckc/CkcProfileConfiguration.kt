@@ -206,7 +206,9 @@ private class CkcConsumerRuntime(
             controlTopic = warmup.controlTopic
             controlKafkaProperties = kafkaProperties
             quotaPerInterval = warmup.quotaPerInterval
+            initialQuotaPerInterval = warmup.initialQuotaPerInterval
             quotaInterval = warmup.quotaIntervalMs.milliseconds
+            quotaRampDuration = warmup.quotaRampSeconds.seconds
             warmupDuration = warmup.durationSeconds.seconds
             delegationTimeout = warmup.timeoutSeconds.seconds
             cleanupTimeout = warmup.timeoutSeconds.seconds

@@ -78,7 +78,9 @@ data class DemoApplicationProperties(
         var securityProtocol: String = "PLAINTEXT",
         var controlTopic: String = "ckc.traffic-warmup.v1.control",
         var quotaPerInterval: Int = 10,
+        var initialQuotaPerInterval: Int? = null,
         var quotaIntervalMs: Long = 1_000,
+        var quotaRampSeconds: Long = 0,
         var durationSeconds: Long = 120,
         var timeoutSeconds: Long = 30,
         var producerLingerMs: Int = 15
