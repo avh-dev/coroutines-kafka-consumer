@@ -178,6 +178,104 @@ class TrafficWarmupContextTest {
     }
 
     @Test
+    fun `remote outcomes are routed only to the donor that owns their destination`() = runBlocking {
+        val mappings = listOf(
+            WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders"),
+            WarmupTopicMapping(WarmupConsumerId("batches"), "batches", "warmup-batches"),
+            WarmupTopicMapping(WarmupConsumerId("cauldrons"), "cauldrons", "warmup-cauldrons")
+        )
+        val participants = mappings.map { mapping -> DonorParticipant(mapping.consumerId, listOf(mapping)) }
+        lateinit var channel: FakeControlChannel
+        val context = context { handler -> FakeControlChannel(handler).also { channel = it } }
+        participants.forEach(context::register)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+        val session = WarmupSessionId("multi-consumer-recipient")
+        val recipient = WarmupInstanceId("multi-consumer-recipient")
+        val expires = System.currentTimeMillis() + 3_000
+
+        channel.deliver(
+            WarmupRequested(
+                session,
+                recipient,
+                mappings,
+                System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
+        withTimeout(2_000) {
+            while (channel.sent.none { it is DonorOffered && it.sessionId == session }) kotlinx.coroutines.yield()
+        }
+        val assignments = mappings.map { mapping -> WarmupPartitionAssignment(mapping, 0) }
+        channel.deliver(
+            SessionAccepted(
+                session,
+                recipient,
+                local,
+                assignments,
+                System.currentTimeMillis() + 1_000,
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
+        withTimeout(2_000) {
+            while (participants.any { "prepare" !in it.donorEvents }) kotlinx.coroutines.yield()
+        }
+        channel.deliver(
+            RecipientReady(
+                session,
+                recipient,
+                local,
+                assignments,
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
+        withTimeout(2_000) {
+            while (participants.any { "activate" !in it.donorEvents }) kotlinx.coroutines.yield()
+        }
+
+        assignments.forEachIndexed { index, assignment ->
+            channel.deliver(
+                ControlRecordCompleted(
+                    session,
+                    recipient,
+                    local,
+                    WarmupRecordCompleted(
+                        WarmupRecordId(session, assignment.destination, index.toLong()),
+                        WarmupRemoteOutcome.Succeeded
+                    ),
+                    localRequest.configurationFingerprint,
+                    expires
+                )
+            )
+        }
+        channel.deliver(
+            ControlRecordCompleted(
+                session,
+                recipient,
+                local,
+                WarmupRecordCompleted(
+                    WarmupRecordId(session, TopicPartition("unknown-warmup-topic", 0), 0),
+                    WarmupRemoteOutcome.Succeeded
+                ),
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
+
+        participants.zip(assignments).forEachIndexed { index, (participant, assignment) ->
+            assertEquals(
+                listOf(WarmupRecordId(session, assignment.destination, index.toLong())),
+                participant.accepted
+            )
+        }
+        context.stop()
+    }
+
+    @Test
     fun `cancelled stop caller does not cancel shared context cleanup`() = runBlocking {
         val stopEntered = CompletableDeferred<Unit>()
         val releaseStop = CompletableDeferred<Unit>()
@@ -306,6 +404,7 @@ class TrafficWarmupContextTest {
     ) : RegisteredWarmupParticipant {
         var mainStarted = false
         val donorEvents = CopyOnWriteArrayList<String>()
+        val accepted = CopyOnWriteArrayList<WarmupRecordId>()
 
         override fun donorMappings(requested: Collection<WarmupTopicMapping>): List<WarmupDonorMapping> =
             if (mainStarted && mappings.single() in requested) {
@@ -323,7 +422,10 @@ class TrafficWarmupContextTest {
                 override val sessionId = sessionId
                 override val assignments = assignments
                 override fun activate() { donorEvents += "activate" }
-                override fun accept(completed: WarmupRecordCompleted) = WarmupResultTracker.Completion.DELIVERED
+                override fun accept(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
+                    accepted += completed.recordId
+                    return WarmupResultTracker.Completion.DELIVERED
+                }
                 override suspend fun stopAndAwaitSends(timeout: kotlin.time.Duration): List<WarmupFinalOffset> {
                     donorEvents += "stop-sends"
                     return assignments.map { WarmupFinalOffset(it.destination, null) }

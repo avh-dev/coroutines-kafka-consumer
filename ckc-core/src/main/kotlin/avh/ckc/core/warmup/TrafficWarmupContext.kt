@@ -94,7 +94,17 @@ class TrafficWarmupContext internal constructor(
         val stopAtEpochMillis: Long,
         val prepared: List<PreparedWarmupDonor>,
         val activated: AtomicBoolean = AtomicBoolean(false)
-    )
+    ) {
+        val preparedByDestination: Map<TopicPartition, PreparedWarmupDonor> = buildMap {
+            prepared.forEach { donor ->
+                donor.assignments.forEach { assignment ->
+                    check(put(assignment.destination, donor) == null) {
+                        "Multiple warm-up donors own destination ${assignment.destination}"
+                    }
+                }
+            }
+        }
+    }
 
     private val lifecycleJob = SupervisorJob(configuration.parentContext[Job])
     private val scope = CoroutineScope(
@@ -276,7 +286,10 @@ class TrafficWarmupContext internal constructor(
             is SessionAccepted -> scope.launch { acceptAsDonor(message) }
             is RecipientReady -> scope.launch { activateDonor(message) }
             is ControlRecordCompleted -> synchronized(donorSessions) {
-                donorSessions[message.sessionId]?.prepared?.forEach { it.accept(message.completed) }
+                donorSessions[message.sessionId]
+                    ?.preparedByDestination
+                    ?.get(message.completed.recordId.topicPartition)
+                    ?.accept(message.completed)
             }
             is RecipientDrained -> finishDonor(message.sessionId)
             else -> Unit

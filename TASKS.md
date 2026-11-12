@@ -82,6 +82,7 @@
 | [CORE-85](#core-85) | Implement the minimal versioned warm-up control codec, shared Kafka transport, and conservative single-session protocol. | DONE |
 | [CORE-86](#core-86) | Implement the library-owned recipient, drain, cold-fallback, and main-consumer lifecycle with a public warm-up context API. | DONE |
 | [CORE-87](#core-87) | Add an absolute linear ramp to the per-interval traffic warm-up quota. | DONE |
+| [CORE-88](#core-88) | Route warm-up outcomes only to the donor data plane that owns their destination. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6116,3 +6117,15 @@ starts with three application pods at 12k/s, steps to 16k/s, and focuses Grafana
 on the fourth pod without waiting for the full A/B ramp.
 Verification: all 84 shared experiment-orchestration tests and all 44 internal-lab
 experiment-report tests pass; the target runner shell is syntax-valid.
+
+<a id="core-88"></a>
+### CORE-88 - Route warm-up outcomes by destination
+
+_Date: 2026-11-12_
+
+Index each donor session by warm-up destination and deliver every remote completion only
+to the participant that owns that topic partition. Prevent outcomes from sibling consumers
+in the same control session from filling each other's early-result trackers, while ignoring
+unknown and late destinations conservatively.
+Verification: all core unit and real-Kafka integration tests pass through
+`:ckc-core:check`, including the three-consumer single-session regression.
