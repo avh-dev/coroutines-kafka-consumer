@@ -511,6 +511,7 @@
 | [INFRA-343](#infra-343) | Add a short three-to-four-pod warm-up diagnostic and raise the warm-up quota through a linear ramp. | DONE |
 | [INFRA-344](#infra-344) | Extend the short warm-up diagnostic to a gradual three-to-five-pod scale-up. | DONE |
 | [INFRA-345](#infra-345) | Limit the gradual warm-up diagnostic to 15k and start from two pods. | DONE |
+| [INFRA-346](#infra-346) | Cap the two-to-four-pod warm-up diagnostic at 14k and trigger the fourth pod before the peak. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6153,3 +6154,14 @@ per second. Establish a 7.5k baseline before a ten-minute ramp to 15k so the exp
 third- and fourth-pod warm-ups remain separated without exceeding local lab capacity.
 Verification: all 84 shared experiment-orchestration tests pass, including materialization
 of the renamed two-to-four-pod diagnostic.
+
+<a id="infra-346"></a>
+### INFRA-346 - Cap the warm-up diagnostic at 14k
+
+_Date: 2026-11-12_
+
+Limit the gradual two-to-four-pod diagnostic to 14k messages per second and establish
+a 7k baseline. Lower the hot-pod target from 85% to 80% so the fourth pod is expected
+to start before the peak rather than remaining just beyond the measured 14.3k threshold.
+Verification: all 84 shared experiment-orchestration tests pass, including the resolved
+14k workload and 80% hot-pod target.
