@@ -510,6 +510,7 @@
 | [INFRA-342](#infra-342) | Prepare the simplified traffic warm-up A/B experiment and evidence contract. | DONE |
 | [INFRA-343](#infra-343) | Add a short three-to-four-pod warm-up diagnostic and raise the warm-up quota through a linear ramp. | DONE |
 | [INFRA-344](#infra-344) | Extend the short warm-up diagnostic to a gradual three-to-five-pod scale-up. | DONE |
+| [INFRA-345](#infra-345) | Limit the gradual warm-up diagnostic to 15k and start from two pods. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6141,3 +6142,14 @@ Keep three initial pods, allow scaling to five, and leave enough time between th
 fourth- and fifth-pod thresholds for each two-minute traffic warm-up to be visible separately.
 Verification: all 84 shared experiment-orchestration tests pass, including materialization
 of the renamed three-to-five-pod diagnostic.
+
+<a id="infra-345"></a>
+### INFRA-345 - Limit the warm-up diagnostic to 15k
+
+_Date: 2026-11-12_
+
+Start the diagnostic with two application pods and cap it at four pods and 15k messages
+per second. Establish a 7.5k baseline before a ten-minute ramp to 15k so the expected
+third- and fourth-pod warm-ups remain separated without exceeding local lab capacity.
+Verification: all 84 shared experiment-orchestration tests pass, including materialization
+of the renamed two-to-four-pod diagnostic.
