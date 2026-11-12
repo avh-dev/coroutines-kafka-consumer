@@ -61,7 +61,7 @@ workload:
     name: warmup-ramp-5m
     targets: [application]
     duration: 5m
-    params: {interface: auto, snaplen: 0, filter: tcp port 9092, max_file_size: 128Mi}
+    params: {interface: auto, snaplen: 0, filter: tcp port 9092, max_file_size: 128Mi, role: producer}
     required: true
   - <<: *warmup_capture
     at: 15m
@@ -138,7 +138,7 @@ targets:
     parallelism: [workers]
     topics: &runtime_topics
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
-      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING}
+      batch: {partitions: 60, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_PARTITION_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
 - name: ckc.simplified-traffic-warmup-serial-tuned-16k
   annotation_label: CKC · simplified real-traffic warm-up · tuned Serial · local 16k

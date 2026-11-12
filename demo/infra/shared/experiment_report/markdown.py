@@ -1006,7 +1006,7 @@ def render_markdown(report: ExperimentReport) -> str:
         ],
     )
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
-    if any(target.configuration.get("traffic_warmup") for target in targets):
+    if any((target.configuration.get("traffic_warmup") or {}).get("control_topic") for target in targets):
         row(
             "Traffic warm-up",
             ["Enabled" if (target.configuration.get("traffic_warmup") or {}).get("enabled") else "Disabled" for target in targets],

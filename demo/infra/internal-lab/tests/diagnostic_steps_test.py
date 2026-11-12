@@ -51,14 +51,32 @@ class DiagnosticStepsTest(unittest.TestCase):
                     "targets": ["application", "load-test"],
                     "duration": "10s",
                     "required": True,
-                    "params": {"interface": "any", "snaplen": 0, "filter": "tcp port 9092", "max_file_size": "64Mi"},
+                    "params": {
+                        "interface": "any",
+                        "snaplen": 0,
+                        "filter": "tcp port 9092",
+                        "max_file_size": "64Mi",
+                        "role": "producer",
+                    },
                 }
             ]
         )
         self.assertEqual(120, steps[0]["atSeconds"])
         self.assertEqual(10, steps[0]["durationSeconds"])
         self.assertEqual(64 * 1024 * 1024, steps[0]["params"]["maxFileSizeBytes"])
+        self.assertEqual("producer", steps[0]["params"]["role"])
         self.assertTrue(steps[0]["required"])
+
+    def test_tcpdump_role_is_restricted_to_kafka_connection_roles(self) -> None:
+        with self.assertRaisesRegex(ValueError, "params.role"):
+            self.normalize([{
+                "at": 0,
+                "duration": "5s",
+                "type": "tcpdump",
+                "name": "invalid-role",
+                "targets": ["application"],
+                "params": {"role": "donor"},
+            }])
 
     def test_kafka_network_counters_step_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be 'tcpdump'"):

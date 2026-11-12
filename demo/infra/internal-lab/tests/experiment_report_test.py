@@ -104,6 +104,7 @@ class ExperimentReportTest(unittest.TestCase):
     def test_configuration_preserves_resolved_traffic_warmup_parameters(self) -> None:
         traffic_warmup = {
             "enabled": True,
+            "control_topic": "ckc.traffic-warmup.v1.control",
             "quota_per_interval": 10,
             "quota_interval_ms": 1000,
             "duration_seconds": 120,
@@ -2669,6 +2670,7 @@ class ExperimentReportTest(unittest.TestCase):
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             metadata["application"]["traffic_warmup"] = {
                 "enabled": True,
+                "control_topic": "ckc.traffic-warmup.v1.control",
                 "quota_per_interval": 10,
                 "quota_interval_ms": 1000,
                 "duration_seconds": 120,

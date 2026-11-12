@@ -68,6 +68,11 @@ class MaterializeTest(unittest.TestCase):
         self.assertEqual(["5m", "15m", "25m", "35m"], [step["at"] for step in diagnostics])
         self.assertTrue(all(step["targets"] == ["application"] for step in diagnostics))
         self.assertTrue(all(step["params"]["filter"] == "tcp port 9092" for step in diagnostics))
+        self.assertTrue(all(step["params"]["role"] == "producer" for step in diagnostics))
+        self.assertEqual(
+            [12, 60, 12],
+            [topic["partitions"] for topic in definitions[warm_name]["deployment"]["run_plan"]["topics"]],
+        )
         env = plans[warm_name]["application"]["runtime"]["env"]
         self.assertEqual((10, 1000, 120, 30, 15), (
             env["TRAFFIC_WARMUP_QUOTA_PER_INTERVAL"],
