@@ -504,6 +504,7 @@
 | [INFRA-339](#infra-339) | Align internal-lab Redis capacity and captured resource evidence. | DONE |
 | [INFRA-340](#infra-340) | Prepare worker-local ephemeral warm-up Kafka infrastructure and lifecycle. | DONE |
 | [INFRA-341](#infra-341) | Separate source and warm-up audit categories in analysis and experiment reports. | DONE |
+| [INFRA-342](#infra-342) | Prepare the simplified traffic warm-up A/B experiment and evidence contract. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6062,3 +6063,18 @@ shape, validates `W` records without correlating them, and excludes them from pu
 The experiment report renders acknowledged delegations and warm-up terminal outcomes in a
 separate outcome-only section, including per-topic rows and no missing-publication errors.
 Verification: all 26 shared audit tests and all 43 internal-lab experiment-report tests pass.
+
+<a id="infra-342"></a>
+### INFRA-342 - Prepare the traffic warm-up A/B experiment
+
+_Date: 2026-11-12_
+
+Define a reproducible internal-lab comparison between identical cold-start and traffic-warm-up
+targets, with the worker-local optional broker present for both targets. Capture the resolved
+warm-up parameters, placement, resource limits, runtime outcomes, batching, and time to main
+subscription in offline evidence. Do not launch the experiment as part of this task.
+Review made warm-up packet captures explicitly producer-scoped so application-side Produce
+requests and record batches are decoded, and raised the partition-ordering topic to 60
+partitions so the 16k workload is not capped by the original 12 partition slots.
+Verification: all 101 affected shared orchestration, pcap, and report tests and all 73 affected
+internal-lab diagnostic, evidence, report, and warm-up lifecycle tests pass.

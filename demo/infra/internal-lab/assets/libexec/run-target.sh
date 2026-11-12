@@ -1499,6 +1499,17 @@ metadata = {
             "batch": env("BATCH_PROCESSING_MODE"),
             "telemetry": env("TELEMETRY_PROCESSING_MODE"),
         },
+        "traffic_warmup": {
+            "enabled": env_bool("TRAFFIC_WARMUP_ENABLED"),
+            "control_topic": env("TRAFFIC_WARMUP_CONTROL_TOPIC"),
+            "bootstrap_servers": env("TRAFFIC_WARMUP_KAFKA_BOOTSTRAP_SERVERS"),
+            "security_protocol": env("TRAFFIC_WARMUP_KAFKA_SECURITY_PROTOCOL"),
+            "quota_per_interval": env_int("TRAFFIC_WARMUP_QUOTA_PER_INTERVAL"),
+            "quota_interval_ms": env_int("TRAFFIC_WARMUP_QUOTA_INTERVAL_MS"),
+            "duration_seconds": env_int("TRAFFIC_WARMUP_DURATION_SECONDS"),
+            "timeout_seconds": env_int("TRAFFIC_WARMUP_TIMEOUT_SECONDS"),
+            "producer_linger_ms": env_int("TRAFFIC_WARMUP_PRODUCER_LINGER_MS"),
+        },
     },
     "kafka": {
         "implementation": env("LAB_KAFKA_IMPLEMENTATION", "apache-kafka"),

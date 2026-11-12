@@ -101,6 +101,21 @@ class ExperimentReportTest(unittest.TestCase):
             result["hpa"],
         )
 
+    def test_configuration_preserves_resolved_traffic_warmup_parameters(self) -> None:
+        traffic_warmup = {
+            "enabled": True,
+            "control_topic": "ckc.traffic-warmup.v1.control",
+            "quota_per_interval": 10,
+            "quota_interval_ms": 1000,
+            "duration_seconds": 120,
+            "timeout_seconds": 30,
+            "producer_linger_ms": 15,
+        }
+
+        result = configuration({"application": {"profile": "ckc", "traffic_warmup": traffic_warmup}})
+
+        self.assertEqual(traffic_warmup, result["traffic_warmup"])
+
     def test_sla_compliance_compares_the_complement_instead_of_near_hundred_percentages(self) -> None:
         values = [
             {"processed": 1000, "e2e_latency": {"count": 1000, "exceeded": 45}},
@@ -2651,12 +2666,46 @@ class ExperimentReportTest(unittest.TestCase):
             }
             self.write_yaml(audit_path, audit)
 
-            with patch("experiment_report.analyze.collect_standard_measurements", return_value={}):
+            metadata_path = root / "results/runs/run-a/run-metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["application"]["traffic_warmup"] = {
+                "enabled": True,
+                "control_topic": "ckc.traffic-warmup.v1.control",
+                "quota_per_interval": 10,
+                "quota_interval_ms": 1000,
+                "duration_seconds": 120,
+                "timeout_seconds": 30,
+                "producer_linger_ms": 15,
+            }
+            self.write_json(metadata_path, metadata)
+
+            measurements = {
+                "warmup_delegated_total": 12,
+                "warmup_result_success_total": 11,
+                "warmup_result_terminal_failure_total": 1,
+                "warmup_result_discarded_total": 0,
+                "warmup_fallback_total": 1,
+                "warmup_result_timeout_total": 0,
+                "warmup_pending_max": 4,
+                "warmup_send_latency_p95_ms": 12.5,
+                "warmup_result_wait_latency_p95_ms": 42.5,
+                "warmup_time_to_main_subscription_max_seconds": 121.5,
+                "warmup_broker_cpu_average_cores": 0.1,
+                "warmup_broker_memory_average_mib": 700,
+                "warmup_broker_network_receive_average_mib_per_second": 0.01,
+                "warmup_broker_network_transmit_average_mib_per_second": 0.02,
+            }
+
+            with patch("experiment_report.analyze.collect_standard_measurements", return_value=measurements):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
 
             self.assertIn("Warm-up traffic · outcome-only", markdown)
             self.assertIn("Producer-acknowledged delegations", markdown)
+            self.assertIn("Warm-up quota", markdown)
+            self.assertIn("Warm-up runtime", markdown)
+            self.assertIn("Process start to main subscription · max", markdown)
+            self.assertIn("Warm-up broker", markdown)
             self.assertIn("ckc.traffic-warmup.v1.order.events", markdown)
             self.assertNotIn("Terminal outcomes without publish", markdown.split("Warm-up traffic · outcome-only", 1)[1])
 

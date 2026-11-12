@@ -1006,6 +1006,34 @@ def render_markdown(report: ExperimentReport) -> str:
         ],
     )
     row("HTTP client", [escaped(target.configuration.get("http_client")) for target in targets])
+    if any((target.configuration.get("traffic_warmup") or {}).get("control_topic") for target in targets):
+        row(
+            "Traffic warm-up",
+            ["Enabled" if (target.configuration.get("traffic_warmup") or {}).get("enabled") else "Disabled" for target in targets],
+        )
+        row(
+            "Warm-up quota",
+            [
+                f'{number(config.get("quota_per_interval"), 0)} / {number(config.get("quota_interval_ms"), 0)} ms'
+                for target in targets
+                for config in [target.configuration.get("traffic_warmup") or {}]
+            ],
+        )
+        row(
+            "Warm-up duration / result timeout",
+            [
+                f'{number(config.get("duration_seconds"), 0)} s / {number(config.get("timeout_seconds"), 0)} s'
+                for target in targets
+                for config in [target.configuration.get("traffic_warmup") or {}]
+            ],
+        )
+        row(
+            "Warm-up producer linger.ms",
+            [
+                f'{number((target.configuration.get("traffic_warmup") or {}).get("producer_linger_ms"), 0)} ms'
+                for target in targets
+            ],
+        )
     if any(target.test_definition.get("telemetry_source_mode") == "FLEET" for target in targets):
         row("Telemetry source", [escaped(target.test_definition.get("telemetry_source_mode")) for target in targets])
         row(
@@ -1695,7 +1723,9 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Requested application memory", compared([target.measurements.get("application_requested_gib_hours") for target in targets], 3, " GiB·h"), "prometheus")
 
     if any(
-        target.warmup_forwarding_records
+        (target.configuration.get("traffic_warmup") or {}).get("enabled")
+        or target.measurements.get("warmup_delegated_total")
+        or target.warmup_forwarding_records
         or any(target.warmup_delivery.get(field) for field in ("processed", "failed", "dropped", "terminal"))
         for target in targets
     ):
@@ -1705,6 +1735,22 @@ def render_markdown(report: ExperimentReport) -> str:
         row("Successfully processed", counts([target.warmup_delivery.get("processed") for target in targets]), "audit")
         row("Failed processing", counts([target.warmup_delivery.get("failed") for target in targets]), "audit")
         row("Intentionally discarded", counts([target.warmup_delivery.get("dropped") for target in targets]), "audit")
+        subsection("Warm-up runtime")
+        row("Delegated records", compared([target.measurements.get("warmup_delegated_total") for target in targets], 0, ""), "prometheus")
+        row("Remote successes", compared([target.measurements.get("warmup_result_success_total") for target in targets], 0, ""), "prometheus")
+        row("Remote terminal failures", compared([target.measurements.get("warmup_result_terminal_failure_total") for target in targets], 0, ""), "prometheus")
+        row("Remote discards", compared([target.measurements.get("warmup_result_discarded_total") for target in targets], 0, ""), "prometheus")
+        row("Local fallbacks", compared([target.measurements.get("warmup_fallback_total") for target in targets], 0, ""), "prometheus")
+        row("Result timeouts", compared([target.measurements.get("warmup_result_timeout_total") for target in targets], 0, ""), "prometheus")
+        row("Pending results · max", compared([target.measurements.get("warmup_pending_max") for target in targets], 0, ""), "prometheus")
+        row("Send latency · p95", compared([target.measurements.get("warmup_send_latency_p95_ms") for target in targets], 2, " ms"), "prometheus")
+        row("Result wait latency · p95", compared([target.measurements.get("warmup_result_wait_latency_p95_ms") for target in targets], 2, " ms"), "prometheus")
+        row("Process start to main subscription · max", compared([target.measurements.get("warmup_time_to_main_subscription_max_seconds") for target in targets], 2, " s"), "prometheus")
+        subsection("Warm-up broker")
+        row("CPU · average", compared([target.measurements.get("warmup_broker_cpu_average_cores") for target in targets], 3, " cores"), "prometheus")
+        row("Memory · average", compared([target.measurements.get("warmup_broker_memory_average_mib") for target in targets], 1, " MiB"), "prometheus")
+        row("Network receive · average", compared([target.measurements.get("warmup_broker_network_receive_average_mib_per_second") for target in targets], 3, " MiB/s"), "prometheus")
+        row("Network transmit · average", compared([target.measurements.get("warmup_broker_network_transmit_average_mib_per_second") for target in targets], 3, " MiB/s"), "prometheus")
         row(
             "Duplicate warm-up outcomes",
             counts([

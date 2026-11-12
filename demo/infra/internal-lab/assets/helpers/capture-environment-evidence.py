@@ -119,6 +119,7 @@ def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[st
     for role, selector in {
         "application": "ckc.dev/component=application",
         "stubs": "app.kubernetes.io/name=ckc-demo-stubs",
+        "warmup_kafka": "ckc.dev/component=warmup-kafka",
     }.items():
         pods = command_json(["kubectl", "-n", "ckc-perf", "get", "pods", "-l", selector, "-o", "json"])
         locations = {
@@ -129,6 +130,47 @@ def kubernetes_evidence() -> tuple[dict[str, Any], list[dict[str, Any]], dict[st
         if locations:
             workloads[role] = sorted(locations)
     return {"platform": "k3s", "version": server.get("gitVersion")}, nodes, workloads
+
+
+def warmup_kafka_evidence(
+    deployment: dict[str, Any],
+    workloads: dict[str, list[str]],
+) -> dict[str, Any]:
+    spec = deployment.get("spec") if isinstance(deployment.get("spec"), dict) else {}
+    template = spec.get("template") if isinstance(spec.get("template"), dict) else {}
+    pod_spec = template.get("spec") if isinstance(template.get("spec"), dict) else {}
+    containers = pod_spec.get("containers") if isinstance(pod_spec.get("containers"), list) else []
+    broker = next(
+        (item for item in containers if isinstance(item, dict) and item.get("name") == "kafka"),
+        None,
+    )
+    if broker is None:
+        return {"enabled": False}
+    provisioner = next(
+        (item for item in containers if isinstance(item, dict) and item.get("name") == "topic-provisioner"),
+        {},
+    )
+    environment = {
+        str(item.get("name")): item.get("value")
+        for item in broker.get("env", [])
+        if isinstance(item, dict) and item.get("name")
+    }
+    arguments = provisioner.get("args") if isinstance(provisioner.get("args"), list) else []
+    topic_arguments = [str(value) for value in arguments[2:]]
+    topics = [
+        {"name": topic_arguments[index], "partitions": int(topic_arguments[index + 1])}
+        for index in range(0, len(topic_arguments) - 1, 2)
+        if topic_arguments[index + 1].isdigit()
+    ]
+    return {
+        "enabled": True,
+        "image": broker.get("image"),
+        "nodes": workloads.get("warmup_kafka", []),
+        "resources": broker.get("resources") if isinstance(broker.get("resources"), dict) else {},
+        "heap": environment.get("KAFKA_HEAP_OPTS"),
+        "topics": topics,
+        "storage": "ephemeral",
+    }
 
 
 def hardware_evidence(target: str | None = None) -> dict[str, Any]:
@@ -405,6 +447,12 @@ def main() -> int:
             "cpu_limit_per_broker": resources.get("cpu_per_broker") or (1 if topology == "cluster" else 2),
             "memory_limit_gib_per_broker": memory_per_broker_gib,
         },
+        "warmup_kafka": warmup_kafka_evidence(
+            command_json([
+                "kubectl", "-n", "ckc-perf", "get", "deployment/ckc-warmup-kafka", "-o", "json",
+            ]),
+            workloads,
+        ),
         "redis": {
             "mode": "Docker container",
             "version": "7.4",

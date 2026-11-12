@@ -523,6 +523,11 @@ def expected_role(path: Path) -> str:
     return "unknown"
 
 
+def capture_role(path: Path, metadata: dict[str, Any]) -> str:
+    configured = str(metadata.get("role") or "auto")
+    return configured if configured in {"producer", "consumer"} else expected_role(path)
+
+
 def capture_metadata(path: Path) -> dict[str, Any]:
     name = path.name
     for suffix in (".pcap.gz", ".pcap"):
@@ -560,8 +565,8 @@ def analyze_capture(
     compression: NativeCompression,
     topic_names_by_id: dict[str, str],
 ) -> dict[str, Any]:
-    role = expected_role(path)
     metadata = capture_metadata(path)
+    role = capture_role(path, metadata)
     rows = tshark_rows(path, executable)
     kafka_ports = capture_kafka_ports(metadata, rows)
     if kafka_ports:
@@ -1034,7 +1039,12 @@ def main() -> int:
         except Exception as error:
             warning = f"{capture}: {error}"
             warnings.append(warning)
-            results.append({"path": str(capture), "role": expected_role(capture), "status": "failed", "warnings": [str(error)]})
+            results.append({
+                "path": str(capture),
+                "role": capture_role(capture, capture_metadata(capture)),
+                "status": "failed",
+                "warnings": [str(error)],
+            })
     warnings.extend(warning for capture in results for warning in capture.get("warnings", []))
     summary = {
         "schema_version": 1,
