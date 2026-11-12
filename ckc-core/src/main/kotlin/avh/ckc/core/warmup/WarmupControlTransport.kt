@@ -48,7 +48,6 @@ internal class WarmupControlTransportConfiguration(
     producerProperties: Map<String, Any?>,
     consumerProperties: Map<String, Any?>,
     val groupIdPrefix: String = "ckc.traffic-warmup.v1.control",
-    val historyRecordLimit: Int = 10_000,
     val pollTimeout: Duration = 100.milliseconds,
     val sendTimeout: Duration = 30.seconds,
     val commandBufferCapacity: Int = 1024
@@ -62,7 +61,6 @@ internal class WarmupControlTransportConfiguration(
         require(topic.length <= 249) { "Control topic must be at most 249 characters" }
         require(topic.none(Char::isISOControl)) { "Control topic must not contain control characters" }
         require(groupIdPrefix.isNotBlank()) { "Control group id prefix must not be blank" }
-        require(historyRecordLimit > 0) { "Control history record limit must be positive" }
         require(pollTimeout.isPositive() && pollTimeout.inWholeMilliseconds > 0) {
             "Control poll timeout must be at least one millisecond"
         }
@@ -77,20 +75,6 @@ internal class WarmupControlTransportConfiguration(
             "Control consumer bootstrap servers are required"
         }
     }
-}
-
-internal data class WarmupControlLogPosition(
-    val partition: TopicPartition,
-    val beginningOffset: Long,
-    val replayStartOffset: Long,
-    val initialEndOffset: Long
-) {
-    init {
-        require(beginningOffset >= 0) { "Control beginning offset must not be negative" }
-        require(replayStartOffset in beginningOffset..initialEndOffset) { "Control replay start is invalid" }
-    }
-
-    val replayWasTruncated: Boolean get() = replayStartOffset > beginningOffset
 }
 
 internal fun interface WarmupInvalidControlRecordHandler {
@@ -109,13 +93,12 @@ internal class InvalidWarmupControlRecordException(key: String?, cause: Throwabl
 internal interface WarmupControlChannel {
     fun start()
     suspend fun awaitReady()
-    fun logPosition(): WarmupControlLogPosition
     suspend fun send(message: WarmupControlMessage): RecordMetadata
     suspend fun awaitTermination()
     suspend fun stop()
 }
 
-/** One Kafka consumer per library context; replay and dispatch are kept off the business pipeline. */
+/** One Kafka consumer per library context; dispatch is kept off the business pipeline. */
 internal class WarmupControlTransport(
     private val configuration: WarmupControlTransportConfiguration,
     private val handler: WarmupControlMessageHandler,
@@ -128,7 +111,6 @@ internal class WarmupControlTransport(
     private sealed interface DispatchItem {
         data class Record(val record: WarmupControlRecord) : DispatchItem
         data class InvalidRecord(val key: String?, val error: Throwable) : DispatchItem
-        data object ReplayComplete : DispatchItem
     }
 
     private val lifecycleJob = SupervisorJob(parentContext[Job])
@@ -145,7 +127,7 @@ internal class WarmupControlTransport(
     private var consumer: Consumer<String, ByteArray>? = null
     private var pollJob: Job? = null
     private var dispatchJob: Job? = null
-    @Volatile private var initialLogPosition: WarmupControlLogPosition? = null
+    private var initializedPartition: TopicPartition? = null
 
     override fun start() {
         check(started.compareAndSet(false, true)) { "Warm-up control transport already started" }
@@ -166,9 +148,6 @@ internal class WarmupControlTransport(
         readiness.await()
         failure.get()?.let { throw it }
     }
-
-    override fun logPosition(): WarmupControlLogPosition =
-        checkNotNull(initialLogPosition) { "Warm-up control transport is not ready" }
 
     override suspend fun send(message: WarmupControlMessage): RecordMetadata {
         check(message.senderInstanceId == configuration.instanceId) {
@@ -192,20 +171,19 @@ internal class WarmupControlTransport(
     }
 
     private suspend fun pollLoop(activeConsumer: Consumer<String, ByteArray>) {
-        var replayCompleteSent = false
         try {
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
 
                 override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
                     check(partitions.size == 1) { "Warm-up control topic must have exactly one partition" }
-                    if (initialLogPosition == null) {
+                    if (initializedPartition == null) {
                         val partition = partitions.single()
-                        val beginning = activeConsumer.beginningOffsets(partitions).getValue(partition)
                         val end = activeConsumer.endOffsets(partitions).getValue(partition)
-                        val replayStart = maxOf(beginning, end - configuration.historyRecordLimit)
-                        activeConsumer.seek(partition, replayStart)
-                        initialLogPosition = WarmupControlLogPosition(partition, beginning, replayStart, end)
+                        activeConsumer.seek(partition, end)
+                        activeConsumer.position(partition)
+                        initializedPartition = partition
+                        readiness.complete(Unit)
                     }
                 }
             })
@@ -228,14 +206,6 @@ internal class WarmupControlTransport(
                     }
                     enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
                 }
-
-                val logPosition = initialLogPosition
-                if (!replayCompleteSent && logPosition != null &&
-                    activeConsumer.position(logPosition.partition) >= logPosition.initialEndOffset
-                ) {
-                    enqueue(DispatchItem.ReplayComplete)
-                    replayCompleteSent = true
-                }
             }
         } finally {
             withContext(NonCancellable + dispatcher) { runCatching { activeConsumer.close(closeDuration()) } }
@@ -247,7 +217,6 @@ internal class WarmupControlTransport(
             when (item) {
                 is DispatchItem.Record -> handler.onMessage(item.record)
                 is DispatchItem.InvalidRecord -> invalidRecordHandler.onInvalidRecord(item.key, item.error)
-                DispatchItem.ReplayComplete -> readiness.complete(Unit)
             }
         }
     }

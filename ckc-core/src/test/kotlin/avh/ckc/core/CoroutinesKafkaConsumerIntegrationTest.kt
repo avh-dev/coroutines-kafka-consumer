@@ -81,6 +81,28 @@ class CoroutinesKafkaConsumerIntegrationTest {
     fun `control broadcast is delivered once to each library context`() = runBlocking {
         val controlTopic = "ckc-control-it-${UUID.randomUUID()}"
         createTopic(controlTopic)
+        val historicalInstance = WarmupInstanceId("historical-${UUID.randomUUID()}")
+        val historicalReceived = CopyOnWriteArrayList<WarmupControlRecord>()
+        val historical = controlTransport(controlTopic, historicalInstance, historicalReceived)
+        val historicalRequest = WarmupRequested(
+            sessionId = WarmupSessionId("historical-session-${UUID.randomUUID()}"),
+            senderInstanceId = historicalInstance,
+            mappings = listOf(WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders")),
+            offerDeadlineEpochMillis = System.currentTimeMillis() + 10_000,
+            configurationFingerprint = "historical",
+            expiresAtEpochMillis = System.currentTimeMillis() + 20_000
+        )
+        try {
+            historical.start()
+            withTimeout(10_000) { historical.awaitReady() }
+            historical.send(historicalRequest)
+            withTimeout(10_000) {
+                while (historicalReceived.none { it.message == historicalRequest }) kotlinx.coroutines.yield()
+            }
+        } finally {
+            historical.stop()
+        }
+
         val firstInstance = WarmupInstanceId("first-${UUID.randomUUID()}")
         val secondInstance = WarmupInstanceId("second-${UUID.randomUUID()}")
         val firstReceived = CopyOnWriteArrayList<WarmupControlRecord>()
@@ -95,6 +117,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 first.awaitReady()
                 second.awaitReady()
             }
+            assertTrue(firstReceived.isEmpty())
+            assertTrue(secondReceived.isEmpty())
             val now = System.currentTimeMillis()
             val request = WarmupRequested(
                 sessionId = WarmupSessionId("session-${UUID.randomUUID()}"),

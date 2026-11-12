@@ -83,6 +83,7 @@
 | [CORE-86](#core-86) | Implement the library-owned recipient, drain, cold-fallback, and main-consumer lifecycle with a public warm-up context API. | DONE |
 | [CORE-87](#core-87) | Add an absolute linear ramp to the per-interval traffic warm-up quota. | DONE |
 | [CORE-88](#core-88) | Route warm-up outcomes only to the donor data plane that owns their destination. | DONE |
+| [CORE-89](#core-89) | Start new warm-up control consumers at the current log tail instead of replaying historical sessions. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6180,3 +6181,17 @@ Verification: all 30 dashboard tests and all 3 metrics-contract tests pass; Kube
 server-side dry-run accepts the manifests. The installed lab reports healthy exporter
 targets on both nodes with six logical-CPU and six softnet series per node, and its
 provisioned dashboard contains aggregate node, per-core CPU, SoftIRQ, and softnet panels.
+
+<a id="core-89"></a>
+### CORE-89 - Start warm-up control at the current tail
+
+_Date: 2026-11-12_
+
+Make a newly started warm-up context observe only control records appended after its
+initial end offset. Existing donors remain authoritative for active-session conflicts;
+the new recipient does not reconstruct or recover historical sessions. Remove the bounded
+history replay whose truncation incorrectly forced later scale-up pods into cold fallback.
+The transport seeks every assigned control partition to its current end offset before
+reporting readiness, while subsequent records retain the existing validation and routing.
+Verification: `./gradlew :ckc-core:check` passes, including the real-Kafka scenario that
+preloads historical control data and proves new contexts receive only later records.
