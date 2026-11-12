@@ -18,6 +18,43 @@ SPEC.loader.exec_module(MODULE)
 
 
 class EnvironmentEvidenceTest(unittest.TestCase):
+    def test_warmup_kafka_evidence_captures_actual_placement_resources_and_topics(self) -> None:
+        deployment = {
+            "spec": {"template": {"spec": {"containers": [
+                {
+                    "name": "kafka",
+                    "image": "apache/kafka:4.3.1",
+                    "env": [{"name": "KAFKA_HEAP_OPTS", "value": "-Xms512m -Xmx512m"}],
+                    "resources": {
+                        "requests": {"cpu": "500m", "memory": "768Mi"},
+                        "limits": {"cpu": "1", "memory": "1Gi"},
+                    },
+                },
+                {
+                    "name": "topic-provisioner",
+                    "args": ["script", "--", "ckc.traffic-warmup.v1.control", "1", "ckc.traffic-warmup.v1.order.events", "2"],
+                },
+            ]}}},
+        }
+
+        evidence = MODULE.warmup_kafka_evidence(
+            deployment,
+            {"warmup_kafka": ["optilab2"]},
+        )
+
+        self.assertTrue(evidence["enabled"])
+        self.assertEqual("apache/kafka:4.3.1", evidence["image"])
+        self.assertEqual(["optilab2"], evidence["nodes"])
+        self.assertEqual("500m", evidence["resources"]["requests"]["cpu"])
+        self.assertEqual("-Xms512m -Xmx512m", evidence["heap"])
+        self.assertEqual(
+            [
+                {"name": "ckc.traffic-warmup.v1.control", "partitions": 1},
+                {"name": "ckc.traffic-warmup.v1.order.events", "partitions": 2},
+            ],
+            evidence["topics"],
+        )
+
     def test_redis_capacity_keeps_runtime_headroom_and_matches_evidence(self) -> None:
         redis = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["redis"]
         command = redis["command"]

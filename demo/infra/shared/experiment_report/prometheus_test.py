@@ -42,6 +42,33 @@ class PrometheusMeasurementsTest(unittest.TestCase):
             self.assertIn("last_over_time(container_memory_working_set_bytes", STANDARD_MEASUREMENTS[name])
             self.assertIn("[1m]", STANDARD_MEASUREMENTS[name])
 
+    def test_warmup_measurements_are_low_cardinality_and_cover_transition_and_broker(self) -> None:
+        delegated = STANDARD_MEASUREMENTS["warmup_delegated_total"]
+        transition = STANDARD_MEASUREMENTS["warmup_time_to_main_subscription_max_seconds"]
+        broker_cpu = STANDARD_MEASUREMENTS["warmup_broker_cpu_average_cores"]
+
+        self.assertIn("demo_ckc_warmup_delegated_total", delegated)
+        self.assertNotIn("session", delegated)
+        self.assertNotIn("offset", delegated)
+        self.assertIn("kafka_consumer_coordinator_assigned_partitions", transition)
+        self.assertIn('consumer_id=~"order_events|batch_events|cauldron_events"', transition)
+        self.assertIn('pod=~"ckc-warmup-kafka-.+"', broker_cpu)
+        for name in (
+            "warmup_delegated_total",
+            "warmup_result_success_total",
+            "warmup_result_terminal_failure_total",
+            "warmup_result_discarded_total",
+            "warmup_fallback_total",
+            "warmup_result_timeout_total",
+            "warmup_pending_max",
+            "warmup_send_latency_p95_ms",
+            "warmup_result_wait_latency_p95_ms",
+            "warmup_time_to_main_subscription_max_seconds",
+            "warmup_broker_cpu_average_cores",
+            "warmup_broker_memory_average_mib",
+        ):
+            STANDARD_MEASUREMENTS[name].format(window="60s", seconds=60)
+
     def test_ckc_network_consumer_normalizes_by_polled_records(self) -> None:
         client = RecordingPrometheusClient()
 

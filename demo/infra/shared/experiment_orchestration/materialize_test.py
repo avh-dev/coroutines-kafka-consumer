@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,67 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class MaterializeTest(unittest.TestCase):
+    def test_materializes_simplified_traffic_warmup_as_a_single_switch_ab_experiment(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-simplified-traffic-warmup-scale-up-16k-local.yaml"
+
+        with tempfile.TemporaryDirectory() as directory:
+            experiment = resolve_experiment_definition(source, environment="internal-lab")
+            materialized = materialize_experiment(
+                experiment,
+                output_dir=Path(directory) / "out",
+                repo_dir=REPO_ROOT,
+            )
+            definitions = {
+                target.target.name: yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+            plans = {
+                target.target.name: yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+                for target in materialized
+            }
+
+        cold_name = "ckc.cold-scale-up-serial-tuned-16k"
+        warm_name = "ckc.simplified-traffic-warmup-serial-tuned-16k"
+        self.assertEqual([cold_name, warm_name], [target.target.name for target in materialized])
+
+        cold_runtime = copy.deepcopy(plans[cold_name]["application"]["runtime"])
+        warm_runtime = copy.deepcopy(plans[warm_name]["application"]["runtime"])
+        self.assertFalse(cold_runtime["env"].pop("TRAFFIC_WARMUP_ENABLED"))
+        self.assertTrue(warm_runtime["env"].pop("TRAFFIC_WARMUP_ENABLED"))
+        self.assertEqual(cold_runtime, warm_runtime)
+        self.assertEqual(plans[cold_name]["application"]["configuration"], plans[warm_name]["application"]["configuration"])
+        self.assertEqual(plans[cold_name]["placement"], plans[warm_name]["placement"])
+        self.assertEqual(plans[cold_name]["environment"], plans[warm_name]["environment"])
+
+        warmup = plans[warm_name]["environment"]["warmup_kafka"]
+        self.assertTrue(warmup["enabled"])
+        self.assertEqual("application", warmup["placement"])
+        self.assertEqual({"cpu": "500m", "memory": "768Mi"}, warmup["resources"]["requests"])
+        self.assertEqual(
+            [
+                "ckc.traffic-warmup.v1.control",
+                "ckc.traffic-warmup.v1.order.events",
+                "ckc.traffic-warmup.v1.batch.events",
+                "ckc.traffic-warmup.v1.cauldron.events",
+            ],
+            [topic["name"] for topic in warmup["topics"]],
+        )
+        self.assertIn("warmup-kafka", plans[cold_name]["project_resources"])
+        self.assertIn("warmup-kafka", plans[warm_name]["project_resources"])
+
+        diagnostics = definitions[warm_name]["diagnostic_steps"]
+        self.assertEqual(["5m", "15m", "25m", "35m"], [step["at"] for step in diagnostics])
+        self.assertTrue(all(step["targets"] == ["application"] for step in diagnostics))
+        self.assertTrue(all(step["params"]["filter"] == "tcp port 9092" for step in diagnostics))
+        env = plans[warm_name]["application"]["runtime"]["env"]
+        self.assertEqual((10, 1000, 120, 30, 15), (
+            env["TRAFFIC_WARMUP_QUOTA_PER_INTERVAL"],
+            env["TRAFFIC_WARMUP_QUOTA_INTERVAL_MS"],
+            env["TRAFFIC_WARMUP_DURATION_SECONDS"],
+            env["TRAFFIC_WARMUP_TIMEOUT_SECONDS"],
+            env["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"],
+        ))
+
     def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"
         resolved = resolve_experiment_definition(source, environment="aws")

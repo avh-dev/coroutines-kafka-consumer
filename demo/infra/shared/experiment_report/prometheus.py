@@ -56,6 +56,66 @@ STANDARD_MEASUREMENTS = {
         '{{pod=~"ckc-demo-.+"}}) / clamp_min(sum(demo_ckc_workers'
         '{{pod=~"ckc-demo-.+"}}), 1))[{window}:15s]))'
     ),
+    "warmup_delegated_total": (
+        "sum(increase(demo_ckc_warmup_delegated_total"
+        '{{pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "warmup_result_success_total": (
+        "sum(increase(demo_ckc_warmup_result_total"
+        '{{pod=~"ckc-demo-.+", outcome="succeeded"}}[{window}]))'
+    ),
+    "warmup_result_terminal_failure_total": (
+        "sum(increase(demo_ckc_warmup_result_total"
+        '{{pod=~"ckc-demo-.+", outcome="terminal_failure"}}[{window}]))'
+    ),
+    "warmup_result_discarded_total": (
+        "sum(increase(demo_ckc_warmup_result_total"
+        '{{pod=~"ckc-demo-.+", outcome="discarded"}}[{window}]))'
+    ),
+    "warmup_fallback_total": (
+        "sum(increase(demo_ckc_warmup_fallback_total"
+        '{{pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "warmup_result_timeout_total": (
+        "sum(increase(demo_ckc_warmup_fallback_total"
+        '{{pod=~"ckc-demo-.+", reason="result_timeout"}}[{window}]))'
+    ),
+    "warmup_pending_max": (
+        "max(max_over_time(demo_ckc_warmup_pending"
+        '{{pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "warmup_send_latency_p95_ms": (
+        "1000 * histogram_quantile(0.95, sum by (le) "
+        "(increase(demo_ckc_warmup_send_duration_seconds_bucket"
+        '{{pod=~"ckc-demo-.+"}}[{window}])))'
+    ),
+    "warmup_result_wait_latency_p95_ms": (
+        "1000 * histogram_quantile(0.95, sum by (le) "
+        "(increase(demo_ckc_warmup_result_wait_duration_seconds_bucket"
+        '{{pod=~"ckc-demo-.+"}}[{window}])))'
+    ),
+    "warmup_time_to_main_subscription_max_seconds": (
+        "max(min_over_time((process_uptime_seconds{{pod=~\"ckc-demo-.+\"}} "
+        "and on(pod) (sum by (pod) (kafka_consumer_coordinator_assigned_partitions"
+        '{{pod=~"ckc-demo-.+", consumer_id=~"order_events|batch_events|cauldron_events"}}) > 0))'
+        "[{window}:15s]))"
+    ),
+    "warmup_broker_cpu_average_cores": (
+        "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-app", container="kafka", pod=~"ckc-warmup-kafka-.+"}}[1m])))[{window}:15s])'
+    ),
+    "warmup_broker_memory_average_mib": (
+        "avg_over_time((sum(container_memory_working_set_bytes"
+        '{{namespace=~"ckc-perf|ckc-app", container="kafka", pod=~"ckc-warmup-kafka-.+"}}))[{window}:15s]) / 1024 / 1024'
+    ),
+    "warmup_broker_network_receive_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_receive_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-warmup-kafka-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
+    ),
+    "warmup_broker_network_transmit_average_mib_per_second": (
+        "avg_over_time((sum(rate(container_network_transmit_bytes_total"
+        '{{namespace=~"ckc-perf|ckc-app", pod=~"ckc-warmup-kafka-.+"}}[1m])))[{window}:15s]) / 1024 / 1024'
+    ),
     "cpu_throttling_seconds_total": (
         "sum(increase(container_cpu_cfs_throttled_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}]))'
