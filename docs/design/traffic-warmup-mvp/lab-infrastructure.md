@@ -66,11 +66,12 @@ from measured evidence rather than the request alone.
 The canonical A/B definition is
 `demo/infra/experiments/ckc-simplified-traffic-warmup-scale-up-16k-local.yaml`. Both targets
 provision the same broker and application resources; the only runtime difference is
-`TRAFFIC_WARMUP_ENABLED`. Four application-side packet captures filter the worker-local
-broker port during the ramp. Their decoded Produce requests provide records-per-request and
-record-batch evidence for the small 10-record-per-second warm-up budget. Prometheus evidence
-adds delegation outcomes, fallback and timeout counts, pending-result peak, send and result
-latencies, and process-start-to-main-subscription time.
+`TRAFFIC_WARMUP_ENABLED`. The first experiment deliberately keeps all three consumers in
+unordered mode with 12 partitions, matching the proven GLOBAL-3 profile. Batching and each
+ordering policy are follow-up experiments rather than extra variables in this initial run.
+Prometheus evidence adds delegation outcomes, fallback and timeout counts, pending-result
+peak, send and result latencies, and process-start-to-main-subscription time when the matching
+Kafka client metrics are enabled.
 
 No experiment is launched by provisioning tests. After installing the definition, an
 operator can explicitly request the A/B run; ordinary repository validation only resolves

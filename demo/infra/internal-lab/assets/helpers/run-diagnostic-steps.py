@@ -172,7 +172,7 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
         "required": step["required"], "requested_at_seconds": step["atSeconds"],
         "requested_duration_seconds": step["durationSeconds"], "started_at": iso(started),
         "interface": interface, "configured_interface": params["interface"],
-        "snaplen": params["snaplen"], "filter": capture_filter, "role": params.get("role", "auto"),
+        "snaplen": params["snaplen"], "filter": capture_filter,
         "configured_filter": params["filter"], "host_address": args.host_address or None,
         "excluded_network": args.host_exclude_network or None,
         "max_file_size_bytes": params["maxFileSizeBytes"], "command": command,
@@ -240,8 +240,7 @@ def capture_pod(
         "requested_at_seconds": step["atSeconds"], "requested_duration_seconds": step["durationSeconds"],
         "started_at": iso(started), "interface": interface, "configured_interface": params["interface"],
         "snaplen": params["snaplen"],
-        "filter": params["filter"], "role": params.get("role", "auto"),
-        "max_file_size_bytes": params["maxFileSizeBytes"], "remote_pattern": remote_pattern,
+        "filter": params["filter"], "max_file_size_bytes": params["maxFileSizeBytes"], "remote_pattern": remote_pattern,
         "command": command,
     }
     stderr = ""

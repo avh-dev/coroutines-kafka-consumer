@@ -169,12 +169,6 @@ class AnalyzePcapTest(unittest.TestCase):
         self.assertEqual("producer", analyze_pcap.expected_role(Path("sample-producer.pcap.gz")))
         self.assertEqual("consumer", analyze_pcap.expected_role(Path("sample-consumer.pcap")))
 
-    def test_explicit_capture_role_overrides_application_path_inference(self) -> None:
-        path = Path("tcpdump/warmup/application/pod-a/sample.pcap.gz")
-
-        self.assertEqual("consumer", analyze_pcap.capture_role(path, {"role": "auto"}))
-        self.assertEqual("producer", analyze_pcap.capture_role(path, {"role": "producer"}))
-
     def test_api_exchanges_use_topic_stream_inference_and_explicit_fallback_buckets(self) -> None:
         def row(direction: str, correlation: int, stream: int) -> dict[str, str]:
             values = {field: "" for field in analyze_pcap.FIELDS}

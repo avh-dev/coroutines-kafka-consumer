@@ -107,16 +107,7 @@ def normalize(definition: dict[str, Any], definition_path: Path) -> list[dict[st
             max_size = size_bytes(params.get("max_file_size", "256Mi"), f"{context}.params.max_file_size")
             if max_size > 256 * 1024 * 1024:
                 raise ValueError(f"{context}.params.max_file_size must not exceed 256Mi: {definition_path}")
-            role = str(params.get("role", "auto")).strip()
-            if role not in {"auto", "producer", "consumer"}:
-                raise ValueError(f"{context}.params.role must be auto, producer, or consumer: {definition_path}")
-            normalized_params = {
-                "interface": interface,
-                "snaplen": snaplen,
-                "filter": capture_filter,
-                "maxFileSizeBytes": max_size,
-                "role": role,
-            }
+            normalized_params = {"interface": interface, "snaplen": snaplen, "filter": capture_filter, "maxFileSizeBytes": max_size}
 
         end_seconds = at_seconds + capture_duration
         for target in normalized_targets:

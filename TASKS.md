@@ -6071,10 +6071,11 @@ _Date: 2026-11-12_
 
 Define a reproducible internal-lab comparison between identical cold-start and traffic-warm-up
 targets, with the worker-local optional broker present for both targets. Capture the resolved
-warm-up parameters, placement, resource limits, runtime outcomes, batching, and time to main
-subscription in offline evidence. Do not launch the experiment as part of this task.
-Review made warm-up packet captures explicitly producer-scoped so application-side Produce
-requests and record batches are decoded, and raised the partition-ordering topic to 60
-partitions so the 16k workload is not capped by the original 12 partition slots.
-Verification: all 101 affected shared orchestration, pcap, and report tests and all 73 affected
+warm-up parameters, placement, resource limits, runtime outcomes, and fallback behavior in
+offline evidence. Start with the proven GLOBAL-3 tuned-Serial profile: two targets, unordered
+processing, 12 partitions per source topic, and no packet capture. Defer batching and individual
+ordering modes to separate follow-up experiments. Do not launch the experiment as part of this task.
+Review removed the speculative partition-ordering workload and long packet captures, restoring
+the established GLOBAL-3 experiment shape while retaining the new API and explicit broker topics.
+Verification: all 100 affected shared orchestration, pcap, and report tests and all 72 affected
 internal-lab diagnostic, evidence, report, and warm-up lifecycle tests pass.
