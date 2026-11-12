@@ -60,7 +60,9 @@ internal class KafkaWarmupParticipant<K, V>(
     private val forwardingObserver: WarmupForwardingObserver,
     private val scope: CoroutineScope,
     private val quota: Int,
+    private val initialQuota: Int,
     private val quotaInterval: Duration,
+    private val quotaRampDuration: Duration,
     private val delegationTimeout: Duration,
     private val cleanupTimeout: Duration,
     private val completionBufferCapacity: Int
@@ -103,7 +105,9 @@ internal class KafkaWarmupParticipant<K, V>(
         val plane = FixedLinkWarmupDataPlane(
             sessionId = sessionId,
             quota = quota,
+            initialQuota = initialQuota,
             quotaInterval = quotaInterval,
+            quotaRampDuration = quotaRampDuration,
             delegationTimeout = delegationTimeout,
             destinationResolver = WarmupDestinationResolver { record -> destinations[record.topic()] },
             sender = KafkaWarmupRecordSender(producerProperties),
