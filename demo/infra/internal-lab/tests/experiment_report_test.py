@@ -105,8 +105,10 @@ class ExperimentReportTest(unittest.TestCase):
         traffic_warmup = {
             "enabled": True,
             "control_topic": "ckc.traffic-warmup.v1.control",
-            "quota_per_interval": 10,
+            "initial_quota_per_interval": 0,
+            "quota_per_interval": 100,
             "quota_interval_ms": 1000,
+            "quota_ramp_seconds": 120,
             "duration_seconds": 120,
             "timeout_seconds": 30,
             "producer_linger_ms": 15,
@@ -2671,8 +2673,10 @@ class ExperimentReportTest(unittest.TestCase):
             metadata["application"]["traffic_warmup"] = {
                 "enabled": True,
                 "control_topic": "ckc.traffic-warmup.v1.control",
-                "quota_per_interval": 10,
+                "initial_quota_per_interval": 0,
+                "quota_per_interval": 100,
                 "quota_interval_ms": 1000,
+                "quota_ramp_seconds": 120,
                 "duration_seconds": 120,
                 "timeout_seconds": 30,
                 "producer_linger_ms": 15,

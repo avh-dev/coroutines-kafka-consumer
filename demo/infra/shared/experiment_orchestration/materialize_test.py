@@ -72,13 +72,32 @@ class MaterializeTest(unittest.TestCase):
         )
         self.assertTrue(all(topic["processing_mode"] == "AT_LEAST_ONCE_NO_ORDERING" for topic in topics))
         env = plans[warm_name]["application"]["runtime"]["env"]
-        self.assertEqual((10, 1000, 120, 30, 15), (
+        self.assertEqual((0, 100, 1000, 120, 120, 30, 15), (
+            env["TRAFFIC_WARMUP_INITIAL_QUOTA_PER_INTERVAL"],
             env["TRAFFIC_WARMUP_QUOTA_PER_INTERVAL"],
             env["TRAFFIC_WARMUP_QUOTA_INTERVAL_MS"],
+            env["TRAFFIC_WARMUP_QUOTA_RAMP_SECONDS"],
             env["TRAFFIC_WARMUP_DURATION_SECONDS"],
             env["TRAFFIC_WARMUP_TIMEOUT_SECONDS"],
             env["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"],
         ))
+
+    def test_materializes_short_fourth_pod_warmup_diagnostic(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-simplified-traffic-warmup-fourth-pod-diagnostic-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+
+        with tempfile.TemporaryDirectory() as directory:
+            targets = materialize_experiment(resolved, output_dir=Path(directory), repo_dir=REPO_ROOT)
+            self.assertEqual(1, len(targets))
+            target = targets[0]
+            definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+            plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(3, plan["application"]["configuration"]["replicas"])
+        self.assertEqual(3, plan["application"]["configuration"]["hpa"]["min_replicas"])
+        self.assertEqual(4, plan["application"]["configuration"]["hpa"]["max_replicas"])
+        self.assertEqual(16000, definition["load_test"]["base_tps"])
+        self.assertIn("step-to-16k", definition["load_test"]["load_profile"])
 
     def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"

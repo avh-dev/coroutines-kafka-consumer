@@ -507,6 +507,7 @@
 | [INFRA-340](#infra-340) | Prepare worker-local ephemeral warm-up Kafka infrastructure and lifecycle. | DONE |
 | [INFRA-341](#infra-341) | Separate source and warm-up audit categories in analysis and experiment reports. | DONE |
 | [INFRA-342](#infra-342) | Prepare the simplified traffic warm-up A/B experiment and evidence contract. | DONE |
+| [INFRA-343](#infra-343) | Add a short three-to-four-pod warm-up diagnostic and raise the warm-up quota through a linear ramp. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6103,3 +6104,15 @@ Expose the initial per-interval quota and linear ramp duration through the exist
 traffic-warm-up configuration. Keep the fixed-quota defaults unchanged and pass the optional
 initial value into the library-owned context without adding demo lifecycle logic.
 Verification: all demo tests pass through `:ckc-demo:check`.
+
+<a id="infra-343"></a>
+### INFRA-343 - Add a short fourth-pod warm-up diagnostic
+
+_Date: 2026-11-12_
+
+Raise the simplified warm-up quota linearly from zero to 100 records per second per
+participating consumer over two minutes. Add a one-target internal-lab diagnostic that
+starts with three application pods at 12k/s, steps to 16k/s, and focuses Grafana evidence
+on the fourth pod without waiting for the full A/B ramp.
+Verification: all 84 shared experiment-orchestration tests and all 44 internal-lab
+experiment-report tests pass; the target runner shell is syntax-valid.
