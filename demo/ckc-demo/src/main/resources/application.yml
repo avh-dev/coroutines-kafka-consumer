@@ -187,7 +187,9 @@ demo:
     security-protocol: ${TRAFFIC_WARMUP_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
     control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v1.control}
     quota-per-interval: ${TRAFFIC_WARMUP_QUOTA_PER_INTERVAL:10}
+    initial-quota-per-interval: ${TRAFFIC_WARMUP_INITIAL_QUOTA_PER_INTERVAL:}
     quota-interval-ms: ${TRAFFIC_WARMUP_QUOTA_INTERVAL_MS:1000}
+    quota-ramp-seconds: ${TRAFFIC_WARMUP_QUOTA_RAMP_SECONDS:0}
     duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:120}
     timeout-seconds: ${TRAFFIC_WARMUP_TIMEOUT_SECONDS:30}
     producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:15}

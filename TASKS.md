@@ -188,6 +188,7 @@
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-110](#demo-110) | Wire the simplified traffic warm-up library API into the demo and record forwarding diagnostics through the existing observation path. | DONE |
+| [DEMO-111](#demo-111) | Expose the absolute warm-up quota ramp through demo configuration. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6092,3 +6093,13 @@ Review removed the speculative partition-ordering workload and long packet captu
 the established GLOBAL-3 experiment shape while retaining the new API and explicit broker topics.
 Verification: all 100 affected shared orchestration, pcap, and report tests and all 72 affected
 internal-lab diagnostic, evidence, report, and warm-up lifecycle tests pass.
+
+<a id="demo-111"></a>
+### DEMO-111 - Configure the warm-up quota ramp
+
+_Date: 2026-11-12_
+
+Expose the initial per-interval quota and linear ramp duration through the existing demo
+traffic-warm-up configuration. Keep the fixed-quota defaults unchanged and pass the optional
+initial value into the library-owned context without adding demo lifecycle logic.
+Verification: all demo tests pass through `:ckc-demo:check`.
