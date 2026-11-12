@@ -250,7 +250,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             forwardingObserver = warmup.configuration.forwardingObserver,
             scope = settings.scope,
             quota = settings.quota,
+            initialQuota = settings.initialQuota,
             quotaInterval = settings.quotaInterval,
+            quotaRampDuration = settings.quotaRampDuration,
             delegationTimeout = settings.delegationTimeout,
             cleanupTimeout = settings.cleanupTimeout,
             completionBufferCapacity = settings.completionBufferCapacity

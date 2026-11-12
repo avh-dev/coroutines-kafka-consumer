@@ -34,7 +34,10 @@ class TrafficWarmupContextConfiguration {
     var controlTopic: String = ""
     var controlKafkaProperties: Map<String, Any?> = emptyMap()
     var quotaPerInterval: Int = 10
+    /** Null keeps the quota fixed at [quotaPerInterval]. */
+    var initialQuotaPerInterval: Int? = null
     var quotaInterval: Duration = 1.seconds
+    var quotaRampDuration: Duration = Duration.ZERO
     var warmupDuration: Duration = 120.seconds
     var delegationTimeout: Duration = 30.seconds
     var offerWindow: Duration = 2.seconds
@@ -144,7 +147,9 @@ class TrafficWarmupContext internal constructor(
     internal fun participantSettings(): ParticipantSettings = ParticipantSettings(
         scope = scope,
         quota = configuration.quotaPerInterval,
+        initialQuota = configuration.initialQuotaPerInterval ?: configuration.quotaPerInterval,
         quotaInterval = configuration.quotaInterval,
+        quotaRampDuration = configuration.quotaRampDuration,
         delegationTimeout = configuration.delegationTimeout,
         cleanupTimeout = configuration.cleanupTimeout,
         completionBufferCapacity = configuration.completionBufferCapacity
@@ -165,7 +170,9 @@ class TrafficWarmupContext internal constructor(
     internal data class ParticipantSettings(
         val scope: CoroutineScope,
         val quota: Int,
+        val initialQuota: Int,
         val quotaInterval: Duration,
+        val quotaRampDuration: Duration,
         val delegationTimeout: Duration,
         val cleanupTimeout: Duration,
         val completionBufferCapacity: Int
@@ -681,7 +688,9 @@ class TrafficWarmupContext internal constructor(
         val canonical = listOf(
             WARMUP_CONTROL_PROTOCOL_VERSION,
             configuration.quotaPerInterval,
+            configuration.initialQuotaPerInterval ?: configuration.quotaPerInterval,
             configuration.quotaInterval.inWholeMilliseconds,
+            configuration.quotaRampDuration.inWholeMilliseconds,
             configuration.delegationTimeout.inWholeMilliseconds,
             mappings
         ).joinToString("|")
@@ -693,6 +702,10 @@ class TrafficWarmupContext internal constructor(
     private fun validateConfiguration() {
         require(configuration.controlTopic.isNotBlank()) { "controlTopic must not be blank" }
         require(configuration.quotaPerInterval > 0) { "quotaPerInterval must be positive" }
+        require((configuration.initialQuotaPerInterval ?: configuration.quotaPerInterval) in 0..configuration.quotaPerInterval) {
+            "initialQuotaPerInterval must be between zero and quotaPerInterval"
+        }
+        require(!configuration.quotaRampDuration.isNegative()) { "quotaRampDuration must not be negative" }
         listOf(
             "quotaInterval" to configuration.quotaInterval,
             "warmupDuration" to configuration.warmupDuration,

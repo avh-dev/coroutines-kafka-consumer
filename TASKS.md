@@ -81,6 +81,7 @@
 | [CORE-84](#core-84) | Implement fixed-link real-traffic delegation with interval quota, explicit outcomes, bounded tracking, deadlines, and local fallback. | DONE |
 | [CORE-85](#core-85) | Implement the minimal versioned warm-up control codec, shared Kafka transport, and conservative single-session protocol. | DONE |
 | [CORE-86](#core-86) | Implement the library-owned recipient, drain, cold-fallback, and main-consumer lifecycle with a public warm-up context API. | DONE |
+| [CORE-87](#core-87) | Add an absolute linear ramp to the per-interval traffic warm-up quota. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6035,6 +6036,18 @@ Review bounded control readiness and cleanup, made shared shutdown cancellation-
 abandoned donor sessions, and kept lifecycle cancellation distinct from timeout fallback.
 Verification: all 244 core unit tests and all 26 real-Kafka integration tests pass, including
 an automatic cold-pod warm-up followed by the main subscription transition.
+
+<a id="core-87"></a>
+### CORE-87 - Ramp the warm-up interval quota
+
+_Date: 2026-11-12_
+
+Allow a donor's absolute per-interval quota to grow linearly from a configured initial
+value to the existing target quota over a bounded duration. Preserve the lazy atomic
+interval reset, non-carrying quota, and fixed-quota defaults without restoring the old
+throughput-percentage selector.
+Verification: all core unit and real-Kafka integration tests pass through
+`:ckc-core:check`.
 
 <a id="demo-110"></a>
 ### DEMO-110 - Wire the traffic warm-up library API

@@ -28,4 +28,40 @@ class IntervalQuotaTest {
         now.set(1.seconds.inWholeNanoseconds)
         assertEquals(listOf(true, true, false), List(3) { quota.tryAcquire() })
     }
+
+    @Test
+    fun `quota grows linearly from the initial limit`() {
+        val now = AtomicLong(10.seconds.inWholeNanoseconds)
+        val quota = IntervalQuota(
+            limit = 100,
+            initialLimit = 0,
+            interval = 1.seconds,
+            rampDuration = 100.seconds,
+            nanoTime = now::get
+        )
+
+        assertEquals(false, quota.tryAcquire())
+
+        now.addAndGet(25.seconds.inWholeNanoseconds)
+        assertEquals(25, List(100) { quota.tryAcquire() }.count { it })
+
+        now.addAndGet(25.seconds.inWholeNanoseconds)
+        assertEquals(50, List(100) { quota.tryAcquire() }.count { it })
+
+        now.addAndGet(50.seconds.inWholeNanoseconds)
+        assertEquals(100, List(100) { quota.tryAcquire() }.count { it })
+    }
+
+    @Test
+    fun `zero ramp duration preserves the target quota`() {
+        val quota = IntervalQuota(
+            limit = 2,
+            initialLimit = 0,
+            interval = 1.seconds,
+            rampDuration = kotlin.time.Duration.ZERO,
+            nanoTime = { 100L }
+        )
+
+        assertEquals(listOf(true, true, false), List(3) { quota.tryAcquire() })
+    }
 }

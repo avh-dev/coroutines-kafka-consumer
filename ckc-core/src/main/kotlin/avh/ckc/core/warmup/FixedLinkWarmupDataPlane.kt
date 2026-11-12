@@ -27,6 +27,8 @@ internal class FixedLinkWarmupDataPlane<K, V>(
     val sessionId: WarmupSessionId,
     quota: Int,
     quotaInterval: Duration,
+    initialQuota: Int = quota,
+    quotaRampDuration: Duration = Duration.ZERO,
     private val delegationTimeout: Duration,
     private val destinationResolver: WarmupDestinationResolver<K, V>,
     private val sender: WarmupRecordSender<K, V>,
@@ -38,7 +40,13 @@ internal class FixedLinkWarmupDataPlane<K, V>(
     nanoTime: () -> Long = System::nanoTime
 ) : AdmittedRecordInterceptor<K, V> {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val quota = IntervalQuota(quota, quotaInterval, nanoTime)
+    private val quota = IntervalQuota(
+        limit = quota,
+        interval = quotaInterval,
+        initialLimit = initialQuota,
+        rampDuration = quotaRampDuration,
+        nanoTime = nanoTime
+    )
     private val admissionLock = Any()
     private val active = AtomicBoolean(true)
     private val failure = AtomicReference<Throwable?>()
