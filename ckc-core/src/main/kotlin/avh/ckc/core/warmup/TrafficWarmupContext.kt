@@ -45,7 +45,7 @@ class TrafficWarmupContextConfiguration {
     var cleanupTimeout: Duration = 30.seconds
     var controlReadinessTimeout: Duration = 30.seconds
     var completionBufferCapacity: Int = 1_024
-    var controlHistoryRecordLimit: Int = 10_000
+    var controlObservationLimit: Int = 10_000
     var parentContext: CoroutineContext = Dispatchers.Default
 }
 
@@ -139,8 +139,7 @@ class TrafficWarmupContext internal constructor(
                 instanceId = configuration.instanceId,
                 topic = configuration.controlTopic,
                 producerProperties = configuration.controlKafkaProperties,
-                consumerProperties = configuration.controlKafkaProperties,
-                historyRecordLimit = configuration.controlHistoryRecordLimit
+                consumerProperties = configuration.controlKafkaProperties
             ),
             handler = router,
             parentContext = scope.coroutineContext
@@ -197,11 +196,7 @@ class TrafficWarmupContext internal constructor(
         recipientJob = scope.launch {
             try {
                 withTimeout(configuration.controlReadinessTimeout) { transport.awaitReady() }
-                if (transport.logPosition().replayWasTruncated) {
-                    coldStart("control history was truncated")
-                } else {
-                    runRecipientSession()
-                }
+                runRecipientSession()
             } catch (timeout: TimeoutCancellationException) {
                 fallbackToCold(timeout)
             } catch (cancelled: CancellationException) {
@@ -267,7 +262,7 @@ class TrafficWarmupContext internal constructor(
         val decision = protocol.evaluate(record)
         synchronized(observations) {
             observations.addLast(Observed(record, decision))
-            while (observations.size > configuration.controlHistoryRecordLimit) observations.removeFirst()
+            while (observations.size > configuration.controlObservationLimit) observations.removeFirst()
         }
         observationSignal.trySend(Unit)
         when (decision.kind) {
@@ -729,6 +724,6 @@ class TrafficWarmupContext internal constructor(
             "controlReadinessTimeout" to configuration.controlReadinessTimeout
         ).forEach { (name, duration) -> require(duration.isPositive()) { "$name must be positive" } }
         require(configuration.completionBufferCapacity > 0) { "completionBufferCapacity must be positive" }
-        require(configuration.controlHistoryRecordLimit > 0) { "controlHistoryRecordLimit must be positive" }
+        require(configuration.controlObservationLimit > 0) { "controlObservationLimit must be positive" }
     }
 }

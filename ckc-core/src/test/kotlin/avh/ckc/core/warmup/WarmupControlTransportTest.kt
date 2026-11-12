@@ -39,32 +39,25 @@ class WarmupControlTransportTest {
     private val mapping = WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders")
 
     @Test
-    fun `bounded history is dispatched before transport becomes ready`() = runBlocking {
-        val messages = listOf(request("first"), request("second"))
-        val consumer = replayConsumer(messages, beginning = 0L, end = 5L)
+    fun `transport starts at current tail and dispatches only later records`() = runBlocking {
+        val releaseRecords = AtomicBoolean(false)
+        val consumer = tailConsumer(listOf(request("new")), end = 19_110L, releaseRecords = releaseRecords)
         val producer = mock<Producer<String, ByteArray>>()
         val handled = mutableListOf<String>()
-        val firstEntered = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        val transport = transport(producer, consumer, historyLimit = 2) { record ->
-            handled += record.message.sessionId.value
-            if (handled.size == 1) {
-                firstEntered.complete(Unit)
-                release.await()
-            }
-        }
+        val transport = transport(producer, consumer) { record -> handled += record.message.sessionId.value }
 
         try {
             transport.start()
-            val ready = async { transport.awaitReady() }
-            withTimeout(1_000) { firstEntered.await() }
-            assertFalse(ready.isCompleted)
-            release.complete(Unit)
-            withTimeout(1_000) { ready.await() }
+            withTimeout(1_000) { transport.awaitReady() }
 
-            assertEquals(listOf("first", "second"), handled)
-            assertEquals(3L, transport.logPosition().replayStartOffset)
-            verify(consumer).seek(TopicPartition("control", 0), 3L)
+            assertTrue(handled.isEmpty())
+            verify(consumer).seek(TopicPartition("control", 0), 19_110L)
+
+            releaseRecords.set(true)
+            withTimeout(1_000) {
+                while (handled.isEmpty()) kotlinx.coroutines.yield()
+            }
+            assertEquals(listOf("new"), handled)
         } finally {
             transport.stop()
         }
@@ -88,7 +81,7 @@ class WarmupControlTransportTest {
         }.whenever(producer).send(any<ProducerRecord<String, ByteArray>>(), any<Callback>())
         val transport = transport(
             producer,
-            replayConsumer(emptyList(), beginning = 0L, end = 0L),
+            tailConsumer(emptyList(), end = 0L),
             sendTimeoutMillis = 50,
             producerPropertiesObserver = properties::set
         ) { }
@@ -112,20 +105,23 @@ class WarmupControlTransportTest {
     }
 
     @Test
-    fun `malformed replay record fails closed before readiness`() {
+    fun `malformed new record fails closed after tail initialization`(): Unit = runBlocking {
         val request = request("session")
+        val releaseRecords = AtomicBoolean(false)
         val transport = transport(
             mock(),
-            replayConsumer(listOf(request), beginning = 0L, end = 1L) { "wrong-session-key" }
+            tailConsumer(listOf(request), end = 1L, releaseRecords = releaseRecords) { "wrong-session-key" }
         ) { }
 
         transport.start()
         try {
+            withTimeout(1_000) { transport.awaitReady() }
+            releaseRecords.set(true)
             assertThrows(InvalidWarmupControlRecordException::class.java) {
-                runBlocking { withTimeout(1_000) { transport.awaitReady() } }
+                runBlocking { withTimeout(1_000) { transport.awaitTermination() } }
             }
         } finally {
-            runBlocking { transport.stop() }
+            transport.stop()
         }
     }
 
@@ -139,7 +135,7 @@ class WarmupControlTransportTest {
             releaseClose.await()
             Unit
         }.whenever(producer).close(any<JavaDuration>())
-        val transport = transport(producer, replayConsumer(emptyList(), 0L, 0L)) { }
+        val transport = transport(producer, tailConsumer(emptyList(), 0L)) { }
         transport.start()
         withTimeout(1_000) { transport.awaitReady() }
 
@@ -157,7 +153,6 @@ class WarmupControlTransportTest {
     private fun transport(
         producer: Producer<String, ByteArray>,
         consumer: Consumer<String, ByteArray>,
-        historyLimit: Int = 10,
         sendTimeoutMillis: Long = 1_000,
         producerPropertiesObserver: (Map<String, Any?>) -> Unit = { },
         handler: WarmupControlMessageHandler
@@ -167,7 +162,6 @@ class WarmupControlTransportTest {
             topic = "control",
             producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
             consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
-            historyRecordLimit = historyLimit,
             pollTimeout = 1.milliseconds,
             sendTimeout = sendTimeoutMillis.milliseconds
         ),
@@ -180,34 +174,35 @@ class WarmupControlTransportTest {
         consumerFactory = { consumer }
     )
 
-    private fun replayConsumer(
+    private fun tailConsumer(
         messages: List<WarmupControlMessage>,
-        beginning: Long,
         end: Long,
+        releaseRecords: AtomicBoolean = AtomicBoolean(true),
         recordKey: (WarmupControlMessage) -> String = { it.sessionId.value }
     ): Consumer<String, ByteArray> {
         val consumer = mock<Consumer<String, ByteArray>>()
         val listener = AtomicReference<ConsumerRebalanceListener>()
-        val firstPoll = AtomicBoolean(true)
+        val assigned = AtomicBoolean(false)
+        val recordsDelivered = AtomicBoolean(false)
         val partition = TopicPartition("control", 0)
         doAnswer {
             listener.set(it.getArgument(1))
             Unit
         }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
-        whenever(consumer.beginningOffsets(listOf(partition))).thenReturn(mapOf(partition to beginning))
         whenever(consumer.endOffsets(listOf(partition))).thenReturn(mapOf(partition to end))
         whenever(consumer.position(partition)).thenReturn(end)
         doAnswer {
-            if (firstPoll.compareAndSet(true, false)) {
+            if (assigned.compareAndSet(false, true)) {
                 listener.get().onPartitionsAssigned(listOf(partition))
-                val firstOffset = end - messages.size
+                ConsumerRecords.empty<String, ByteArray>()
+            } else if (releaseRecords.get() && recordsDelivered.compareAndSet(false, true)) {
                 ConsumerRecords(
                     mapOf(
                         partition to messages.mapIndexed { index, message ->
                             org.apache.kafka.clients.consumer.ConsumerRecord(
                                 "control",
                                 0,
-                                firstOffset + index,
+                                end + index,
                                 recordKey(message),
                                 WarmupControlCodec.encode(message)
                             )

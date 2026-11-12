@@ -344,8 +344,6 @@ class TrafficWarmupContextTest {
             check(started)
             readiness?.await()
         }
-        override fun logPosition() = WarmupControlLogPosition(TopicPartition("control", 0), 0, 0, 0)
-
         override suspend fun send(message: WarmupControlMessage): RecordMetadata {
             sent += message
             deliver(message)
