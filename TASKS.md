@@ -512,6 +512,7 @@
 | [INFRA-344](#infra-344) | Extend the short warm-up diagnostic to a gradual three-to-five-pod scale-up. | DONE |
 | [INFRA-345](#infra-345) | Limit the gradual warm-up diagnostic to 15k and start from two pods. | DONE |
 | [INFRA-346](#infra-346) | Cap the two-to-four-pod warm-up diagnostic at 14k and trigger the fourth pod before the peak. | DONE |
+| [INFRA-347](#infra-347) | Add internal-lab node and per-core CPU/network observability. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6165,3 +6166,17 @@ a 7k baseline. Lower the hot-pod target from 85% to 80% so the fourth pod is exp
 to start before the peak rather than remaining just beyond the measured 14.3k threshold.
 Verification: all 84 shared experiment-orchestration tests pass, including the resolved
 14k workload and 80% hot-pod target.
+
+<a id="infra-347"></a>
+### INFRA-347 - Add node and per-core observability
+
+_Date: 2026-11-12_
+
+Restore the internal-lab Kubernetes node utilization panels from GLOBAL-3 and add
+per-logical-CPU visibility for diagnosing host networking bottlenecks. Collect host CPU,
+softirq, and softnet pressure with a lightweight node exporter on every lab node, while
+keeping the shared dashboard environment-aware and the exporter observability-only.
+Verification: all 30 dashboard tests and all 3 metrics-contract tests pass; Kubernetes
+server-side dry-run accepts the manifests. The installed lab reports healthy exporter
+targets on both nodes with six logical-CPU and six softnet series per node, and its
+provisioned dashboard contains aggregate node, per-core CPU, SoftIRQ, and softnet panels.

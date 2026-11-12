@@ -96,6 +96,7 @@ kubectl apply -f "${K8S_DIR}/metrics-server.yaml"
 kubectl apply -f "${GENERATED_DIR}/external-services.yaml"
 kubectl -n ckc-perf delete service,endpoints ckc-external-demo-stubs --ignore-not-found=true
 kubectl -n ckc-perf delete service,endpoints ckc-external-load-test --ignore-not-found=true
+kubectl apply -f "${K8S_DIR}/node-exporter.yaml"
 kubectl apply -f "${K8S_DIR}/prometheus.yaml"
 
 helm repo add kedacore https://kedacore.github.io/charts --force-update >/dev/null
@@ -109,6 +110,7 @@ helm upgrade --install keda kedacore/keda \
   --timeout 5m
 
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
+kubectl -n ckc-perf rollout status daemonset/ckc-node-exporter --timeout=5m
 # Reconcile process state as well as the ConfigMap. A previous deploy may have updated the
 # mounted file without making Prometheus reread it, so equality of old/new ConfigMaps does
 # not prove that the active process uses the desired scrape configuration.
