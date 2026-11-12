@@ -1014,7 +1014,15 @@ def render_markdown(report: ExperimentReport) -> str:
         row(
             "Warm-up quota",
             [
-                f'{number(config.get("quota_per_interval"), 0)} / {number(config.get("quota_interval_ms"), 0)} ms'
+                (
+                    f'{number(config.get("initial_quota_per_interval"), 0)} → '
+                    f'{number(config.get("quota_per_interval"), 0)} / '
+                    f'{number(config.get("quota_interval_ms"), 0)} ms over '
+                    f'{number(config.get("quota_ramp_seconds"), 0)} s'
+                    if config.get("initial_quota_per_interval") is not None
+                    else f'{number(config.get("quota_per_interval"), 0)} / '
+                    f'{number(config.get("quota_interval_ms"), 0)} ms'
+                )
                 for target in targets
                 for config in [target.configuration.get("traffic_warmup") or {}]
             ],
