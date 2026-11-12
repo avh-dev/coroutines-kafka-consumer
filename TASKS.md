@@ -509,6 +509,7 @@
 | [INFRA-341](#infra-341) | Separate source and warm-up audit categories in analysis and experiment reports. | DONE |
 | [INFRA-342](#infra-342) | Prepare the simplified traffic warm-up A/B experiment and evidence contract. | DONE |
 | [INFRA-343](#infra-343) | Add a short three-to-four-pod warm-up diagnostic and raise the warm-up quota through a linear ramp. | DONE |
+| [INFRA-344](#infra-344) | Extend the short warm-up diagnostic to a gradual three-to-five-pod scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6129,3 +6130,14 @@ in the same control session from filling each other's early-result trackers, whi
 unknown and late destinations conservatively.
 Verification: all core unit and real-Kafka integration tests pass through
 `:ckc-core:check`, including the three-consumer single-session regression.
+
+<a id="infra-344"></a>
+### INFRA-344 - Extend the warm-up diagnostic to five pods
+
+_Date: 2026-11-12_
+
+Replace the abrupt 12k-to-16k fourth-pod diagnostic with a gradual 10k-to-20k ramp.
+Keep three initial pods, allow scaling to five, and leave enough time between the expected
+fourth- and fifth-pod thresholds for each two-minute traffic warm-up to be visible separately.
+Verification: all 84 shared experiment-orchestration tests pass, including materialization
+of the renamed three-to-five-pod diagnostic.

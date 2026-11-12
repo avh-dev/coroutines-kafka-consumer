@@ -82,8 +82,8 @@ class MaterializeTest(unittest.TestCase):
             env["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"],
         ))
 
-    def test_materializes_short_fourth_pod_warmup_diagnostic(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-simplified-traffic-warmup-fourth-pod-diagnostic-local.yaml"
+    def test_materializes_gradual_three_to_five_pod_warmup_diagnostic(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-simplified-traffic-warmup-three-to-five-pod-diagnostic-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -95,9 +95,9 @@ class MaterializeTest(unittest.TestCase):
 
         self.assertEqual(3, plan["application"]["configuration"]["replicas"])
         self.assertEqual(3, plan["application"]["configuration"]["hpa"]["min_replicas"])
-        self.assertEqual(4, plan["application"]["configuration"]["hpa"]["max_replicas"])
-        self.assertEqual(16000, definition["load_test"]["base_tps"])
-        self.assertIn("step-to-16k", definition["load_test"]["load_profile"])
+        self.assertEqual(5, plan["application"]["configuration"]["hpa"]["max_replicas"])
+        self.assertEqual(20000, definition["load_test"]["base_tps"])
+        self.assertIn("(10m, gradual-ramp-to-20k)", definition["load_test"]["load_profile"])
 
     def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"
