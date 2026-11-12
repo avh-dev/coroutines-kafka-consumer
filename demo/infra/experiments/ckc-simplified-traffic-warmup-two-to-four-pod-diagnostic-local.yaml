@@ -1,9 +1,9 @@
 schema_version: 2
-name: ckc-simplified-traffic-warmup-three-to-five-pod-diagnostic-local
+name: ckc-simplified-traffic-warmup-two-to-four-pod-diagnostic-local
 description: >-
   Short Grafana diagnostic for two consecutive simplified real-traffic warm-ups. Start
-  with three unordered CKC pods at 10k, ramp gradually to 20k, and inspect the fourth
-  and fifth pods without running the full A/B comparison.
+  with two unordered CKC pods at 7.5k, ramp gradually to 15k, and inspect the third
+  and fourth pods without running the full A/B comparison.
 workload:
   stubs:
     error_rate_percent: 0
@@ -20,11 +20,11 @@ workload:
     shards: 1
     workers: 100
     dispatcher_threads: 2
-    base_tps: 20000
-    producer_capacity_tps: {order: 20000, batch: 20000, telemetry: 20000}
+    base_tps: 15000
+    producer_capacity_tps: {order: 15000, batch: 15000, telemetry: 15000}
     load_profile: >-
-      0 -> (1m, ramp-to-10k) -> 50 -> (2m, hold-10k) -> 50 ->
-      (10m, gradual-ramp-to-20k) -> 100 -> (5m, hold-20k) -> 100 ->
+      0 -> (1m, ramp-to-7.5k) -> 50 -> (2m, hold-7.5k) -> 50 ->
+      (10m, gradual-ramp-to-15k) -> 100 -> (5m, hold-15k) -> 100 ->
       (1m, cool-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
@@ -52,16 +52,16 @@ workload:
     telemetry_settle_seconds: 60
     maximum_first_sample_delay_seconds: 90
   measurement_windows:
-  - {name: initial-three-pods, start: 0m, duration: 3m}
+  - {name: initial-two-pods, start: 0m, duration: 3m}
   - {name: gradual-scale-up, start: 3m, duration: 10m}
-  - {name: five-pod-hold, start: 13m, duration: 5m}
+  - {name: four-pod-hold, start: 13m, duration: 5m}
   topics:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
-- name: ckc.simplified-traffic-warmup-three-to-five-pod-diagnostic
-  annotation_label: CKC · simplified warm-up · 3→5 pod diagnostic · local 20k
+- name: ckc.simplified-traffic-warmup-two-to-four-pod-diagnostic
+  annotation_label: CKC · simplified warm-up · 2→4 pod diagnostic · local 15k
   implementation: ckc
   placement:
     application: worker
@@ -69,7 +69,7 @@ targets:
     generator: controller
   application:
     placement: worker
-    replicas: 3
+    replicas: 2
     resources:
       requests: {cpu: 800m, memory: 512Mi}
       limits: {memory: 1280Mi}
@@ -79,8 +79,8 @@ targets:
       -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info:stdout:time,uptime,level,tags
     hpa:
       enabled: true
-      min_replicas: 3
-      max_replicas: 5
+      min_replicas: 2
+      max_replicas: 4
       hot_pod_cpu:
         enabled: true
         source: thread_stats_excluding_jit
