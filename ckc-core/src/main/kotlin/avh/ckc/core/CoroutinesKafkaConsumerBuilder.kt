@@ -232,7 +232,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             mappings = mappings,
             main = main,
             switchableDataPlane = switchable,
-            createWarmup = { partitions, observer ->
+            createWarmup = { partitions, interceptor, observer ->
                 buildRuntime(
                     consumerProperties = warmup.context.recipientConsumerProperties(
                         consumerProperties,
@@ -241,6 +241,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
                     ),
                     configuredHandler = configuredHandler,
                     assignedPartitions = partitions,
+                    admittedRecordInterceptor = interceptor,
                     processingOutcomeObserver = observer,
                     pollLoopConcurrency = 1
                 )

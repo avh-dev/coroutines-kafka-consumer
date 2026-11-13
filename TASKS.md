@@ -85,6 +85,7 @@
 | [CORE-88](#core-88) | Route warm-up outcomes only to the donor data plane that owns their destination. | DONE |
 | [CORE-89](#core-89) | Start new warm-up control consumers at the current log tail instead of replaying historical sessions. | DONE |
 | [CORE-90](#core-90) | Let the recipient initiate warm-up completion and wait for every donor to close all delegated processing before starting main consumers. | DONE |
+| [CORE-91](#core-91) | Support parallel warm-up sessions with metadata-discovered destination partition reservations and snapshot-based control-state synchronization. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -515,6 +516,7 @@
 | [INFRA-345](#infra-345) | Limit the gradual warm-up diagnostic to 15k and start from two pods. | DONE |
 | [INFRA-346](#infra-346) | Cap the two-to-four-pod warm-up diagnostic at 14k and trigger the fourth pod before the peak. | DONE |
 | [INFRA-347](#infra-347) | Add internal-lab node and per-core CPU/network observability. | DONE |
+| [INFRA-348](#infra-348) | Provision multi-recipient warm-up partition capacity and add parallel-session experiment scenarios. | PLANNED |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6220,3 +6222,32 @@ targeted lifecycle tests cover multiple donors, delayed closure, recipient loss,
 proof that neither producer ACK nor an unfinished local fallback can produce a donor closure.
 Review regressions also prove that a completion request racing donor activation is retained and that
 an activation rejection interrupts the recipient readiness wait instead of consuming the full duration.
+
+<a id="core-91"></a>
+### CORE-91 - Support parallel warm-up sessions with distributed partition reservations
+
+_Date: 2026-11-13_
+
+Replace the single global warm-up session with an offset-ordered table of sessions and destination reservations.
+Synchronize newcomers from bounded full-state snapshots while buffering subsequent control events instead of replaying history.
+Discover warm-up and control partitions through Kafka metadata, reserve complete mapping sets atomically, and expire abandoned reservations safely.
+Allow one donor to serve multiple recipients fairly while preserving recipient-driven completion, local fallback, and ownership-safe shutdown.
+Tag forwarded records with their session generation and filter stale records before business, metric/audit, and completion outcomes.
+Bootstrap an authoritative empty table only after one maximum reservation lifetime has been observed from the current tail.
+P1 follow-up makes reservation arbitration depend only on ordered control events: expiry stops data-plane work locally, while normal and emergency releases are explicit generation-bound records.
+Review follow-up makes `CLOSED` terminal across delayed lifecycle records and gives Kafka integration tests an internal bootstrap-quarantine override without weakening the production 605-second rule.
+Bootstrap coverage fixes the quarantine to the namespace-wide maximum, preserves post-tail reservations, rejects oversized lifecycle budgets, and isolates the shortened test clock from the public production factory.
+Donor runtime execution now revalidates ordered table state and reservation generation across asynchronous preparation and activation, with idempotent duplicates and race-safe generation-local cleanup.
+The final runtime follow-up keeps repeated acceptance monotonic after readiness and gives prepared donors
+an explicit close path when completion overtakes a queued activation, preserving the `DonorClosed` handshake.
+Final verification: `./gradlew :ckc-core:check` passes 276 unit tests and the complete real-Kafka integration suite, including one donor warming two recipients concurrently.
+
+<a id="infra-348"></a>
+### INFRA-348 - Provision parallel warm-up capacity and scenarios
+
+_Date: 2026-11-13_
+
+Raise the pre-created warm-up topic partition counts to the maximum concurrent-recipient capacity required by each experiment.
+Keep the control topic at exactly one partition and do not resize warm-up topics during a running protocol namespace.
+Add experiment coverage for simultaneous recipients, reservation contention, participant loss, expiry, and partition reuse.
+Wire explicit donor session and aggregate delegation limits into experiment configuration where non-default capacity is required.

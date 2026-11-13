@@ -94,6 +94,9 @@ internal interface WarmupControlChannel {
     fun start()
     suspend fun awaitReady()
     suspend fun send(message: WarmupControlMessage): RecordMetadata
+    /** Null is reserved for in-memory test channels that do not model Kafka metadata. */
+    suspend fun topicPartitions(topics: Set<String>): Map<String, Set<Int>>? = null
+    fun initialOffsetBoundary(): Long? = null
     suspend fun awaitTermination()
     suspend fun stop()
 }
@@ -128,6 +131,9 @@ internal class WarmupControlTransport(
     private var pollJob: Job? = null
     private var dispatchJob: Job? = null
     private var initializedPartition: TopicPartition? = null
+    @Volatile private var initialBoundary: Long? = null
+
+    override fun initialOffsetBoundary(): Long? = initialBoundary
 
     override fun start() {
         check(started.compareAndSet(false, true)) { "Warm-up control transport already started" }
@@ -162,6 +168,17 @@ internal class WarmupControlTransport(
         }
     }
 
+    override suspend fun topicPartitions(topics: Set<String>): Map<String, Set<Int>> {
+        awaitReady()
+        require(topics.isNotEmpty()) { "At least one metadata topic is required" }
+        return runInterruptible(dispatcher) {
+            topics.associateWith { topic ->
+                requireNotNull(producer).partitionsFor(topic).mapTo(linkedSetOf()) { it.partition() }
+                    .also { require(it.isNotEmpty()) { "Kafka metadata returned no partitions for $topic" } }
+            }
+        }
+    }
+
     override suspend fun awaitTermination() {
         termination.await()?.let { throw it }
     }
@@ -182,6 +199,7 @@ internal class WarmupControlTransport(
                         val end = activeConsumer.endOffsets(partitions).getValue(partition)
                         activeConsumer.seek(partition, end)
                         activeConsumer.position(partition)
+                        initialBoundary = end - 1
                         initializedPartition = partition
                         readiness.complete(Unit)
                     }
