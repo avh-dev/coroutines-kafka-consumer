@@ -6236,6 +6236,7 @@ Tag forwarded records with their session generation and filter stale records bef
 Bootstrap an authoritative empty table only after one maximum reservation lifetime has been observed from the current tail.
 P1 follow-up makes reservation arbitration depend only on ordered control events: expiry stops data-plane work locally, while normal and emergency releases are explicit generation-bound records.
 Review follow-up makes `CLOSED` terminal across delayed lifecycle records and gives Kafka integration tests an internal bootstrap-quarantine override without weakening the production 605-second rule.
+Bootstrap coverage fixes the quarantine to the namespace-wide maximum, preserves post-tail reservations, rejects oversized lifecycle budgets, and isolates the shortened test clock from the public production factory.
 The original CORE-91 baseline passed `./gradlew :ckc-core:check` with 264 unit tests and 27 real-Kafka integration tests; for the P1 follow-up only production compilation was run, and the updated test commands were intentionally left for explicit execution.
 
 <a id="infra-348"></a>

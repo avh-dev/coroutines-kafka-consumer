@@ -54,8 +54,6 @@ class TrafficWarmupContextConfiguration {
     var maxDonorDelegationsPerInterval: Int = 40
     internal var reservationInitialJitterMillis: LongRange = 1_000L..2_000L
     internal var reservationRetryJitterMillis: LongRange = 100L..500L
-    /** Test-only quarantine override; production callers cannot access internal configuration. */
-    internal var bootstrapRecoveryWindowOverride: Duration? = null
     var parentContext: CoroutineContext = Dispatchers.Default
 }
 
@@ -90,7 +88,9 @@ fun trafficWarmupContext(
 class TrafficWarmupContext internal constructor(
     private val configuration: TrafficWarmupContextConfiguration,
     transportFactory: ((WarmupControlMessageHandler) -> WarmupControlChannel)? = null,
-    private val enforceDistributedProtocol: Boolean = transportFactory == null
+    private val enforceDistributedProtocol: Boolean = transportFactory == null,
+    /** Test-only scheduler override. The public factory never supplies it. */
+    private val bootstrapRecoveryWindowOverride: Duration? = null
 ) : ManagedConsumerLifecycle {
     private class MainConsumerStartException(cause: Throwable) :
         IllegalStateException("Failed to start main consumers after warm-up", cause)
@@ -832,13 +832,15 @@ class TrafficWarmupContext internal constructor(
 
     private fun scheduleBootstrapAuthority() {
         val boundary = transport.initialOffsetBoundary() ?: -1L
-        val recoveryWindow = configuration.bootstrapRecoveryWindowOverride ?:
-            (WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS).milliseconds
+        val recoveryWindow = bootstrapRecoveryWindow()
         scope.launch {
             delay(recoveryWindow)
             sessionTable.markBootstrapAuthoritative(maxOf(boundary, sessionTable.lastOffset()))
         }
     }
+
+    internal fun bootstrapRecoveryWindow(): Duration = bootstrapRecoveryWindowOverride ?:
+        (WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS).milliseconds
 
     private suspend fun reserveDestinations(
         sessionId: WarmupSessionId,
@@ -1068,7 +1070,7 @@ class TrafficWarmupContext internal constructor(
         require(configuration.reservationRetryJitterMillis.first >= 0 &&
             configuration.reservationRetryJitterMillis.last >= configuration.reservationRetryJitterMillis.first
         ) { "reservationRetryJitterMillis must be a non-negative ordered range" }
-        configuration.bootstrapRecoveryWindowOverride?.let {
+        bootstrapRecoveryWindowOverride?.let {
             require(it.isPositive()) { "bootstrapRecoveryWindowOverride must be positive" }
         }
     }

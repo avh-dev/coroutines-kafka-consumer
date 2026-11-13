@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import java.util.concurrent.atomic.AtomicLong
@@ -20,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class TrafficWarmupContextTest {
@@ -27,6 +29,94 @@ class TrafficWarmupContextTest {
     private val donor = WarmupInstanceId("donor")
     private val consumerId = WarmupConsumerId("orders")
     private val mapping = WarmupTopicMapping(consumerId, "orders", "warmup-orders")
+
+    @Test
+    fun `production bootstrap quarantine is fixed across local warmup settings`() {
+        val short = context(warmupDuration = 20.milliseconds) { handler -> FakeControlChannel(handler) }
+        val long = context(warmupDuration = 5.minutes) { handler -> FakeControlChannel(handler) }
+        val testOverride = context(
+            bootstrapRecoveryWindowOverride = 10.milliseconds
+        ) { handler -> FakeControlChannel(handler) }
+
+        assertEquals(605.seconds, short.bootstrapRecoveryWindow())
+        assertEquals(605.seconds, long.bootstrapRecoveryWindow())
+        assertEquals(10.milliseconds, testOverride.bootstrapRecoveryWindow())
+    }
+
+    @Test
+    fun `authorization lifetime above namespace maximum is rejected`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            context(warmupDuration = 10.minutes) { handler -> FakeControlChannel(handler) }
+        }
+    }
+
+    @Test
+    fun `no-source bootstrap retains observed reservation and becomes snapshot donor after quarantine`() = runBlocking {
+        val participant = DonorParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context(
+            enforceDistributedProtocol = true,
+            bootstrapRecoveryWindowOverride = 500.milliseconds
+        ) { handler -> FakeControlChannel(handler).also { channel = it } }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+        assertTrue(participant.mainStarted)
+        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+        assertFalse(channel.sent.any { it is ReservationRequested && it.senderInstanceId == local })
+
+        val observedSession = WarmupSessionId("observed-during-quarantine")
+        val observedRecipient = WarmupInstanceId("observed-recipient")
+        val observedReservation = WarmupReservationId("observed-reservation")
+        val observedExpiry = System.currentTimeMillis() + 60_000
+        channel.deliver(
+            WarmupRequested(
+                observedSession, observedRecipient, listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, observedExpiry
+            )
+        )
+        channel.deliver(
+            ReservationRequested(
+                observedSession, observedRecipient, observedReservation,
+                listOf(WarmupPartitionAssignment(mapping, 0)),
+                localRequest.configurationFingerprint, observedExpiry
+            )
+        )
+
+        val earlyProbe = WarmupSessionId("early-probe")
+        channel.deliver(
+            WarmupRequested(
+                earlyProbe, WarmupInstanceId("early-recipient"), listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, observedExpiry
+            )
+        )
+        delay(50.milliseconds)
+        assertFalse(channel.sent.filterIsInstance<DonorOffered>().any { it.sessionId == earlyProbe })
+        assertFalse(channel.sent.any { it is ReservationRequested })
+
+        delay(600.milliseconds)
+        val lateProbe = WarmupSessionId("late-probe")
+        channel.deliver(
+            WarmupRequested(
+                lateProbe, WarmupInstanceId("late-recipient"), listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, observedExpiry
+            )
+        )
+        val lateOffer = withTimeout(2_000) {
+            while (true) {
+                channel.sent.filterIsInstance<DonorOffered>().firstOrNull { it.sessionId == lateProbe }
+                    ?.let { return@withTimeout it }
+                kotlinx.coroutines.yield()
+            }
+            error("unreachable")
+        }
+        val snapshot = requireNotNull(lateOffer.stateSnapshot)
+        val observed = snapshot.sessions.single { it.sessionId == observedSession }
+        assertEquals(observedReservation, observed.reservationId)
+        assertEquals(listOf(WarmupPartitionAssignment(mapping, 0)), observed.assignments)
+        assertTrue(lateOffer.mappings.isNotEmpty())
+        context.stop()
+    }
 
     @Test
     fun `metadata timeout performs cold fallback without reserving`() = runBlocking {
@@ -703,6 +793,7 @@ class TrafficWarmupContextTest {
     private fun context(
         warmupDuration: Duration = 20.milliseconds,
         enforceDistributedProtocol: Boolean = false,
+        bootstrapRecoveryWindowOverride: Duration? = null,
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
         val configuration = TrafficWarmupContextConfiguration().apply {
@@ -718,7 +809,12 @@ class TrafficWarmupContextTest {
             controlReadinessTimeout = 100.milliseconds
             parentContext = Dispatchers.Default
         }
-        return TrafficWarmupContext(configuration, factory, enforceDistributedProtocol)
+        return TrafficWarmupContext(
+            configuration,
+            factory,
+            enforceDistributedProtocol,
+            bootstrapRecoveryWindowOverride
+        )
     }
 
     private fun authoritativeOffer(request: WarmupRequested) = DonorOffered(

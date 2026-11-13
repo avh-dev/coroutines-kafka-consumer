@@ -7,6 +7,8 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.processing.RecordProcessingOutcome
 import avh.ckc.core.warmup.FixedLinkWarmupDataPlane
 import avh.ckc.core.warmup.KafkaWarmupRecordSender
+import avh.ckc.core.warmup.TrafficWarmupContext
+import avh.ckc.core.warmup.TrafficWarmupContextConfiguration
 import avh.ckc.core.warmup.WarmupDestination
 import avh.ckc.core.warmup.WarmupDestinationResolver
 import avh.ckc.core.warmup.WarmupControlMessageHandler
@@ -230,21 +232,23 @@ class CoroutinesKafkaConsumerIntegrationTest {
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
             ProducerConfig.ACKS_CONFIG to "all"
         )
-        fun newContext(instance: String) = trafficWarmupContext {
-            instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
-            this.controlTopic = controlTopic
-            controlKafkaProperties = controlProperties
-            quotaPerInterval = 10
-            quotaInterval = 100.milliseconds
-            warmupDuration = 1.seconds
-            delegationTimeout = 500.milliseconds
-            offerWindow = 100.milliseconds
-            negotiationTimeout = 500.milliseconds
-            reservationInitialJitterMillis = 1L..2L
-            reservationRetryJitterMillis = 1L..2L
+        fun newContext(instance: String) = TrafficWarmupContext(
+            TrafficWarmupContextConfiguration().apply {
+                instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
+                this.controlTopic = controlTopic
+                controlKafkaProperties = controlProperties
+                quotaPerInterval = 10
+                quotaInterval = 100.milliseconds
+                warmupDuration = 1.seconds
+                delegationTimeout = 500.milliseconds
+                offerWindow = 100.milliseconds
+                negotiationTimeout = 500.milliseconds
+                reservationInitialJitterMillis = 1L..2L
+                reservationRetryJitterMillis = 1L..2L
+                cleanupTimeout = 500.milliseconds
+            },
             bootstrapRecoveryWindowOverride = 1.seconds
-            cleanupTimeout = 500.milliseconds
-        }
+        )
 
         val donorContext = newContext("donor")
         val donorForwarded = CompletableDeferred<Unit>()
@@ -324,23 +328,25 @@ class CoroutinesKafkaConsumerIntegrationTest {
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
             ProducerConfig.ACKS_CONFIG to "all"
         )
-        fun context(instance: String) = trafficWarmupContext {
-            instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
-            this.controlTopic = controlTopic
-            controlKafkaProperties = controlProperties
-            quotaPerInterval = 20
-            maxDonorSessions = 2
-            maxDonorDelegationsPerInterval = 40
-            quotaInterval = 100.milliseconds
-            warmupDuration = 1.seconds
-            delegationTimeout = 500.milliseconds
-            offerWindow = 100.milliseconds
-            negotiationTimeout = 500.milliseconds
-            reservationInitialJitterMillis = 1L..2L
-            reservationRetryJitterMillis = 1L..2L
+        fun context(instance: String) = TrafficWarmupContext(
+            TrafficWarmupContextConfiguration().apply {
+                instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
+                this.controlTopic = controlTopic
+                controlKafkaProperties = controlProperties
+                quotaPerInterval = 20
+                maxDonorSessions = 2
+                maxDonorDelegationsPerInterval = 40
+                quotaInterval = 100.milliseconds
+                warmupDuration = 1.seconds
+                delegationTimeout = 500.milliseconds
+                offerWindow = 100.milliseconds
+                negotiationTimeout = 500.milliseconds
+                reservationInitialJitterMillis = 1L..2L
+                reservationRetryJitterMillis = 1L..2L
+                cleanupTimeout = 500.milliseconds
+            },
             bootstrapRecoveryWindowOverride = 1.seconds
-            cleanupTimeout = 500.milliseconds
-        }
+        )
         val donorContext = context("donor")
         val forwardedPartitions = ConcurrentHashMap.newKeySet<Int>()
         val donor = coroutinesKafkaConsumer<String, String>(consumerProperties("donor-${UUID.randomUUID()}")) {

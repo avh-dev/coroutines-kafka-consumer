@@ -65,6 +65,13 @@ cap are rejected at context construction.
 `CLOSED` is terminal in the replicated session table, so a delayed completion, readiness, or
 session-end record cannot make an explicitly released reservation active in a later snapshot.
 
+The 10-minute cap is a namespace protocol constant, not a value derived from a pod's local warm-up
+settings. Reducing it requires a staged compatibility transition: the old bootstrap quarantine must
+remain in force until every authorization issued under the previous maximum has passed its deadline
+and clock-skew guard. Deploying a shorter quarantine immediately can reuse a destination that an old
+generation is still authorized to write. The shortened maximum therefore needs an explicit protocol
+transition, normally a version change, after that drain interval.
+
 Donors stop admission at the authorization deadline and locally fall back work whose source
 ownership is still valid; shutdown/rebalance cancellation remains a handoff and never processes
 after ownership loss. Every synchronized authoritative context schedules an
@@ -88,6 +95,8 @@ authorization. The fully observed context may then bootstrap an authoritative ta
 all post-boundary events and serve later joiners. This is the only no-replay case that can retire
 unknown historical ownership without an explicit release; it makes total-loss recovery safe and
 eventually live.
+Tests may inject a shorter quarantine through an internal context-constructor parameter. The public
+production factory cannot set this override and always uses the protocol-wide 605-second interval.
 
 Capacity planning is direct: each simultaneous recipient needs one partition in every warm-up topic
 it maps. For `N` simultaneous recipients, every such topic therefore needs at least `N` partitions,
