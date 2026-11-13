@@ -10,17 +10,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.TopicPartition
+import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
@@ -93,7 +98,9 @@ class TrafficWarmupContext internal constructor(
     /** Test-only scheduler override. The public factory never supplies it. */
     private val bootstrapRecoveryWindowOverride: Duration? = null,
     /** Test-only scheduler override. The public factory never supplies it. */
-    private val retirementIntervalOverride: Duration? = null
+    private val retirementIntervalOverride: Duration? = null,
+    /** Test-only diagnostic observer. Production diagnostics always go through SLF4J. */
+    private val diagnosticObserver: ((String) -> Unit)? = null
 ) : ManagedConsumerLifecycle {
     private class MainConsumerStartException(cause: Throwable) :
         IllegalStateException("Failed to start main consumers after warm-up", cause)
@@ -111,6 +118,20 @@ class TrafficWarmupContext internal constructor(
         val expiresAtEpochMillis: Long,
         val cancelled: AtomicBoolean = AtomicBoolean(false)
     )
+
+    private class MetadataDiscoveryException(
+        val reasonCode: String,
+        val sessionId: WarmupSessionId,
+        val consumerIds: Set<WarmupConsumerId>,
+        val topics: Set<String>,
+        val unfinishedMappings: Set<WarmupTopicMapping>,
+        cause: Throwable
+    ) : IllegalStateException(
+        "Warm-up metadata $reasonCode for topics ${topics.sorted().joinToString(",")}",
+        cause
+    )
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     private data class DonorSession(
         val recipient: WarmupInstanceId,
@@ -876,12 +897,7 @@ class TrafficWarmupContext internal constructor(
             scheduleKnownEmergencyReleases()
         }
         val selected = selectDonors(mappings, offers)
-        val metadata = withTimeout(configuration.negotiationTimeout) {
-            transport.topicPartitions(mappings.mapTo(linkedSetOf(), WarmupTopicMapping::warmupTopic) + configuration.controlTopic)
-        }
-        metadata?.get(configuration.controlTopic)?.let {
-            check(it.size == 1) { "Warm-up control topic must have exactly one partition" }
-        }
+        val metadata = discoverTopicPartitions(session, mappings)
         val negotiationDeadline = System.currentTimeMillis() + configuration.negotiationTimeout.inWholeMilliseconds
         val reservationId = reserveDestinations(session, mappings, metadata, expiresAt, negotiationDeadline)
         activeReservationId.set(reservationId.first)
@@ -1056,7 +1072,7 @@ class TrafficWarmupContext internal constructor(
     private suspend fun reserveDestinations(
         sessionId: WarmupSessionId,
         mappings: List<WarmupTopicMapping>,
-        metadata: Map<String, Set<Int>>?,
+        metadata: Map<WarmupTopicMapping, Set<Int>>?,
         expiresAtEpochMillis: Long,
         negotiationDeadlineEpochMillis: Long
     ): Pair<WarmupReservationId, List<WarmupPartitionAssignment>> {
@@ -1075,12 +1091,11 @@ class TrafficWarmupContext internal constructor(
                 .groupBy(WarmupTopicMapping::warmupTopic)
                 .values
                 .flatMap { sameTopic ->
-                    val topic = sameTopic.first().warmupTopic
-                    val existing = metadata?.get(topic)?.sorted()
-                        ?: sameTopic.indices.toList() // in-memory compatibility; production always uses metadata
-                    val free = existing.filter { TopicPartition(topic, it) !in unavailable }.iterator()
                     sameTopic.sortedWith(compareBy({ it.consumerId.value }, WarmupTopicMapping::sourceTopic)).map { mapping ->
-                        check(free.hasNext()) { "no free warm-up partition for $topic" }
+                        val existing = metadata?.get(mapping)?.sorted()
+                            ?: sameTopic.indices.toList() // in-memory compatibility; production always uses metadata
+                        val free = existing.filter { TopicPartition(mapping.warmupTopic, it) !in unavailable }.iterator()
+                        check(free.hasNext()) { "no free warm-up partition for ${mapping.warmupTopic}" }
                         WarmupPartitionAssignment(mapping, free.next()).also { unavailable += it.destination }
                     }
                 }
@@ -1106,6 +1121,97 @@ class TrafficWarmupContext internal constructor(
             retry = true
         }
         error("warm-up partition reservation deadline expired")
+    }
+
+    private suspend fun discoverTopicPartitions(
+        sessionId: WarmupSessionId,
+        mappings: List<WarmupTopicMapping>
+    ): Map<WarmupTopicMapping, Set<Int>>? {
+        val pendingMappings = ConcurrentHashMap.newKeySet<WarmupTopicMapping>().apply { addAll(mappings) }
+        val controlPending = AtomicBoolean(true)
+        try {
+            return withTimeout(configuration.negotiationTimeout) {
+                val controlMetadata = async {
+                    transport.topicPartitions(setOf(configuration.controlTopic)).also { discovered ->
+                        discovered?.let {
+                            check(it[configuration.controlTopic]?.size == 1) {
+                                "Warm-up control topic must have exactly one partition"
+                            }
+                        }
+                        controlPending.set(false)
+                    }
+                }
+                val mappingMetadata = async {
+                    mappingTopicPartitions(mappings) { resolved -> pendingMappings.removeAll(resolved.toSet()) }
+                }
+                controlMetadata.await()
+                mappingMetadata.await()
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            throw metadataDiscoveryException(
+                reasonCode = "metadata_timeout",
+                sessionId = sessionId,
+                mappings = pendingMappings,
+                includeControlTopic = controlPending.get(),
+                cause = timeout
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            throw metadataDiscoveryException(
+                reasonCode = "metadata_lookup_failed",
+                sessionId = sessionId,
+                mappings = pendingMappings,
+                includeControlTopic = controlPending.get(),
+                cause = error
+            )
+        }
+    }
+
+    private fun metadataDiscoveryException(
+        reasonCode: String,
+        sessionId: WarmupSessionId,
+        mappings: Set<WarmupTopicMapping>,
+        includeControlTopic: Boolean,
+        cause: Throwable
+    ): MetadataDiscoveryException {
+        val topics = mappings.mapTo(linkedSetOf(), WarmupTopicMapping::warmupTopic)
+        if (includeControlTopic) topics += configuration.controlTopic
+        return MetadataDiscoveryException(
+            reasonCode,
+            sessionId,
+            participants.keys.toSet(),
+            topics,
+            mappings.toSet(),
+            cause
+        )
+    }
+
+    private suspend fun mappingTopicPartitions(
+        mappings: List<WarmupTopicMapping>,
+        onResolved: (Collection<WarmupTopicMapping>) -> Unit
+    ): Map<WarmupTopicMapping, Set<Int>>? = coroutineScope {
+        val result = linkedMapOf<WarmupTopicMapping, Set<Int>>()
+        val discoveredByParticipant = mappings.groupBy(WarmupTopicMapping::consumerId)
+            .map { (consumerId, ownedMappings) ->
+                async {
+                    val discovered = requireNotNull(participants[consumerId])
+                        .warmupTopicPartitions(ownedMappings)
+                    if (discovered != null) {
+                        check(discovered.keys == ownedMappings.toSet()) {
+                            "Warm-up metadata must resolve every mapping owned by ${consumerId.value}"
+                        }
+                    }
+                    onResolved(ownedMappings)
+                    discovered
+                }
+            }
+            .awaitAll()
+        discoveredByParticipant.forEach { discovered ->
+            if (discovered == null) return@coroutineScope null
+            result.putAll(discovered)
+        }
+        result
     }
 
     private suspend fun delayForReservationAttempt(range: LongRange, deadlineEpochMillis: Long): Boolean {
@@ -1177,12 +1283,30 @@ class TrafficWarmupContext internal constructor(
 
     private suspend fun fallbackToCold(error: Throwable) {
         if (stopping.get()) return
+        if (error is MetadataDiscoveryException) logMetadataColdFallback(error)
         try {
             coldStart(error.message ?: error::class.java.simpleName)
         } catch (fallbackError: Throwable) {
             fallbackError.addSuppressed(error)
             fail(fallbackError)
         }
+    }
+
+    private fun logMetadataColdFallback(error: MetadataDiscoveryException) {
+        val unfinished = error.unfinishedMappings
+            .sortedWith(compareBy({ it.consumerId.value }, WarmupTopicMapping::sourceTopic))
+            .joinToString(",") { "${it.consumerId.value}:${it.sourceTopic}->${it.warmupTopic}" }
+        val diagnostic = buildString {
+            append("event_code=CKC_WARMUP_METADATA_COLD_FALLBACK")
+            append(" reason=").append(error.reasonCode)
+            append(" session_id=").append(error.sessionId.value)
+            append(" consumer_ids=").append(error.consumerIds.map { it.value }.sorted().joinToString(","))
+            append(" topics=").append(error.topics.sorted().joinToString(","))
+            append(" unfinished_mappings=").append(unfinished)
+            append(" cause_type=").append(error.cause?.javaClass?.simpleName ?: "unknown")
+        }
+        log.warn(diagnostic)
+        runCatching { diagnosticObserver?.invoke(diagnostic) }
     }
 
     private fun monitorMainConsumers() {
