@@ -611,7 +611,10 @@ class TrafficWarmupContext internal constructor(
         }
         delay(max(0, offerDeadline - System.currentTimeMillis()))
         val offers = observationSnapshot().mapNotNull { observed ->
-            (observed.record.message as? DonorOffered)?.takeIf { it.sessionId == session }
+            (observed.record.message as? DonorOffered)?.takeIf {
+                it.sessionId == session && it.configurationFingerprint == fingerprint &&
+                    it.expiresAtEpochMillis == expiresAt
+            }
         }
         if (enforceDistributedProtocol) {
             val installed = offers.asSequence().mapNotNull(DonorOffered::stateSnapshot).any { snapshot ->

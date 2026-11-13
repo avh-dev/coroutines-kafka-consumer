@@ -28,7 +28,7 @@ class WarmupControlCodecTest {
                     17,
                     listOf(
                         WarmupSessionSnapshot(
-                            session, recipient, WarmupReservationId("reservation-1"), listOf(assignment),
+                            session, recipient, fingerprint, WarmupReservationId("reservation-1"), listOf(assignment),
                             setOf(donor), WarmupSessionLifecycle.READY, deadline, 17
                         )
                     )

@@ -52,6 +52,7 @@ internal enum class WarmupSessionLifecycle {
 internal data class WarmupSessionSnapshot(
     val sessionId: WarmupSessionId,
     val recipient: WarmupInstanceId,
+    val configurationFingerprint: String,
     val reservationId: WarmupReservationId?,
     val assignments: List<WarmupPartitionAssignment>,
     val donors: Set<WarmupInstanceId>,

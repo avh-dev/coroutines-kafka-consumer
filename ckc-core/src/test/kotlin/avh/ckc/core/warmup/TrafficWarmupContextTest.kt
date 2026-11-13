@@ -68,6 +68,7 @@ class TrafficWarmupContextTest {
                         val occupied = WarmupSessionSnapshot(
                             WarmupSessionId("occupied"),
                             WarmupInstanceId("other-recipient"),
+                            message.configurationFingerprint,
                             WarmupReservationId("occupied-reservation"),
                             listOf(WarmupPartitionAssignment(mapping, 0)),
                             setOf(donor),
@@ -76,7 +77,7 @@ class TrafficWarmupContextTest {
                             0
                         )
                         val joining = WarmupSessionSnapshot(
-                            message.sessionId, local, null, emptyList(), emptySet(),
+                            message.sessionId, local, message.configurationFingerprint, null, emptyList(), emptySet(),
                             WarmupSessionLifecycle.DISCOVERING, message.expiresAtEpochMillis, 0
                         )
                         control.deliver(
@@ -687,7 +688,7 @@ class TrafficWarmupContextTest {
             0,
             listOf(
                 WarmupSessionSnapshot(
-                    request.sessionId, local, null, emptyList(), emptySet(),
+                    request.sessionId, local, request.configurationFingerprint, null, emptyList(), emptySet(),
                     WarmupSessionLifecycle.DISCOVERING, request.expiresAtEpochMillis, 0
                 )
             )

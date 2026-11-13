@@ -185,6 +185,7 @@ internal object WarmupControlCodec {
         writeCollection(snapshot.sessions) { session ->
             writeString(session.sessionId.value)
             writeString(session.recipient.value)
+            writeString(session.configurationFingerprint)
             writeNullableString(session.reservationId?.value)
             writeCollection(session.assignments) { writeAssignment(it) }
             writeCollection(session.donors.sortedBy { it.value }) { writeString(it.value) }
@@ -199,6 +200,7 @@ internal object WarmupControlCodec {
         val sessions = readCollection {
             val sessionId = WarmupSessionId(readString())
             val recipient = WarmupInstanceId(readString())
+            val sessionFingerprint = readString()
             val reservation = readNullableString()?.let(::WarmupReservationId)
             val assignments = readCollection { readAssignment() }
             val donors = readCollection { WarmupInstanceId(readString()) }.toSet()
@@ -206,7 +208,7 @@ internal object WarmupControlCodec {
             val lifecycle = WarmupSessionLifecycle.entries.getOrNull(lifecycleOrdinal)
                 ?: throw IllegalArgumentException("Unknown warm-up lifecycle: $lifecycleOrdinal")
             WarmupSessionSnapshot(
-                sessionId, recipient, reservation, assignments, donors, lifecycle,
+                sessionId, recipient, sessionFingerprint, reservation, assignments, donors, lifecycle,
                 readLong(), readLong()
             )
         }

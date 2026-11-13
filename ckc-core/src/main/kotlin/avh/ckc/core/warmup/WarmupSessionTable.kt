@@ -28,6 +28,7 @@ internal class WarmupSessionTable(
     private data class MutableSession(
         val sessionId: WarmupSessionId,
         val recipient: WarmupInstanceId,
+        val configurationFingerprint: String,
         var reservationId: WarmupReservationId? = null,
         var assignments: List<WarmupPartitionAssignment> = emptyList(),
         val donors: MutableSet<WarmupInstanceId> = linkedSetOf(),
@@ -54,20 +55,20 @@ internal class WarmupSessionTable(
             is WarmupRequested -> applyRequest(record.offset, message)
             is ReservationRequested -> applyReservation(record.offset, message)
             is ReservationReleased -> applyRelease(record.offset, message)
-            is SessionAccepted -> update(record.offset, message.sessionId, message.senderInstanceId) {
+            is SessionAccepted -> update(record.offset, message) {
                 it.donors += message.targetInstanceId
                 it.lifecycle = WarmupSessionLifecycle.NEGOTIATING
             }
-            is DonorAccepted -> update(record.offset, message.sessionId, message.targetInstanceId) {
+            is DonorAccepted -> update(record.offset, message, message.targetInstanceId) {
                 it.donors += message.senderInstanceId
             }
-            is RecipientReady -> update(record.offset, message.sessionId, message.senderInstanceId) {
+            is RecipientReady -> update(record.offset, message) {
                 it.lifecycle = WarmupSessionLifecycle.READY
             }
-            is WarmupCompletionRequested -> update(record.offset, message.sessionId, message.senderInstanceId) {
+            is WarmupCompletionRequested -> update(record.offset, message) {
                 it.lifecycle = WarmupSessionLifecycle.CLOSING
             }
-            is SessionEnded -> update(record.offset, message.sessionId, message.senderInstanceId) {
+            is SessionEnded -> update(record.offset, message) {
                 // Session termination does not itself release destinations. Only the matching
                 // ReservationReleased (or expiry) can do that, so a lost/late terminal event
                 // cannot free a partition that belongs to another reservation generation.
@@ -104,6 +105,7 @@ internal class WarmupSessionTable(
             val session = MutableSession(
                 stored.sessionId,
                 stored.recipient,
+                stored.configurationFingerprint,
                 stored.reservationId,
                 stored.assignments,
                 stored.donors.toMutableSet(),
@@ -164,12 +166,13 @@ internal class WarmupSessionTable(
     private fun applyRequest(offset: Long, message: WarmupRequested): WarmupTableDecisionKind {
         val existing = sessions[message.sessionId]
         if (existing != null) {
-            return if (existing.recipient == message.senderInstanceId) WarmupTableDecisionKind.DUPLICATE
+            return if (existing.matches(message, message.senderInstanceId)) WarmupTableDecisionKind.DUPLICATE
             else WarmupTableDecisionKind.IGNORED_INVALID
         }
         sessions[message.sessionId] = MutableSession(
             message.sessionId,
             message.senderInstanceId,
+            message.configurationFingerprint,
             expiresAtEpochMillis = message.expiresAtEpochMillis,
             lastControlOffset = offset
         )
@@ -178,7 +181,7 @@ internal class WarmupSessionTable(
 
     private fun applyReservation(offset: Long, message: ReservationRequested): WarmupTableDecisionKind {
         val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
-        if (session.recipient != message.senderInstanceId) return WarmupTableDecisionKind.IGNORED_INVALID
+        if (!session.matches(message, message.senderInstanceId)) return WarmupTableDecisionKind.IGNORED_INVALID
         if (session.reservationId == message.reservationId && session.assignments == message.assignments) {
             session.lastControlOffset = offset
             return WarmupTableDecisionKind.DUPLICATE
@@ -199,7 +202,7 @@ internal class WarmupSessionTable(
 
     private fun applyRelease(offset: Long, message: ReservationReleased): WarmupTableDecisionKind {
         val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
-        if (session.recipient != message.senderInstanceId || session.reservationId != message.reservationId) {
+        if (!session.matches(message, message.senderInstanceId) || session.reservationId != message.reservationId) {
             return WarmupTableDecisionKind.IGNORED_STALE
         }
         close(session, WarmupSessionLifecycle.CLOSED, offset)
@@ -208,12 +211,12 @@ internal class WarmupSessionTable(
 
     private inline fun update(
         offset: Long,
-        sessionId: WarmupSessionId,
-        recipient: WarmupInstanceId,
+        message: WarmupControlMessage,
+        recipient: WarmupInstanceId = message.senderInstanceId,
         action: (MutableSession) -> Unit
     ): WarmupTableDecisionKind {
-        val session = sessions[sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
-        if (session.recipient != recipient) return WarmupTableDecisionKind.IGNORED_INVALID
+        val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
+        if (!session.matches(message, recipient)) return WarmupTableDecisionKind.IGNORED_INVALID
         action(session)
         session.lastControlOffset = offset
         return WarmupTableDecisionKind.APPLIED
@@ -236,9 +239,13 @@ internal class WarmupSessionTable(
     }
 
     private fun MutableSession.toSnapshot() = WarmupSessionSnapshot(
-        sessionId, recipient, reservationId, assignments.toList(), donors.toSet(), lifecycle,
+        sessionId, recipient, configurationFingerprint, reservationId, assignments.toList(), donors.toSet(), lifecycle,
         expiresAtEpochMillis, lastControlOffset
     )
+
+    private fun MutableSession.matches(message: WarmupControlMessage, expectedRecipient: WarmupInstanceId): Boolean =
+        recipient == expectedRecipient && configurationFingerprint == message.configurationFingerprint &&
+            expiresAtEpochMillis == message.expiresAtEpochMillis
 
     private fun decision(record: WarmupControlRecord, kind: WarmupTableDecisionKind) =
         WarmupTableDecision(kind, record.message.sessionId, record.offset)

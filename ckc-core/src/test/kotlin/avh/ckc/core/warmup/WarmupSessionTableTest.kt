@@ -94,6 +94,26 @@ class WarmupSessionTableTest {
     }
 
     @Test
+    fun `stale fingerprint and deadline cannot mutate a live session`() {
+        val table = WarmupSessionTable { now }
+        val session = WarmupSessionId("session")
+        table.apply(record(0, request(session, recipientA)))
+        val candidate = reservation(
+            session, recipientA, WarmupReservationId("reservation"), assignment(mappingA, 0)
+        )
+
+        assertEquals(
+            WarmupTableDecisionKind.IGNORED_INVALID,
+            table.apply(record(1, candidate.copy(configurationFingerprint = "stale"))).kind
+        )
+        assertEquals(
+            WarmupTableDecisionKind.IGNORED_INVALID,
+            table.apply(record(2, candidate.copy(expiresAtEpochMillis = 2_001))).kind
+        )
+        assertTrue(table.reservedPartitions().isEmpty())
+    }
+
+    @Test
     fun `snapshot boundary applies contiguous later events and rejects a gap`() {
         val source = WarmupSessionTable { now }
         val session = WarmupSessionId("session")
