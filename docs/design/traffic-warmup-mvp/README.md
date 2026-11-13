@@ -1,11 +1,11 @@
 # Real-traffic warm-up MVP design
 
-Status: `GLOBAL-4` design implemented through parallel-session protocol v4 (`CORE-91`).
+Status: `GLOBAL-4` design implemented through bounded-history parallel-session protocol v5 (`CORE-92`).
 
 Updated: 2026-11-13. Infrastructure findings below include subsequent GLOBAL-3 work
 through `b0c2c80`. Protocol and lifecycle choices remain subject to review.
 
-## Parallel-session control protocol (v4)
+## Parallel-session control protocol (v5)
 
 Every context reads the single-partition control topic from its current end and maintains the
 complete namespace session table after synchronization. State application is a pure operation,
@@ -15,8 +15,9 @@ authority: applying the same prefix yields the same session and reservation tabl
 A joining context publishes `WarmupRequested` and buffers the bounded stream it observes after
 its starting boundary. Every synchronized hot context answers with `DonorOffered`, even when it
 has no donor capacity. The response contains a full state snapshot, its exact inclusive control
-offset boundary, the sender's donor capability, and available mappings. One valid snapshot is
-enough. The joiner installs it and applies buffered records strictly from `boundary + 1`; a gap,
+offset boundary, monotonic `retiredThrough` deadline, sender's donor capability, and available
+mappings. One valid snapshot is enough. The joiner installs it and applies buffered records strictly
+from `boundary + 1`; a gap,
 late snapshot, or snapshot older than already authoritative state is rejected. Unsynchronized
 contexts neither reserve partitions nor publish authoritative empty snapshots. A recipient keeps
 the table current while warming and after it becomes hot.
@@ -24,7 +25,7 @@ the table current while warming and after it becomes hot.
 The library obtains the actual partition IDs for every configured warm-up topic from Kafka
 metadata under `negotiationTimeout`; the application configures topic mappings, not partition
 counts. It also verifies that the control topic has exactly one partition. Infrastructure must
-create all topics beforehand. Protocol v4 assumes warm-up topics are not recreated and their
+create all topics beforehand. Protocol v5 assumes warm-up topics are not recreated and their
 partition sets do not change while contexts are running.
 
 Before its first reservation request the recipient waits a random 1000-2000 ms contention delay.
@@ -52,8 +53,8 @@ after the ordered table identifies the exact live recipient, reservation generat
 subset, and negotiating lifecycle; it activates only for the same generation in `READY` before the
 authorization deadline. Duplicate acceptance/readiness is idempotent: in particular, a repeated
 `SessionAccepted` cannot move an already ready or closing session back to negotiation. Invalid,
-expired, closed, or foreign events remain observable in the control stream but cannot consume admission capacity,
-create resources, activate forwarding, or deliver completion outcomes. Closing removes a pending
+expired, closed, or foreign events remain observable in the control stream but cannot consume
+admission capacity, create resources, activate forwarding, or deliver completion outcomes. Closing removes a pending
 admission immediately; preparation or activation that was already in progress revalidates on exit
 and performs generation-local cleanup instead of installing or reviving the session.
 
@@ -65,8 +66,8 @@ main consumers. Partial preparation publishes a failed/cold terminal event, rele
 resources and the matching reservation, and cold-starts main consumption.
 
 Reservations carry an absolute epoch-millisecond authorization deadline covering discovery,
-negotiation, warming, drain, cleanup, and delegation timeout. Reading after that deadline never
-changes the replicated table: only an ordered `ReservationReleased` for the exact session and
+negotiation, warming, drain, cleanup, and delegation timeout. Local passage of that deadline never
+changes the replicated table: an ordered `ReservationReleased` for the exact session and
 reservation generation removes ownership. A normal release is published by the recipient after
 the CORE-90 donor-drain acknowledgements (or after recipient cleanup on cold fallback). A late or
 repeated release cannot remove a partition held by a newer generation. The protocol caps this
@@ -94,6 +95,22 @@ the reuse guard after the maximum delegation authorization, not a lease evaluate
 control records. Forwarded records carry the
 `ckc-warmup-session` header. Recipient admission accepts exactly its current session ID; an old or
 foreign record is discarded before the business handler and does not publish `RecordCompleted`.
+
+Closed sessions remain in the table through their authorization deadline so delayed lifecycle
+messages cannot revive them. To bound history, every authoritative context periodically publishes
+`RetireSessionsThrough(deadlineCutoff)` with `deadlineCutoff = local wall clock - 5 seconds`.
+Under the stated pairwise-clock bound, every authorization at or below that cutoff has ended for
+all participants. Multiple publishers are safe: the offset-ordered `retiredThrough` boundary moves
+only forward. Applying the event first closes and releases every remaining reservation through the
+cutoff, aborts matching donor runtime with ownership-safe fallback, and then removes all such
+sessions. Later messages whose existing `expiresAtEpochMillis` is at or below the boundary are
+`IGNORED_STALE`, so no per-session tombstone is needed.
+
+Full snapshots carry `retiredThrough` plus only newer sessions. Installing a snapshot cannot move
+the boundary backward or restore retired ownership. Retirement bounds accumulation over namespace
+lifetime, but the codec remains intentionally bounded: an arbitrarily large number of concurrently
+unexpired sessions is not guaranteed to fit in one snapshot. Protocol safety assumes publishers
+obey the 5-second clock guard; table application itself remains independent of local read time.
 
 If no authoritative snapshot source exists (first namespace start or simultaneous loss of every
 context), each pod immediately uses ordinary cold main-consumer startup. It continues observing the

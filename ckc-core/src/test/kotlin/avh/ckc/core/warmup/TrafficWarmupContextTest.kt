@@ -811,6 +811,83 @@ class TrafficWarmupContextTest {
     }
 
     @Test
+    fun `retirement aborts only donor sessions through cutoff`() = runBlocking {
+        val participant = DonorParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context { handler -> FakeControlChannel(handler).also { channel = it } }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+        val recipient = WarmupInstanceId("retirement-recipient")
+        val retiredSession = WarmupSessionId("retired-runtime-session")
+        val liveSession = WarmupSessionId("live-runtime-session")
+        val retiredExpiry = System.currentTimeMillis() + 5_000
+        val liveExpiry = retiredExpiry + 5_000
+
+        suspend fun activate(
+            session: WarmupSessionId,
+            reservation: WarmupReservationId,
+            partition: Int,
+            expiresAt: Long
+        ) {
+            val assignment = WarmupPartitionAssignment(mapping, partition)
+            channel.deliver(WarmupRequested(
+                session, recipient, listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, expiresAt
+            ))
+            channel.deliver(ReservationRequested(
+                session, recipient, reservation, listOf(assignment),
+                localRequest.configurationFingerprint, expiresAt
+            ))
+            channel.deliver(SessionAccepted(
+                session, recipient, local, listOf(assignment),
+                localRequest.configurationFingerprint, expiresAt
+            ))
+            withTimeout(2_000) {
+                while (channel.sent.none { it is DonorAccepted && it.sessionId == session }) kotlinx.coroutines.yield()
+            }
+            channel.deliver(RecipientReady(
+                session, recipient, local, listOf(assignment),
+                localRequest.configurationFingerprint, expiresAt
+            ))
+            withTimeout(2_000) {
+                while (session !in participant.activatedSessions) kotlinx.coroutines.yield()
+            }
+        }
+
+        activate(retiredSession, WarmupReservationId("retired-runtime-generation"), 0, retiredExpiry)
+        activate(liveSession, WarmupReservationId("live-runtime-generation"), 1, liveExpiry)
+        channel.deliver(RetireSessionsThrough(
+            WarmupInstanceId("retirement-publisher"), retiredExpiry, localRequest.configurationFingerprint
+        ))
+        withTimeout(2_000) {
+            while (participant.donorEvents.count { it == "finish" } < 1) kotlinx.coroutines.yield()
+        }
+
+        val retiredResult = WarmupRecordId(retiredSession, TopicPartition(mapping.warmupTopic, 0), 1)
+        val liveResult = WarmupRecordId(liveSession, TopicPartition(mapping.warmupTopic, 1), 2)
+        channel.deliver(ControlRecordCompleted(
+            retiredSession, recipient, local,
+            WarmupRecordCompleted(retiredResult, WarmupRemoteOutcome.Succeeded),
+            localRequest.configurationFingerprint, retiredExpiry
+        ))
+        channel.deliver(ControlRecordCompleted(
+            liveSession, recipient, local,
+            WarmupRecordCompleted(liveResult, WarmupRemoteOutcome.Succeeded),
+            localRequest.configurationFingerprint, liveExpiry
+        ))
+        withTimeout(2_000) {
+            while (liveResult !in participant.accepted) kotlinx.coroutines.yield()
+        }
+
+        assertTrue(retiredResult !in participant.accepted)
+        assertTrue(liveResult in participant.accepted)
+        assertTrue(participant.mainStarted)
+        context.stop()
+    }
+
+    @Test
     fun `surviving synchronized context publishes emergency reservation release`() = runBlocking {
         val participant = FakeParticipant(consumerId, listOf(mapping))
         lateinit var channel: FakeControlChannel
@@ -849,6 +926,36 @@ class TrafficWarmupContextTest {
         assertEquals(reservation, release.reservationId)
         assertEquals(local, release.senderInstanceId)
         assertTrue(release.releasedAtEpochMillis >= expiredAt + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS)
+        context.stop()
+    }
+
+    @Test
+    fun `synchronized context periodically publishes a clock safe retirement boundary`() = runBlocking {
+        val participant = FakeParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context(retirementIntervalOverride = 20.milliseconds) { handler ->
+            FakeControlChannel(handler).also { channel = it }
+        }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        val before = System.currentTimeMillis()
+        val retirement = withTimeout(2_000) {
+            while (true) {
+                channel.sent.filterIsInstance<RetireSessionsThrough>().firstOrNull()
+                    ?.let { return@withTimeout it }
+                kotlinx.coroutines.yield()
+            }
+            error("unreachable")
+        }
+
+        assertEquals(local, retirement.senderInstanceId)
+        assertTrue(retirement.deadlineCutoffEpochMillis <= before)
+        assertTrue(
+            retirement.deadlineCutoffEpochMillis <=
+                System.currentTimeMillis() - WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
+        )
         context.stop()
     }
 
@@ -1133,6 +1240,7 @@ class TrafficWarmupContextTest {
         warmupDuration: Duration = 20.milliseconds,
         enforceDistributedProtocol: Boolean = false,
         bootstrapRecoveryWindowOverride: Duration? = null,
+        retirementIntervalOverride: Duration? = null,
         parentContext: CoroutineContext = Dispatchers.Default,
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
@@ -1153,7 +1261,8 @@ class TrafficWarmupContextTest {
             configuration,
             factory,
             enforceDistributedProtocol,
-            bootstrapRecoveryWindowOverride
+            bootstrapRecoveryWindowOverride,
+            retirementIntervalOverride
         )
     }
 

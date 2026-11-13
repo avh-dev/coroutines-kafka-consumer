@@ -272,6 +272,87 @@ class WarmupSessionTableTest {
         assertEquals(WarmupStateSnapshot(-1, emptyList()), table.snapshot())
     }
 
+    @Test
+    fun `retirement compacts completed history and permits partition reuse`() {
+        val table = WarmupSessionTable()
+        var offset = 0L
+        repeat(1_000) { index ->
+            val session = WarmupSessionId("completed-$index")
+            table.apply(record(offset++, request(session, recipientA)))
+            table.apply(record(offset++, SessionEnded(
+                session, recipientA, WarmupSessionEndState.COMPLETED, null, fingerprint, 2_000
+            )))
+        }
+        val reservedSession = WarmupSessionId("reserved-old")
+        val oldReservation = WarmupReservationId("reserved-old-generation")
+        table.apply(record(offset++, request(reservedSession, recipientA)))
+        table.apply(record(offset++, reservation(
+            reservedSession, recipientA, oldReservation, assignment(mappingA, 0)
+        )))
+
+        assertEquals(
+            WarmupTableDecisionKind.APPLIED,
+            table.apply(record(offset++, retirement(2_000))).kind
+        )
+        table.markBootstrapAuthoritative(offset - 1)
+
+        assertEquals(2_000, table.retiredThrough())
+        assertTrue(requireNotNull(table.snapshot()).sessions.isEmpty())
+        assertTrue(table.reservedPartitions().isEmpty())
+        assertEquals(
+            WarmupTableDecisionKind.IGNORED_STALE,
+            table.apply(record(offset++, request(reservedSession, recipientA))).kind
+        )
+
+        val replacement = WarmupSessionId("replacement")
+        table.apply(record(offset++, request(replacement, recipientB, expiresAt = 3_000)))
+        assertEquals(
+            WarmupTableDecisionKind.RESERVATION_WON,
+            table.apply(record(offset, reservation(
+                replacement, recipientB, WarmupReservationId("replacement-generation"),
+                assignment(mappingA, 0), expiresAt = 3_000
+            ))).kind
+        )
+    }
+
+    @Test
+    fun `retirement boundary is monotonic convergent and survives snapshot install`() {
+        val first = WarmupSessionTable()
+        val second = WarmupSessionTable()
+        val old = WarmupSessionId("old")
+        val live = WarmupSessionId("live")
+        val records = listOf(
+            record(0, request(old, recipientA)),
+            record(1, request(live, recipientB, expiresAt = 3_000)),
+            record(2, retirement(2_000)),
+            record(3, retirement(1_500)),
+            record(4, retirement(2_000))
+        )
+
+        val firstDecisions = records.map(first::apply)
+        Thread.sleep(25)
+        val secondDecisions = records.map(second::apply)
+        first.markBootstrapAuthoritative(4)
+        second.markBootstrapAuthoritative(4)
+
+        assertEquals(first.snapshot(), second.snapshot())
+        assertEquals(firstDecisions.map { it.kind }, secondDecisions.map { it.kind })
+        assertEquals(WarmupTableDecisionKind.DUPLICATE, firstDecisions[3].kind)
+        assertEquals(WarmupTableDecisionKind.DUPLICATE, firstDecisions[4].kind)
+        assertEquals(WarmupTableDecisionKind.IGNORED_STALE, first.apply(record(5, request(old, recipientA))).kind)
+        val snapshot = requireNotNull(first.snapshot())
+        assertEquals(2_000, snapshot.retiredThroughEpochMillis)
+        assertEquals(listOf(live), snapshot.sessions.map { it.sessionId })
+
+        val installed = WarmupSessionTable()
+        assertTrue(installed.install(snapshot, emptyList()))
+        assertEquals(WarmupTableDecisionKind.IGNORED_STALE, installed.apply(record(5, request(old, recipientA))).kind)
+
+        val regressed = snapshot.copy(boundaryOffset = 6, retiredThroughEpochMillis = 1_000)
+        assertFalse(installed.install(regressed, emptyList()))
+        assertEquals(2_000, installed.retiredThrough())
+    }
+
     private fun request(
         session: WarmupSessionId,
         recipient: WarmupInstanceId,
@@ -304,6 +385,10 @@ class WarmupSessionTableTest {
     ) = ReservationReleased(
         session, sender, reservation, WarmupReservationReleaseKind.EMERGENCY_TIMEOUT,
         releasedAt, fingerprint, expiresAt
+    )
+
+    private fun retirement(cutoff: Long) = RetireSessionsThrough(
+        WarmupInstanceId("retirement-publisher"), cutoff, fingerprint
     )
 
     private fun ready(

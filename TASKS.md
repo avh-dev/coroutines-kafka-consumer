@@ -86,6 +86,7 @@
 | [CORE-89](#core-89) | Start new warm-up control consumers at the current log tail instead of replaying historical sessions. | DONE |
 | [CORE-90](#core-90) | Let the recipient initiate warm-up completion and wait for every donor to close all delegated processing before starting main consumers. | DONE |
 | [CORE-91](#core-91) | Support parallel warm-up sessions with metadata-discovered destination partition reservations and snapshot-based control-state synchronization. | DONE |
+| [CORE-92](#core-92) | Retire expired warm-up session history through an offset-ordered monotonic control boundary. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6241,6 +6242,21 @@ Donor runtime execution now revalidates ordered table state and reservation gene
 The final runtime follow-up keeps repeated acceptance monotonic after readiness and gives prepared donors
 an explicit close path when completion overtakes a queued activation, preserving the `DonorClosed` handshake.
 Final verification: `./gradlew :ckc-core:check` passes 276 unit tests and the complete real-Kafka integration suite, including one donor warming two recipients concurrently.
+
+<a id="core-92"></a>
+### CORE-92 - Retire expired warm-up session history
+
+_Date: 2026-11-13_
+
+Bound the distributed session table with a monotonic `retiredThrough` deadline carried by
+full snapshots and advanced only by an explicit offset-ordered control event. Retire every
+session whose authorization deadline is safely behind the shared clock-skew margin, release
+its exact reservations, stop any remaining generation-local runtime, and reject all later
+messages at or behind the boundary without retaining per-session tombstones.
+Protocol v5 periodically advances the boundary from every authoritative context while keeping
+publisher clock checks separate from deterministic table application. Verification covers 1,000
+compacted sessions, partition reuse, convergence, snapshot installation, stale messages, runtime
+isolation, codec round trips, and the complete core unit and real-Kafka suites.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

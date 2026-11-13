@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 4
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 5
 
 /** Maximum permitted difference between any two participant wall clocks. */
 internal const val WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS = 5_000L
@@ -72,13 +72,37 @@ internal data class WarmupSessionSnapshot(
 
 internal data class WarmupStateSnapshot(
     val boundaryOffset: Long,
-    val sessions: List<WarmupSessionSnapshot>
+    val sessions: List<WarmupSessionSnapshot>,
+    val retiredThroughEpochMillis: Long = 0
 ) {
     init {
         require(boundaryOffset >= -1) { "Snapshot boundary must be at least -1" }
+        require(retiredThroughEpochMillis >= 0) { "Snapshot retirement boundary must not be negative" }
         require(sessions.map { it.sessionId }.distinct().size == sessions.size) {
             "Snapshot sessions must be unique"
         }
+        require(sessions.all { it.expiresAtEpochMillis > retiredThroughEpochMillis }) {
+            "Snapshot must not contain retired sessions"
+        }
+    }
+}
+
+private val RETIREMENT_SESSION_ID = WarmupSessionId("__warmup_session_retirement__")
+
+internal data class RetireSessionsThrough(
+    override val senderInstanceId: WarmupInstanceId,
+    val deadlineCutoffEpochMillis: Long,
+    override val configurationFingerprint: String,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    override val sessionId: WarmupSessionId = RETIREMENT_SESSION_ID
+    override val targetInstanceId: WarmupInstanceId? = null
+    override val expiresAtEpochMillis: Long = deadlineCutoffEpochMillis
+
+    init { validateCommonControlFields(configurationFingerprint, deadlineCutoffEpochMillis) }
+
+    companion object {
+        fun hasSessionId(sessionId: WarmupSessionId): Boolean = sessionId == RETIREMENT_SESSION_ID
     }
 }
 

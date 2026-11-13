@@ -28,6 +28,7 @@ import kotlin.math.max
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Configuration shared by every consumer registered in one application warm-up context. */
@@ -90,7 +91,9 @@ class TrafficWarmupContext internal constructor(
     transportFactory: ((WarmupControlMessageHandler) -> WarmupControlChannel)? = null,
     private val enforceDistributedProtocol: Boolean = transportFactory == null,
     /** Test-only scheduler override. The public factory never supplies it. */
-    private val bootstrapRecoveryWindowOverride: Duration? = null
+    private val bootstrapRecoveryWindowOverride: Duration? = null,
+    /** Test-only scheduler override. The public factory never supplies it. */
+    private val retirementIntervalOverride: Duration? = null
 ) : ManagedConsumerLifecycle {
     private class MainConsumerStartException(cause: Throwable) :
         IllegalStateException("Failed to start main consumers after warm-up", cause)
@@ -105,6 +108,7 @@ class TrafficWarmupContext internal constructor(
         val reservationId: WarmupReservationId,
         val assignments: Set<WarmupPartitionAssignment>,
         val budget: Int,
+        val expiresAtEpochMillis: Long,
         val cancelled: AtomicBoolean = AtomicBoolean(false)
     )
 
@@ -301,6 +305,7 @@ class TrafficWarmupContext internal constructor(
                 } else {
                     scheduleBootstrapAuthority()
                 }
+                scheduleRetirementPublisher()
                 runRecipientSession()
             } catch (timeout: TimeoutCancellationException) {
                 fallbackToCold(timeout)
@@ -395,6 +400,9 @@ class TrafficWarmupContext internal constructor(
                     cancelDonorAdmission(message.sessionId)
                     scope.launch { abortDonor(message.sessionId, "warm-up reservation was released") }
                 }
+                is RetireSessionsThrough -> if (decision.kind == WarmupTableDecisionKind.APPLIED) {
+                    retireRuntimeThrough(message.deadlineCutoffEpochMillis)
+                }
                 else -> Unit
             }
         }
@@ -461,7 +469,8 @@ class TrafficWarmupContext internal constructor(
             accepted.senderInstanceId,
             requireNotNull(reservation.reservationId),
             accepted.assignments.toSet(),
-            requestedBudget
+            requestedBudget,
+            accepted.expiresAtEpochMillis
         )
         val admitted = synchronized(donorSessions) {
             if (donorSessions.containsKey(accepted.sessionId) || donorAdmissions.containsKey(accepted.sessionId)) {
@@ -710,6 +719,20 @@ class TrafficWarmupContext internal constructor(
         synchronized(donorSessions) { donorAdmissions.remove(sessionId) }?.cancelled?.set(true)
     }
 
+    private fun retireRuntimeThrough(deadlineCutoffEpochMillis: Long) {
+        val retiredSessions = synchronized(donorSessions) {
+            donorAdmissions.entries.removeAll { (_, admission) ->
+                (admission.expiresAtEpochMillis <= deadlineCutoffEpochMillis).also { retire ->
+                    if (retire) admission.cancelled.set(true)
+                }
+            }
+            donorSessions.filterValues { it.expiresAtEpochMillis <= deadlineCutoffEpochMillis }.keys.toList()
+        }
+        retiredSessions.forEach { sessionId ->
+            scope.launch { abortDonor(sessionId, "warm-up session was retired") }
+        }
+    }
+
     private fun endDonor(ended: SessionEnded) {
         cancelDonorAdmission(ended.sessionId)
         if (ended.state == WarmupSessionEndState.COMPLETED) {
@@ -777,35 +800,41 @@ class TrafficWarmupContext internal constructor(
         val generation = session.sessionId to reservationId
         if (!synchronized(scheduledEmergencyReleases) { scheduledEmergencyReleases.add(generation) }) return
         scope.launch {
-            val notBefore = session.expiresAtEpochMillis + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
-            delay(max(0, notBefore - System.currentTimeMillis()))
-            while (true) {
-                val current = sessionTable.reservationFor(session.sessionId)
-                if (current?.reservationId != reservationId || current.lifecycle == WarmupSessionLifecycle.CLOSED) return@launch
-                if (!sessionTable.isAuthoritative()) {
-                    delay(100)
-                    continue
-                }
-                val now = System.currentTimeMillis()
-                if (now < notBefore) {
-                    delay(notBefore - now)
-                    continue
-                }
-                if (runCatching {
-                        send(
-                            ReservationReleased(
-                                session.sessionId,
-                                configuration.instanceId,
-                                reservationId,
-                                WarmupReservationReleaseKind.EMERGENCY_TIMEOUT,
-                                now,
-                                session.configurationFingerprint,
-                                session.expiresAtEpochMillis
+            try {
+                val notBefore = session.expiresAtEpochMillis + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
+                delay(max(0, notBefore - System.currentTimeMillis()))
+                while (true) {
+                    val current = sessionTable.reservationFor(session.sessionId)
+                    if (current?.reservationId != reservationId ||
+                        current.lifecycle == WarmupSessionLifecycle.CLOSED
+                    ) return@launch
+                    if (!sessionTable.isAuthoritative()) {
+                        delay(100)
+                        continue
+                    }
+                    val now = System.currentTimeMillis()
+                    if (now < notBefore) {
+                        delay(notBefore - now)
+                        continue
+                    }
+                    if (runCatching {
+                            send(
+                                ReservationReleased(
+                                    session.sessionId,
+                                    configuration.instanceId,
+                                    reservationId,
+                                    WarmupReservationReleaseKind.EMERGENCY_TIMEOUT,
+                                    now,
+                                    session.configurationFingerprint,
+                                    session.expiresAtEpochMillis
+                                )
                             )
-                        )
-                    }.isSuccess
-                ) return@launch
-                delay(1.seconds)
+                        }.isSuccess
+                    ) return@launch
+                    delay(1.seconds)
+                }
+            } finally {
+                synchronized(scheduledEmergencyReleases) { scheduledEmergencyReleases.remove(generation) }
             }
         }
     }
@@ -1002,6 +1031,22 @@ class TrafficWarmupContext internal constructor(
         scope.launch {
             delay(recoveryWindow)
             sessionTable.markBootstrapAuthoritative(maxOf(boundary, sessionTable.lastOffset()))
+        }
+    }
+
+    private fun scheduleRetirementPublisher() {
+        val interval = retirementIntervalOverride ?: 1.minutes
+        require(interval.isPositive()) { "Warm-up session retirement interval must be positive" }
+        scope.launch {
+            while (true) {
+                delay(interval)
+                if (!sessionTable.isAuthoritative()) continue
+                val cutoff = System.currentTimeMillis() - WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
+                if (cutoff <= maxOf(0L, sessionTable.retiredThrough())) continue
+                runCatching {
+                    send(RetireSessionsThrough(configuration.instanceId, cutoff, fingerprint))
+                }
+            }
         }
     }
 
