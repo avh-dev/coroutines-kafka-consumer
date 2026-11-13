@@ -9,7 +9,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -23,24 +22,6 @@ import kotlin.time.Duration.Companion.seconds
 class WarmupRecipientPrimitivesTest {
     private val session = WarmupSessionId("session")
     private val partition = TopicPartition("warmup", 0)
-
-    @Test
-    fun `drain waits for every nonempty final partition and accepts early outcomes`() = runBlocking {
-        val tracker = WarmupRecipientDrainTracker(session)
-        tracker.onCompleted(completed(partition, 4L))
-        val other = TopicPartition("warmup", 1)
-        val waiting = async {
-            tracker.await(
-                listOf(WarmupFinalOffset(partition, 4L), WarmupFinalOffset(other, 8L)),
-                1.seconds
-            )
-        }
-        assertFalse(waiting.isCompleted)
-
-        tracker.onCompleted(completed(other, 8L))
-
-        withTimeout(1_000) { waiting.await() }
-    }
 
     @Test
     fun `completion outbox preserves publication order and flush waits for acknowledged sends`() = runBlocking {

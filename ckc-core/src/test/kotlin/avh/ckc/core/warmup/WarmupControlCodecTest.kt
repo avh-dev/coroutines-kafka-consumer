@@ -16,7 +16,6 @@ class WarmupControlCodecTest {
     private val deadline = 10_000L
     private val mapping = WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders")
     private val assignment = WarmupPartitionAssignment(mapping, 2)
-    private val finalOffset = WarmupFinalOffset(TopicPartition("warmup-orders", 2), 91L)
 
     @Test
     fun `every minimal control message has deterministic bounded round trip`() {
@@ -26,7 +25,7 @@ class WarmupControlCodecTest {
                 session, donor, recipient, listOf(WarmupDonorMapping(mapping, setOf(3, 1))),
                 fingerprint, deadline
             ),
-            SessionAccepted(session, recipient, donor, listOf(assignment), 9_000L, fingerprint, deadline),
+            SessionAccepted(session, recipient, donor, listOf(assignment), fingerprint, deadline),
             DonorAccepted(session, donor, recipient, fingerprint, deadline),
             SessionRejected(session, donor, recipient, "busy", fingerprint, deadline),
             RecipientReady(session, recipient, donor, listOf(assignment), fingerprint, deadline),
@@ -41,8 +40,8 @@ class WarmupControlCodecTest {
                 fingerprint,
                 deadline
             ),
-            ForwardingStopped(session, donor, recipient, listOf(finalOffset), "budget", fingerprint, deadline),
-            RecipientDrained(session, recipient, donor, listOf(finalOffset), fingerprint, deadline),
+            WarmupCompletionRequested(session, recipient, donor, fingerprint, deadline),
+            DonorClosed(session, donor, recipient, fingerprint, deadline),
             SessionEnded(
                 session, recipient, WarmupSessionEndState.COLD_FALLBACK, "conflict", fingerprint, deadline
             )
@@ -61,7 +60,7 @@ class WarmupControlCodecTest {
         val encoded = WarmupControlCodec.encode(
             DonorAccepted(session, donor, recipient, fingerprint, deadline)
         )
-        val unsupportedVersion = encoded.copyOf().also { ByteBuffer.wrap(it).putShort(4, 2) }
+        val unsupportedVersion = encoded.copyOf().also { ByteBuffer.wrap(it).putShort(4, 1) }
         val unknownType = encoded.copyOf().also { it[6] = 127 }
 
         assertThrows(IllegalArgumentException::class.java) { WarmupControlCodec.decode(unsupportedVersion) }

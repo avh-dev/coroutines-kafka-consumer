@@ -50,9 +50,8 @@ internal class FixedLinkWarmupDataPlane<K, V>(
     private val admissionLock = Any()
     private val active = AtomicBoolean(true)
     private val failure = AtomicReference<Throwable?>()
-    private val finalOffsets = linkedMapOf<TopicPartition, Long?>()
-    private var sendsInProgress = 0
-    private var sendsDrained = CompletableDeferred<Unit>()
+    private var delegationsInProgress = 0
+    private var delegationsDrained = CompletableDeferred<Unit>()
     private val tracker = WarmupResultTracker(
         sessionId = sessionId,
         maxEarlyResults = maxEarlyResults,
@@ -70,30 +69,19 @@ internal class FixedLinkWarmupDataPlane<K, V>(
         processLocally: suspend () -> RecordProcessingOutcome
     ): RecordProcessingOutcome {
         val destination = destinationResolver.destinationFor(record)
-        if (destination == null || !tryBeginSend(destination)) {
+        if (destination == null || !tryBeginDelegation()) {
             if (destination != null && failure.get() != null) {
                 metrics.onWarmupFallback(record, WarmupFallbackReason.SESSION_FAILURE)
             }
             return processLocally()
         }
 
-        var sendAccountingOpen = true
-        fun finishSendAccounting() {
-            if (sendAccountingOpen) {
-                sendAccountingOpen = false
-                finishSend()
-            }
-        }
         try {
             var acknowledged = false
             val remote = try {
                 withTimeout(delegationTimeout) {
                     val sendStarted = System.nanoTime()
-                    val acknowledgement = try {
-                        sender.send(record, destination).also(::recordAcknowledgement)
-                    } finally {
-                        finishSendAccounting()
-                    }
+                    val acknowledgement = sender.send(record, destination)
                     acknowledged = true
                     val sendDuration = System.nanoTime() - sendStarted
                     metrics.onWarmupDelegated(record, sendDuration)
@@ -162,7 +150,7 @@ internal class FixedLinkWarmupDataPlane<K, V>(
                 }
             }
         } finally {
-            finishSendAccounting()
+            finishDelegation()
         }
     }
 
@@ -177,21 +165,31 @@ internal class FixedLinkWarmupDataPlane<K, V>(
     fun stopDelegating() {
         synchronized(admissionLock) {
             active.set(false)
-            if (sendsInProgress == 0) sendsDrained.complete(Unit)
+            if (delegationsInProgress == 0) delegationsDrained.complete(Unit)
         }
     }
 
-    suspend fun stopDelegatingAndAwaitSends(timeout: Duration): List<WarmupFinalOffset> {
-        require(timeout.isPositive()) { "Warm-up send drain timeout must be > 0" }
+    suspend fun stopDelegatingAndAwaitInflight(timeout: Duration) {
+        require(timeout.isPositive()) { "Warm-up in-flight drain timeout must be > 0" }
         val drain = synchronized(admissionLock) {
             active.set(false)
-            if (sendsInProgress == 0) sendsDrained.complete(Unit)
-            sendsDrained
+            if (delegationsInProgress == 0) delegationsDrained.complete(Unit)
+            delegationsDrained
         }
         withTimeout(timeout) { drain.await() }
-        return synchronized(admissionLock) {
-            finalOffsets.map { (partition, offset) -> WarmupFinalOffset(partition, offset) }
-        }
+    }
+
+    suspend fun failAndAwaitInflight(error: Throwable, timeout: Duration) {
+        failSession(error)
+        stopDelegatingAndAwaitInflight(timeout)
+    }
+
+    fun failDelegation(error: Throwable) = failSession(error)
+
+    suspend fun awaitInflight(timeout: Duration) {
+        require(timeout.isPositive()) { "Warm-up in-flight drain timeout must be > 0" }
+        val drain = synchronized(admissionLock) { delegationsDrained }
+        withTimeout(timeout) { drain.await() }
     }
 
     fun close() {
@@ -202,31 +200,24 @@ internal class FixedLinkWarmupDataPlane<K, V>(
 
     private fun failSession(error: Throwable) {
         if (failure.compareAndSet(null, error)) {
-            active.set(false)
+            stopDelegating()
             tracker.fail(error)
         }
     }
 
-    private fun tryBeginSend(destination: WarmupDestination): Boolean = synchronized(admissionLock) {
+    private fun tryBeginDelegation(): Boolean = synchronized(admissionLock) {
         if (!active.get() || !quota.tryAcquire()) return false
-        val topicPartition = TopicPartition(destination.topic, destination.partition)
-        finalOffsets.putIfAbsent(topicPartition, null)
-        if (sendsInProgress == 0 && sendsDrained.isCompleted) sendsDrained = CompletableDeferred()
-        sendsInProgress++
+        if (delegationsInProgress == 0 && delegationsDrained.isCompleted) {
+            delegationsDrained = CompletableDeferred()
+        }
+        delegationsInProgress++
         true
     }
 
-    private fun recordAcknowledgement(acknowledgement: WarmupSendAcknowledgement) = synchronized(admissionLock) {
-        val current = finalOffsets[acknowledgement.topicPartition]
-        if (current == null || acknowledgement.offset > current) {
-            finalOffsets[acknowledgement.topicPartition] = acknowledgement.offset
-        }
-    }
-
-    private fun finishSend() = synchronized(admissionLock) {
-        check(sendsInProgress > 0) { "Warm-up send accounting underflow" }
-        sendsInProgress--
-        if (!active.get() && sendsInProgress == 0) sendsDrained.complete(Unit)
+    private fun finishDelegation() = synchronized(admissionLock) {
+        check(delegationsInProgress > 0) { "Warm-up delegation accounting underflow" }
+        delegationsInProgress--
+        if (!active.get() && delegationsInProgress == 0) delegationsDrained.complete(Unit)
     }
 
     private fun WarmupRemoteOutcome.metricOutcome(): WarmupResultMetricOutcome = when (this) {
@@ -239,11 +230,12 @@ internal class FixedLinkWarmupDataPlane<K, V>(
 internal class WarmupDelegationFailedException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
 
+internal class WarmupRecipientUnavailableException(message: String) : IllegalStateException(message)
+
 internal class InvalidWarmupRemoteOutcomeException(message: String) : IllegalStateException(message)
 
 internal class WarmupRecipientOutcomePublisher<K, V>(
     private val sessionId: WarmupSessionId,
-    private val onPublished: (WarmupRecordCompleted) -> Unit = {},
     private val publisher: WarmupCompletionPublisher
 ) : RecordProcessingOutcomeObserver<K, V> {
     override fun onOutcome(record: ConsumerRecord<K, V>, outcome: RecordProcessingOutcome) {
@@ -262,6 +254,5 @@ internal class WarmupRecipientOutcomePublisher<K, V>(
                 remote
             )
         publisher.publish(completed)
-        onPublished(completed)
     }
 }

@@ -84,6 +84,7 @@
 | [CORE-87](#core-87) | Add an absolute linear ramp to the per-interval traffic warm-up quota. | DONE |
 | [CORE-88](#core-88) | Route warm-up outcomes only to the donor data plane that owns their destination. | DONE |
 | [CORE-89](#core-89) | Start new warm-up control consumers at the current log tail instead of replaying historical sessions. | DONE |
+| [CORE-90](#core-90) | Let the recipient initiate warm-up completion and wait for every donor to close all delegated processing before starting main consumers. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6195,3 +6196,27 @@ The transport seeks every assigned control partition to its current end offset b
 reporting readiness, while subsequent records retain the existing validation and routing.
 Verification: `./gradlew :ckc-core:check` passes, including the real-Kafka scenario that
 preloads historical control data and proves new contexts receive only later records.
+
+<a id="core-90"></a>
+### CORE-90 - Make warm-up completion recipient-driven
+
+_Date: 2026-11-13_
+
+Move the normal completion decision from donor timers to a recipient-owned readiness
+condition, initially elapsed warm-up duration, with an extension point for a future JIT signal.
+Have the recipient request closure from every donor while it continues consuming warm-up
+traffic; donors atomically stop new delegation, finish every admitted remote result or local
+fallback, and acknowledge closure only after their complete in-flight set is terminal.
+Preserve local processing after normal or failed sessions, recipient-loss fallback for still-owned
+records, and cancellation/handoff semantics for true shutdown and rebalance ownership loss.
+Cover non-empty in-flight closure, multiple donors, slow results, recipient loss, early session
+failure, duplicate and late messages, and document the revised protocol. JIT monitoring is out of scope.
+The v2 control protocol replaces donor stop timestamps and offset-tail handshakes with recipient
+completion requests and donor closure acknowledgements. Donor closure uses a two-phase all-participant
+admission stop and waits for complete delegated processing, including local fallback; failure and
+recipient expiry force still-owned work to fallback while shutdown and ownership loss remain cancellation.
+Verification: `./gradlew :ckc-core:check` passes all core tests and 26 real-Kafka integration tests;
+targeted lifecycle tests cover multiple donors, delayed closure, recipient loss, early failure, and
+proof that neither producer ACK nor an unfinished local fallback can produce a donor closure.
+Review regressions also prove that a completion request racing donor activation is retained and that
+an activation rejection interrupts the recipient readiness wait instead of consuming the full duration.

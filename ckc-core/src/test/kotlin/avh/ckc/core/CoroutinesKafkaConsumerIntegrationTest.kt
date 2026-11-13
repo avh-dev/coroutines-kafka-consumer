@@ -196,6 +196,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 assertEquals(event.destinationOffset, received.offset())
             }
 
+            val closing = async { plane.stopDelegatingAndAwaitInflight(5.seconds) }
+            assertFalse(closing.isCompleted)
+
             plane.accept(
                 WarmupRecordCompleted(
                     WarmupRecordId(session, event.destinationTopicPartition, event.destinationOffset),
@@ -203,6 +206,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
                 )
             )
             assertEquals(RecordProcessingOutcome.HandlerSucceeded, withTimeout(10_000) { processing.await() })
+            withTimeout(10_000) { closing.await() }
             assertEquals(0, localCalls.get())
         } finally {
             plane.close()

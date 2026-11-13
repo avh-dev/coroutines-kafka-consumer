@@ -38,18 +38,14 @@ internal object WarmupControlCodec {
                     writeCollection(donor.sourcePartitions.sorted()) { writeInt(it) }
                 }
                 is SessionAccepted -> {
-                    data.writeLong(message.stopAtEpochMillis)
                     data.writeCollection(message.assignments) { writeAssignment(it) }
                 }
                 is DonorAccepted -> Unit
                 is SessionRejected -> data.writeString(message.reason)
                 is RecipientReady -> data.writeCollection(message.assignments) { writeAssignment(it) }
                 is ControlRecordCompleted -> data.writeCompleted(message.completed)
-                is ForwardingStopped -> {
-                    data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
-                    data.writeString(message.reason)
-                }
-                is RecipientDrained -> data.writeCollection(message.finalOffsets) { writeFinalOffset(it) }
+                is WarmupCompletionRequested -> Unit
+                is DonorClosed -> Unit
                 is SessionEnded -> {
                     data.writeByte(message.state.wireId())
                     data.writeNullableString(message.reason)
@@ -90,10 +86,9 @@ internal object WarmupControlCodec {
                     }, fingerprint, deadline, version
                 )
                 TYPE_SESSION_ACCEPTED -> {
-                    val stopAtEpochMillis = data.readLong()
                     SessionAccepted(
                         sessionId, sender, requireTarget(target, "SessionAccepted"),
-                        data.readCollection { readAssignment() }, stopAtEpochMillis, fingerprint, deadline, version
+                        data.readCollection { readAssignment() }, fingerprint, deadline, version
                     )
                 }
                 TYPE_DONOR_ACCEPTED -> DonorAccepted(
@@ -111,13 +106,11 @@ internal object WarmupControlCodec {
                     sessionId, sender, requireTarget(target, "ControlRecordCompleted"),
                     data.readCompleted(sessionId), fingerprint, deadline, version
                 )
-                TYPE_FORWARDING_STOPPED -> ForwardingStopped(
-                    sessionId, sender, requireTarget(target, "ForwardingStopped"),
-                    data.readCollection { readFinalOffset() }, data.readString(), fingerprint, deadline, version
+                TYPE_COMPLETION_REQUESTED -> WarmupCompletionRequested(
+                    sessionId, sender, requireTarget(target, "WarmupCompletionRequested"), fingerprint, deadline, version
                 )
-                TYPE_RECIPIENT_DRAINED -> RecipientDrained(
-                    sessionId, sender, requireTarget(target, "RecipientDrained"),
-                    data.readCollection { readFinalOffset() }, fingerprint, deadline, version
+                TYPE_DONOR_CLOSED -> DonorClosed(
+                    sessionId, sender, requireTarget(target, "DonorClosed"), fingerprint, deadline, version
                 )
                 TYPE_SESSION_ENDED -> SessionEnded(
                     sessionId, sender,
@@ -143,8 +136,8 @@ internal object WarmupControlCodec {
         is SessionRejected -> TYPE_SESSION_REJECTED
         is RecipientReady -> TYPE_RECIPIENT_READY
         is ControlRecordCompleted -> TYPE_RECORD_COMPLETED
-        is ForwardingStopped -> TYPE_FORWARDING_STOPPED
-        is RecipientDrained -> TYPE_RECIPIENT_DRAINED
+        is WarmupCompletionRequested -> TYPE_COMPLETION_REQUESTED
+        is DonorClosed -> TYPE_DONOR_CLOSED
         is SessionEnded -> TYPE_SESSION_ENDED
     }
 
@@ -191,18 +184,6 @@ internal object WarmupControlCodec {
         }
         return WarmupRecordCompleted(recordId, outcome)
     }
-
-    private fun DataOutputStream.writeFinalOffset(offset: WarmupFinalOffset) {
-        writeString(offset.topicPartition.topic())
-        writeInt(offset.topicPartition.partition())
-        writeBoolean(offset.offset != null)
-        offset.offset?.let(::writeLong)
-    }
-
-    private fun DataInputStream.readFinalOffset() = WarmupFinalOffset(
-        TopicPartition(readString(), readInt()),
-        if (readBoolean()) readLong() else null
-    )
 
     private fun DataOutputStream.writeString(value: String) {
         val encoded = value.toByteArray(StandardCharsets.UTF_8)
@@ -283,8 +264,8 @@ internal object WarmupControlCodec {
     private const val TYPE_SESSION_REJECTED = 5
     private const val TYPE_RECIPIENT_READY = 6
     private const val TYPE_RECORD_COMPLETED = 7
-    private const val TYPE_FORWARDING_STOPPED = 8
-    private const val TYPE_RECIPIENT_DRAINED = 9
+    private const val TYPE_COMPLETION_REQUESTED = 8
+    private const val TYPE_DONOR_CLOSED = 9
     private const val TYPE_SESSION_ENDED = 10
     private const val OUTCOME_SUCCEEDED = 1
     private const val OUTCOME_TERMINAL_FAILURE = 2

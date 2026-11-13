@@ -380,7 +380,7 @@ class FixedLinkWarmupDataPlaneTest {
     }
 
     @Test
-    fun `stop boundary waits for producer acknowledgement but not remote outcome`() = runBlocking {
+    fun `close waits beyond producer acknowledgement for remote outcome`() = runBlocking {
         val sendEntered = CompletableDeferred<Unit>()
         val releaseSend = CompletableDeferred<Unit>()
         val event = CompletableDeferred<WarmupForwardedEvent>()
@@ -394,16 +394,75 @@ class FixedLinkWarmupDataPlaneTest {
         )
         val processing = async { plane.process(record()) { error("fallback not expected") } }
         sendEntered.await()
-        val stopping = async { plane.stopDelegatingAndAwaitSends(1.seconds) }
+        val stopping = async { plane.stopDelegatingAndAwaitInflight(1.seconds) }
         assertFalse(stopping.isCompleted)
 
         releaseSend.complete(Unit)
-        val finalOffsets = stopping.await()
-
-        assertEquals(listOf(WarmupFinalOffset(destination.topicPartition(), 17L)), finalOffsets)
+        event.await()
+        assertFalse(stopping.isCompleted)
         assertFalse(processing.isCompleted)
         plane.accept(completed(event.await(), WarmupRemoteOutcome.Succeeded))
         assertEquals(RecordProcessingOutcome.HandlerSucceeded, processing.await())
+        stopping.await()
+    }
+
+    @Test
+    fun `close acknowledgement waits for local fallback to finish`() = runBlocking {
+        val forwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val fallbackEntered = CompletableDeferred<Unit>()
+        val releaseFallback = CompletableDeferred<Unit>()
+        val plane = plane(observer = WarmupForwardingObserver { forwarded.complete(it) })
+        val processing = async {
+            plane.process(record()) {
+                fallbackEntered.complete(Unit)
+                releaseFallback.await()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        val event = forwarded.await()
+        plane.accept(completed(event, WarmupRemoteOutcome.TerminalFailure))
+        fallbackEntered.await()
+
+        val stopping = async { plane.stopDelegatingAndAwaitInflight(1.seconds) }
+        assertFalse(stopping.isCompleted)
+
+        releaseFallback.complete(Unit)
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, processing.await())
+        stopping.await()
+    }
+
+    @Test
+    fun `recipient loss falls back inflight and keeps later records local`() = runBlocking {
+        val forwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val fallbackEntered = CompletableDeferred<Unit>()
+        val releaseFallback = CompletableDeferred<Unit>()
+        val localCalls = AtomicInteger()
+        val plane = plane(observer = WarmupForwardingObserver { forwarded.complete(it) })
+        val processing = async {
+            plane.process(record(offset = 1L)) {
+                localCalls.incrementAndGet()
+                fallbackEntered.complete(Unit)
+                releaseFallback.await()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        forwarded.await()
+
+        val failing = async {
+            plane.failAndAwaitInflight(WarmupRecipientUnavailableException("recipient lost"), 1.seconds)
+        }
+        fallbackEntered.await()
+        val later = plane.process(record(offset = 2L)) {
+            localCalls.incrementAndGet()
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, later)
+        assertFalse(failing.isCompleted)
+        releaseFallback.complete(Unit)
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, processing.await())
+        failing.await()
+        assertEquals(2, localCalls.get())
     }
 
     @Test
