@@ -242,6 +242,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             negotiationTimeout = 500.milliseconds
             reservationInitialJitterMillis = 1L..2L
             reservationRetryJitterMillis = 1L..2L
+            bootstrapRecoveryWindowOverride = 1.seconds
             cleanupTimeout = 500.milliseconds
         }
 
@@ -273,8 +274,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         try {
             donor.start()
             withTimeout(15_000) { donor.awaitReady() }
-            // The first context cold-starts, observes one maximum reservation lifetime, then becomes
-            // an authoritative snapshot source without replaying the control topic.
+            // The test-only quarantine override preserves the no-replay bootstrap path without
+            // waiting the production 10-minute authorization maximum plus clock-skew guard.
             delay(3.seconds)
 
             recipient.start()
@@ -337,6 +338,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
             negotiationTimeout = 500.milliseconds
             reservationInitialJitterMillis = 1L..2L
             reservationRetryJitterMillis = 1L..2L
+            bootstrapRecoveryWindowOverride = 1.seconds
             cleanupTimeout = 500.milliseconds
         }
         val donorContext = context("donor")

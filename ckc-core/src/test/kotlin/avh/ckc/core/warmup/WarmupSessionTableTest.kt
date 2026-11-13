@@ -215,14 +215,33 @@ class WarmupSessionTableTest {
             oldSession, recipientB, oldReservation, 1_100, 1_100 + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
         )))
         assertEquals(
+            WarmupTableDecisionKind.IGNORED_STALE,
+            table.apply(
+                record(
+                    6,
+                    SessionEnded(
+                        oldSession, recipientA, WarmupSessionEndState.COLD_FALLBACK, "late",
+                        fingerprint, 1_100
+                    )
+                )
+            ).kind
+        )
+        assertEquals(WarmupSessionLifecycle.CLOSED, table.reservationFor(oldSession)?.lifecycle)
+        assertEquals(
             WarmupTableDecisionKind.RESERVATION_WON,
-            table.apply(record(6, reservation(newSession, recipientB, newReservation, assignment(mappingA, 0), expiresAt = 2_000))).kind
+            table.apply(record(7, reservation(newSession, recipientB, newReservation, assignment(mappingA, 0), expiresAt = 2_000))).kind
         )
 
-        table.apply(record(7, release(oldSession, recipientA, oldReservation, expiresAt = 1_100)))
+        table.apply(record(8, release(oldSession, recipientA, oldReservation, expiresAt = 1_100)))
 
         assertEquals(setOf(TopicPartition("warmup-orders", 0)), table.reservedPartitions())
         assertEquals(newReservation, table.reservationFor(newSession)?.reservationId)
+
+        table.markBootstrapAuthoritative(8)
+        val restored = WarmupSessionTable()
+        assertTrue(restored.install(requireNotNull(table.snapshot()), emptyList()))
+        assertEquals(setOf(TopicPartition("warmup-orders", 0)), restored.reservedPartitions())
+        assertEquals(WarmupSessionLifecycle.CLOSED, restored.reservationFor(oldSession)?.lifecycle)
     }
 
     @Test

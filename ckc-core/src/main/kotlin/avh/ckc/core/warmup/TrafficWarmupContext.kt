@@ -54,6 +54,8 @@ class TrafficWarmupContextConfiguration {
     var maxDonorDelegationsPerInterval: Int = 40
     internal var reservationInitialJitterMillis: LongRange = 1_000L..2_000L
     internal var reservationRetryJitterMillis: LongRange = 100L..500L
+    /** Test-only quarantine override; production callers cannot access internal configuration. */
+    internal var bootstrapRecoveryWindowOverride: Duration? = null
     var parentContext: CoroutineContext = Dispatchers.Default
 }
 
@@ -830,8 +832,8 @@ class TrafficWarmupContext internal constructor(
 
     private fun scheduleBootstrapAuthority() {
         val boundary = transport.initialOffsetBoundary() ?: -1L
-        val recoveryWindow = (WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS +
-            WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS).milliseconds
+        val recoveryWindow = configuration.bootstrapRecoveryWindowOverride ?:
+            (WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS).milliseconds
         scope.launch {
             delay(recoveryWindow)
             sessionTable.markBootstrapAuthoritative(maxOf(boundary, sessionTable.lastOffset()))
@@ -1066,5 +1068,8 @@ class TrafficWarmupContext internal constructor(
         require(configuration.reservationRetryJitterMillis.first >= 0 &&
             configuration.reservationRetryJitterMillis.last >= configuration.reservationRetryJitterMillis.first
         ) { "reservationRetryJitterMillis must be a non-negative ordered range" }
+        configuration.bootstrapRecoveryWindowOverride?.let {
+            require(it.isPositive()) { "bootstrapRecoveryWindowOverride must be positive" }
+        }
     }
 }

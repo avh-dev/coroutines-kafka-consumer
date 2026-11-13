@@ -215,6 +215,7 @@ internal class WarmupSessionTable {
     ): WarmupTableDecisionKind {
         val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
         if (!session.matches(message, recipient)) return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.lifecycle == WarmupSessionLifecycle.CLOSED) return WarmupTableDecisionKind.IGNORED_STALE
         action(session)
         session.lastControlOffset = offset
         return WarmupTableDecisionKind.APPLIED

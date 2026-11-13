@@ -464,6 +464,48 @@ class TrafficWarmupContextTest {
     }
 
     @Test
+    fun `surviving synchronized context publishes emergency reservation release`() = runBlocking {
+        val participant = FakeParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context { handler -> FakeControlChannel(handler).also { channel = it } }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+        val session = WarmupSessionId("abandoned-session")
+        val recipient = WarmupInstanceId("lost-recipient")
+        val reservation = WarmupReservationId("abandoned-reservation")
+        val expiredAt = System.currentTimeMillis() - WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS - 1_000
+
+        channel.deliver(
+            WarmupRequested(
+                session, recipient, listOf(mapping), expiredAt,
+                localRequest.configurationFingerprint, expiredAt
+            )
+        )
+        channel.deliver(
+            ReservationRequested(
+                session, recipient, reservation, listOf(WarmupPartitionAssignment(mapping, 0)),
+                localRequest.configurationFingerprint, expiredAt
+            )
+        )
+
+        val release = withTimeout(2_000) {
+            while (true) {
+                channel.sent.filterIsInstance<ReservationReleased>().firstOrNull {
+                    it.sessionId == session && it.kind == WarmupReservationReleaseKind.EMERGENCY_TIMEOUT
+                }?.let { return@withTimeout it }
+                kotlinx.coroutines.yield()
+            }
+            error("unreachable")
+        }
+        assertEquals(reservation, release.reservationId)
+        assertEquals(local, release.senderInstanceId)
+        assertTrue(release.releasedAtEpochMillis >= expiredAt + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS)
+        context.stop()
+    }
+
+    @Test
     fun `completion requested during donor activation is applied after activation`() = runBlocking {
         val activationEntered = CompletableDeferred<Unit>()
         val releaseActivation = CountDownLatch(1)

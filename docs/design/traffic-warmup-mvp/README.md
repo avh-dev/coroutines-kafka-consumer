@@ -62,6 +62,8 @@ the CORE-90 donor-drain acknowledgements (or after recipient cleanup on cold fal
 repeated release cannot remove a partition held by a newer generation. The protocol caps this
 authorization lifetime at 10 minutes; configurations whose combined lifecycle budget exceeds that
 cap are rejected at context construction.
+`CLOSED` is terminal in the replicated session table, so a delayed completion, readiness, or
+session-end record cannot make an explicitly released reservation active in a later snapshot.
 
 Donors stop admission at the authorization deadline and locally fall back work whose source
 ownership is still valid; shutdown/rebalance cancellation remains a handoff and never processes
