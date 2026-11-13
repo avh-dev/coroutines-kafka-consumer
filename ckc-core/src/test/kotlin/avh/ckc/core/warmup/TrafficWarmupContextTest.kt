@@ -547,6 +547,9 @@ class TrafficWarmupContextTest {
                 expires
             )
         )
+        withTimeout(2_000) {
+            while ("activate" !in participant.donorEvents) kotlinx.coroutines.yield()
+        }
         channel.deliver(
             WarmupCompletionRequested(
                 session,
@@ -603,50 +606,58 @@ class TrafficWarmupContextTest {
 
     @Test
     fun `closing during donor preparation cleans resources and never activates`() = runBlocking {
+        val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         val preparationEntered = CompletableDeferred<Unit>()
         val releasePreparation = CountDownLatch(1)
-        val participant = DonorParticipant(
-            consumerId, listOf(mapping), preparationEntered = preparationEntered,
-            releasePreparation = releasePreparation
-        )
-        lateinit var channel: FakeControlChannel
-        val context = context { handler -> FakeControlChannel(handler).also { channel = it } }
-        context.register(participant)
-        context.start()
-        withTimeout(2_000) { context.awaitReady() }
-        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
-        val session = WarmupSessionId("closed-during-prepare")
-        val recipient = WarmupInstanceId("preparing-recipient")
-        val reservation = WarmupReservationId("preparing-generation")
-        val assignment = WarmupPartitionAssignment(mapping, 0)
-        val expires = System.currentTimeMillis() + 5_000
-        channel.deliver(WarmupRequested(
-            session, recipient, listOf(mapping), System.currentTimeMillis() + 100,
-            localRequest.configurationFingerprint, expires
-        ))
-        channel.deliver(ReservationRequested(
-            session, recipient, reservation, listOf(assignment), localRequest.configurationFingerprint, expires
-        ))
-        channel.deliver(SessionAccepted(
-            session, recipient, local, listOf(assignment), localRequest.configurationFingerprint, expires
-        ))
-        withTimeout(2_000) { preparationEntered.await() }
-        channel.deliver(SessionEnded(
-            session, recipient, WarmupSessionEndState.COLD_FALLBACK, "recipient stopped",
-            localRequest.configurationFingerprint, expires
-        ))
-        releasePreparation.countDown()
-        withTimeout(2_000) {
-            while ("finish" !in participant.donorEvents) kotlinx.coroutines.yield()
-        }
-        channel.deliver(RecipientReady(
-            session, recipient, local, listOf(assignment), localRequest.configurationFingerprint, expires
-        ))
+        try {
+            val participant = DonorParticipant(
+                consumerId, listOf(mapping), preparationEntered = preparationEntered,
+                releasePreparation = releasePreparation
+            )
+            lateinit var channel: FakeControlChannel
+            val context = context(parentContext = dispatcher) { handler ->
+                FakeControlChannel(handler).also { channel = it }
+            }
+            context.register(participant)
+            context.start()
+            withTimeout(2_000) { context.awaitReady() }
+            val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+            val session = WarmupSessionId("closed-during-prepare")
+            val recipient = WarmupInstanceId("preparing-recipient")
+            val reservation = WarmupReservationId("preparing-generation")
+            val assignment = WarmupPartitionAssignment(mapping, 0)
+            val expires = System.currentTimeMillis() + 5_000
+            channel.deliver(WarmupRequested(
+                session, recipient, listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, expires
+            ))
+            channel.deliver(ReservationRequested(
+                session, recipient, reservation, listOf(assignment), localRequest.configurationFingerprint, expires
+            ))
+            channel.deliver(SessionAccepted(
+                session, recipient, local, listOf(assignment), localRequest.configurationFingerprint, expires
+            ))
+            withTimeout(2_000) { preparationEntered.await() }
+            channel.deliver(SessionEnded(
+                session, recipient, WarmupSessionEndState.COLD_FALLBACK, "recipient stopped",
+                localRequest.configurationFingerprint, expires
+            ))
+            releasePreparation.countDown()
+            withTimeout(2_000) {
+                while ("finish" !in participant.donorEvents) kotlinx.coroutines.yield()
+            }
+            channel.deliver(RecipientReady(
+                session, recipient, local, listOf(assignment), localRequest.configurationFingerprint, expires
+            ))
 
-        assertEquals(1, participant.donorEvents.count { it == "prepare" })
-        assertEquals(1, participant.donorEvents.count { it == "finish" })
-        assertTrue("activate" !in participant.donorEvents)
-        context.stop()
+            assertEquals(1, participant.donorEvents.count { it == "prepare" })
+            assertEquals(1, participant.donorEvents.count { it == "finish" })
+            assertTrue("activate" !in participant.donorEvents)
+            context.stop()
+        } finally {
+            releasePreparation.countDown()
+            dispatcher.close()
+        }
     }
 
     @Test

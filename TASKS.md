@@ -6240,7 +6240,7 @@ Bootstrap coverage fixes the quarantine to the namespace-wide maximum, preserves
 Donor runtime execution now revalidates ordered table state and reservation generation across asynchronous preparation and activation, with idempotent duplicates and race-safe generation-local cleanup.
 The final runtime follow-up keeps repeated acceptance monotonic after readiness and gives prepared donors
 an explicit close path when completion overtakes a queued activation, preserving the `DonorClosed` handshake.
-The original CORE-91 baseline passed `./gradlew :ckc-core:check` with 264 unit tests and 27 real-Kafka integration tests; for the P1 follow-up only production compilation was run, and the updated test commands were intentionally left for explicit execution.
+Final verification: `./gradlew :ckc-core:check` passes 276 unit tests and the complete real-Kafka integration suite, including one donor warming two recipients concurrently.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios
