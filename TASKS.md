@@ -6269,7 +6269,8 @@ destination topic through the Kafka settings owned by its registered mapping par
 so control and data-plane topics may live on different clusters. Keep metadata lookup bounded
 by the shared negotiation deadline and cold-fallback when any mapping cannot be resolved.
 Verification covers independent mapping participants, control-topic isolation, metadata timeout,
-partition exhaustion, and the complete core unit and real-Kafka integration suites.
+partition exhaustion, safe local fallback diagnostics, and the complete core unit and real-Kafka
+integration suites.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

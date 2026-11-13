@@ -125,12 +125,16 @@ class TrafficWarmupContextTest {
 
     @Test
     fun `metadata timeout performs cold fallback without reserving`() = runBlocking {
+        val diagnostics = CopyOnWriteArrayList<String>()
         val participant = FakeParticipant(consumerId, listOf(mapping), metadata = {
             delay(1.seconds)
             mapOf(mapping to setOf(0))
         })
         lateinit var channel: FakeControlChannel
-        val context = context(enforceDistributedProtocol = true) { handler ->
+        val context = context(
+            enforceDistributedProtocol = true,
+            diagnosticObserver = diagnostics::add
+        ) { handler ->
             FakeControlChannel(
                 handler = handler,
                 response = { message, control ->
@@ -148,6 +152,45 @@ class TrafficWarmupContextTest {
 
         assertEquals(listOf("main"), participant.events)
         assertFalse(channel.sent.any { it is ReservationRequested })
+        val diagnostic = diagnostics.single()
+        val sessionId = channel.sent.filterIsInstance<WarmupRequested>().single().sessionId.value
+        assertTrue(diagnostic.contains("event_code=CKC_WARMUP_METADATA_COLD_FALLBACK"))
+        assertTrue(diagnostic.contains("reason=metadata_timeout"))
+        assertTrue(diagnostic.contains("session_id=$sessionId"))
+        assertTrue(diagnostic.contains("consumer_ids=${consumerId.value}"))
+        assertTrue(diagnostic.contains("topics=${mapping.warmupTopic}"))
+        assertTrue(diagnostic.contains("unfinished_mappings=${consumerId.value}:orders->warmup-orders"))
+        context.stop()
+    }
+
+    @Test
+    fun `metadata failure logs safe topic diagnostics without provider message`() = runBlocking {
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val participant = FakeParticipant(consumerId, listOf(mapping), metadata = {
+            error("password=do-not-log")
+        })
+        val context = context(
+            enforceDistributedProtocol = true,
+            diagnosticObserver = diagnostics::add
+        ) { handler ->
+            FakeControlChannel(
+                handler = handler,
+                response = { message, control ->
+                    if (message is WarmupRequested) control.deliver(authoritativeOffer(message))
+                },
+                metadata = { mapOf("control" to setOf(0)) }
+            )
+        }
+        context.register(participant)
+
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        val diagnostic = diagnostics.single()
+        assertTrue(diagnostic.contains("reason=metadata_lookup_failed"))
+        assertTrue(diagnostic.contains("topics=${mapping.warmupTopic}"))
+        assertTrue(diagnostic.contains("cause_type=IllegalStateException"))
+        assertFalse(diagnostic.contains("password"))
         context.stop()
     }
 
@@ -1316,6 +1359,7 @@ class TrafficWarmupContextTest {
         bootstrapRecoveryWindowOverride: Duration? = null,
         retirementIntervalOverride: Duration? = null,
         parentContext: CoroutineContext = Dispatchers.Default,
+        diagnosticObserver: ((String) -> Unit)? = null,
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
         val configuration = TrafficWarmupContextConfiguration().apply {
@@ -1336,7 +1380,8 @@ class TrafficWarmupContextTest {
             factory,
             enforceDistributedProtocol,
             bootstrapRecoveryWindowOverride,
-            retirementIntervalOverride
+            retirementIntervalOverride,
+            diagnosticObserver
         )
     }
 

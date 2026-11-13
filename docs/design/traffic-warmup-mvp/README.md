@@ -30,7 +30,11 @@ used only to verify that the control topic has exactly one partition. All mappin
 lookups share the negotiation timeout; an incomplete, failed, or timed-out lookup causes cold
 fallback without a reservation. Infrastructure must create all topics beforehand. Protocol v5
 assumes warm-up topics are not recreated and their partition sets do not change while contexts are
-running.
+running. Metadata fallback also emits the stable `CKC_WARMUP_METADATA_COLD_FALLBACK` diagnostic
+event with its reason, session and consumer IDs, affected topic names, unfinished mappings, and
+exception type. Kafka properties and exception messages are deliberately excluded so credentials
+cannot enter this log event; the control message remains a secondary audit path rather than the
+only diagnostic signal.
 
 Before its first reservation request the recipient waits a random 1000-2000 ms contention delay.
 The recipient then selects one free destination per mapping and publishes an atomic
