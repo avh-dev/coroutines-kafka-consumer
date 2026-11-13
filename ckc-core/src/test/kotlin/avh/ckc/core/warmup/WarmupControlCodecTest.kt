@@ -31,7 +31,8 @@ class WarmupControlCodecTest {
                             session, recipient, fingerprint, WarmupReservationId("reservation-1"), listOf(assignment),
                             setOf(donor), WarmupSessionLifecycle.READY, deadline, 17
                         )
-                    )
+                    ),
+                    retiredThroughEpochMillis = 9_000
                 )
             ),
             ReservationRequested(
@@ -41,6 +42,7 @@ class WarmupControlCodecTest {
                 session, recipient, WarmupReservationId("reservation-1"), WarmupReservationReleaseKind.NORMAL,
                 9_000L, fingerprint, deadline
             ),
+            RetireSessionsThrough(donor, 9_000L, fingerprint),
             SessionAccepted(session, recipient, donor, listOf(assignment), fingerprint, deadline),
             DonorAccepted(session, donor, recipient, fingerprint, deadline),
             SessionRejected(session, donor, recipient, "busy", fingerprint, deadline),

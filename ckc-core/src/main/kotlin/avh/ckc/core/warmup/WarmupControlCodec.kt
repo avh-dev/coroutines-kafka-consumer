@@ -50,6 +50,7 @@ internal object WarmupControlCodec {
                     data.writeByte(message.kind.ordinal)
                     data.writeLong(message.releasedAtEpochMillis)
                 }
+                is RetireSessionsThrough -> Unit
                 is SessionAccepted -> {
                     data.writeCollection(message.assignments) { writeAssignment(it) }
                 }
@@ -112,6 +113,12 @@ internal object WarmupControlCodec {
                         ?: throw IllegalArgumentException("Unknown reservation release kind"),
                     data.readLong(), fingerprint, deadline, version
                 )
+                TYPE_RETIRE_SESSIONS_THROUGH -> {
+                    require(RetireSessionsThrough.hasSessionId(sessionId)) {
+                        "RetireSessionsThrough has an invalid synthetic session id"
+                    }
+                    RetireSessionsThrough(sender, deadline, fingerprint, version)
+                }
                 TYPE_SESSION_ACCEPTED -> {
                     SessionAccepted(
                         sessionId, sender, requireTarget(target, "SessionAccepted"),
@@ -146,7 +153,9 @@ internal object WarmupControlCodec {
                 )
                 else -> throw IllegalArgumentException("Unknown warm-up control message type: $type")
             }.also {
-                if (it is WarmupRequested || it is ReservationRequested || it is ReservationReleased || it is SessionEnded) {
+                if (it is WarmupRequested || it is ReservationRequested || it is ReservationReleased ||
+                    it is RetireSessionsThrough || it is SessionEnded
+                ) {
                     require(target == null) { "${it::class.simpleName} must be broadcast" }
                 }
             }
@@ -160,6 +169,7 @@ internal object WarmupControlCodec {
         is DonorOffered -> TYPE_DONOR_OFFERED
         is ReservationRequested -> TYPE_RESERVATION_REQUESTED
         is ReservationReleased -> TYPE_RESERVATION_RELEASED
+        is RetireSessionsThrough -> TYPE_RETIRE_SESSIONS_THROUGH
         is SessionAccepted -> TYPE_SESSION_ACCEPTED
         is DonorAccepted -> TYPE_DONOR_ACCEPTED
         is SessionRejected -> TYPE_SESSION_REJECTED
@@ -189,6 +199,7 @@ internal object WarmupControlCodec {
 
     private fun DataOutputStream.writeSnapshot(snapshot: WarmupStateSnapshot) {
         writeLong(snapshot.boundaryOffset)
+        writeLong(snapshot.retiredThroughEpochMillis)
         writeCollection(snapshot.sessions) { session ->
             writeString(session.sessionId.value)
             writeString(session.recipient.value)
@@ -204,6 +215,7 @@ internal object WarmupControlCodec {
 
     private fun DataInputStream.readSnapshot(): WarmupStateSnapshot {
         val boundary = readLong()
+        val retiredThrough = readLong()
         val sessions = readCollection {
             val sessionId = WarmupSessionId(readString())
             val recipient = WarmupInstanceId(readString())
@@ -219,7 +231,7 @@ internal object WarmupControlCodec {
                 readLong(), readLong()
             )
         }
-        return WarmupStateSnapshot(boundary, sessions)
+        return WarmupStateSnapshot(boundary, sessions, retiredThrough)
     }
 
     private fun DataOutputStream.writeCompleted(completed: WarmupRecordCompleted) {
@@ -333,6 +345,7 @@ internal object WarmupControlCodec {
     private const val TYPE_SESSION_ENDED = 10
     private const val TYPE_RESERVATION_REQUESTED = 11
     private const val TYPE_RESERVATION_RELEASED = 12
+    private const val TYPE_RETIRE_SESSIONS_THROUGH = 13
     private const val OUTCOME_SUCCEEDED = 1
     private const val OUTCOME_TERMINAL_FAILURE = 2
     private const val OUTCOME_DISCARDED = 3

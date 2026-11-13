@@ -37,6 +37,7 @@ internal class WarmupSessionTable {
     private val sessions = linkedMapOf<WarmupSessionId, MutableSession>()
     private val reservationOwners = linkedMapOf<TopicPartition, Pair<WarmupSessionId, WarmupReservationId>>()
     private var lastAppliedOffset = -1L
+    private var retiredThroughEpochMillis = 0L
     private var authoritative = false
 
     @Synchronized
@@ -44,10 +45,17 @@ internal class WarmupSessionTable {
         if (record.offset <= lastAppliedOffset) return decision(record, WarmupTableDecisionKind.IGNORED_STALE)
         lastAppliedOffset = record.offset
         val message = record.message
+        if (message !is RetireSessionsThrough && RetireSessionsThrough.hasSessionId(message.sessionId)) {
+            return decision(record, WarmupTableDecisionKind.IGNORED_INVALID)
+        }
+        if (message !is RetireSessionsThrough && message.expiresAtEpochMillis <= retiredThroughEpochMillis) {
+            return decision(record, WarmupTableDecisionKind.IGNORED_STALE)
+        }
         val result = when (message) {
             is WarmupRequested -> applyRequest(record.offset, message)
             is ReservationRequested -> applyReservation(record.offset, message)
             is ReservationReleased -> applyRelease(record.offset, message)
+            is RetireSessionsThrough -> applyRetirement(record.offset, message)
             is SessionAccepted -> applySessionAccepted(record.offset, message)
             is DonorAccepted -> update(record.offset, message, message.targetInstanceId) {
                 it.donors += message.senderInstanceId
@@ -77,6 +85,7 @@ internal class WarmupSessionTable {
     @Synchronized
     fun install(snapshot: WarmupStateSnapshot, buffered: List<WarmupControlRecord>): Boolean {
         if (snapshot.boundaryOffset < lastAppliedOffset && authoritative) return false
+        if (snapshot.retiredThroughEpochMillis < retiredThroughEpochMillis && authoritative) return false
         val observedLastOffset = lastAppliedOffset
         val subsequent = buffered.filter { it.offset > snapshot.boundaryOffset }.sortedBy { it.offset }
         if (observedLastOffset > snapshot.boundaryOffset && subsequent.lastOrNull()?.offset != observedLastOffset) {
@@ -115,6 +124,7 @@ internal class WarmupSessionTable {
         sessions.putAll(installedSessions)
         reservationOwners.clear()
         reservationOwners.putAll(installedOwners)
+        retiredThroughEpochMillis = snapshot.retiredThroughEpochMillis
         lastAppliedOffset = snapshot.boundaryOffset
         authoritative = true
         subsequent.forEach(::apply)
@@ -124,7 +134,11 @@ internal class WarmupSessionTable {
     @Synchronized
     fun snapshot(): WarmupStateSnapshot? {
         if (!authoritative) return null
-        return WarmupStateSnapshot(lastAppliedOffset, sessions.values.map { it.toSnapshot() })
+        return WarmupStateSnapshot(
+            lastAppliedOffset,
+            sessions.values.map { it.toSnapshot() },
+            retiredThroughEpochMillis
+        )
     }
 
     @Synchronized
@@ -141,6 +155,9 @@ internal class WarmupSessionTable {
 
     @Synchronized
     fun lastOffset(): Long = lastAppliedOffset
+
+    @Synchronized
+    fun retiredThrough(): Long = retiredThroughEpochMillis
 
     @Synchronized
     fun reservedPartitions(): Set<TopicPartition> = reservationOwners.keys.toSet()
@@ -220,6 +237,17 @@ internal class WarmupSessionTable {
                 }
         }
         close(session, WarmupSessionLifecycle.CLOSED, offset)
+        return WarmupTableDecisionKind.APPLIED
+    }
+
+    private fun applyRetirement(offset: Long, message: RetireSessionsThrough): WarmupTableDecisionKind {
+        if (message.deadlineCutoffEpochMillis <= retiredThroughEpochMillis) {
+            return WarmupTableDecisionKind.DUPLICATE
+        }
+        val retired = sessions.values.filter { it.expiresAtEpochMillis <= message.deadlineCutoffEpochMillis }
+        retired.forEach { close(it, WarmupSessionLifecycle.CLOSED, offset) }
+        retired.forEach { sessions.remove(it.sessionId) }
+        retiredThroughEpochMillis = message.deadlineCutoffEpochMillis
         return WarmupTableDecisionKind.APPLIED
     }
 
