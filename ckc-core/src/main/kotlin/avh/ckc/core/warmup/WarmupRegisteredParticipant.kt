@@ -15,14 +15,16 @@ internal interface PreparedWarmupDonor {
     val assignments: List<WarmupPartitionAssignment>
     fun activate()
     fun accept(completed: WarmupRecordCompleted): WarmupResultTracker.Completion
-    suspend fun stopAndAwaitSends(timeout: Duration): List<WarmupFinalOffset>
+    fun stopDelegating()
+    fun failDelegation(error: Throwable)
+    suspend fun awaitInflight(timeout: Duration)
     fun finish()
 }
 
 internal interface PreparedWarmupRecipient {
     val assignments: List<WarmupPartitionAssignment>
     suspend fun start()
-    suspend fun drain(finalOffsets: Collection<WarmupFinalOffset>)
+    suspend fun completeAfterDonorsClosed()
     suspend fun startMain()
     suspend fun stop()
 }
@@ -123,13 +125,11 @@ internal class KafkaWarmupParticipant<K, V>(
 
             override fun accept(completed: WarmupRecordCompleted) = switchableDataPlane.accept(completed)
 
-            override suspend fun stopAndAwaitSends(timeout: Duration): List<WarmupFinalOffset> {
-                val acknowledged = plane.stopDelegatingAndAwaitSends(timeout)
-                    .associateBy(WarmupFinalOffset::topicPartition)
-                return this.assignments.map { assignment ->
-                    acknowledged[assignment.destination] ?: WarmupFinalOffset(assignment.destination, null)
-                }
-            }
+            override fun stopDelegating() = plane.stopDelegating()
+
+            override fun failDelegation(error: Throwable) = plane.failDelegation(error)
+
+            override suspend fun awaitInflight(timeout: Duration) = plane.awaitInflight(timeout)
 
             override fun finish() = switchableDataPlane.finish(sessionId)
         }
@@ -144,7 +144,6 @@ internal class KafkaWarmupParticipant<K, V>(
         require(assignments.isNotEmpty() && assignments.all { it.mapping.consumerId == consumerId }) {
             "Invalid recipient assignments for $consumerId"
         }
-        val tracker = WarmupRecipientDrainTracker(sessionId)
         val outbox = WarmupCompletionOutbox(scope, completionBufferCapacity) { completed ->
             val donor = requireNotNull(donorByDestination[completed.recordId.topicPartition]) {
                 "No donor owns warm-up destination ${completed.recordId.topicPartition}"
@@ -153,21 +152,19 @@ internal class KafkaWarmupParticipant<K, V>(
         }
         val observer = WarmupRecipientOutcomePublisher<K, V>(
             sessionId = sessionId,
-            onPublished = tracker::onCompleted,
             publisher = outbox
         )
         val warmup = createWarmup(assignments.mapTo(linkedSetOf()) { it.destination }, observer)
         val lifecycle = WarmupRecipientLifecycle(
             createWarmup = warmup::asWarmupOwnedConsumer,
             main = main.asWarmupOwnedConsumer(),
-            drainTracker = tracker,
             outbox = outbox,
             cleanupTimeout = cleanupTimeout
         )
         return object : PreparedWarmupRecipient {
             override val assignments = assignments.toList()
             override suspend fun start() = lifecycle.startWarmup()
-            override suspend fun drain(finalOffsets: Collection<WarmupFinalOffset>) = lifecycle.drain(finalOffsets)
+            override suspend fun completeAfterDonorsClosed() = lifecycle.completeAfterDonorsClosed()
             override suspend fun startMain() {
                 lifecycle.startMain()
                 mainStarted.set(true)

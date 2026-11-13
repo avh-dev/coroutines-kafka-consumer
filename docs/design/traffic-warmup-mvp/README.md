@@ -127,15 +127,11 @@ at-least-once semantics.
 
 The control topic is single-partitioned. Each context has one physical consumer with its own
 library group ID, so every context sees the same ordered stream; dispatch never blocks the Kafka
-poll loop. On startup the context replays only the bounded session horizon needed to prove that no
-unexpired session exists. Missing history, malformed state, or ambiguity causes cold start.
-
-CORE-85 implements this boundary with a configured record replay limit. The transport exposes the
-retained beginning, chosen replay start, and initial end offsets, and reports invalid records; the
-CORE-86 lifecycle must choose cold fallback when that evidence is insufficient. Replay is fully
-dispatched before transport readiness. Business/lifecycle handlers run on the separate dispatch
-coroutine and can never hold the Kafka poll loop. A malformed record fails the transport by
-default; an explicitly supplied invalid-record handler also runs on dispatch rather than polling.
+poll loop. A newly started context begins at the control topic's current tail and participates only
+in sessions created after it becomes ready. Existing running contexts remain authoritative for
+active-session conflicts. Business/lifecycle handlers run on the separate dispatch coroutine and
+can never hold the Kafka poll loop. A malformed new record fails the transport by default; an
+explicitly supplied invalid-record handler also runs on dispatch rather than polling.
 
 The MVP permits one active session per control namespace. This deliberately conservative limit
 provides exclusive warm-up destination partitions without distributed reservations.
@@ -148,8 +144,8 @@ provides exclusive warm-up destination partitions without distributed reservatio
 | `DonorAccepted` / `SessionRejected` | donor -> recipient | Atomically accepts the session in a local idle gate or rejects it. |
 | `RecipientReady` | recipient -> donors | Confirms explicit assignment and starting positions; only this enables quota admission. |
 | `RecordCompleted` | recipient -> donor | Completes one destination coordinate with a terminal outcome. |
-| `ForwardingStopped` | donor -> recipient | Closes new admissions and supplies final ACKed destination offsets and stop reason. |
-| `RecipientDrained` | recipient -> donors | Confirms terminal outcomes/consumption through the agreed tail. |
+| `WarmupCompletionRequested` | recipient -> donors | Announces recipient readiness to finish; each donor atomically closes new delegation admission. |
+| `DonorClosed` | donor -> recipient | Confirms that every admitted delegation has finished through its remote outcome or completed local fallback. |
 | `SessionEnded` | owner -> all | Records `COMPLETED`, `FAILED`, or `COLD_FALLBACK`; all participants release local state. |
 
 The recipient owns selection. After a short offer window it chooses a deterministic compatible
@@ -168,9 +164,9 @@ The control implementation is split into these components:
 
 | Class | Responsibility |
 | --- | --- |
-| `WarmupControlProtocol` types | Define the ten versioned wire messages, mappings, fixed destinations, final offsets, deadlines, fingerprints, and terminal session states. |
-| `WarmupControlCodec` | Encode and decode the bounded binary v1 format with explicit type IDs, size limits, validation, and no dependency on application serialization. |
-| `WarmupControlTransport` | Own one producer and one instance-group consumer, replay bounded history before readiness, publish with an ACK deadline, and keep polling separate from dispatch. |
+| `WarmupControlProtocol` types | Define the ten versioned wire messages, mappings, fixed destinations, deadlines, fingerprints, and terminal session states. |
+| `WarmupControlCodec` | Encode and decode the bounded binary v2 format with explicit type IDs, size limits, validation, and no dependency on application serialization. |
+| `WarmupControlTransport` | Own one producer and one instance-group consumer, initialize at the current tail, publish with an ACK deadline, and keep polling separate from dispatch. |
 | `WarmupControlRouter` | Route broadcast and locally targeted records from the single context transport to registered local participants. |
 | `WarmupSingleSessionProtocol` | Atomically select the first valid request by control offset and reject expired, foreign, out-of-order, conflicting, or stale-session messages without recovery. |
 
@@ -181,20 +177,34 @@ The local transitions stay deliberately small:
 | Recipient | `NEW -> DISCOVERING` | Its ordered `WarmupRequested` is the winning request. |
 | Recipient | `DISCOVERING -> PREPARING` | A complete compatible donor set accepts. |
 | Recipient | `PREPARING -> WARMING` | Every assigned recipient consumer is ready. |
-| Recipient | `WARMING -> DRAINING` | All donors stop forwarding and provide final offsets. |
-| Recipient | `DRAINING -> MAIN` | The bounded tail and outcome sends complete. |
+| Recipient | `WARMING -> CLOSING` | Its readiness condition fires and it requests completion from every donor. |
+| Recipient | `CLOSING -> MAIN` | Every donor confirms all admitted work terminal; warm-up consumers stop and their outcome outboxes flush. |
 | Recipient | Any pre-main state `-> COLD` | Conflict, ambiguity, rejection, failure, or deadline; cleanup finishes within its bound. |
 | Donor | `IDLE -> ACTIVE` | It atomically accepts the winning session. |
-| Donor | `ACTIVE -> STOPPING -> IDLE` | Duration, session failure, or explicit stop closes admission and resolves current waits. |
+| Donor | `ACTIVE -> CLOSING -> IDLE` | Recipient request closes admission; all admitted remote outcomes or local fallbacks finish before confirmation. |
 | Either | Any state `-> STOPPED` | Application lifecycle cancellation; never starts main as a side effect. |
 
 ## Lifecycle
 
 The cold context prepares recipient consumers at the current destination ends, waits for all of
-them to be ready, then announces readiness. When the duration expires or any infrastructure path
-fails, donors close admission. They wait only for already-started sends within the cleanup bound
-and publish final destination offsets. The recipient consumes and reports the bounded tail, closes
-warm-up consumers, and starts main consumers in the same process.
+them to be ready, then announces readiness. The recipient owns the completion decision. Today its
+readiness condition is elapsed warm-up duration measured from recipient warm-up start; the wait is
+isolated so a future JIT-monitoring signal can replace or augment it without moving ownership back
+to donors. A rejection from any selected donor interrupts this wait immediately. When ready, the
+recipient requests completion from every selected donor but keeps its warm-up consumers and outcome
+publications active. Donors retain a completion request that races with local activation and apply
+it as soon as activation finishes, so control-handler scheduling cannot lose the transition.
+
+Each donor atomically closes admission, so later source records stay on the normal local pipeline.
+It confirms `DonorClosed` only after every admitted delegation has finished: producer ACK alone is
+insufficient, and any remote terminal failure must finish its local fallback first. After all donor
+confirmations, the recipient stops warm-up consumers, flushes outcome publications, and starts its
+main consumers.
+
+Session expiry, recipient loss, or warm-up failure closes donor admission and releases still-owned
+unconfirmed records to local fallback. This does not cancel donor workers or stop its main consumer.
+Application shutdown and partition ownership loss remain lifecycle cancellation/handoff paths and
+do not execute local fallback after ownership has been lost.
 
 If discovery, agreement, readiness, or cleanup cannot finish within its deadline, the context
 performs cold start. Application shutdown cancels the lifecycle and never starts main consumers.

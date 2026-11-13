@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 1
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 2
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
@@ -43,17 +43,6 @@ internal data class WarmupPartitionAssignment(
     }
 
     val destination: TopicPartition get() = TopicPartition(mapping.warmupTopic, warmupPartition)
-}
-
-internal data class WarmupFinalOffset(
-    val topicPartition: TopicPartition,
-    val offset: Long?
-) {
-    init {
-        validateWarmupTopic("warmupTopic", topicPartition.topic())
-        require(topicPartition.partition() >= 0) { "Warm-up partition must not be negative" }
-        require(offset == null || offset >= 0) { "Warm-up final offset must not be negative" }
-    }
 }
 
 internal data class WarmupRequested(
@@ -97,7 +86,6 @@ internal data class SessionAccepted(
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
     val assignments: List<WarmupPartitionAssignment>,
-    val stopAtEpochMillis: Long,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
@@ -110,9 +98,6 @@ internal data class SessionAccepted(
         }
         require(assignments.map { it.destination }.distinct().size == assignments.size) {
             "Warm-up destination partitions must be exclusive within an acceptance"
-        }
-        require(stopAtEpochMillis > 0 && stopAtEpochMillis <= expiresAtEpochMillis) {
-            "Warm-up stop time must be positive and not exceed the session deadline"
         }
     }
 }
@@ -173,39 +158,26 @@ internal data class ControlRecordCompleted(
     }
 }
 
-internal data class ForwardingStopped(
+internal data class WarmupCompletionRequested(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
-    val finalOffsets: List<WarmupFinalOffset>,
-    val reason: String,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
-    init {
-        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
-        require(finalOffsets.isNotEmpty()) { "Final offsets must not be empty" }
-        require(finalOffsets.map { it.topicPartition }.distinct().size == finalOffsets.size) {
-            "Final offsets must contain each destination once"
-        }
-        validateWarmupReason(reason)
-    }
+    init { validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis) }
 }
 
-internal data class RecipientDrained(
+internal data class DonorClosed(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
-    val finalOffsets: List<WarmupFinalOffset>,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
-    init {
-        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
-        require(finalOffsets.isNotEmpty()) { "Drained offsets must not be empty" }
-    }
+    init { validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis) }
 }
 
 internal enum class WarmupSessionEndState { COMPLETED, FAILED, COLD_FALLBACK }

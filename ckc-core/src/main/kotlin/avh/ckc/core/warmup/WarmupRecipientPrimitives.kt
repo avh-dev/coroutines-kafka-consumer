@@ -7,56 +7,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
-import org.apache.kafka.common.TopicPartition
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
-
-/** Tracks terminal recipient outcomes until every donor-declared tail offset has completed. */
-internal class WarmupRecipientDrainTracker(private val sessionId: WarmupSessionId) {
-    private val lock = Any()
-    private val completed = mutableSetOf<Pair<TopicPartition, Long>>()
-    private var boundary: Map<TopicPartition, Long?>? = null
-    private var drained = CompletableDeferred<Unit>()
-    private var closed = false
-
-    fun onCompleted(result: WarmupRecordCompleted) = synchronized(lock) {
-        if (closed || result.recordId.sessionId != sessionId) return
-        completed += result.recordId.topicPartition to result.recordId.offset
-        completeIfDrained()
-    }
-
-    suspend fun await(finalOffsets: Collection<WarmupFinalOffset>, timeout: Duration) {
-        require(timeout.isPositive()) { "Warm-up drain timeout must be positive" }
-        val signal = synchronized(lock) {
-            check(!closed) { "Warm-up drain tracker is closed" }
-            val newBoundary = finalOffsets.associate { it.topicPartition to it.offset }
-            require(newBoundary.size == finalOffsets.size) { "Warm-up drain boundary contains duplicate partitions" }
-            val current = boundary
-            check(current == null || current == newBoundary) { "Warm-up drain boundary is already fixed" }
-            boundary = newBoundary
-            completeIfDrained()
-            drained
-        }
-        withTimeout(timeout) { signal.await() }
-    }
-
-    fun close() {
-        val signal = synchronized(lock) {
-            if (closed) return
-            closed = true
-            completed.clear()
-            drained
-        }
-        signal.completeExceptionally(CancellationException("Warm-up drain tracker closed"))
-    }
-
-    private fun completeIfDrained() {
-        val expected = boundary ?: return
-        if (expected.all { (partition, offset) -> offset == null || partition to offset in completed }) {
-            drained.complete(Unit)
-        }
-    }
-}
 
 /** Serializes non-blocking recipient publications and provides an ACKed flush barrier for drain. */
 internal class WarmupCompletionOutbox(

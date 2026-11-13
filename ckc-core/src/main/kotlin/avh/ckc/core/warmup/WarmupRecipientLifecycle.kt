@@ -26,7 +26,6 @@ internal fun <K, V> CoroutinesKafkaConsumer<K, V>.asWarmupOwnedConsumer() = obje
 internal class WarmupRecipientLifecycle(
     private val createWarmup: () -> WarmupOwnedConsumer,
     private val main: WarmupOwnedConsumer,
-    private val drainTracker: WarmupRecipientDrainTracker,
     private val outbox: WarmupCompletionOutbox,
     private val cleanupTimeout: Duration
 ) {
@@ -51,11 +50,10 @@ internal class WarmupRecipientLifecycle(
         }
     }
 
-    suspend fun drain(finalOffsets: Collection<WarmupFinalOffset>) = mutex.withLock {
-        check(state == State.WARMING) { "Warm-up recipient is not ready to drain" }
+    suspend fun completeAfterDonorsClosed() = mutex.withLock {
+        check(state == State.WARMING) { "Warm-up recipient is not ready to complete" }
         ensureRunning()
         try {
-            untilStopped { drainTracker.await(finalOffsets, cleanupTimeout) }
             untilStopped { requireNotNull(warmup).stop() }
             untilStopped { outbox.flush(cleanupTimeout) }
             outbox.stop()
@@ -86,7 +84,6 @@ internal class WarmupRecipientLifecycle(
             if (state == State.STOPPED) return
             val previousState = state
             state = State.STOPPED
-            drainTracker.close()
             outbox.close()
             var failure: Throwable? = null
             for (consumer in listOfNotNull(warmup, main.takeIf { previousState == State.MAIN })) {

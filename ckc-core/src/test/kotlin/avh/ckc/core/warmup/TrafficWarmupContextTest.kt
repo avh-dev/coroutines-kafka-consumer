@@ -16,7 +16,10 @@ import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class TrafficWarmupContextTest {
     private val local = WarmupInstanceId("recipient")
@@ -25,7 +28,7 @@ class TrafficWarmupContextTest {
     private val mapping = WarmupTopicMapping(consumerId, "orders", "warmup-orders")
 
     @Test
-    fun `complete remote session drains recipient before main starts`() = runBlocking {
+    fun `recipient requests donor close before stopping warmup and starting main`() = runBlocking {
         val participant = FakeParticipant(consumerId, listOf(mapping))
         lateinit var channel: FakeControlChannel
         val context = context { handler ->
@@ -50,13 +53,11 @@ class TrafficWarmupContextTest {
                             message.expiresAtEpochMillis
                         )
                     )
-                    is RecipientReady -> control.deliver(
-                        ForwardingStopped(
+                    is WarmupCompletionRequested -> control.deliver(
+                        DonorClosed(
                             message.sessionId,
                             donor,
                             local,
-                            listOf(WarmupFinalOffset(TopicPartition("warmup-orders", 0), null)),
-                            "budget elapsed",
                             message.configurationFingerprint,
                             message.expiresAtEpochMillis
                         )
@@ -71,8 +72,166 @@ class TrafficWarmupContextTest {
         context.start()
         withTimeout(2_000) { context.awaitReady() }
 
-        assertEquals(listOf("recipient-start", "recipient-drain", "recipient-main"), participant.events)
+        assertEquals(listOf("recipient-start", "recipient-complete", "recipient-main"), participant.events)
+        assertTrue(channel.sent.any { it is WarmupCompletionRequested })
         assertTrue(channel.sent.any { it is SessionEnded && it.state == WarmupSessionEndState.COMPLETED })
+        context.stop()
+    }
+
+    @Test
+    fun `recipient keeps all warmup consumers running until multiple donors close`() = runBlocking {
+        val secondMapping = WarmupTopicMapping(WarmupConsumerId("batches"), "batches", "warmup-batches")
+        val firstParticipant = FakeParticipant(consumerId, listOf(mapping))
+        val secondParticipant = FakeParticipant(secondMapping.consumerId, listOf(secondMapping))
+        val firstDonor = WarmupInstanceId("donor-a")
+        val secondDonor = WarmupInstanceId("donor-b")
+        val secondCloseRequested = CompletableDeferred<WarmupCompletionRequested>()
+        val releaseSecondClose = CompletableDeferred<Unit>()
+        lateinit var channel: FakeControlChannel
+        val context = context { handler ->
+            FakeControlChannel(handler) { message, control ->
+                when (message) {
+                    is WarmupRequested -> {
+                        control.deliver(
+                            DonorOffered(
+                                message.sessionId, firstDonor, local,
+                                listOf(WarmupDonorMapping(mapping, setOf(0))),
+                                message.configurationFingerprint, message.expiresAtEpochMillis
+                            )
+                        )
+                        control.deliver(
+                            DonorOffered(
+                                message.sessionId, secondDonor, local,
+                                listOf(WarmupDonorMapping(secondMapping, setOf(0))),
+                                message.configurationFingerprint, message.expiresAtEpochMillis
+                            )
+                        )
+                    }
+                    is SessionAccepted -> control.deliver(
+                        DonorAccepted(
+                            message.sessionId, message.targetInstanceId, local,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    is WarmupCompletionRequested -> if (message.targetInstanceId == firstDonor) {
+                        control.deliver(
+                            DonorClosed(
+                                message.sessionId, firstDonor, local,
+                                message.configurationFingerprint, message.expiresAtEpochMillis
+                            )
+                        )
+                    } else {
+                        secondCloseRequested.complete(message)
+                        releaseSecondClose.await()
+                        control.deliver(
+                            DonorClosed(
+                                message.sessionId, secondDonor, local,
+                                message.configurationFingerprint, message.expiresAtEpochMillis
+                            )
+                        )
+                    }
+                    else -> Unit
+                }
+            }.also { channel = it }
+        }
+        context.register(firstParticipant)
+        context.register(secondParticipant)
+
+        context.start()
+        val becomingReady = async { context.awaitReady() }
+        withTimeout(2_000) { secondCloseRequested.await() }
+
+        assertFalse(becomingReady.isCompleted)
+        assertEquals(listOf("recipient-start"), firstParticipant.events)
+        assertEquals(listOf("recipient-start"), secondParticipant.events)
+        assertEquals(2, channel.sent.count { it is WarmupCompletionRequested })
+
+        releaseSecondClose.complete(Unit)
+        withTimeout(2_000) { becomingReady.await() }
+        assertEquals(listOf("recipient-start", "recipient-complete", "recipient-main"), firstParticipant.events)
+        assertEquals(listOf("recipient-start", "recipient-complete", "recipient-main"), secondParticipant.events)
+        context.stop()
+    }
+
+    @Test
+    fun `early donor close failure stops warmup and cold starts main`() = runBlocking {
+        val participant = FakeParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context { handler ->
+            FakeControlChannel(handler) { message, control ->
+                when (message) {
+                    is WarmupRequested -> control.deliver(
+                        DonorOffered(
+                            message.sessionId, donor, local,
+                            listOf(WarmupDonorMapping(mapping, setOf(0))),
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    is SessionAccepted -> control.deliver(
+                        DonorAccepted(
+                            message.sessionId, donor, local,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    is WarmupCompletionRequested -> control.deliver(
+                        SessionRejected(
+                            message.sessionId, donor, local, "donor failed",
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    else -> Unit
+                }
+            }.also { channel = it }
+        }
+        context.register(participant)
+
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        assertEquals(listOf("recipient-start", "recipient-stop", "main"), participant.events)
+        assertTrue(channel.sent.any {
+            it is SessionEnded && it.state == WarmupSessionEndState.COLD_FALLBACK
+        })
+        context.stop()
+    }
+
+    @Test
+    fun `donor rejection after readiness interrupts warmup duration`() = runBlocking {
+        val participant = FakeParticipant(consumerId, listOf(mapping))
+        lateinit var channel: FakeControlChannel
+        val context = context(warmupDuration = 5.seconds) { handler ->
+            FakeControlChannel(handler) { message, control ->
+                when (message) {
+                    is WarmupRequested -> control.deliver(
+                        DonorOffered(
+                            message.sessionId, donor, local,
+                            listOf(WarmupDonorMapping(mapping, setOf(0))),
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    is SessionAccepted -> control.deliver(
+                        DonorAccepted(
+                            message.sessionId, donor, local,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    is RecipientReady -> control.deliver(
+                        SessionRejected(
+                            message.sessionId, donor, local, "activation failed",
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                    else -> Unit
+                }
+            }.also { channel = it }
+        }
+        context.register(participant)
+
+        context.start()
+        withTimeout(1_000) { context.awaitReady() }
+
+        assertEquals(listOf("recipient-start", "recipient-stop", "main"), participant.events)
+        assertTrue(channel.sent.none { it is WarmupCompletionRequested })
         context.stop()
     }
 
@@ -151,7 +310,6 @@ class TrafficWarmupContextTest {
                 laterRecipient,
                 local,
                 listOf(assignment),
-                System.currentTimeMillis() + 20,
                 localRequest.configurationFingerprint,
                 expires
             )
@@ -169,11 +327,81 @@ class TrafficWarmupContextTest {
                 expires
             )
         )
+        channel.deliver(
+            WarmupCompletionRequested(
+                session,
+                laterRecipient,
+                local,
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
         withTimeout(2_000) {
-            while (channel.sent.none { it is ForwardingStopped && it.sessionId == session }) kotlinx.coroutines.yield()
+            while (channel.sent.none { it is DonorClosed && it.sessionId == session }) kotlinx.coroutines.yield()
         }
 
-        assertEquals(listOf("prepare", "activate", "stop-sends"), participant.donorEvents)
+        assertEquals(listOf("prepare", "activate", "stop-inflight"), participant.donorEvents)
+        context.stop()
+    }
+
+    @Test
+    fun `completion requested during donor activation is applied after activation`() = runBlocking {
+        val activationEntered = CompletableDeferred<Unit>()
+        val releaseActivation = CountDownLatch(1)
+        val participant = DonorParticipant(
+            consumerId,
+            listOf(mapping),
+            activationEntered,
+            releaseActivation
+        )
+        lateinit var channel: FakeControlChannel
+        val context = context { handler -> FakeControlChannel(handler).also { channel = it } }
+        context.register(participant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+        val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+        val session = WarmupSessionId("completion-during-activation")
+        val laterRecipient = WarmupInstanceId("later-recipient")
+        val expires = System.currentTimeMillis() + 2_000
+        val assignment = WarmupPartitionAssignment(mapping, 0)
+
+        channel.deliver(
+            WarmupRequested(
+                session, laterRecipient, listOf(mapping), System.currentTimeMillis() + 100,
+                localRequest.configurationFingerprint, expires
+            )
+        )
+        withTimeout(2_000) {
+            while (channel.sent.none { it is DonorOffered && it.sessionId == session }) kotlinx.coroutines.yield()
+        }
+        channel.deliver(
+            SessionAccepted(
+                session, laterRecipient, local, listOf(assignment),
+                localRequest.configurationFingerprint, expires
+            )
+        )
+        withTimeout(2_000) {
+            while (channel.sent.none { it is DonorAccepted && it.sessionId == session }) kotlinx.coroutines.yield()
+        }
+        channel.deliver(
+            RecipientReady(
+                session, laterRecipient, local, listOf(assignment),
+                localRequest.configurationFingerprint, expires
+            )
+        )
+        withTimeout(2_000) { activationEntered.await() }
+        channel.deliver(
+            WarmupCompletionRequested(
+                session, laterRecipient, local, localRequest.configurationFingerprint, expires
+            )
+        )
+
+        releaseActivation.countDown()
+        withTimeout(2_000) {
+            while (channel.sent.none { it is DonorClosed && it.sessionId == session }) kotlinx.coroutines.yield()
+        }
+
+        assertEquals(listOf("prepare", "activate", "stop-inflight"), participant.donorEvents)
         context.stop()
     }
 
@@ -215,7 +443,6 @@ class TrafficWarmupContextTest {
                 recipient,
                 local,
                 assignments,
-                System.currentTimeMillis() + 1_000,
                 localRequest.configurationFingerprint,
                 expires
             )
@@ -313,6 +540,7 @@ class TrafficWarmupContextTest {
     }
 
     private fun context(
+        warmupDuration: Duration = 20.milliseconds,
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
         val configuration = TrafficWarmupContextConfiguration().apply {
@@ -320,7 +548,7 @@ class TrafficWarmupContextTest {
             controlTopic = "control"
             offerWindow = 20.milliseconds
             negotiationTimeout = 100.milliseconds
-            warmupDuration = 20.milliseconds
+            this.warmupDuration = warmupDuration
             delegationTimeout = 100.milliseconds
             cleanupTimeout = 100.milliseconds
             controlReadinessTimeout = 100.milliseconds
@@ -380,12 +608,12 @@ class TrafficWarmupContextTest {
         ) = object : PreparedWarmupRecipient {
             override val assignments = assignments
             override suspend fun start() { events += "recipient-start" }
-            override suspend fun drain(finalOffsets: Collection<WarmupFinalOffset>) { events += "recipient-drain" }
+            override suspend fun completeAfterDonorsClosed() { events += "recipient-complete" }
             override suspend fun startMain() {
                 recipientMainStarted = true
                 events += "recipient-main"
             }
-            override suspend fun stop() = Unit
+            override suspend fun stop() { events += "recipient-stop" }
         }
 
         override suspend fun startMain() {
@@ -398,7 +626,9 @@ class TrafficWarmupContextTest {
 
     private class DonorParticipant(
         override val consumerId: WarmupConsumerId,
-        override val mappings: List<WarmupTopicMapping>
+        override val mappings: List<WarmupTopicMapping>,
+        private val activationEntered: CompletableDeferred<Unit>? = null,
+        private val releaseActivation: CountDownLatch? = null
     ) : RegisteredWarmupParticipant {
         var mainStarted = false
         val donorEvents = CopyOnWriteArrayList<String>()
@@ -419,15 +649,22 @@ class TrafficWarmupContextTest {
             return object : PreparedWarmupDonor {
                 override val sessionId = sessionId
                 override val assignments = assignments
-                override fun activate() { donorEvents += "activate" }
+                override fun activate() {
+                    donorEvents += "activate"
+                    activationEntered?.complete(Unit)
+                    releaseActivation?.await()
+                }
                 override fun accept(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
                     accepted += completed.recordId
                     return WarmupResultTracker.Completion.DELIVERED
                 }
-                override suspend fun stopAndAwaitSends(timeout: kotlin.time.Duration): List<WarmupFinalOffset> {
-                    donorEvents += "stop-sends"
-                    return assignments.map { WarmupFinalOffset(it.destination, null) }
+                override fun stopDelegating() {
+                    donorEvents += "stop-inflight"
                 }
+                override fun failDelegation(error: Throwable) {
+                    donorEvents += "fail-inflight"
+                }
+                override suspend fun awaitInflight(timeout: kotlin.time.Duration) = Unit
                 override fun finish() { donorEvents += "finish" }
             }
         }
