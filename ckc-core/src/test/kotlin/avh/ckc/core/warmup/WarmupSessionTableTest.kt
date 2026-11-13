@@ -193,6 +193,26 @@ class WarmupSessionTableTest {
     }
 
     @Test
+    fun `duplicate acceptance cannot regress a ready session`() {
+        val table = WarmupSessionTable()
+        val session = WarmupSessionId("ready-session")
+        val reservation = WarmupReservationId("ready-reservation")
+        val assignment = assignment(mappingA, 0)
+        val donor = WarmupInstanceId("donor")
+        table.apply(record(0, request(session, recipientA)))
+        table.apply(record(1, reservation(session, recipientA, reservation, assignment)))
+        val accepted = SessionAccepted(session, recipientA, donor, listOf(assignment), fingerprint, 2_000)
+        table.apply(record(2, accepted))
+        table.apply(record(3, ready(session, recipientA, assignment)))
+
+        val duplicate = table.apply(record(4, accepted))
+
+        assertEquals(WarmupTableDecisionKind.DUPLICATE, duplicate.kind)
+        assertEquals(WarmupSessionLifecycle.READY, table.reservationFor(session)?.lifecycle)
+        assertEquals(setOf(donor), table.reservationFor(session)?.donors)
+    }
+
+    @Test
     fun `only explicit safe emergency release frees expired ownership and stale release cannot free replacement`() {
         val table = WarmupSessionTable()
         val oldSession = WarmupSessionId("old")

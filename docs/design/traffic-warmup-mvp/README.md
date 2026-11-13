@@ -50,8 +50,9 @@ not detach the other planes or stop the main consumer.
 Control-table acceptance and donor-runtime execution are separate gates. A donor prepares only
 after the ordered table identifies the exact live recipient, reservation generation, destination
 subset, and negotiating lifecycle; it activates only for the same generation in `READY` before the
-authorization deadline. Duplicate acceptance/readiness is idempotent. Invalid, expired, closed, or
-foreign events remain observable in the control stream but cannot consume admission capacity,
+authorization deadline. Duplicate acceptance/readiness is idempotent: in particular, a repeated
+`SessionAccepted` cannot move an already ready or closing session back to negotiation. Invalid,
+expired, closed, or foreign events remain observable in the control stream but cannot consume admission capacity,
 create resources, activate forwarding, or deliver completion outcomes. Closing removes a pending
 admission immediately; preparation or activation that was already in progress revalidates on exit
 and performs generation-local cleanup instead of installing or reviving the session.
@@ -298,8 +299,10 @@ readiness condition is elapsed warm-up duration measured from recipient warm-up 
 isolated so a future JIT-monitoring signal can replace or augment it without moving ownership back
 to donors. A rejection from any selected donor interrupts this wait immediately. When ready, the
 recipient requests completion from every selected donor but keeps its warm-up consumers and outcome
-publications active. Donors retain a completion request that races with local activation and apply
-it as soon as activation finishes, so control-handler scheduling cannot lose the transition.
+publications active. If completion is processed while activation is running, the donor retains it
+and applies it as soon as activation finishes. If activation is only queued, the prepared donor
+closes directly and the queued task cannot activate it. Thus control-handler scheduling cannot lose
+the transition or leave the recipient waiting for a `DonorClosed` that no coroutine can publish.
 
 Each donor atomically closes admission, so later source records stay on the normal local pipeline.
 It confirms `DonorClosed` only after every admitted delegation has finished: producer ACK alone is

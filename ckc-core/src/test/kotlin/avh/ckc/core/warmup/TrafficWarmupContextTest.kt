@@ -1,10 +1,13 @@
 package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.producer.RecordMetadata
@@ -19,6 +22,8 @@ import org.mockito.kotlin.mock
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -685,9 +690,25 @@ class TrafficWarmupContextTest {
         withTimeout(2_000) {
             while ("activate" !in participant.donorEvents) kotlinx.coroutines.yield()
         }
+        channel.deliver(accepted)
+        val completedId = WarmupRecordId(session, assignment.destination, 17)
+        channel.deliver(
+            ControlRecordCompleted(
+                session,
+                recipient,
+                local,
+                WarmupRecordCompleted(completedId, WarmupRemoteOutcome.Succeeded),
+                localRequest.configurationFingerprint,
+                expires
+            )
+        )
+        withTimeout(2_000) {
+            while (completedId !in participant.accepted) kotlinx.coroutines.yield()
+        }
 
         assertEquals(1, participant.donorEvents.count { it == "prepare" })
         assertEquals(1, participant.donorEvents.count { it == "activate" })
+        assertEquals(listOf(completedId), participant.accepted)
         context.stop()
     }
 
@@ -888,6 +909,76 @@ class TrafficWarmupContextTest {
     }
 
     @Test
+    fun `completion before queued donor activation closes prepared session`() = runBlocking {
+        val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val releaseDispatcher = CountDownLatch(1)
+        try {
+            val participant = DonorParticipant(consumerId, listOf(mapping))
+            lateinit var channel: FakeControlChannel
+            val context = context(parentContext = dispatcher) { handler ->
+                FakeControlChannel(handler).also { channel = it }
+            }
+            context.register(participant)
+            context.start()
+            withTimeout(2_000) { context.awaitReady() }
+            val localRequest = channel.sent.filterIsInstance<WarmupRequested>().single()
+            val session = WarmupSessionId("completion-before-activation")
+            val recipient = WarmupInstanceId("queued-recipient")
+            val expires = System.currentTimeMillis() + 5_000
+            val assignment = WarmupPartitionAssignment(mapping, 0)
+            channel.deliver(
+                WarmupRequested(
+                    session, recipient, listOf(mapping), System.currentTimeMillis() + 100,
+                    localRequest.configurationFingerprint, expires
+                )
+            )
+            channel.deliver(
+                ReservationRequested(
+                    session, recipient, WarmupReservationId("queued-activation-reservation"), listOf(assignment),
+                    localRequest.configurationFingerprint, expires
+                )
+            )
+            channel.deliver(
+                SessionAccepted(
+                    session, recipient, local, listOf(assignment),
+                    localRequest.configurationFingerprint, expires
+                )
+            )
+            withTimeout(2_000) {
+                while (channel.sent.none { it is DonorAccepted && it.sessionId == session }) kotlinx.coroutines.yield()
+            }
+
+            val dispatcherBlocked = CompletableDeferred<Unit>()
+            CoroutineScope(dispatcher).launch {
+                dispatcherBlocked.complete(Unit)
+                releaseDispatcher.await()
+            }
+            withTimeout(2_000) { dispatcherBlocked.await() }
+            channel.deliver(
+                RecipientReady(
+                    session, recipient, local, listOf(assignment),
+                    localRequest.configurationFingerprint, expires
+                )
+            )
+            channel.deliver(
+                WarmupCompletionRequested(
+                    session, recipient, local, localRequest.configurationFingerprint, expires
+                )
+            )
+            releaseDispatcher.countDown()
+
+            withTimeout(2_000) {
+                while (channel.sent.none { it is DonorClosed && it.sessionId == session }) kotlinx.coroutines.yield()
+            }
+            assertEquals(listOf("prepare", "stop-inflight"), participant.donorEvents)
+            context.stop()
+        } finally {
+            releaseDispatcher.countDown()
+            dispatcher.close()
+        }
+    }
+
+    @Test
     fun `remote outcomes are routed only to the donor that owns their destination`() = runBlocking {
         val mappings = listOf(
             WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders"),
@@ -1031,6 +1122,7 @@ class TrafficWarmupContextTest {
         warmupDuration: Duration = 20.milliseconds,
         enforceDistributedProtocol: Boolean = false,
         bootstrapRecoveryWindowOverride: Duration? = null,
+        parentContext: CoroutineContext = Dispatchers.Default,
         factory: (WarmupControlMessageHandler) -> WarmupControlChannel
     ): TrafficWarmupContext {
         val configuration = TrafficWarmupContextConfiguration().apply {
@@ -1044,7 +1136,7 @@ class TrafficWarmupContextTest {
             delegationTimeout = 500.milliseconds
             cleanupTimeout = 500.milliseconds
             controlReadinessTimeout = 100.milliseconds
-            parentContext = Dispatchers.Default
+            this.parentContext = parentContext
         }
         return TrafficWarmupContext(
             configuration,

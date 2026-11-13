@@ -114,6 +114,12 @@ class TrafficWarmupContext internal constructor(
         val expiresAtEpochMillis: Long,
         val prepared: List<PreparedWarmupDonor>,
     ) {
+        enum class CompletionAction {
+            START_CLOSE,
+            WAIT_FOR_ACTIVATION,
+            IGNORE
+        }
+
         data class ActivationCompletion(
             val pendingCompletion: WarmupCompletionRequested?,
             val cleanup: Boolean,
@@ -176,14 +182,23 @@ class TrafficWarmupContext internal constructor(
 
         fun claimCleanup(): Boolean = cleaned.compareAndSet(false, true)
 
-        fun requestCompletion(request: WarmupCompletionRequested): Boolean = synchronized(stateLock) {
-            if (closing) return@synchronized false
-            if (activated) {
-                closing = true
-                true
-            } else {
-                if (pendingCompletion == null) pendingCompletion = request
-                false
+        fun requestCompletion(request: WarmupCompletionRequested): CompletionAction = synchronized(stateLock) {
+            if (closing) return@synchronized CompletionAction.IGNORE
+            when {
+                activated -> {
+                    closing = true
+                    CompletionAction.START_CLOSE
+                }
+                activationInProgress -> {
+                    if (pendingCompletion == null) pendingCompletion = request
+                    CompletionAction.WAIT_FOR_ACTIVATION
+                }
+                else -> {
+                    // Activation may already be queued, but it has not entered the donor state
+                    // machine. Close directly; the queued task will observe closing and exit.
+                    closing = true
+                    CompletionAction.START_CLOSE
+                }
             }
         }
     }
@@ -616,8 +631,11 @@ class TrafficWarmupContext internal constructor(
                 setOf(WarmupSessionLifecycle.CLOSING)
             ) == null
         ) return
-        if (!donor.requestCompletion(request)) return
-        scope.launch { performDonorClose(donor, request) }
+        when (donor.requestCompletion(request)) {
+            DonorSession.CompletionAction.START_CLOSE -> scope.launch { performDonorClose(donor, request) }
+            DonorSession.CompletionAction.WAIT_FOR_ACTIVATION,
+            DonorSession.CompletionAction.IGNORE -> Unit
+        }
     }
 
     private suspend fun performDonorClose(donor: DonorSession, request: WarmupCompletionRequested) {

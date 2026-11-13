@@ -48,10 +48,7 @@ internal class WarmupSessionTable {
             is WarmupRequested -> applyRequest(record.offset, message)
             is ReservationRequested -> applyReservation(record.offset, message)
             is ReservationReleased -> applyRelease(record.offset, message)
-            is SessionAccepted -> update(record.offset, message) {
-                it.donors += message.targetInstanceId
-                it.lifecycle = WarmupSessionLifecycle.NEGOTIATING
-            }
+            is SessionAccepted -> applySessionAccepted(record.offset, message)
             is DonorAccepted -> update(record.offset, message, message.targetInstanceId) {
                 it.donors += message.senderInstanceId
             }
@@ -187,6 +184,25 @@ internal class WarmupSessionTable {
         session.expiresAtEpochMillis = message.expiresAtEpochMillis
         message.assignments.forEach { reservationOwners[it.destination] = session.sessionId to message.reservationId }
         return WarmupTableDecisionKind.RESERVATION_WON
+    }
+
+    private fun applySessionAccepted(offset: Long, message: SessionAccepted): WarmupTableDecisionKind {
+        val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
+        if (!session.matches(message, message.senderInstanceId)) return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.lifecycle == WarmupSessionLifecycle.CLOSED) return WarmupTableDecisionKind.IGNORED_STALE
+        if (message.targetInstanceId in session.donors) {
+            session.lastControlOffset = offset
+            return WarmupTableDecisionKind.DUPLICATE
+        }
+        if (session.lifecycle !in setOf(
+                WarmupSessionLifecycle.RESERVED,
+                WarmupSessionLifecycle.NEGOTIATING
+            )
+        ) return WarmupTableDecisionKind.IGNORED_STALE
+        session.donors += message.targetInstanceId
+        session.lifecycle = WarmupSessionLifecycle.NEGOTIATING
+        session.lastControlOffset = offset
+        return WarmupTableDecisionKind.APPLIED
     }
 
     private fun applyRelease(offset: Long, message: ReservationReleased): WarmupTableDecisionKind {
