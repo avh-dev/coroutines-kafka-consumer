@@ -33,10 +33,19 @@ internal object WarmupControlCodec {
                     data.writeLong(message.offerDeadlineEpochMillis)
                     data.writeCollection(message.mappings) { writeTopicMapping(it) }
                 }
-                is DonorOffered -> data.writeCollection(message.mappings) { donor ->
-                    writeTopicMapping(donor.mapping)
-                    writeCollection(donor.sourcePartitions.sorted()) { writeInt(it) }
+                is DonorOffered -> {
+                    data.writeCollection(message.mappings) { donor ->
+                        writeTopicMapping(donor.mapping)
+                        writeCollection(donor.sourcePartitions.sorted()) { writeInt(it) }
+                    }
+                    data.writeBoolean(message.stateSnapshot != null)
+                    message.stateSnapshot?.let { data.writeSnapshot(it) }
                 }
+                is ReservationRequested -> {
+                    data.writeString(message.reservationId.value)
+                    data.writeCollection(message.assignments) { writeAssignment(it) }
+                }
+                is ReservationReleased -> data.writeString(message.reservationId.value)
                 is SessionAccepted -> {
                     data.writeCollection(message.assignments) { writeAssignment(it) }
                 }
@@ -79,11 +88,22 @@ internal object WarmupControlCodec {
                     expiresAtEpochMillis = deadline,
                     protocolVersion = version
                 )
-                TYPE_DONOR_OFFERED -> DonorOffered(
-                    sessionId, sender, requireTarget(target, "DonorOffered"),
-                    data.readCollection {
+                TYPE_DONOR_OFFERED -> {
+                    val mappings = data.readCollection {
                         WarmupDonorMapping(readTopicMapping(), readCollection { readInt() }.toSet())
-                    }, fingerprint, deadline, version
+                    }
+                    val snapshot = if (data.readBoolean()) data.readSnapshot() else null
+                    DonorOffered(
+                        sessionId, sender, requireTarget(target, "DonorOffered"),
+                        mappings, fingerprint, deadline, version, snapshot
+                    )
+                }
+                TYPE_RESERVATION_REQUESTED -> ReservationRequested(
+                    sessionId, sender, WarmupReservationId(data.readString()),
+                    data.readCollection { readAssignment() }, fingerprint, deadline, version
+                )
+                TYPE_RESERVATION_RELEASED -> ReservationReleased(
+                    sessionId, sender, WarmupReservationId(data.readString()), fingerprint, deadline, version
                 )
                 TYPE_SESSION_ACCEPTED -> {
                     SessionAccepted(
@@ -119,7 +139,7 @@ internal object WarmupControlCodec {
                 )
                 else -> throw IllegalArgumentException("Unknown warm-up control message type: $type")
             }.also {
-                if (it is WarmupRequested || it is SessionEnded) {
+                if (it is WarmupRequested || it is ReservationRequested || it is ReservationReleased || it is SessionEnded) {
                     require(target == null) { "${it::class.simpleName} must be broadcast" }
                 }
             }
@@ -131,6 +151,8 @@ internal object WarmupControlCodec {
     private fun WarmupControlMessage.typeId(): Int = when (this) {
         is WarmupRequested -> TYPE_REQUESTED
         is DonorOffered -> TYPE_DONOR_OFFERED
+        is ReservationRequested -> TYPE_RESERVATION_REQUESTED
+        is ReservationReleased -> TYPE_RESERVATION_RELEASED
         is SessionAccepted -> TYPE_SESSION_ACCEPTED
         is DonorAccepted -> TYPE_DONOR_ACCEPTED
         is SessionRejected -> TYPE_SESSION_REJECTED
@@ -157,6 +179,39 @@ internal object WarmupControlCodec {
     }
 
     private fun DataInputStream.readAssignment() = WarmupPartitionAssignment(readTopicMapping(), readInt())
+
+    private fun DataOutputStream.writeSnapshot(snapshot: WarmupStateSnapshot) {
+        writeLong(snapshot.boundaryOffset)
+        writeCollection(snapshot.sessions) { session ->
+            writeString(session.sessionId.value)
+            writeString(session.recipient.value)
+            writeNullableString(session.reservationId?.value)
+            writeCollection(session.assignments) { writeAssignment(it) }
+            writeCollection(session.donors.sortedBy { it.value }) { writeString(it.value) }
+            writeByte(session.lifecycle.ordinal)
+            writeLong(session.expiresAtEpochMillis)
+            writeLong(session.lastControlOffset)
+        }
+    }
+
+    private fun DataInputStream.readSnapshot(): WarmupStateSnapshot {
+        val boundary = readLong()
+        val sessions = readCollection {
+            val sessionId = WarmupSessionId(readString())
+            val recipient = WarmupInstanceId(readString())
+            val reservation = readNullableString()?.let(::WarmupReservationId)
+            val assignments = readCollection { readAssignment() }
+            val donors = readCollection { WarmupInstanceId(readString()) }.toSet()
+            val lifecycleOrdinal = readUnsignedByte()
+            val lifecycle = WarmupSessionLifecycle.entries.getOrNull(lifecycleOrdinal)
+                ?: throw IllegalArgumentException("Unknown warm-up lifecycle: $lifecycleOrdinal")
+            WarmupSessionSnapshot(
+                sessionId, recipient, reservation, assignments, donors, lifecycle,
+                readLong(), readLong()
+            )
+        }
+        return WarmupStateSnapshot(boundary, sessions)
+    }
 
     private fun DataOutputStream.writeCompleted(completed: WarmupRecordCompleted) {
         writeString(completed.recordId.topicPartition.topic())
@@ -267,6 +322,8 @@ internal object WarmupControlCodec {
     private const val TYPE_COMPLETION_REQUESTED = 8
     private const val TYPE_DONOR_CLOSED = 9
     private const val TYPE_SESSION_ENDED = 10
+    private const val TYPE_RESERVATION_REQUESTED = 11
+    private const val TYPE_RESERVATION_RELEASED = 12
     private const val OUTCOME_SUCCEEDED = 1
     private const val OUTCOME_TERMINAL_FAILURE = 2
     private const val OUTCOME_DISCARDED = 3

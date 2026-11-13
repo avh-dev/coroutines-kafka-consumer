@@ -2,7 +2,7 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 2
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 3
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
@@ -45,6 +45,33 @@ internal data class WarmupPartitionAssignment(
     val destination: TopicPartition get() = TopicPartition(mapping.warmupTopic, warmupPartition)
 }
 
+internal enum class WarmupSessionLifecycle {
+    DISCOVERING, RESERVED, NEGOTIATING, READY, CLOSING, CLOSED, EXPIRED
+}
+
+internal data class WarmupSessionSnapshot(
+    val sessionId: WarmupSessionId,
+    val recipient: WarmupInstanceId,
+    val reservationId: WarmupReservationId?,
+    val assignments: List<WarmupPartitionAssignment>,
+    val donors: Set<WarmupInstanceId>,
+    val lifecycle: WarmupSessionLifecycle,
+    val expiresAtEpochMillis: Long,
+    val lastControlOffset: Long
+)
+
+internal data class WarmupStateSnapshot(
+    val boundaryOffset: Long,
+    val sessions: List<WarmupSessionSnapshot>
+) {
+    init {
+        require(boundaryOffset >= -1) { "Snapshot boundary must be at least -1" }
+        require(sessions.map { it.sessionId }.distinct().size == sessions.size) {
+            "Snapshot sessions must be unique"
+        }
+    }
+}
+
 internal data class WarmupRequested(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -73,12 +100,50 @@ internal data class DonorOffered(
     val mappings: List<WarmupDonorMapping>,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
-    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION,
+    val stateSnapshot: WarmupStateSnapshot? = null
 ) : WarmupControlMessage {
     init {
         validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
-        require(mappings.isNotEmpty()) { "Donor offer mappings must not be empty" }
+        require(mappings.isNotEmpty() || stateSnapshot != null) {
+            "A donor offer must provide capacity or an authoritative state snapshot"
+        }
     }
+}
+
+internal data class ReservationRequested(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    val reservationId: WarmupReservationId,
+    val assignments: List<WarmupPartitionAssignment>,
+    override val configurationFingerprint: String,
+    override val expiresAtEpochMillis: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    override val targetInstanceId: WarmupInstanceId? = null
+
+    init {
+        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
+        require(assignments.isNotEmpty()) { "Reservation assignments must not be empty" }
+        require(assignments.map { it.mapping }.distinct().size == assignments.size) {
+            "A reservation must contain one destination per mapping"
+        }
+        require(assignments.map { it.destination }.distinct().size == assignments.size) {
+            "Reservation destinations must be unique"
+        }
+    }
+}
+
+internal data class ReservationReleased(
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    val reservationId: WarmupReservationId,
+    override val configurationFingerprint: String,
+    override val expiresAtEpochMillis: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    override val targetInstanceId: WarmupInstanceId? = null
+    init { validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis) }
 }
 
 internal data class SessionAccepted(

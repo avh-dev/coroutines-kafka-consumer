@@ -18,6 +18,7 @@ import org.apache.kafka.common.record.TimestampType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.util.Optional
@@ -232,6 +233,29 @@ class RecordProcessorTest {
         assertEquals(0, metrics.processed.size)
         assertEquals(listOf(RecordDropReason.STALE_AGE), metrics.dropped.map { it.reason })
         assertEquals(listOf(expected), observed)
+    }
+
+    @Test
+    fun `protocol filtered record advances offset without handler metrics or terminal observer`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val processedCalls = AtomicInteger()
+        val observed = mutableListOf<RecordProcessingOutcome>()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> { error("local handler must not run") },
+            metrics = metrics,
+            onRecordProcessed = { processedCalls.incrementAndGet() },
+            interceptor = AdmittedRecordInterceptor { _, _ -> RecordProcessingOutcome.Filtered },
+            outcomeObserver = RecordProcessingOutcomeObserver { _, outcome -> observed += outcome }
+        )
+
+        val outcome = processor.process(typedTestRecord(offset = 16L))
+
+        assertEquals(RecordProcessingOutcome.Filtered, outcome)
+        assertEquals(1, processedCalls.get())
+        assertTrue(metrics.processed.isEmpty())
+        assertTrue(metrics.failed.isEmpty())
+        assertTrue(metrics.dropped.isEmpty())
+        assertTrue(observed.isEmpty())
     }
 
     @Test

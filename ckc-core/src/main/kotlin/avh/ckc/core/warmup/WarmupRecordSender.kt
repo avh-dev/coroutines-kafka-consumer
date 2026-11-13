@@ -26,6 +26,7 @@ fun interface WarmupRecordSender<K, V> {
 
 internal class KafkaWarmupRecordSender<K, V>(
     producerProperties: Map<String, Any?>,
+    private val sessionId: WarmupSessionId? = null,
     private val blockingDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val closeTimeout: Duration = 5.seconds,
     producerFactory: (Map<String, Any?>) -> Producer<K, V> = { KafkaProducer(it) }
@@ -61,13 +62,21 @@ internal class KafkaWarmupRecordSender<K, V>(
         producer.close(JavaDuration.ofMillis(closeTimeout.inWholeMilliseconds.coerceAtLeast(1L)))
     }
 
-    private fun ConsumerRecord<K, V>.copyTo(destination: WarmupDestination): ProducerRecord<K, V> =
-        ProducerRecord(
+    private fun ConsumerRecord<K, V>.copyTo(destination: WarmupDestination): ProducerRecord<K, V> {
+        val copiedHeaders = RecordHeaders(headers().toArray())
+        sessionId?.let {
+            copiedHeaders.remove(WARMUP_SESSION_HEADER)
+            copiedHeaders.add(WARMUP_SESSION_HEADER, it.value.toByteArray(Charsets.UTF_8))
+        }
+        return ProducerRecord(
             destination.topic,
             destination.partition,
             timestamp().takeIf { it >= 0L },
             key(),
             value(),
-            RecordHeaders(headers().toArray())
+            copiedHeaders
         )
+    }
 }
+
+internal const val WARMUP_SESSION_HEADER = "ckc-warmup-session"

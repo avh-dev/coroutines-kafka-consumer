@@ -23,8 +23,21 @@ class WarmupControlCodecTest {
             WarmupRequested(session, recipient, listOf(mapping), 2_000L, fingerprint, deadline),
             DonorOffered(
                 session, donor, recipient, listOf(WarmupDonorMapping(mapping, setOf(3, 1))),
-                fingerprint, deadline
+                fingerprint, deadline,
+                stateSnapshot = WarmupStateSnapshot(
+                    17,
+                    listOf(
+                        WarmupSessionSnapshot(
+                            session, recipient, WarmupReservationId("reservation-1"), listOf(assignment),
+                            setOf(donor), WarmupSessionLifecycle.READY, deadline, 17
+                        )
+                    )
+                )
             ),
+            ReservationRequested(
+                session, recipient, WarmupReservationId("reservation-1"), listOf(assignment), fingerprint, deadline
+            ),
+            ReservationReleased(session, recipient, WarmupReservationId("reservation-1"), fingerprint, deadline),
             SessionAccepted(session, recipient, donor, listOf(assignment), fingerprint, deadline),
             DonorAccepted(session, donor, recipient, fingerprint, deadline),
             SessionRejected(session, donor, recipient, "busy", fingerprint, deadline),

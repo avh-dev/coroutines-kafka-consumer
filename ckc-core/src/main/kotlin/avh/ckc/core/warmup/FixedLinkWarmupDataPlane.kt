@@ -69,13 +69,32 @@ internal class FixedLinkWarmupDataPlane<K, V>(
         processLocally: suspend () -> RecordProcessingOutcome
     ): RecordProcessingOutcome {
         val destination = destinationResolver.destinationFor(record)
-        if (destination == null || !tryBeginDelegation()) {
+        if (destination == null || !tryReserve(record)) {
             if (destination != null && failure.get() != null) {
                 metrics.onWarmupFallback(record, WarmupFallbackReason.SESSION_FAILURE)
             }
             return processLocally()
         }
+        return processReserved(record, destination, processLocally)
+    }
 
+    internal fun tryReserve(record: ConsumerRecord<K, V>): Boolean =
+        destinationResolver.destinationFor(record) != null && tryBeginDelegation()
+
+    internal suspend fun processReserved(
+        record: ConsumerRecord<K, V>,
+        processLocally: suspend () -> RecordProcessingOutcome
+    ): RecordProcessingOutcome = processReserved(
+        record,
+        requireNotNull(destinationResolver.destinationFor(record)) { "Reserved record no longer has a destination" },
+        processLocally
+    )
+
+    private suspend fun processReserved(
+        record: ConsumerRecord<K, V>,
+        destination: WarmupDestination,
+        processLocally: suspend () -> RecordProcessingOutcome
+    ): RecordProcessingOutcome {
         try {
             var acknowledged = false
             val remote = try {
@@ -162,6 +181,9 @@ internal class FixedLinkWarmupDataPlane<K, V>(
         return result
     }
 
+    fun canDelegateRecord(record: ConsumerRecord<K, V>): Boolean =
+        active.get() && failure.get() == null && destinationResolver.destinationFor(record) != null
+
     fun stopDelegating() {
         synchronized(admissionLock) {
             active.set(false)
@@ -243,6 +265,7 @@ internal class WarmupRecipientOutcomePublisher<K, V>(
             RecordProcessingOutcome.HandlerSucceeded -> WarmupRemoteOutcome.Succeeded
             is RecordProcessingOutcome.HandlerFailed -> WarmupRemoteOutcome.TerminalFailure
             is RecordProcessingOutcome.PolicyDiscarded -> WarmupRemoteOutcome.Discarded(outcome.reason)
+            RecordProcessingOutcome.Filtered -> return
             is RecordProcessingOutcome.HandedOff -> return
         }
         val completed = WarmupRecordCompleted(

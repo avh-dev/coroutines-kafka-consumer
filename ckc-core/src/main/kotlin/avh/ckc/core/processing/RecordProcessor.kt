@@ -79,10 +79,11 @@ internal class RecordProcessor<K, V>(
                 }
                 is RecordProcessingOutcome.PolicyDiscarded ->
                     metrics.onRecordDropped(record, outcome.reason)
+                RecordProcessingOutcome.Filtered -> onRecordProcessed(record)
                 is RecordProcessingOutcome.HandedOff -> Unit
             }
             // Lifecycle handoff metrics are mode-specific and are applied by the owning runtime.
-            if (outcome !is RecordProcessingOutcome.HandedOff) {
+            if (outcome !is RecordProcessingOutcome.HandedOff && outcome != RecordProcessingOutcome.Filtered) {
                 outcomeObserver.onOutcome(record, outcome)
             }
             return outcome

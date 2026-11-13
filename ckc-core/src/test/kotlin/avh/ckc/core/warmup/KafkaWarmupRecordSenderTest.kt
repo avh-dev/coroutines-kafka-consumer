@@ -27,6 +27,7 @@ class KafkaWarmupRecordSenderTest {
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
             ),
+            sessionId = WarmupSessionId("session-7"),
             producerFactory = { producer }
         )
         val headers = RecordHeaders().add("trace-id", "trace-7".encodeToByteArray())
@@ -53,6 +54,7 @@ class KafkaWarmupRecordSenderTest {
         assertEquals("key-7", sent.key())
         assertEquals("value-7", sent.value())
         assertEquals("trace-7", sent.headers().lastHeader("trace-id").value().decodeToString())
+        assertEquals("session-7", sent.headers().lastHeader(WARMUP_SESSION_HEADER).value().decodeToString())
         assertEquals(0L, acknowledgement.offset)
         sender.close()
     }

@@ -1,0 +1,245 @@
+package avh.ckc.core.warmup
+
+import org.apache.kafka.common.TopicPartition
+
+internal enum class WarmupTableDecisionKind {
+    APPLIED,
+    RESERVATION_WON,
+    RESERVATION_CONFLICT,
+    DUPLICATE,
+    IGNORED_STALE,
+    IGNORED_EXPIRED,
+    IGNORED_INVALID
+}
+
+internal data class WarmupTableDecision(
+    val kind: WarmupTableDecisionKind,
+    val sessionId: WarmupSessionId,
+    val controlOffset: Long
+)
+
+/**
+ * Pure, offset-ordered namespace state. It performs no Kafka I/O and never invokes participant code.
+ * All members that apply the same control prefix therefore derive the same reservations.
+ */
+internal class WarmupSessionTable(
+    private val currentTimeMillis: () -> Long = System::currentTimeMillis
+) {
+    private data class MutableSession(
+        val sessionId: WarmupSessionId,
+        val recipient: WarmupInstanceId,
+        var reservationId: WarmupReservationId? = null,
+        var assignments: List<WarmupPartitionAssignment> = emptyList(),
+        val donors: MutableSet<WarmupInstanceId> = linkedSetOf(),
+        var lifecycle: WarmupSessionLifecycle = WarmupSessionLifecycle.DISCOVERING,
+        var expiresAtEpochMillis: Long,
+        var lastControlOffset: Long
+    )
+
+    private val sessions = linkedMapOf<WarmupSessionId, MutableSession>()
+    private val reservationOwners = linkedMapOf<TopicPartition, Pair<WarmupSessionId, WarmupReservationId>>()
+    private var lastAppliedOffset = -1L
+    private var authoritative = false
+
+    @Synchronized
+    fun apply(record: WarmupControlRecord): WarmupTableDecision {
+        if (record.offset <= lastAppliedOffset) return decision(record, WarmupTableDecisionKind.IGNORED_STALE)
+        lastAppliedOffset = record.offset
+        expire(currentTimeMillis(), record.offset)
+        val message = record.message
+        if (message.expiresAtEpochMillis <= currentTimeMillis()) {
+            return decision(record, WarmupTableDecisionKind.IGNORED_EXPIRED)
+        }
+        val result = when (message) {
+            is WarmupRequested -> applyRequest(record.offset, message)
+            is ReservationRequested -> applyReservation(record.offset, message)
+            is ReservationReleased -> applyRelease(record.offset, message)
+            is SessionAccepted -> update(record.offset, message.sessionId, message.senderInstanceId) {
+                it.donors += message.targetInstanceId
+                it.lifecycle = WarmupSessionLifecycle.NEGOTIATING
+            }
+            is DonorAccepted -> update(record.offset, message.sessionId, message.targetInstanceId) {
+                it.donors += message.senderInstanceId
+            }
+            is RecipientReady -> update(record.offset, message.sessionId, message.senderInstanceId) {
+                it.lifecycle = WarmupSessionLifecycle.READY
+            }
+            is WarmupCompletionRequested -> update(record.offset, message.sessionId, message.senderInstanceId) {
+                it.lifecycle = WarmupSessionLifecycle.CLOSING
+            }
+            is SessionEnded -> update(record.offset, message.sessionId, message.senderInstanceId) {
+                // Session termination does not itself release destinations. Only the matching
+                // ReservationReleased (or expiry) can do that, so a lost/late terminal event
+                // cannot free a partition that belongs to another reservation generation.
+                it.lifecycle = if (it.reservationId == null) {
+                    WarmupSessionLifecycle.CLOSED
+                } else {
+                    WarmupSessionLifecycle.CLOSING
+                }
+            }
+            is DonorOffered, is SessionRejected, is ControlRecordCompleted, is DonorClosed ->
+                WarmupTableDecisionKind.APPLIED
+        }
+        return decision(record, result)
+    }
+
+    @Synchronized
+    fun install(snapshot: WarmupStateSnapshot, buffered: List<WarmupControlRecord>): Boolean {
+        if (snapshot.boundaryOffset < lastAppliedOffset && authoritative) return false
+        val observedLastOffset = lastAppliedOffset
+        val subsequent = buffered.filter { it.offset > snapshot.boundaryOffset }.sortedBy { it.offset }
+        if (observedLastOffset > snapshot.boundaryOffset && subsequent.lastOrNull()?.offset != observedLastOffset) {
+            return false
+        }
+        if (subsequent.isNotEmpty()) {
+            var expected = snapshot.boundaryOffset + 1
+            for (record in subsequent) {
+                if (record.offset != expected) return false
+                expected++
+            }
+        }
+        val installedSessions = linkedMapOf<WarmupSessionId, MutableSession>()
+        val installedOwners = linkedMapOf<TopicPartition, Pair<WarmupSessionId, WarmupReservationId>>()
+        snapshot.sessions.forEach { stored ->
+            val session = MutableSession(
+                stored.sessionId,
+                stored.recipient,
+                stored.reservationId,
+                stored.assignments,
+                stored.donors.toMutableSet(),
+                stored.lifecycle,
+                stored.expiresAtEpochMillis,
+                stored.lastControlOffset
+            )
+            installedSessions[stored.sessionId] = session
+            if (session.lifecycle !in setOf(WarmupSessionLifecycle.CLOSED, WarmupSessionLifecycle.EXPIRED)) {
+                val reservation = session.reservationId
+                if (reservation != null) session.assignments.forEach {
+                    if (installedOwners.put(it.destination, session.sessionId to reservation) != null) return false
+                }
+            }
+        }
+        sessions.clear()
+        sessions.putAll(installedSessions)
+        reservationOwners.clear()
+        reservationOwners.putAll(installedOwners)
+        lastAppliedOffset = snapshot.boundaryOffset
+        authoritative = true
+        subsequent.forEach(::apply)
+        return true
+    }
+
+    @Synchronized
+    fun snapshot(): WarmupStateSnapshot? {
+        if (!authoritative) return null
+        expire(currentTimeMillis(), lastAppliedOffset)
+        return WarmupStateSnapshot(lastAppliedOffset, sessions.values.map { it.toSnapshot() })
+    }
+
+    @Synchronized
+    fun markBootstrapAuthoritative(boundaryOffset: Long) {
+        require(boundaryOffset >= -1)
+        if (!authoritative) {
+            lastAppliedOffset = maxOf(lastAppliedOffset, boundaryOffset)
+            authoritative = true
+        }
+    }
+
+    @Synchronized
+    fun isAuthoritative(): Boolean = authoritative
+
+    @Synchronized
+    fun lastOffset(): Long = lastAppliedOffset
+
+    @Synchronized
+    fun reservedPartitions(): Set<TopicPartition> {
+        expire(currentTimeMillis(), lastAppliedOffset.coerceAtLeast(0))
+        return reservationOwners.keys.toSet()
+    }
+
+    @Synchronized
+    fun reservationFor(sessionId: WarmupSessionId): WarmupSessionSnapshot? =
+        sessions[sessionId]?.toSnapshot()
+
+    private fun applyRequest(offset: Long, message: WarmupRequested): WarmupTableDecisionKind {
+        val existing = sessions[message.sessionId]
+        if (existing != null) {
+            return if (existing.recipient == message.senderInstanceId) WarmupTableDecisionKind.DUPLICATE
+            else WarmupTableDecisionKind.IGNORED_INVALID
+        }
+        sessions[message.sessionId] = MutableSession(
+            message.sessionId,
+            message.senderInstanceId,
+            expiresAtEpochMillis = message.expiresAtEpochMillis,
+            lastControlOffset = offset
+        )
+        return WarmupTableDecisionKind.APPLIED
+    }
+
+    private fun applyReservation(offset: Long, message: ReservationRequested): WarmupTableDecisionKind {
+        val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.recipient != message.senderInstanceId) return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.reservationId == message.reservationId && session.assignments == message.assignments) {
+            session.lastControlOffset = offset
+            return WarmupTableDecisionKind.DUPLICATE
+        }
+        if (session.reservationId != null) return WarmupTableDecisionKind.RESERVATION_CONFLICT
+        if (message.assignments.any { reservationOwners.containsKey(it.destination) }) {
+            session.lastControlOffset = offset
+            return WarmupTableDecisionKind.RESERVATION_CONFLICT
+        }
+        session.reservationId = message.reservationId
+        session.assignments = message.assignments.toList()
+        session.lifecycle = WarmupSessionLifecycle.RESERVED
+        session.lastControlOffset = offset
+        session.expiresAtEpochMillis = message.expiresAtEpochMillis
+        message.assignments.forEach { reservationOwners[it.destination] = session.sessionId to message.reservationId }
+        return WarmupTableDecisionKind.RESERVATION_WON
+    }
+
+    private fun applyRelease(offset: Long, message: ReservationReleased): WarmupTableDecisionKind {
+        val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.recipient != message.senderInstanceId || session.reservationId != message.reservationId) {
+            return WarmupTableDecisionKind.IGNORED_STALE
+        }
+        close(session, WarmupSessionLifecycle.CLOSED, offset)
+        return WarmupTableDecisionKind.APPLIED
+    }
+
+    private inline fun update(
+        offset: Long,
+        sessionId: WarmupSessionId,
+        recipient: WarmupInstanceId,
+        action: (MutableSession) -> Unit
+    ): WarmupTableDecisionKind {
+        val session = sessions[sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
+        if (session.recipient != recipient) return WarmupTableDecisionKind.IGNORED_INVALID
+        action(session)
+        session.lastControlOffset = offset
+        return WarmupTableDecisionKind.APPLIED
+    }
+
+    private fun close(session: MutableSession, lifecycle: WarmupSessionLifecycle, offset: Long) {
+        val reservation = session.reservationId
+        if (reservation != null) session.assignments.forEach { destination ->
+            reservationOwners.remove(destination.destination, session.sessionId to reservation)
+        }
+        session.lifecycle = lifecycle
+        session.lastControlOffset = offset
+    }
+
+    private fun expire(now: Long, offset: Long) {
+        sessions.values.filter {
+            it.expiresAtEpochMillis <= now &&
+                it.lifecycle !in setOf(WarmupSessionLifecycle.CLOSED, WarmupSessionLifecycle.EXPIRED)
+        }.forEach { close(it, WarmupSessionLifecycle.EXPIRED, offset) }
+    }
+
+    private fun MutableSession.toSnapshot() = WarmupSessionSnapshot(
+        sessionId, recipient, reservationId, assignments.toList(), donors.toSet(), lifecycle,
+        expiresAtEpochMillis, lastControlOffset
+    )
+
+    private fun decision(record: WarmupControlRecord, kind: WarmupTableDecisionKind) =
+        WarmupTableDecision(kind, record.message.sessionId, record.offset)
+}

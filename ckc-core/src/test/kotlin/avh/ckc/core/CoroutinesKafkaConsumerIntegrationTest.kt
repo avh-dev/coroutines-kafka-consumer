@@ -236,11 +236,11 @@ class CoroutinesKafkaConsumerIntegrationTest {
             controlKafkaProperties = controlProperties
             quotaPerInterval = 10
             quotaInterval = 100.milliseconds
-            warmupDuration = 2.seconds
-            delegationTimeout = 5.seconds
-            offerWindow = 200.milliseconds
-            negotiationTimeout = 2.seconds
-            cleanupTimeout = 5.seconds
+            warmupDuration = 1.seconds
+            delegationTimeout = 500.milliseconds
+            offerWindow = 100.milliseconds
+            negotiationTimeout = 500.milliseconds
+            cleanupTimeout = 500.milliseconds
         }
 
         val donorContext = newContext("donor")
@@ -271,6 +271,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
         try {
             donor.start()
             withTimeout(15_000) { donor.awaitReady() }
+            // The first context cold-starts, observes one maximum reservation lifetime, then becomes
+            // an authoritative snapshot source without replaying the control topic.
+            delay(3.seconds)
 
             recipient.start()
             val recipientReady = async { recipient.awaitReady() }
@@ -297,6 +300,103 @@ class CoroutinesKafkaConsumerIntegrationTest {
         } finally {
             producerJob?.cancel()
             recipient.stop()
+            donor.stop()
+        }
+    }
+
+    @Test
+    fun `one real donor warms two recipients on exclusive metadata discovered partitions`() = runBlocking {
+        val sourceTopic = "ckc-source-parallel-it-${UUID.randomUUID()}"
+        val warmupTopic = "ckc-warmup-parallel-it-${UUID.randomUUID()}"
+        val controlTopic = "ckc-control-parallel-it-${UUID.randomUUID()}"
+        createTopic(sourceTopic)
+        createTopic(warmupTopic, partitions = 2)
+        createTopic(controlTopic)
+        val controlProperties = mapOf<String, Any?>(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers
+        )
+        val producerProperties = mapOf<String, Any?>(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all"
+        )
+        fun context(instance: String) = trafficWarmupContext {
+            instanceId = WarmupInstanceId("$instance-${UUID.randomUUID()}")
+            this.controlTopic = controlTopic
+            controlKafkaProperties = controlProperties
+            quotaPerInterval = 20
+            maxDonorSessions = 2
+            maxDonorDelegationsPerInterval = 40
+            quotaInterval = 100.milliseconds
+            warmupDuration = 1.seconds
+            delegationTimeout = 500.milliseconds
+            offerWindow = 100.milliseconds
+            negotiationTimeout = 500.milliseconds
+            cleanupTimeout = 500.milliseconds
+        }
+        val donorContext = context("donor")
+        val forwardedPartitions = ConcurrentHashMap.newKeySet<Int>()
+        val donor = coroutinesKafkaConsumer<String, String>(consumerProperties("donor-${UUID.randomUUID()}")) {
+            topics(sourceTopic)
+            trafficWarmup(donorContext, "orders") {
+                mapTopic(sourceTopic, warmupTopic)
+                forwardingProducerProperties = producerProperties
+                forwardingObserver = WarmupForwardingObserver {
+                    forwardedPartitions += it.destinationTopicPartition.partition()
+                }
+            }
+            handle { }
+        }
+        fun recipient(name: String, handled: CompletableDeferred<Unit>): CoroutinesKafkaConsumer<String, String> {
+            val recipientContext = context(name)
+            return coroutinesKafkaConsumer(consumerProperties("$name-${UUID.randomUUID()}")) {
+                topics(sourceTopic)
+                trafficWarmup(recipientContext, "orders") {
+                    mapTopic(sourceTopic, warmupTopic)
+                    forwardingProducerProperties = producerProperties
+                }
+                handle { if (it.topic() == warmupTopic) handled.complete(Unit) }
+            }
+        }
+        val firstHandled = CompletableDeferred<Unit>()
+        val secondHandled = CompletableDeferred<Unit>()
+        val first = recipient("recipient-a", firstHandled)
+        val second = recipient("recipient-b", secondHandled)
+        var producerJob: Job? = null
+        try {
+            donor.start()
+            withTimeout(15_000) { donor.awaitReady() }
+            delay(3.seconds)
+
+            first.start()
+            second.start()
+            val firstReady = async { first.awaitReady() }
+            val secondReady = async { second.awaitReady() }
+            producerJob = launch(Dispatchers.IO) {
+                KafkaProducer<String, String>(producerProperties).use { producer ->
+                    var index = 0
+                    while (isActive && (!firstReady.isCompleted || !secondReady.isCompleted)) {
+                        producer.send(ProducerRecord(sourceTopic, "key-$index", "value-$index")).get()
+                        index++
+                        delay(20)
+                    }
+                }
+            }
+
+            withTimeout(15_000) {
+                firstHandled.await()
+                secondHandled.await()
+                while (forwardedPartitions.size < 2) delay(10)
+                firstReady.await()
+                secondReady.await()
+            }
+            assertEquals(setOf(0, 1), forwardedPartitions)
+            assertTrue(donor.stateSnapshot().started)
+        } finally {
+            producerJob?.cancel()
+            runCatching { first.stop() }
+            runCatching { second.stop() }
             donor.stop()
         }
     }
@@ -742,7 +842,10 @@ class CoroutinesKafkaConsumerIntegrationTest {
         try {
             consumer.start()
             produce(topic, "failure-key", "failure-payload")
-            withTimeout(15_000) { recovered.await() }
+            withTimeout(15_000) {
+                recovered.await()
+                while (metrics.failed.isEmpty()) kotlinx.coroutines.yield()
+            }
 
             assertEquals(1, metrics.failed.size)
             assertEquals("metrics-boom", metrics.failed.single().error.message)

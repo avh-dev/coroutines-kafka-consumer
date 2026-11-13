@@ -35,6 +35,15 @@ value class WarmupSessionId(val value: String) {
     }
 }
 
+@JvmInline
+value class WarmupReservationId(val value: String) {
+    init { validateWarmupIdentifier("reservationId", value) }
+
+    companion object {
+        fun random(): WarmupReservationId = WarmupReservationId(UUID.randomUUID().toString())
+    }
+}
+
 data class WarmupDestination(val topic: String, val partition: Int) {
     init {
         require(topic.isNotBlank()) { "Warm-up destination topic must not be blank" }

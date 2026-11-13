@@ -4,6 +4,8 @@ import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.RecordProcessingOutcomeObserver
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CoroutineScope
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -55,6 +57,7 @@ internal class KafkaWarmupParticipant<K, V>(
     private val switchableDataPlane: SwitchableWarmupDataPlane<K, V>,
     private val createWarmup: (
         Set<TopicPartition>,
+        AdmittedRecordInterceptor<K, V>,
         RecordProcessingOutcomeObserver<K, V>
     ) -> CoroutinesKafkaConsumer<K, V>,
     private val producerProperties: Map<String, Any?>,
@@ -112,7 +115,7 @@ internal class KafkaWarmupParticipant<K, V>(
             quotaRampDuration = quotaRampDuration,
             delegationTimeout = delegationTimeout,
             destinationResolver = WarmupDestinationResolver { record -> destinations[record.topic()] },
-            sender = KafkaWarmupRecordSender(producerProperties),
+            sender = KafkaWarmupRecordSender(producerProperties, sessionId),
             forwardingObserver = forwardingObserver,
             metrics = metrics,
             supportsRemoteDiscard = ::supportsRemoteDiscard
@@ -150,11 +153,15 @@ internal class KafkaWarmupParticipant<K, V>(
             }
             sendCompletion(donor, completed)
         }
-        val observer = WarmupRecipientOutcomePublisher<K, V>(
+        val outcomePublisher = WarmupRecipientOutcomePublisher<K, V>(
             sessionId = sessionId,
             publisher = outbox
         )
-        val warmup = createWarmup(assignments.mapTo(linkedSetOf()) { it.destination }, observer)
+        val guard = WarmupRecipientSessionGuard<K, V>(sessionId)
+        val observer = RecordProcessingOutcomeObserver<K, V> { record, outcome ->
+            if (guard.belongsToSession(record)) outcomePublisher.onOutcome(record, outcome)
+        }
+        val warmup = createWarmup(assignments.mapTo(linkedSetOf()) { it.destination }, guard, observer)
         val lifecycle = WarmupRecipientLifecycle(
             createWarmup = warmup::asWarmupOwnedConsumer,
             main = main.asWarmupOwnedConsumer(),
@@ -200,5 +207,23 @@ internal class KafkaWarmupParticipant<K, V>(
         RecordDropReason.NEW_KEY_QUEUE_FULL,
         RecordDropReason.STALE_AGE,
         RecordDropReason.LIFECYCLE_DISCARD -> true
+    }
+}
+
+internal class WarmupRecipientSessionGuard<K, V>(
+    private val sessionId: WarmupSessionId
+) : AdmittedRecordInterceptor<K, V> {
+    fun belongsToSession(record: ConsumerRecord<K, V>): Boolean {
+        val values = record.headers().headers(WARMUP_SESSION_HEADER).map { it.value() }.toList()
+        return values.size == 1 && values.single().toString(Charsets.UTF_8) == sessionId.value
+    }
+
+    override suspend fun process(
+        record: ConsumerRecord<K, V>,
+        processLocally: suspend () -> RecordProcessingOutcome
+    ): RecordProcessingOutcome = if (belongsToSession(record)) {
+        processLocally()
+    } else {
+        RecordProcessingOutcome.Filtered
     }
 }

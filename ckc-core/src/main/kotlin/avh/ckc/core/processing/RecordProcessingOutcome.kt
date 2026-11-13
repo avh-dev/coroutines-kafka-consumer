@@ -13,6 +13,9 @@ internal sealed interface RecordProcessingOutcome {
 
     data class PolicyDiscarded(val reason: RecordDropReason) : RecordProcessingOutcome
 
+    /** Consumed protocol traffic that advances Kafka progress without business/audit outcomes. */
+    data object Filtered : RecordProcessingOutcome
+
     /** The record remains non-terminal and may be replayed by another owner. */
     data class HandedOff(val reason: RecordHandoffReason) : RecordProcessingOutcome
 }

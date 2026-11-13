@@ -1,9 +1,75 @@
 # Real-traffic warm-up MVP design
 
-Status: approved `GLOBAL-4` design; fixed-link data plane is implemented through `CORE-84`.
+Status: `GLOBAL-4` design implemented through parallel-session protocol v3 (`CORE-91`).
 
-Updated: 2026-11-11. Infrastructure findings below include subsequent GLOBAL-3 work
+Updated: 2026-11-13. Infrastructure findings below include subsequent GLOBAL-3 work
 through `b0c2c80`. Protocol and lifecycle choices remain subject to review.
+
+## Parallel-session control protocol (v3)
+
+Every context reads the single-partition control topic from its current end and maintains the
+complete namespace session table after synchronization. State application is a pure operation,
+separate from Kafka I/O and participant lifecycle calls. Control offsets are the only ordering
+authority: applying the same prefix yields the same session and reservation table.
+
+A joining context publishes `WarmupRequested` and buffers the bounded stream it observes after
+its starting boundary. Every synchronized hot context answers with `DonorOffered`, even when it
+has no donor capacity. The response contains a full state snapshot, its exact inclusive control
+offset boundary, the sender's donor capability, and available mappings. One valid snapshot is
+enough. The joiner installs it and applies buffered records strictly from `boundary + 1`; a gap,
+late snapshot, or snapshot older than already authoritative state is rejected. Unsynchronized
+contexts neither reserve partitions nor publish authoritative empty snapshots. A recipient keeps
+the table current while warming and after it becomes hot.
+
+The library obtains the actual partition IDs for every configured warm-up topic from Kafka
+metadata under `negotiationTimeout`; the application configures topic mappings, not partition
+counts. It also verifies that the control topic has exactly one partition. Infrastructure must
+create all topics beforehand. Protocol v3 assumes warm-up topics are not recreated and their
+partition sets do not change while contexts are running.
+
+The recipient selects one free destination per mapping and publishes an atomic
+`ReservationRequested(sessionId, reservationId, assignments)`. Topic partition numbers are
+independent, so one set may contain `orders-0`, `batches-2`, and `telemetry-1`. A reservation wins
+only when the recipient consumes its own request. The first offset whose entire set is free wins;
+a conflicting request owns nothing and may retry another complete set until the common negotiation
+deadline. `ReservationReleased` names the exact reservation ID, so a late release cannot free a
+partition reused by another session. No warm-up record is sent before reservation, donor acceptance,
+recipient consumer readiness, and `RecipientReady`.
+
+One donor context may admit multiple sessions. `maxDonorSessions` limits their count and
+`maxDonorDelegationsPerInterval` caps their combined configured interval budgets; admission
+rechecks both atomically rather than reserving capacity at offer time. Each admitted session keeps
+its own quota ramp, pending-result tracker, inflight drain, deadline, destinations, and lifecycle.
+Eligible sessions are selected round-robin and each source record is offered to at most one; when
+delegation is unavailable the ordinary local pipeline runs. Closing or failing one data plane does
+not detach the other planes or stop the main consumer.
+
+Recipient-driven completion from `CORE-90` is unchanged per session: the recipient requests close,
+each donor closes admission and completes every remote result or required local fallback, and only
+then sends `DonorClosed`. After all acknowledgements the recipient stops its warm-up consumers,
+flushes outcomes, publishes the terminal session event and exact reservation release, then starts
+main consumers. Partial preparation publishes a failed/cold terminal event, releases prepared
+resources and the matching reservation, and cold-starts main consumption.
+
+Reservations carry an absolute epoch-millisecond expiry covering discovery, negotiation, warming,
+drain, cleanup, and delegation timeout. Donors stop admission at expiry and locally fall back work
+whose source ownership is still valid; shutdown/rebalance cancellation remains a handoff and never
+processes after ownership loss. All hosts must have bounded wall-clock skew well below the cleanup
+and delegation timeouts (NTP is the operational assumption). Forwarded records carry the
+`ckc-warmup-session` header. Recipient admission accepts exactly its current session ID; an old or
+foreign record is discarded before the business handler and does not publish `RecordCompleted`.
+
+If no authoritative snapshot source exists (first namespace start or simultaneous loss of every
+context), each pod immediately uses ordinary cold main-consumer startup. It continues observing the
+control tail but cannot reserve or publish an empty authoritative snapshot. After one maximum
+reservation lifetime has elapsed from the observed starting tail, every reservation that could
+have existed before that boundary is necessarily expired; the fully observed context may then
+bootstrap an authoritative table and serve later joiners. This makes recovery safe and eventually
+live without replaying control history.
+
+Capacity planning is direct: each simultaneous recipient needs one partition in every warm-up topic
+it maps. For `N` simultaneous recipients, every such topic therefore needs at least `N` partitions,
+plus any desired contention/headroom margin. Different warm-up topics may have different counts.
 
 ## Inventory
 
@@ -123,7 +189,7 @@ The message is sent only after terminal policy completion. Kafka commit position
 frontiers are never converted into business outcomes. Recipient commits retain ordinary
 at-least-once semantics.
 
-## Minimal automatic protocol
+## Historical single-session protocol (v2, superseded by v3)
 
 The control topic is single-partitioned. Each context has one physical consumer with its own
 library group ID, so every context sees the same ordered stream; dispatch never blocks the Kafka
@@ -133,7 +199,7 @@ active-session conflicts. Business/lifecycle handlers run on the separate dispat
 can never hold the Kafka poll loop. A malformed new record fails the transport by default; an
 explicitly supplied invalid-record handler also runs on dispatch rather than polling.
 
-The MVP permits one active session per control namespace. This deliberately conservative limit
+The v2 MVP permitted one active session per control namespace. This deliberately conservative limit
 provides exclusive warm-up destination partitions without distributed reservations.
 
 | Message | Sender -> receiver | Effect |

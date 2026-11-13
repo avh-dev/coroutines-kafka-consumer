@@ -92,6 +92,68 @@ class WarmupRecipientPrimitivesTest {
         assertEquals(2, localCalls.get())
     }
 
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `switchable data plane distributes records fairly across independent sessions`() = runBlocking {
+        val switch = SwitchableWarmupDataPlane<String, String>()
+        val counts = linkedMapOf("first" to AtomicInteger(), "second" to AtomicInteger())
+        fun plane(name: String, resultOffset: Long): FixedLinkWarmupDataPlane<String, String> {
+            lateinit var created: FixedLinkWarmupDataPlane<String, String>
+            created = FixedLinkWarmupDataPlane(
+                sessionId = WarmupSessionId(name),
+                quota = 10,
+                quotaInterval = 1.seconds,
+                delegationTimeout = 1.seconds,
+                destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup", 0) },
+                sender = WarmupRecordSender { _, _ ->
+                    val sequence = counts.getValue(name).incrementAndGet()
+                    WarmupSendAcknowledgement(partition, resultOffset + sequence)
+                },
+                forwardingObserver = WarmupForwardingObserver { event ->
+                    created.accept(completed(partition, event.destinationOffset, WarmupSessionId(name)))
+                },
+                metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
+            )
+            return created
+        }
+        switch.activate(plane("first", 10))
+        switch.activate(plane("second", 20))
+
+        repeat(6) { offset ->
+            switch.process(ConsumerRecord("source", 0, offset.toLong(), "key", "value")) {
+                error("local fallback not expected")
+            }
+        }
+
+        assertEquals(3, counts.getValue("first").get())
+        assertEquals(3, counts.getValue("second").get())
+        switch.finish(WarmupSessionId("first"))
+        repeat(2) { offset ->
+            switch.process(ConsumerRecord("source", 0, 10L + offset, "key", "value")) {
+                error("remaining session should continue")
+            }
+        }
+        assertEquals(3, counts.getValue("first").get())
+        assertEquals(5, counts.getValue("second").get())
+        switch.close()
+    }
+
+    @Test
+    fun `recipient guard rejects records from an old reservation before business processing`() = runBlocking {
+        val guard = WarmupRecipientSessionGuard<String, String>(session)
+        val localCalls = AtomicInteger()
+        val old = ConsumerRecord("warmup", 0, 1L, "key", "value")
+        old.headers().add(WARMUP_SESSION_HEADER, "old-session".encodeToByteArray())
+
+        val outcome = guard.process(old) {
+            localCalls.incrementAndGet()
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+
+        assertEquals(0, localCalls.get())
+        assertEquals(RecordProcessingOutcome.Filtered, outcome)
+    }
+
     private fun completed(
         topicPartition: TopicPartition,
         offset: Long,
