@@ -47,6 +47,15 @@ Eligible sessions are selected round-robin and each source record is offered to 
 delegation is unavailable the ordinary local pipeline runs. Closing or failing one data plane does
 not detach the other planes or stop the main consumer.
 
+Control-table acceptance and donor-runtime execution are separate gates. A donor prepares only
+after the ordered table identifies the exact live recipient, reservation generation, destination
+subset, and negotiating lifecycle; it activates only for the same generation in `READY` before the
+authorization deadline. Duplicate acceptance/readiness is idempotent. Invalid, expired, closed, or
+foreign events remain observable in the control stream but cannot consume admission capacity,
+create resources, activate forwarding, or deliver completion outcomes. Closing removes a pending
+admission immediately; preparation or activation that was already in progress revalidates on exit
+and performs generation-local cleanup instead of installing or reviving the session.
+
 Recipient-driven completion from `CORE-90` is unchanged per session: the recipient requests close,
 each donor closes admission and completes every remote result or required local fallback, and only
 then sends `DonorClosed`. After all acknowledgements the recipient stops its warm-up consumers,

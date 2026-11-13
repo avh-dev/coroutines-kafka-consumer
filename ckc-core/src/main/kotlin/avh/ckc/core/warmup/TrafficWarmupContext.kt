@@ -100,15 +100,34 @@ class TrafficWarmupContext internal constructor(
         val decision: WarmupTableDecision
     )
 
+    private data class DonorAdmission(
+        val recipient: WarmupInstanceId,
+        val reservationId: WarmupReservationId,
+        val assignments: Set<WarmupPartitionAssignment>,
+        val budget: Int,
+        val cancelled: AtomicBoolean = AtomicBoolean(false)
+    )
+
     private data class DonorSession(
         val recipient: WarmupInstanceId,
+        val reservationId: WarmupReservationId,
+        val expiresAtEpochMillis: Long,
         val prepared: List<PreparedWarmupDonor>,
-        val activationStarted: AtomicBoolean = AtomicBoolean(false)
     ) {
+        data class ActivationCompletion(
+            val pendingCompletion: WarmupCompletionRequested?,
+            val cleanup: Boolean,
+            val abortFailure: WarmupRecipientUnavailableException?
+        )
+
         private val stateLock = Any()
+        private val cleaned = AtomicBoolean(false)
+        private var activationStarted = false
+        private var activationInProgress = false
         private var activated = false
         private var closing = false
         private var pendingCompletion: WarmupCompletionRequested? = null
+        private var pendingAbort: WarmupRecipientUnavailableException? = null
 
         val preparedByDestination: Map<TopicPartition, PreparedWarmupDonor> = buildMap {
             prepared.forEach { donor ->
@@ -120,13 +139,42 @@ class TrafficWarmupContext internal constructor(
             }
         }
 
-        fun completeActivation(): WarmupCompletionRequested? = synchronized(stateLock) {
+        fun beginActivation(): Boolean = synchronized(stateLock) {
+            if (closing || activationStarted) return@synchronized false
+            activationStarted = true
+            activationInProgress = true
+            true
+        }
+
+        fun completeActivation(): ActivationCompletion = synchronized(stateLock) {
+            activationInProgress = false
+            if (closing) return@synchronized ActivationCompletion(null, true, pendingAbort)
             activated = true
-            pendingCompletion?.takeUnless { closing }?.also {
+            val completion = pendingCompletion?.takeUnless { closing }?.also {
                 pendingCompletion = null
                 closing = true
             }
+            ActivationCompletion(completion, false, null)
         }
+
+        fun failActivation(): Boolean = synchronized(stateLock) {
+            activationInProgress = false
+            closing = true
+            true
+        }
+
+        fun close(): Boolean = synchronized(stateLock) {
+            closing = true
+            !activationInProgress
+        }
+
+        fun abort(failure: WarmupRecipientUnavailableException): Boolean = synchronized(stateLock) {
+            closing = true
+            pendingAbort = failure
+            !activationInProgress
+        }
+
+        fun claimCleanup(): Boolean = cleaned.compareAndSet(false, true)
 
         fun requestCompletion(request: WarmupCompletionRequested): Boolean = synchronized(stateLock) {
             if (closing) return@synchronized false
@@ -153,7 +201,7 @@ class TrafficWarmupContext internal constructor(
     private val observations = ArrayDeque<Observed>()
     private val observationSignal = Channel<Unit>(Channel.CONFLATED)
     private val donorSessions = linkedMapOf<WarmupSessionId, DonorSession>()
-    private val donorAdmissions = linkedMapOf<WarmupSessionId, Int>()
+    private val donorAdmissions = linkedMapOf<WarmupSessionId, DonorAdmission>()
     private val recipientPrepared = mutableListOf<PreparedWarmupRecipient>()
     private val started = AtomicBoolean(false)
     private val stopping = AtomicBoolean(false)
@@ -283,6 +331,8 @@ class TrafficWarmupContext internal constructor(
             runCatching { prepared.stop() }.exceptionOrNull()?.let(failures::add)
         }
         synchronized(donorSessions) {
+            donorAdmissions.values.forEach { it.cancelled.set(true) }
+            donorAdmissions.clear()
             donorSessions.values.flatMap(DonorSession::prepared).toList().also { donorSessions.clear() }
         }.forEach { prepared -> runCatching { prepared.finish() }.exceptionOrNull()?.let(failures::add) }
         participants.values.forEach { participant ->
@@ -313,14 +363,23 @@ class TrafficWarmupContext internal constructor(
             scheduleEmergencyRelease(record.message.sessionId)
         }
         val message = record.message
-        if (message is WarmupRequested && message.senderInstanceId != configuration.instanceId) {
+        if (message is WarmupRequested && message.senderInstanceId != configuration.instanceId &&
+            decision.kind in setOf(WarmupTableDecisionKind.APPLIED, WarmupTableDecisionKind.DUPLICATE)
+        ) {
             scope.launch { offer(message) }
         }
         if (message.targetInstanceId == null || message.targetInstanceId == configuration.instanceId) {
             when (message) {
-                is SessionAccepted, is RecipientReady, is WarmupCompletionRequested, is ControlRecordCompleted ->
-                    handleAccepted(message)
-                is SessionEnded -> endDonor(message)
+                is SessionAccepted, is RecipientReady, is WarmupCompletionRequested, is ControlRecordCompleted -> {
+                    if (decision.kind in setOf(WarmupTableDecisionKind.APPLIED, WarmupTableDecisionKind.DUPLICATE)) {
+                        handleAccepted(message)
+                    }
+                }
+                is SessionEnded -> if (decision.kind == WarmupTableDecisionKind.APPLIED) endDonor(message)
+                is ReservationReleased -> if (decision.kind == WarmupTableDecisionKind.APPLIED) {
+                    cancelDonorAdmission(message.sessionId)
+                    scope.launch { abortDonor(message.sessionId, "warm-up reservation was released") }
+                }
                 else -> Unit
             }
         }
@@ -332,10 +391,14 @@ class TrafficWarmupContext internal constructor(
             is RecipientReady -> scope.launch { activateDonor(message) }
             is WarmupCompletionRequested -> requestDonorClose(message)
             is ControlRecordCompleted -> synchronized(donorSessions) {
-                donorSessions[message.sessionId]
-                    ?.preparedByDestination
-                    ?.get(message.completed.recordId.topicPartition)
-                    ?.accept(message.completed)
+                donorSessions[message.sessionId]?.takeIf { donor ->
+                    message.configurationFingerprint == fingerprint &&
+                        message.expiresAtEpochMillis == donor.expiresAtEpochMillis && validRuntimeSession(
+                        message.sessionId, message.senderInstanceId, donor.reservationId,
+                        donor.prepared.flatMap(PreparedWarmupDonor::assignments).toSet(),
+                        setOf(WarmupSessionLifecycle.READY, WarmupSessionLifecycle.CLOSING)
+                    ) != null
+                }?.preparedByDestination?.get(message.completed.recordId.topicPartition)?.accept(message.completed)
             }
             else -> Unit
         }
@@ -348,7 +411,7 @@ class TrafficWarmupContext internal constructor(
         val requestedBudget = candidate.map { it.mapping.consumerId }.distinct().size * configuration.quotaPerInterval
         val hasCapacity = synchronized(donorSessions) {
             val activeBudget = donorSessions.values.sumOf { it.prepared.size * configuration.quotaPerInterval } +
-                donorAdmissions.values.sum()
+                donorAdmissions.values.sumOf(DonorAdmission::budget)
             donorSessions.size + donorAdmissions.size < configuration.maxDonorSessions &&
                 activeBudget + requestedBudget <= configuration.maxDonorDelegationsPerInterval
         }
@@ -367,21 +430,35 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun acceptAsDonor(accepted: SessionAccepted) {
-        if (accepted.configurationFingerprint != fingerprint) return
+        val reservation = validRuntimeSession(
+            accepted.sessionId,
+            accepted.senderInstanceId,
+            assignments = accepted.assignments.toSet(),
+            allowedLifecycles = setOf(WarmupSessionLifecycle.NEGOTIATING)
+        ) ?: return
+        if (accepted.configurationFingerprint != fingerprint ||
+            accepted.expiresAtEpochMillis != reservation.expiresAtEpochMillis
+        ) return
         var alreadyKnown = false
+        val requestedBudget = accepted.assignments.map { it.mapping.consumerId }.distinct().size *
+            configuration.quotaPerInterval
+        val admission = DonorAdmission(
+            accepted.senderInstanceId,
+            requireNotNull(reservation.reservationId),
+            accepted.assignments.toSet(),
+            requestedBudget
+        )
         val admitted = synchronized(donorSessions) {
             if (donorSessions.containsKey(accepted.sessionId) || donorAdmissions.containsKey(accepted.sessionId)) {
                 alreadyKnown = true
                 return@synchronized false
             }
             val nextCount = donorSessions.size + donorAdmissions.size + 1
-            val requestedBudget = accepted.assignments.map { it.mapping.consumerId }.distinct().size *
-                configuration.quotaPerInterval
             val activeBudget = donorSessions.values.sumOf { it.prepared.size * configuration.quotaPerInterval } +
-                donorAdmissions.values.sum()
+                donorAdmissions.values.sumOf(DonorAdmission::budget)
             if (nextCount > configuration.maxDonorSessions || activeBudget + requestedBudget >
                 configuration.maxDonorDelegationsPerInterval) return@synchronized false
-            donorAdmissions[accepted.sessionId] = requestedBudget
+            donorAdmissions[accepted.sessionId] = admission
             true
         }
         if (alreadyKnown) return
@@ -398,6 +475,7 @@ class TrafficWarmupContext internal constructor(
         val prepared = mutableListOf<PreparedWarmupDonor>()
         try {
             accepted.assignments.groupBy { it.mapping.consumerId }.forEach { (id, assignments) ->
+                check(!admission.cancelled.get()) { "donor admission was closed during preparation" }
                 val participant = requireNotNull(participants[id]) { "Unknown local consumer ${id.value}" }
                 val currentlyOwned = participant.donorMappings(assignments.map { it.mapping })
                     .mapTo(mutableSetOf()) { it.mapping }
@@ -406,12 +484,26 @@ class TrafficWarmupContext internal constructor(
                 }
                 prepared += participant.prepareDonor(accepted.sessionId, assignments)
             }
-            synchronized(donorSessions) {
-                donorAdmissions.remove(accepted.sessionId)
-                donorSessions[accepted.sessionId] = DonorSession(
-                    accepted.senderInstanceId,
-                    prepared
-                )
+            val installed = synchronized(donorSessions) {
+                val stillCurrent = donorAdmissions[accepted.sessionId] === admission && !admission.cancelled.get() &&
+                    validRuntimeSession(
+                        accepted.sessionId, accepted.senderInstanceId, admission.reservationId,
+                        admission.assignments, setOf(WarmupSessionLifecycle.NEGOTIATING)
+                    ) != null && System.currentTimeMillis() < accepted.expiresAtEpochMillis
+                donorAdmissions.remove(accepted.sessionId, admission)
+                if (stillCurrent) {
+                    donorSessions[accepted.sessionId] = DonorSession(
+                        accepted.senderInstanceId,
+                        admission.reservationId,
+                        accepted.expiresAtEpochMillis,
+                        prepared
+                    )
+                }
+                stillCurrent
+            }
+            if (!installed) {
+                prepared.forEach(PreparedWarmupDonor::finish)
+                return
             }
             scheduleDonorExpiry(accepted.sessionId, accepted.expiresAtEpochMillis)
             send(
@@ -425,7 +517,7 @@ class TrafficWarmupContext internal constructor(
             )
         } catch (cancelled: CancellationException) {
             synchronized(donorSessions) {
-                donorAdmissions.remove(accepted.sessionId)
+                donorAdmissions.remove(accepted.sessionId, admission)
                 donorSessions.remove(accepted.sessionId)
             }
             prepared.forEach(PreparedWarmupDonor::finish)
@@ -442,7 +534,7 @@ class TrafficWarmupContext internal constructor(
             )
         } catch (error: Throwable) {
             synchronized(donorSessions) {
-                donorAdmissions.remove(accepted.sessionId)
+                donorAdmissions.remove(accepted.sessionId, admission)
                 donorSessions.remove(accepted.sessionId)
             }
             prepared.forEach(PreparedWarmupDonor::finish)
@@ -461,15 +553,27 @@ class TrafficWarmupContext internal constructor(
 
     private suspend fun activateDonor(readyMessage: RecipientReady) {
         val donor = synchronized(donorSessions) { donorSessions[readyMessage.sessionId] } ?: return
-        if (donor.recipient != readyMessage.senderInstanceId) return
-        if (!donor.activationStarted.compareAndSet(false, true)) return
+        val expectedAssignments = donor.prepared.flatMap(PreparedWarmupDonor::assignments).toSet()
+        if (donor.recipient != readyMessage.senderInstanceId ||
+            readyMessage.assignments.toSet() != expectedAssignments ||
+            readyMessage.configurationFingerprint != fingerprint ||
+            readyMessage.expiresAtEpochMillis != donor.expiresAtEpochMillis ||
+            System.currentTimeMillis() >= donor.expiresAtEpochMillis ||
+            validRuntimeSession(
+                readyMessage.sessionId, readyMessage.senderInstanceId, donor.reservationId,
+                expectedAssignments, setOf(WarmupSessionLifecycle.READY)
+            ) == null || !donor.beginActivation()
+        ) return
         try {
-            require(
-                readyMessage.assignments.toSet() == donor.prepared.flatMap(PreparedWarmupDonor::assignments).toSet()
-            ) { "Recipient readiness assignments differ from the accepted donor assignments" }
             donor.prepared.forEach(PreparedWarmupDonor::activate)
-            donor.completeActivation()?.let { performDonorClose(donor, it) }
+            val completion = donor.completeActivation()
+            if (completion.cleanup) {
+                completion.abortFailure?.let { abortPreparedDonor(donor, it) } ?: cleanupDonor(donor)
+            } else {
+                completion.pendingCompletion?.let { performDonorClose(donor, it) }
+            }
         } catch (cancelled: CancellationException) {
+            donor.failActivation()
             if (stopping.get()) {
                 finishDonor(readyMessage.sessionId)
                 throw cancelled
@@ -486,6 +590,7 @@ class TrafficWarmupContext internal constructor(
                 )
             )
         } catch (error: Throwable) {
+            donor.failActivation()
             runCatching { abortDonor(readyMessage.sessionId, error.message ?: "donor forwarding failed") }
             send(
                 SessionRejected(
@@ -502,7 +607,15 @@ class TrafficWarmupContext internal constructor(
 
     private fun requestDonorClose(request: WarmupCompletionRequested) {
         val donor = synchronized(donorSessions) { donorSessions[request.sessionId] } ?: return
-        if (donor.recipient != request.senderInstanceId) return
+        if (donor.recipient != request.senderInstanceId ||
+            request.configurationFingerprint != fingerprint ||
+            request.expiresAtEpochMillis != donor.expiresAtEpochMillis ||
+            validRuntimeSession(
+                request.sessionId, request.senderInstanceId, donor.reservationId,
+                donor.prepared.flatMap(PreparedWarmupDonor::assignments).toSet(),
+                setOf(WarmupSessionLifecycle.CLOSING)
+            ) == null
+        ) return
         if (!donor.requestCompletion(request)) return
         scope.launch { performDonorClose(donor, request) }
     }
@@ -566,11 +679,21 @@ class TrafficWarmupContext internal constructor(
     }
 
     private fun finishDonor(sessionId: WarmupSessionId) {
+        cancelDonorAdmission(sessionId)
         val donor = synchronized(donorSessions) { donorSessions.remove(sessionId) }
-        donor?.prepared?.forEach(PreparedWarmupDonor::finish)
+        if (donor?.close() == true) cleanupDonor(donor)
+    }
+
+    private fun cleanupDonor(donor: DonorSession) {
+        if (donor.claimCleanup()) donor.prepared.forEach(PreparedWarmupDonor::finish)
+    }
+
+    private fun cancelDonorAdmission(sessionId: WarmupSessionId) {
+        synchronized(donorSessions) { donorAdmissions.remove(sessionId) }?.cancelled?.set(true)
     }
 
     private fun endDonor(ended: SessionEnded) {
+        cancelDonorAdmission(ended.sessionId)
         if (ended.state == WarmupSessionEndState.COMPLETED) {
             finishDonor(ended.sessionId)
         } else {
@@ -580,14 +703,22 @@ class TrafficWarmupContext internal constructor(
 
     private suspend fun abortDonor(sessionId: WarmupSessionId, reason: String) {
         val donor = synchronized(donorSessions) { donorSessions[sessionId] } ?: return
+        val failure = WarmupRecipientUnavailableException(reason)
+        synchronized(donorSessions) { donorSessions.remove(sessionId, donor) }
+        if (donor.abort(failure)) abortPreparedDonor(donor, failure)
+    }
+
+    private suspend fun abortPreparedDonor(
+        donor: DonorSession,
+        failure: WarmupRecipientUnavailableException
+    ) {
         try {
-            val failure = WarmupRecipientUnavailableException(reason)
             donor.prepared.forEach { it.failDelegation(failure) }
             withTimeout(configuration.cleanupTimeout) {
                 donor.prepared.forEach { it.awaitInflight(configuration.cleanupTimeout) }
             }
         } finally {
-            finishDonor(sessionId)
+            cleanupDonor(donor)
         }
     }
 
@@ -596,6 +727,23 @@ class TrafficWarmupContext internal constructor(
             delay(max(0, expiresAtEpochMillis - System.currentTimeMillis()))
             abortDonor(sessionId, "warm-up recipient deadline expired")
         }
+    }
+
+    private fun validRuntimeSession(
+        sessionId: WarmupSessionId,
+        recipient: WarmupInstanceId,
+        reservationId: WarmupReservationId? = null,
+        assignments: Set<WarmupPartitionAssignment>,
+        allowedLifecycles: Set<WarmupSessionLifecycle>
+    ): WarmupSessionSnapshot? {
+        val session = sessionTable.reservationFor(sessionId) ?: return null
+        val currentReservation = session.reservationId ?: return null
+        if (session.recipient != recipient || session.configurationFingerprint != fingerprint ||
+            reservationId != null && currentReservation != reservationId ||
+            session.lifecycle !in allowedLifecycles || assignments.isEmpty() ||
+            !session.assignments.containsAll(assignments) || System.currentTimeMillis() >= session.expiresAtEpochMillis
+        ) return null
+        return session
     }
 
     private fun scheduleKnownEmergencyReleases() {
