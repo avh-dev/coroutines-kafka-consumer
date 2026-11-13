@@ -314,21 +314,27 @@ internal class WarmupControlTransport(
 
     private fun closeDuration() = JavaDuration.ofMillis(configuration.sendTimeout.inWholeMilliseconds)
 
-    private fun producerProperties(): Map<String, Any?> = configuration.producerProperties + mapOf(
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
-        ProducerConfig.ACKS_CONFIG to "all",
-        ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
-        ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+    private fun producerProperties(): Map<String, Any?> = buildControlProducerProperties(
+        configuration.producerProperties,
+        mapOf(
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all",
+            ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
+            ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+        )
     )
 
-    private fun consumerProperties(): Map<String, Any?> = configuration.consumerProperties + mapOf(
-        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
-        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java,
-        ConsumerConfig.GROUP_ID_CONFIG to configuration.groupId,
-        ConsumerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-consumer",
-        ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
-        ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
+    private fun consumerProperties(): Map<String, Any?> = buildControlConsumerProperties(
+        configuration.consumerProperties,
+        mapOf(
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java,
+            ConsumerConfig.GROUP_ID_CONFIG to configuration.groupId,
+            ConsumerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-consumer",
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
+        )
     )
 }
 

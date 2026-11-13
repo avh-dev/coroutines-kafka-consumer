@@ -36,6 +36,27 @@ exception type. Kafka properties and exception messages are deliberately exclude
 cannot enter this log event; the control message remains a secondary audit path rather than the
 only diagnostic signal.
 
+Library-owned Kafka clients apply small defaults before the existing maps DSL overrides:
+
+| Client | Defaults |
+| --- | --- |
+| Control producer | `linger.ms=0` |
+| Warm-up forwarding producer | `linger.ms=5` |
+| Control consumer | `fetch.min.bytes=1`, `fetch.max.wait.ms=3000` |
+| Warm-up recipient consumer | `fetch.min.bytes=1`, `fetch.max.wait.ms=3000` |
+
+Control clients merge defaults, `controlKafkaProperties`, then protocol-required properties.
+The forwarding producer merges its defaults then `forwardingProducerProperties`. The recipient
+merges main-consumer properties, recipient defaults, `warmupConsumerProperties`, then its required
+unique group/client settings. Consequently recipient defaults intentionally replace inherited main
+fetch tuning, while explicit warm-up overrides still win; the original maps and main consumers are
+unchanged. Bootstrap servers, security, serializers/deserializers, metadata routing, `batch.size`,
+message/request/fetch size limits, quotas, poll timeout, and send mechanics are unaffected.
+`fetch.max.wait.ms` only bounds a broker wait when insufficient data is available; it is not a
+mandatory delay for every record. Likewise, `linger.ms` does not guarantee that a complete interval
+quota is sent as one producer batch. Applications override either value through the same existing
+Kafka-property maps.
+
 Before its first reservation request the recipient waits a random 1000-2000 ms contention delay.
 The recipient then selects one free destination per mapping and publishes an atomic
 `ReservationRequested(sessionId, reservationId, assignments)`. Topic partition numbers are

@@ -11,6 +11,7 @@ import avh.ckc.core.warmup.TrafficWarmupConsumerConfiguration
 import avh.ckc.core.warmup.TrafficWarmupContext
 import avh.ckc.core.warmup.WarmupConsumerId
 import avh.ckc.core.warmup.WarmupTopicMapping
+import avh.ckc.core.warmup.buildWarmupForwardingProducerProperties
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -201,7 +202,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         if (warmup == null) return buildRuntime(consumerProperties, configuredHandler)
 
         require(warmup.configuration.mappings.isNotEmpty()) { "At least one warm-up topic mapping is required" }
-        val forwardingProducerProperties = warmup.configuration.forwardingProducerProperties.toMap()
+        val forwardingProducerProperties = buildWarmupForwardingProducerProperties(
+            warmup.configuration.forwardingProducerProperties
+        )
         val warmupConsumerProperties = warmup.configuration.warmupConsumerProperties.toMap()
         listOf(
             ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
