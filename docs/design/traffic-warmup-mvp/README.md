@@ -188,7 +188,8 @@ discards that happen before the interceptor, such as freshness replacement and q
 
 Initial donor mapping is:
 
-- `SUCCEEDED`: terminalize the source as processed and emit its ordinary source metrics/audit;
+- `SUCCEEDED`: terminalize the source as processed and emit its source audit callback, but mark it
+  remotely processed so ordinary donor processing counters and latency timers are not duplicated;
 - `TERMINAL_FAILURE`: run the complete local handler/retry/failure pipeline once;
 - `DISCARDED`: apply the same discard only when the source runtime supports that policy outcome;
   an impossible outcome/mode combination fails the session and leaves the source non-terminal;
@@ -348,7 +349,11 @@ performs cold start. Application shutdown cancels the lifecycle and never starts
 `ConsumerMetrics` is the existing common observation path for processed, failed, discarded, and
 handed-off records. CKC demo audit should use that path consistently for `C/F/D/H`, rather than
 writing `C/F` only inside handlers, so applying a remote outcome can emit the ordinary source audit
-without executing the donor handler.
+without executing the donor handler. `onRecordProcessed(processedRemotely = true)` therefore keeps
+the donor callback and audit while the Micrometer implementation skips its ordinary processed,
+handler-duration, and end-to-end measurements. Recipient handler execution and donor local fallback
+use `false` and retain normal metrics; if a result is lost and fallback re-executes the handler, both
+actual executions remain visible.
 
 A separate structured forwarding callback carries source and destination coordinates after ACK.
 The demo may encode it as an additional diagnostic audit record. Aggregate Micrometer callbacks

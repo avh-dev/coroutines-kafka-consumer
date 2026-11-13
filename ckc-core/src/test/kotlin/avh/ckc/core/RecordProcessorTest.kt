@@ -210,6 +210,27 @@ class RecordProcessorTest {
 
         assertEquals(RecordProcessingOutcome.HandlerSucceeded, outcome)
         assertEquals(listOf(RecordProcessingOutcome.HandlerSucceeded), observed)
+        assertEquals(false, metrics.processed.single().processedRemotely)
+    }
+
+    @Test
+    fun `confirmed remote success completes source and marks metrics callback as remote`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val processedCalls = AtomicInteger()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> { error("local handler must not run") },
+            metrics = metrics,
+            onRecordProcessed = { processedCalls.incrementAndGet() },
+            interceptor = AdmittedRecordInterceptor { _, _ ->
+                RecordProcessingOutcome.HandlerSucceededRemotely
+            }
+        )
+
+        val outcome = processor.process(typedTestRecord(offset = 15L))
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, outcome)
+        assertEquals(1, processedCalls.get())
+        assertEquals(true, metrics.processed.single().processedRemotely)
     }
 
     @Test

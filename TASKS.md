@@ -88,6 +88,7 @@
 | [CORE-91](#core-91) | Support parallel warm-up sessions with metadata-discovered destination partition reservations and snapshot-based control-state synchronization. | DONE |
 | [CORE-92](#core-92) | Retire expired warm-up session history through an offset-ordered monotonic control boundary. | DONE |
 | [CORE-93](#core-93) | Resolve every warm-up topic through its mapping participant's Kafka connection instead of the control cluster. | DONE |
+| [CORE-94](#core-94) | Exclude confirmed remote donor completions from ordinary processing metrics while preserving callbacks and progress. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -195,6 +196,7 @@
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-110](#demo-110) | Wire the simplified traffic warm-up library API into the demo and record forwarding diagnostics through the existing observation path. | DONE |
 | [DEMO-111](#demo-111) | Expose the absolute warm-up quota ramp through demo configuration. | DONE |
+| [DEMO-112](#demo-112) | Preserve audit callbacks while forwarding the remote-processing marker through demo metrics wrappers. | PLANNED |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6116,6 +6118,15 @@ traffic-warm-up configuration. Keep the fixed-quota defaults unchanged and pass 
 initial value into the library-owned context without adding demo lifecycle logic.
 Verification: all demo tests pass through `:ckc-demo:check`.
 
+<a id="demo-112"></a>
+### DEMO-112 - Preserve audit for remotely processed donor records
+
+_Date: 2026-11-13_
+
+Forward the core remote-processing marker through the demo `ConsumerMetrics` audit wrapper.
+Keep the donor callback and audit publication while allowing the Micrometer delegate to suppress
+duplicate ordinary processing counters and latency measurements.
+
 <a id="infra-343"></a>
 ### INFRA-343 - Add a short fourth-pod warm-up diagnostic
 
@@ -6271,6 +6282,19 @@ by the shared negotiation deadline and cold-fallback when any mapping cannot be 
 Verification covers independent mapping participants, control-topic isolation, metadata timeout,
 partition exhaustion, safe local fallback diagnostics, and the complete core unit and real-Kafka
 integration suites.
+
+<a id="core-94"></a>
+### CORE-94 - Separate remote donor completion from ordinary processing metrics
+
+_Date: 2026-11-13_
+
+Carry a confirmed remote-success marker from the warm-up data plane into the donor's successful
+processing callback. Preserve source completion, offset progress, callback delivery, audit seams,
+and warm-up-specific delegation/result metrics while suppressing duplicate ordinary Micrometer
+processing counters and latency measurements only for confirmed remote success. Local processing,
+recipient handlers, and donor fallback continue to report ordinary metrics.
+Tests were intentionally not run under the task instruction; targeted and full verification commands
+are prepared for handoff.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

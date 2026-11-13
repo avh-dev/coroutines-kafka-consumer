@@ -137,7 +137,17 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         record: ConsumerRecord<K, V>,
         endToEndLatencyMillis: Long,
         durationNanos: Long
+    ) = onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos, processedRemotely = false)
+
+    override fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
     ) {
+        if (processedRemotely) return
         val tags = recordTags(record)
         timer(RECORD_PROCESS_DURATION, tags).record(durationNanos, TimeUnit.NANOSECONDS)
         timer(RECORD_END_TO_END_DURATION, tags).record(endToEndLatencyMillis, TimeUnit.MILLISECONDS)

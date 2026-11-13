@@ -152,7 +152,7 @@ internal class FixedLinkWarmupDataPlane<K, V>(
             }
 
             return when (remote) {
-                WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceeded
+                WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceededRemotely
                 WarmupRemoteOutcome.TerminalFailure -> {
                     metrics.onWarmupFallback(record, WarmupFallbackReason.REMOTE_TERMINAL_FAILURE)
                     processLocally()
@@ -263,6 +263,7 @@ internal class WarmupRecipientOutcomePublisher<K, V>(
     override fun onOutcome(record: ConsumerRecord<K, V>, outcome: RecordProcessingOutcome) {
         val remote = when (outcome) {
             RecordProcessingOutcome.HandlerSucceeded -> WarmupRemoteOutcome.Succeeded
+            RecordProcessingOutcome.HandlerSucceededRemotely -> WarmupRemoteOutcome.Succeeded
             is RecordProcessingOutcome.HandlerFailed -> WarmupRemoteOutcome.TerminalFailure
             is RecordProcessingOutcome.PolicyDiscarded -> WarmupRemoteOutcome.Discarded(outcome.reason)
             RecordProcessingOutcome.Filtered -> return

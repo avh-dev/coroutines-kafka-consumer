@@ -57,14 +57,16 @@ internal class RecordProcessor<K, V>(
                 processLocally(record, key, value)
             }
             when (outcome) {
-                RecordProcessingOutcome.HandlerSucceeded -> {
+                RecordProcessingOutcome.HandlerSucceeded,
+                RecordProcessingOutcome.HandlerSucceededRemotely -> {
                     onRecordProcessed(record)
                     metrics.onRecordProcessed(
                         key = key,
                         value = value,
                         record = record,
                         endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
-                        durationNanos = System.nanoTime() - startedAt
+                        durationNanos = System.nanoTime() - startedAt,
+                        processedRemotely = outcome == RecordProcessingOutcome.HandlerSucceededRemotely
                     )
                 }
                 is RecordProcessingOutcome.HandlerFailed -> {
