@@ -79,6 +79,20 @@ interface ConsumerMetrics<K, V> {
     ) = Unit
 
     /**
+     * Records a successful terminal outcome while distinguishing execution by this consumer from
+     * a confirmed handler success on a warm-up recipient. Implementations that only need the
+     * callback/audit seam may keep overriding the legacy overload.
+     */
+    fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
+    ) = onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos)
+
+    /**
      * Records a failed record after processing cannot continue.
      *
      * [durationNanos] covers the processing attempt until failure is reported.

@@ -74,7 +74,7 @@ class WarmupRecipientPrimitivesTest {
         switch.activate(plane)
 
         assertEquals(
-            RecordProcessingOutcome.HandlerSucceeded,
+            RecordProcessingOutcome.HandlerSucceededRemotely,
             switch.process(source) { error("local fallback not expected") }
         )
         assertEquals(1, localCalls.get())

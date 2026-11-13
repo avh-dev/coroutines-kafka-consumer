@@ -8,6 +8,9 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 internal sealed interface RecordProcessingOutcome {
     data object HandlerSucceeded : RecordProcessingOutcome
 
+    /** A warm-up recipient completed the handler and the donor received its terminal result. */
+    data object HandlerSucceededRemotely : RecordProcessingOutcome
+
     /** The handler exhausted retries and the configured failure handler completed. */
     data class HandlerFailed(val error: Throwable) : RecordProcessingOutcome
 

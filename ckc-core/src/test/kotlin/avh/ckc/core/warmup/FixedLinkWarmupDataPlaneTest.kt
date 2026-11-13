@@ -55,7 +55,7 @@ class FixedLinkWarmupDataPlaneTest {
             RecordProcessingOutcome.HandlerSucceeded
         }
 
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, outcome)
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, outcome)
         assertEquals(0, localCalls.get())
         assertEquals(1, forwarded.size)
         assertEquals(7L, forwarded.single().sourceOffset)
@@ -306,7 +306,7 @@ class FixedLinkWarmupDataPlaneTest {
         )
 
         assertEquals(
-            RecordProcessingOutcome.HandlerSucceeded,
+            RecordProcessingOutcome.HandlerSucceededRemotely,
             plane.process(record()) { error("fallback not expected") }
         )
     }
@@ -375,7 +375,7 @@ class FixedLinkWarmupDataPlaneTest {
         plane.accept(completed(event, WarmupRemoteOutcome.Succeeded))
 
         assertEquals(RecordProcessingOutcome.HandlerSucceeded, local)
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, delegated.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, delegated.await())
         assertEquals(1, localCalls.get())
     }
 
@@ -402,7 +402,7 @@ class FixedLinkWarmupDataPlaneTest {
         assertFalse(stopping.isCompleted)
         assertFalse(processing.isCompleted)
         plane.accept(completed(event.await(), WarmupRemoteOutcome.Succeeded))
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, processing.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, processing.await())
         stopping.await()
     }
 
@@ -511,8 +511,8 @@ class FixedLinkWarmupDataPlaneTest {
         withTimeout(1_000) { while (events.size != 2) kotlinx.coroutines.yield() }
 
         events.forEach { plane.accept(completed(it, WarmupRemoteOutcome.Succeeded)) }
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, first.await())
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, second.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, first.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, second.await())
         assertEquals(2, sends.get())
     }
 
@@ -557,12 +557,15 @@ class FixedLinkWarmupDataPlaneTest {
         val result = async { plane.process(record()) { error("fallback not expected") } }
         val event = withTimeout(1_000) { forwarded.await() }
         assertFalse(result.isCompleted)
+        val completed = completed(event, WarmupRemoteOutcome.Succeeded)
 
         assertEquals(
             WarmupResultTracker.Completion.DELIVERED,
-            plane.accept(completed(event, WarmupRemoteOutcome.Succeeded))
+            plane.accept(completed)
         )
-        assertEquals(RecordProcessingOutcome.HandlerSucceeded, result.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, result.await())
+        assertEquals(WarmupResultTracker.Completion.DUPLICATE, plane.accept(completed))
+        assertEquals(listOf(WarmupResultMetricOutcome.SUCCEEDED), metrics.results)
         assertEquals(listOf(1, 0), metrics.pending)
     }
 

@@ -166,6 +166,32 @@ class MicrometerConsumerMetricsSchemaTest {
     }
 
     @Test
+    fun `when donor confirms remote processing then ordinary processing timers are not recorded`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = MicrometerConsumerMetricsSchema(
+            meterRegistry = registry,
+            metricPrefix = "test"
+        ).let { schema ->
+            micrometerConsumerMetrics<String, TestLifecycleEvent>(schema) {
+                consumerId = "orders"
+            }
+        }
+
+        metrics.onRecordProcessed(
+            key = "key",
+            value = TestLifecycleEvent("ORDER_CREATED"),
+            record = testRecord(partition = 2),
+            endToEndLatencyMillis = 123,
+            durationNanos = TimeUnit.MILLISECONDS.toNanos(25),
+            processedRemotely = true
+        )
+
+        assertTrue(registry.find("test.ckc.record.process.duration").meters().isEmpty())
+        assertTrue(registry.find("test.ckc.record.end.to.end.duration").meters().isEmpty())
+        assertTrue(registry.find("test.ckc.record.processed").meters().isEmpty())
+    }
+
+    @Test
     fun `when record fails then failure metrics include error tag`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(

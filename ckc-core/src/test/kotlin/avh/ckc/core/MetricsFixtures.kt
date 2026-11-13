@@ -16,7 +16,8 @@ data class RecordProcessedCall<K, V>(
     val value: V?,
     val record: ConsumerRecord<K, V>,
     val endToEndLatencyMillis: Long,
-    val durationNanos: Long
+    val durationNanos: Long,
+    val processedRemotely: Boolean
 )
 
 data class RecordFailedCall<K, V>(
@@ -114,8 +115,24 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         record: ConsumerRecord<K, V>,
         endToEndLatencyMillis: Long,
         durationNanos: Long
+    ) = onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos, processedRemotely = false)
+
+    override fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
     ) {
-        processed += RecordProcessedCall(key, value, record, endToEndLatencyMillis, durationNanos)
+        processed += RecordProcessedCall(
+            key,
+            value,
+            record,
+            endToEndLatencyMillis,
+            durationNanos,
+            processedRemotely
+        )
     }
 
     override fun onRecordFailed(
