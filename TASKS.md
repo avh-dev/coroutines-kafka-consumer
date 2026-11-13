@@ -89,6 +89,7 @@
 | [CORE-92](#core-92) | Retire expired warm-up session history through an offset-ordered monotonic control boundary. | DONE |
 | [CORE-93](#core-93) | Resolve every warm-up topic through its mapping participant's Kafka connection instead of the control cluster. | DONE |
 | [CORE-94](#core-94) | Exclude confirmed remote donor completions from ordinary processing metrics while preserving callbacks and progress. | DONE |
+| [CORE-95](#core-95) | Add low-latency Kafka client defaults for warm-up and control traffic while preserving explicit overrides. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6297,6 +6298,18 @@ processing counters and latency measurements only for confirmed remote success. 
 recipient handlers, and donor fallback continue to report ordinary metrics.
 Tests were intentionally not run under the task instruction; targeted and full verification commands
 are prepared for handoff.
+
+<a id="core-95"></a>
+### CORE-95 - Add warm-up Kafka client defaults
+
+_Date: 2026-11-13_
+
+Provide low-latency producer defaults and idle-friendly consumer fetch defaults for library-owned
+control and warm-up clients. Merge them through the existing Kafka property maps so explicit
+warm-up settings win, protocol-required settings retain final priority, inherited main-consumer
+fetch tuning is replaced only for the recipient, and the main consumer remains unchanged.
+Tests were intentionally not run under the task instruction; focused property-composition and full
+core verification commands are prepared for handoff.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

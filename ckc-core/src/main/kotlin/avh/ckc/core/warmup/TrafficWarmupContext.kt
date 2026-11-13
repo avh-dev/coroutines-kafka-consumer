@@ -295,9 +295,13 @@ class TrafficWarmupContext internal constructor(
         consumerId: WarmupConsumerId
     ): Map<String, Any?> {
         val uniqueId = "ckc.traffic-warmup.v1.${configuration.instanceId.value}.${consumerId.value}.${UUID.randomUUID()}"
-        return (mainProperties + overrides - ConsumerConfig.GROUP_INSTANCE_ID_CONFIG) + mapOf(
-            ConsumerConfig.GROUP_ID_CONFIG to uniqueId,
-            ConsumerConfig.CLIENT_ID_CONFIG to uniqueId
+        return buildWarmupRecipientConsumerProperties(
+            mainProperties,
+            overrides,
+            mapOf(
+                ConsumerConfig.GROUP_ID_CONFIG to uniqueId,
+                ConsumerConfig.CLIENT_ID_CONFIG to uniqueId
+            )
         )
     }
 
