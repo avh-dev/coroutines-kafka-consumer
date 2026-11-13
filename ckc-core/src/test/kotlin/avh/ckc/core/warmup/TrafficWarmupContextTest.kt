@@ -125,7 +125,10 @@ class TrafficWarmupContextTest {
 
     @Test
     fun `metadata timeout performs cold fallback without reserving`() = runBlocking {
-        val participant = FakeParticipant(consumerId, listOf(mapping))
+        val participant = FakeParticipant(consumerId, listOf(mapping), metadata = {
+            delay(1.seconds)
+            mapOf(mapping to setOf(0))
+        })
         lateinit var channel: FakeControlChannel
         val context = context(enforceDistributedProtocol = true) { handler ->
             FakeControlChannel(
@@ -135,10 +138,7 @@ class TrafficWarmupContextTest {
                         control.deliver(authoritativeOffer(message))
                     }
                 },
-                metadata = {
-                    delay(1.seconds)
-                    mapOf("control" to setOf(0), "warmup-orders" to setOf(0))
-                }
+                metadata = { mapOf("control" to setOf(0)) }
             ).also { channel = it }
         }
         context.register(participant)
@@ -153,7 +153,11 @@ class TrafficWarmupContextTest {
 
     @Test
     fun `metadata with no unreserved partition performs cold fallback`() = runBlocking {
-        val participant = FakeParticipant(consumerId, listOf(mapping))
+        val participant = FakeParticipant(
+            consumerId,
+            listOf(mapping),
+            metadata = { mapOf(mapping to setOf(0)) }
+        )
         lateinit var channel: FakeControlChannel
         val context = context(enforceDistributedProtocol = true) { handler ->
             FakeControlChannel(
@@ -185,7 +189,7 @@ class TrafficWarmupContextTest {
                         )
                     }
                 },
-                metadata = { mapOf("control" to setOf(0), "warmup-orders" to setOf(0)) }
+                metadata = { mapOf("control" to setOf(0)) }
             ).also { channel = it }
         }
         context.register(participant)
@@ -195,6 +199,76 @@ class TrafficWarmupContextTest {
 
         assertEquals(listOf("main"), participant.events)
         assertFalse(channel.sent.any { it is ReservationRequested })
+        context.stop()
+    }
+
+    @Test
+    fun `warmup metadata is resolved by each mapping participant not control connection`() = runBlocking {
+        val batches = WarmupTopicMapping(WarmupConsumerId("batches"), "batches", "warmup-batches")
+        val requestedByParticipant = CopyOnWriteArrayList<Set<WarmupTopicMapping>>()
+        val controlRequests = CopyOnWriteArrayList<Set<String>>()
+        val ordersParticipant = FakeParticipant(
+            consumerId,
+            listOf(mapping),
+            metadata = { requested ->
+                requestedByParticipant += requested.toSet()
+                mapOf(mapping to setOf(2))
+            }
+        )
+        val batchesParticipant = FakeParticipant(
+            batches.consumerId,
+            listOf(batches),
+            metadata = { requested ->
+                requestedByParticipant += requested.toSet()
+                mapOf(batches to setOf(5))
+            }
+        )
+        lateinit var channel: FakeControlChannel
+        val context = context { handler ->
+            FakeControlChannel(
+                handler,
+                metadata = { topics ->
+                    controlRequests += topics
+                    mapOf("control" to setOf(0))
+                },
+                response = { message, control ->
+                    when (message) {
+                        is WarmupRequested -> control.deliver(DonorOffered(
+                            message.sessionId,
+                            donor,
+                            local,
+                            listOf(
+                                WarmupDonorMapping(mapping, setOf(0)),
+                                WarmupDonorMapping(batches, setOf(0))
+                            ),
+                            message.configurationFingerprint,
+                            message.expiresAtEpochMillis
+                        ))
+                        is SessionAccepted -> control.deliver(DonorAccepted(
+                            message.sessionId, donor, local,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        ))
+                        is WarmupCompletionRequested -> control.deliver(DonorClosed(
+                            message.sessionId, donor, local,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        ))
+                        else -> Unit
+                    }
+                }
+            ).also { channel = it }
+        }
+        context.register(ordersParticipant)
+        context.register(batchesParticipant)
+        context.start()
+        withTimeout(2_000) { context.awaitReady() }
+
+        val reservation = channel.sent.filterIsInstance<ReservationRequested>().single()
+        assertEquals(setOf(setOf(mapping), setOf(batches)), requestedByParticipant.toSet())
+        assertEquals(listOf(setOf("control")), controlRequests)
+        assertEquals(
+            mapOf(mapping to 2, batches to 5),
+            reservation.assignments.associate { it.mapping to it.warmupPartition }
+        )
         context.stop()
     }
 
@@ -1321,11 +1395,18 @@ class TrafficWarmupContextTest {
     private class FakeParticipant(
         override val consumerId: WarmupConsumerId,
         override val mappings: List<WarmupTopicMapping>,
-        private val failRecipientPreparation: Boolean = false
+        private val failRecipientPreparation: Boolean = false,
+        private val metadata: suspend (
+            Collection<WarmupTopicMapping>
+        ) -> Map<WarmupTopicMapping, Set<Int>>? = { null }
     ) : RegisteredWarmupParticipant {
         val events = mutableListOf<String>()
         var mainStarted = false
         var recipientMainStarted = false
+
+        override suspend fun warmupTopicPartitions(
+            requested: Collection<WarmupTopicMapping>
+        ): Map<WarmupTopicMapping, Set<Int>>? = metadata(requested)
 
         override fun donorMappings(requested: Collection<WarmupTopicMapping>) = emptyList<WarmupDonorMapping>()
         override fun prepareDonor(sessionId: WarmupSessionId, assignments: List<WarmupPartitionAssignment>) =

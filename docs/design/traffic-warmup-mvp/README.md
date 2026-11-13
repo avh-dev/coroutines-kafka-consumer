@@ -24,9 +24,13 @@ the table current while warming and after it becomes hot.
 
 The library obtains the actual partition IDs for every configured warm-up topic from Kafka
 metadata under `negotiationTimeout`; the application configures topic mappings, not partition
-counts. It also verifies that the control topic has exactly one partition. Infrastructure must
-create all topics beforehand. Protocol v5 assumes warm-up topics are not recreated and their
-partition sets do not change while contexts are running.
+counts. Each mapping owner performs this lookup with its warm-up forwarding-producer Kafka
+properties, so destination topics may live outside the control cluster. The control connection is
+used only to verify that the control topic has exactly one partition. All mapping and control
+lookups share the negotiation timeout; an incomplete, failed, or timed-out lookup causes cold
+fallback without a reservation. Infrastructure must create all topics beforehand. Protocol v5
+assumes warm-up topics are not recreated and their partition sets do not change while contexts are
+running.
 
 Before its first reservation request the recipient waits a random 1000-2000 ms contention delay.
 The recipient then selects one free destination per mapping and publishes an atomic

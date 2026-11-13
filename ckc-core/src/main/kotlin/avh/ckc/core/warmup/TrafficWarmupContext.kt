@@ -10,8 +10,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -877,10 +880,16 @@ class TrafficWarmupContext internal constructor(
         }
         val selected = selectDonors(mappings, offers)
         val metadata = withTimeout(configuration.negotiationTimeout) {
-            transport.topicPartitions(mappings.mapTo(linkedSetOf(), WarmupTopicMapping::warmupTopic) + configuration.controlTopic)
-        }
-        metadata?.get(configuration.controlTopic)?.let {
-            check(it.size == 1) { "Warm-up control topic must have exactly one partition" }
+            val controlMetadata = async {
+                transport.topicPartitions(setOf(configuration.controlTopic))
+            }
+            val mappingMetadata = async { mappingTopicPartitions(mappings) }
+            controlMetadata.await()?.let { discovered ->
+                check(discovered[configuration.controlTopic]?.size == 1) {
+                    "Warm-up control topic must have exactly one partition"
+                }
+            }
+            mappingMetadata.await()
         }
         val negotiationDeadline = System.currentTimeMillis() + configuration.negotiationTimeout.inWholeMilliseconds
         val reservationId = reserveDestinations(session, mappings, metadata, expiresAt, negotiationDeadline)
@@ -1056,7 +1065,7 @@ class TrafficWarmupContext internal constructor(
     private suspend fun reserveDestinations(
         sessionId: WarmupSessionId,
         mappings: List<WarmupTopicMapping>,
-        metadata: Map<String, Set<Int>>?,
+        metadata: Map<WarmupTopicMapping, Set<Int>>?,
         expiresAtEpochMillis: Long,
         negotiationDeadlineEpochMillis: Long
     ): Pair<WarmupReservationId, List<WarmupPartitionAssignment>> {
@@ -1075,12 +1084,11 @@ class TrafficWarmupContext internal constructor(
                 .groupBy(WarmupTopicMapping::warmupTopic)
                 .values
                 .flatMap { sameTopic ->
-                    val topic = sameTopic.first().warmupTopic
-                    val existing = metadata?.get(topic)?.sorted()
-                        ?: sameTopic.indices.toList() // in-memory compatibility; production always uses metadata
-                    val free = existing.filter { TopicPartition(topic, it) !in unavailable }.iterator()
                     sameTopic.sortedWith(compareBy({ it.consumerId.value }, WarmupTopicMapping::sourceTopic)).map { mapping ->
-                        check(free.hasNext()) { "no free warm-up partition for $topic" }
+                        val existing = metadata?.get(mapping)?.sorted()
+                            ?: sameTopic.indices.toList() // in-memory compatibility; production always uses metadata
+                        val free = existing.filter { TopicPartition(mapping.warmupTopic, it) !in unavailable }.iterator()
+                        check(free.hasNext()) { "no free warm-up partition for ${mapping.warmupTopic}" }
                         WarmupPartitionAssignment(mapping, free.next()).also { unavailable += it.destination }
                     }
                 }
@@ -1106,6 +1114,31 @@ class TrafficWarmupContext internal constructor(
             retry = true
         }
         error("warm-up partition reservation deadline expired")
+    }
+
+    private suspend fun mappingTopicPartitions(
+        mappings: List<WarmupTopicMapping>
+    ): Map<WarmupTopicMapping, Set<Int>>? = coroutineScope {
+        val result = linkedMapOf<WarmupTopicMapping, Set<Int>>()
+        val discoveredByParticipant = mappings.groupBy(WarmupTopicMapping::consumerId)
+            .map { (consumerId, ownedMappings) ->
+                async {
+                    Triple(
+                        consumerId,
+                        ownedMappings,
+                        requireNotNull(participants[consumerId]).warmupTopicPartitions(ownedMappings)
+                    )
+                }
+            }
+            .awaitAll()
+        discoveredByParticipant.forEach { (consumerId, ownedMappings, discovered) ->
+            if (discovered == null) return@coroutineScope null
+            check(discovered.keys == ownedMappings.toSet()) {
+                "Warm-up metadata must resolve every mapping owned by ${consumerId.value}"
+            }
+            result.putAll(discovered)
+        }
+        result
     }
 
     private suspend fun delayForReservationAttempt(range: LongRange, deadlineEpochMillis: Long): Boolean {

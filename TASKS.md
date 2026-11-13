@@ -87,6 +87,7 @@
 | [CORE-90](#core-90) | Let the recipient initiate warm-up completion and wait for every donor to close all delegated processing before starting main consumers. | DONE |
 | [CORE-91](#core-91) | Support parallel warm-up sessions with metadata-discovered destination partition reservations and snapshot-based control-state synchronization. | DONE |
 | [CORE-92](#core-92) | Retire expired warm-up session history through an offset-ordered monotonic control boundary. | DONE |
+| [CORE-93](#core-93) | Resolve every warm-up topic through its mapping participant's Kafka connection instead of the control cluster. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6257,6 +6258,18 @@ Protocol v5 periodically advances the boundary from every authoritative context 
 publisher clock checks separate from deterministic table application. Verification covers 1,000
 compacted sessions, partition reuse, convergence, snapshot installation, stale messages, runtime
 isolation, codec round trips, and the complete core unit and real-Kafka suites.
+
+<a id="core-93"></a>
+### CORE-93 - Use mapping-scoped Kafka metadata
+
+_Date: 2026-11-13_
+
+Query the single control topic only through the control connection. Resolve each warm-up
+destination topic through the Kafka settings owned by its registered mapping participant,
+so control and data-plane topics may live on different clusters. Keep metadata lookup bounded
+by the shared negotiation deadline and cold-fallback when any mapping cannot be resolved.
+Verification covers independent mapping participants, control-topic isolation, metadata timeout,
+partition exhaustion, and the complete core unit and real-Kafka integration suites.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

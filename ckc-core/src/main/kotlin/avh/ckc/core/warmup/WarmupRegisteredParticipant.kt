@@ -7,8 +7,12 @@ import avh.ckc.core.processing.RecordProcessingOutcomeObserver
 import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
+import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
+import java.time.Duration as JavaDuration
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 
@@ -34,6 +38,10 @@ internal interface PreparedWarmupRecipient {
 internal interface RegisteredWarmupParticipant {
     val consumerId: WarmupConsumerId
     val mappings: List<WarmupTopicMapping>
+    /** Null is reserved for in-memory participants that do not model Kafka metadata. */
+    suspend fun warmupTopicPartitions(
+        requested: Collection<WarmupTopicMapping>
+    ): Map<WarmupTopicMapping, Set<Int>>? = null
     fun donorMappings(requested: Collection<WarmupTopicMapping>): List<WarmupDonorMapping>
     fun prepareDonor(
         sessionId: WarmupSessionId,
@@ -48,6 +56,28 @@ internal interface RegisteredWarmupParticipant {
     suspend fun startMain()
     suspend fun stop()
     suspend fun awaitTermination()
+}
+
+internal fun interface WarmupTopicMetadataProvider {
+    suspend fun topicPartitions(topics: Set<String>): Map<String, Set<Int>>
+}
+
+private class KafkaWarmupTopicMetadataProvider(
+    private val properties: Map<String, Any?>
+) : WarmupTopicMetadataProvider {
+    override suspend fun topicPartitions(topics: Set<String>): Map<String, Set<Int>> =
+        runInterruptible(Dispatchers.IO) {
+            val admin = Admin.create(properties)
+            try {
+                admin.describeTopics(topics).allTopicNames().get().mapValues { (_, description) ->
+                    description.partitions().mapTo(linkedSetOf()) { it.partition() }.also {
+                        require(it.isNotEmpty()) { "Kafka metadata returned no partitions" }
+                    }
+                }
+            } finally {
+                admin.close(JavaDuration.ZERO)
+            }
+        }
 }
 
 internal class KafkaWarmupParticipant<K, V>(
@@ -70,10 +100,25 @@ internal class KafkaWarmupParticipant<K, V>(
     private val quotaRampDuration: Duration,
     private val delegationTimeout: Duration,
     private val cleanupTimeout: Duration,
-    private val completionBufferCapacity: Int
+    private val completionBufferCapacity: Int,
+    private val metadataProvider: WarmupTopicMetadataProvider = KafkaWarmupTopicMetadataProvider(producerProperties)
 ) : RegisteredWarmupParticipant {
     private val mainStarted = AtomicBoolean(false)
     private val mappingBySource = mappings.associateBy(WarmupTopicMapping::sourceTopic)
+
+    override suspend fun warmupTopicPartitions(
+        requested: Collection<WarmupTopicMapping>
+    ): Map<WarmupTopicMapping, Set<Int>> {
+        require(requested.isNotEmpty() && requested.all { it.consumerId == consumerId && it in mappings }) {
+            "Invalid warm-up metadata mappings for $consumerId"
+        }
+        val byTopic = metadataProvider.topicPartitions(requested.mapTo(linkedSetOf()) { it.warmupTopic })
+        return requested.associateWith { mapping ->
+            requireNotNull(byTopic[mapping.warmupTopic]) {
+                "Kafka metadata did not contain warm-up topic ${mapping.warmupTopic}"
+            }
+        }
+    }
 
     override fun donorMappings(requested: Collection<WarmupTopicMapping>): List<WarmupDonorMapping> {
         if (!mainStarted.get()) return emptyList()
