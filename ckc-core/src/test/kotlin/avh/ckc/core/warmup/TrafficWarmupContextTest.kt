@@ -668,6 +668,8 @@ class TrafficWarmupContextTest {
             controlTopic = "control"
             offerWindow = 20.milliseconds
             negotiationTimeout = 500.milliseconds
+            reservationInitialJitterMillis = 1L..2L
+            reservationRetryJitterMillis = 1L..2L
             this.warmupDuration = warmupDuration
             delegationTimeout = 500.milliseconds
             cleanupTimeout = 500.milliseconds

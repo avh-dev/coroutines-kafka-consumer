@@ -13,12 +13,10 @@ class WarmupSessionTableTest {
     private val mappingA = WarmupTopicMapping(WarmupConsumerId("orders"), "orders", "warmup-orders")
     private val mappingB = WarmupTopicMapping(WarmupConsumerId("batches"), "batches", "warmup-batches")
     private val fingerprint = "fingerprint"
-    private var now = 1_000L
-
     @Test
     fun `identical offset prefix produces identical session and reservation state`() {
-        val first = WarmupSessionTable { now }
-        val second = WarmupSessionTable { now }
+        val first = WarmupSessionTable()
+        val second = WarmupSessionTable()
         val session = WarmupSessionId("session-a")
         val reservation = WarmupReservationId("reservation-a")
         val records = listOf(
@@ -37,22 +35,49 @@ class WarmupSessionTableTest {
     }
 
     @Test
+    fun `reading the same prefix on opposite sides of expiry keeps the same winner`() {
+        val beforeExpiry = WarmupSessionTable()
+        val afterExpiry = WarmupSessionTable()
+        val expiresAt = System.currentTimeMillis() + 100
+        val firstSession = WarmupSessionId("first")
+        val secondSession = WarmupSessionId("second")
+        val records = listOf(
+            record(0, request(firstSession, recipientA, expiresAt)),
+            record(1, request(secondSession, recipientB, expiresAt)),
+            record(2, reservation(
+                firstSession, recipientA, WarmupReservationId("first-r"), assignment(mappingA, 0),
+                expiresAt = expiresAt
+            )),
+            record(3, reservation(
+                secondSession, recipientB, WarmupReservationId("second-r"), assignment(mappingA, 0),
+                expiresAt = expiresAt
+            ))
+        )
+
+        val earlyDecisions = records.map(beforeExpiry::apply)
+        Thread.sleep(150)
+        val lateDecisions = records.map(afterExpiry::apply)
+        beforeExpiry.markBootstrapAuthoritative(3)
+        afterExpiry.markBootstrapAuthoritative(3)
+
+        assertEquals(earlyDecisions.map { it.kind }, lateDecisions.map { it.kind })
+        assertEquals(WarmupTableDecisionKind.RESERVATION_CONFLICT, lateDecisions.last().kind)
+        assertEquals(beforeExpiry.snapshot(), afterExpiry.snapshot())
+    }
+
+    @Test
     fun `first control offset atomically wins complete partition set`() {
-        val table = WarmupSessionTable { now }
+        val table = WarmupSessionTable()
         val firstSession = WarmupSessionId("first")
         val secondSession = WarmupSessionId("second")
         table.apply(record(0, request(firstSession, recipientA)))
         table.apply(record(1, request(secondSession, recipientB)))
 
-        val first = table.apply(
-            record(
-                2,
-                reservation(
-                    firstSession, recipientA, WarmupReservationId("r1"),
-                    assignment(mappingA, 0), assignment(mappingB, 2)
-                )
-            )
+        val firstRequest = reservation(
+            firstSession, recipientA, WarmupReservationId("r1"),
+            assignment(mappingA, 0), assignment(mappingB, 2)
         )
+        val first = table.apply(record(2, firstRequest))
         val losing = table.apply(
             record(
                 3,
@@ -65,6 +90,7 @@ class WarmupSessionTableTest {
 
         assertEquals(WarmupTableDecisionKind.RESERVATION_WON, first.kind)
         assertEquals(WarmupTableDecisionKind.RESERVATION_CONFLICT, losing.kind)
+        assertEquals(WarmupTableDecisionKind.DUPLICATE, table.apply(record(4, firstRequest)).kind)
         assertEquals(
             setOf(TopicPartition("warmup-orders", 0), TopicPartition("warmup-batches", 2)),
             table.reservedPartitions()
@@ -74,7 +100,7 @@ class WarmupSessionTableTest {
 
     @Test
     fun `loser can retry another non aligned destination set`() {
-        val table = WarmupSessionTable { now }
+        val table = WarmupSessionTable()
         val firstSession = WarmupSessionId("first")
         val secondSession = WarmupSessionId("second")
         table.apply(record(0, request(firstSession, recipientA)))
@@ -95,7 +121,7 @@ class WarmupSessionTableTest {
 
     @Test
     fun `stale fingerprint and deadline cannot mutate a live session`() {
-        val table = WarmupSessionTable { now }
+        val table = WarmupSessionTable()
         val session = WarmupSessionId("session")
         table.apply(record(0, request(session, recipientA)))
         val candidate = reservation(
@@ -115,25 +141,25 @@ class WarmupSessionTableTest {
 
     @Test
     fun `snapshot boundary applies contiguous later events and rejects a gap`() {
-        val source = WarmupSessionTable { now }
+        val source = WarmupSessionTable()
         val session = WarmupSessionId("session")
         source.apply(record(4, request(session, recipientA)))
         source.markBootstrapAuthoritative(4)
         val snapshot = requireNotNull(source.snapshot())
         val next = record(5, reservation(session, recipientA, WarmupReservationId("reservation"), assignment(mappingA, 1)))
 
-        val installed = WarmupSessionTable { now }
+        val installed = WarmupSessionTable()
         assertTrue(installed.install(snapshot, listOf(next)))
         assertEquals(setOf(TopicPartition("warmup-orders", 1)), installed.reservedPartitions())
 
-        val gapped = WarmupSessionTable { now }
+        val gapped = WarmupSessionTable()
         assertFalse(gapped.install(snapshot, listOf(next.copy(offset = 6))))
         assertFalse(gapped.isAuthoritative())
     }
 
     @Test
     fun `late snapshot cannot roll state back or restore closed reservation`() {
-        val source = WarmupSessionTable { now }
+        val source = WarmupSessionTable()
         val session = WarmupSessionId("session")
         val reservation = WarmupReservationId("reservation")
         source.apply(record(0, request(session, recipientA)))
@@ -148,7 +174,7 @@ class WarmupSessionTableTest {
 
     @Test
     fun `terminal session event retains ownership until exact reservation release`() {
-        val table = WarmupSessionTable { now }
+        val table = WarmupSessionTable()
         val session = WarmupSessionId("session")
         val reservation = WarmupReservationId("reservation")
         table.apply(record(0, request(session, recipientA)))
@@ -167,19 +193,33 @@ class WarmupSessionTableTest {
     }
 
     @Test
-    fun `expiry releases ownership and stale release cannot free its replacement`() {
-        val table = WarmupSessionTable { now }
+    fun `only explicit safe emergency release frees expired ownership and stale release cannot free replacement`() {
+        val table = WarmupSessionTable()
         val oldSession = WarmupSessionId("old")
         val newSession = WarmupSessionId("new")
         val oldReservation = WarmupReservationId("old-r")
         val newReservation = WarmupReservationId("new-r")
         table.apply(record(0, request(oldSession, recipientA, expiresAt = 1_100)))
         table.apply(record(1, reservation(oldSession, recipientA, oldReservation, assignment(mappingA, 0), expiresAt = 1_100)))
-        now = 1_101
         table.apply(record(2, request(newSession, recipientB, expiresAt = 2_000)))
-        table.apply(record(3, reservation(newSession, recipientB, newReservation, assignment(mappingA, 0), expiresAt = 2_000)))
+        assertEquals(
+            WarmupTableDecisionKind.RESERVATION_CONFLICT,
+            table.apply(record(3, reservation(newSession, recipientB, newReservation, assignment(mappingA, 0), expiresAt = 2_000))).kind
+        )
 
-        table.apply(record(4, release(oldSession, recipientA, oldReservation, expiresAt = 2_000)))
+        assertEquals(
+            WarmupTableDecisionKind.IGNORED_INVALID,
+            table.apply(record(4, emergencyRelease(oldSession, recipientB, oldReservation, 1_100, 1_100))).kind
+        )
+        table.apply(record(5, emergencyRelease(
+            oldSession, recipientB, oldReservation, 1_100, 1_100 + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
+        )))
+        assertEquals(
+            WarmupTableDecisionKind.RESERVATION_WON,
+            table.apply(record(6, reservation(newSession, recipientB, newReservation, assignment(mappingA, 0), expiresAt = 2_000))).kind
+        )
+
+        table.apply(record(7, release(oldSession, recipientA, oldReservation, expiresAt = 1_100)))
 
         assertEquals(setOf(TopicPartition("warmup-orders", 0)), table.reservedPartitions())
         assertEquals(newReservation, table.reservationFor(newSession)?.reservationId)
@@ -187,7 +227,7 @@ class WarmupSessionTableTest {
 
     @Test
     fun `empty state is not authoritative until safe bootstrap is explicitly completed`() {
-        val table = WarmupSessionTable { now }
+        val table = WarmupSessionTable()
         assertNull(table.snapshot())
         table.markBootstrapAuthoritative(-1)
         assertEquals(WarmupStateSnapshot(-1, emptyList()), table.snapshot())
@@ -212,7 +252,20 @@ class WarmupSessionTableTest {
         recipient: WarmupInstanceId,
         reservation: WarmupReservationId,
         expiresAt: Long = 2_000
-    ) = ReservationReleased(session, recipient, reservation, fingerprint, expiresAt)
+    ) = ReservationReleased(
+        session, recipient, reservation, WarmupReservationReleaseKind.NORMAL, 1_500, fingerprint, expiresAt
+    )
+
+    private fun emergencyRelease(
+        session: WarmupSessionId,
+        sender: WarmupInstanceId,
+        reservation: WarmupReservationId,
+        expiresAt: Long,
+        releasedAt: Long
+    ) = ReservationReleased(
+        session, sender, reservation, WarmupReservationReleaseKind.EMERGENCY_TIMEOUT,
+        releasedAt, fingerprint, expiresAt
+    )
 
     private fun ready(
         session: WarmupSessionId,

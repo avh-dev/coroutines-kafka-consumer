@@ -8,7 +8,6 @@ internal enum class WarmupTableDecisionKind {
     RESERVATION_CONFLICT,
     DUPLICATE,
     IGNORED_STALE,
-    IGNORED_EXPIRED,
     IGNORED_INVALID
 }
 
@@ -22,9 +21,7 @@ internal data class WarmupTableDecision(
  * Pure, offset-ordered namespace state. It performs no Kafka I/O and never invokes participant code.
  * All members that apply the same control prefix therefore derive the same reservations.
  */
-internal class WarmupSessionTable(
-    private val currentTimeMillis: () -> Long = System::currentTimeMillis
-) {
+internal class WarmupSessionTable {
     private data class MutableSession(
         val sessionId: WarmupSessionId,
         val recipient: WarmupInstanceId,
@@ -46,11 +43,7 @@ internal class WarmupSessionTable(
     fun apply(record: WarmupControlRecord): WarmupTableDecision {
         if (record.offset <= lastAppliedOffset) return decision(record, WarmupTableDecisionKind.IGNORED_STALE)
         lastAppliedOffset = record.offset
-        expire(currentTimeMillis(), record.offset)
         val message = record.message
-        if (message.expiresAtEpochMillis <= currentTimeMillis()) {
-            return decision(record, WarmupTableDecisionKind.IGNORED_EXPIRED)
-        }
         val result = when (message) {
             is WarmupRequested -> applyRequest(record.offset, message)
             is ReservationRequested -> applyReservation(record.offset, message)
@@ -70,7 +63,7 @@ internal class WarmupSessionTable(
             }
             is SessionEnded -> update(record.offset, message) {
                 // Session termination does not itself release destinations. Only the matching
-                // ReservationReleased (or expiry) can do that, so a lost/late terminal event
+                // exact ReservationReleased can do that, so a lost/late terminal event
                 // cannot free a partition that belongs to another reservation generation.
                 it.lifecycle = if (it.reservationId == null) {
                     WarmupSessionLifecycle.CLOSED
@@ -114,7 +107,7 @@ internal class WarmupSessionTable(
                 stored.lastControlOffset
             )
             installedSessions[stored.sessionId] = session
-            if (session.lifecycle !in setOf(WarmupSessionLifecycle.CLOSED, WarmupSessionLifecycle.EXPIRED)) {
+            if (session.lifecycle != WarmupSessionLifecycle.CLOSED) {
                 val reservation = session.reservationId
                 if (reservation != null) session.assignments.forEach {
                     if (installedOwners.put(it.destination, session.sessionId to reservation) != null) return false
@@ -134,7 +127,6 @@ internal class WarmupSessionTable(
     @Synchronized
     fun snapshot(): WarmupStateSnapshot? {
         if (!authoritative) return null
-        expire(currentTimeMillis(), lastAppliedOffset)
         return WarmupStateSnapshot(lastAppliedOffset, sessions.values.map { it.toSnapshot() })
     }
 
@@ -154,10 +146,7 @@ internal class WarmupSessionTable(
     fun lastOffset(): Long = lastAppliedOffset
 
     @Synchronized
-    fun reservedPartitions(): Set<TopicPartition> {
-        expire(currentTimeMillis(), lastAppliedOffset.coerceAtLeast(0))
-        return reservationOwners.keys.toSet()
-    }
+    fun reservedPartitions(): Set<TopicPartition> = reservationOwners.keys.toSet()
 
     @Synchronized
     fun reservationFor(sessionId: WarmupSessionId): WarmupSessionSnapshot? =
@@ -202,8 +191,17 @@ internal class WarmupSessionTable(
 
     private fun applyRelease(offset: Long, message: ReservationReleased): WarmupTableDecisionKind {
         val session = sessions[message.sessionId] ?: return WarmupTableDecisionKind.IGNORED_INVALID
-        if (!session.matches(message, message.senderInstanceId) || session.reservationId != message.reservationId) {
+        if (!session.matchesGeneration(message) || session.reservationId != message.reservationId) {
             return WarmupTableDecisionKind.IGNORED_STALE
+        }
+        if (session.lifecycle == WarmupSessionLifecycle.CLOSED) return WarmupTableDecisionKind.DUPLICATE
+        when (message.kind) {
+            WarmupReservationReleaseKind.NORMAL ->
+                if (message.senderInstanceId != session.recipient) return WarmupTableDecisionKind.IGNORED_INVALID
+            WarmupReservationReleaseKind.EMERGENCY_TIMEOUT ->
+                if (message.releasedAtEpochMillis < session.expiresAtEpochMillis + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS) {
+                    return WarmupTableDecisionKind.IGNORED_INVALID
+                }
         }
         close(session, WarmupSessionLifecycle.CLOSED, offset)
         return WarmupTableDecisionKind.APPLIED
@@ -231,21 +229,16 @@ internal class WarmupSessionTable(
         session.lastControlOffset = offset
     }
 
-    private fun expire(now: Long, offset: Long) {
-        sessions.values.filter {
-            it.expiresAtEpochMillis <= now &&
-                it.lifecycle !in setOf(WarmupSessionLifecycle.CLOSED, WarmupSessionLifecycle.EXPIRED)
-        }.forEach { close(it, WarmupSessionLifecycle.EXPIRED, offset) }
-    }
-
     private fun MutableSession.toSnapshot() = WarmupSessionSnapshot(
         sessionId, recipient, configurationFingerprint, reservationId, assignments.toList(), donors.toSet(), lifecycle,
         expiresAtEpochMillis, lastControlOffset
     )
 
     private fun MutableSession.matches(message: WarmupControlMessage, expectedRecipient: WarmupInstanceId): Boolean =
-        recipient == expectedRecipient && configurationFingerprint == message.configurationFingerprint &&
-            expiresAtEpochMillis == message.expiresAtEpochMillis
+        recipient == expectedRecipient && matchesGeneration(message)
+
+    private fun MutableSession.matchesGeneration(message: WarmupControlMessage): Boolean =
+        configurationFingerprint == message.configurationFingerprint && expiresAtEpochMillis == message.expiresAtEpochMillis
 
     private fun decision(record: WarmupControlRecord, kind: WarmupTableDecisionKind) =
         WarmupTableDecision(kind, record.message.sessionId, record.offset)

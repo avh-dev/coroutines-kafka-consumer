@@ -45,7 +45,11 @@ internal object WarmupControlCodec {
                     data.writeString(message.reservationId.value)
                     data.writeCollection(message.assignments) { writeAssignment(it) }
                 }
-                is ReservationReleased -> data.writeString(message.reservationId.value)
+                is ReservationReleased -> {
+                    data.writeString(message.reservationId.value)
+                    data.writeByte(message.kind.ordinal)
+                    data.writeLong(message.releasedAtEpochMillis)
+                }
                 is SessionAccepted -> {
                     data.writeCollection(message.assignments) { writeAssignment(it) }
                 }
@@ -103,7 +107,10 @@ internal object WarmupControlCodec {
                     data.readCollection { readAssignment() }, fingerprint, deadline, version
                 )
                 TYPE_RESERVATION_RELEASED -> ReservationReleased(
-                    sessionId, sender, WarmupReservationId(data.readString()), fingerprint, deadline, version
+                    sessionId, sender, WarmupReservationId(data.readString()),
+                    WarmupReservationReleaseKind.entries.getOrNull(data.readUnsignedByte())
+                        ?: throw IllegalArgumentException("Unknown reservation release kind"),
+                    data.readLong(), fingerprint, deadline, version
                 )
                 TYPE_SESSION_ACCEPTED -> {
                     SessionAccepted(

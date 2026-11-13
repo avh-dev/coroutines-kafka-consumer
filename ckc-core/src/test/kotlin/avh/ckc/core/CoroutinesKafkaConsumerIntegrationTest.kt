@@ -240,6 +240,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             delegationTimeout = 500.milliseconds
             offerWindow = 100.milliseconds
             negotiationTimeout = 500.milliseconds
+            reservationInitialJitterMillis = 1L..2L
+            reservationRetryJitterMillis = 1L..2L
             cleanupTimeout = 500.milliseconds
         }
 
@@ -333,6 +335,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
             delegationTimeout = 500.milliseconds
             offerWindow = 100.milliseconds
             negotiationTimeout = 500.milliseconds
+            reservationInitialJitterMillis = 1L..2L
+            reservationRetryJitterMillis = 1L..2L
             cleanupTimeout = 500.milliseconds
         }
         val donorContext = context("donor")

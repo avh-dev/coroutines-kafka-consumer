@@ -1,11 +1,11 @@
 # Real-traffic warm-up MVP design
 
-Status: `GLOBAL-4` design implemented through parallel-session protocol v3 (`CORE-91`).
+Status: `GLOBAL-4` design implemented through parallel-session protocol v4 (`CORE-91`).
 
 Updated: 2026-11-13. Infrastructure findings below include subsequent GLOBAL-3 work
 through `b0c2c80`. Protocol and lifecycle choices remain subject to review.
 
-## Parallel-session control protocol (v3)
+## Parallel-session control protocol (v4)
 
 Every context reads the single-partition control topic from its current end and maintains the
 complete namespace session table after synchronization. State application is a pure operation,
@@ -24,17 +24,20 @@ the table current while warming and after it becomes hot.
 The library obtains the actual partition IDs for every configured warm-up topic from Kafka
 metadata under `negotiationTimeout`; the application configures topic mappings, not partition
 counts. It also verifies that the control topic has exactly one partition. Infrastructure must
-create all topics beforehand. Protocol v3 assumes warm-up topics are not recreated and their
+create all topics beforehand. Protocol v4 assumes warm-up topics are not recreated and their
 partition sets do not change while contexts are running.
 
-The recipient selects one free destination per mapping and publishes an atomic
+Before its first reservation request the recipient waits a random 1000-2000 ms contention delay.
+The recipient then selects one free destination per mapping and publishes an atomic
 `ReservationRequested(sessionId, reservationId, assignments)`. Topic partition numbers are
 independent, so one set may contain `orders-0`, `batches-2`, and `telemetry-1`. A reservation wins
 only when the recipient consumes its own request. The first offset whose entire set is free wins;
-a conflicting request owns nothing and may retry another complete set until the common negotiation
-deadline. `ReservationReleased` names the exact reservation ID, so a late release cannot free a
-partition reused by another session. No warm-up record is sent before reservation, donor acceptance,
-recipient consumer readiness, and `RecipientReady`.
+a conflicting request owns nothing and may retry another complete set after a bounded random pause
+until the common negotiation deadline. These delays reduce collisions but are not part of safety:
+the single control-partition offset order is the only arbiter. Missing acknowledgements or state
+responses never prove that a destination is free. Repeated requests for the same generation are
+idempotent and cannot create additional ownership. No warm-up record is sent before reservation,
+donor acceptance, recipient consumer readiness, and `RecipientReady`.
 
 One donor context may admit multiple sessions. `maxDonorSessions` limits their count and
 `maxDonorDelegationsPerInterval` caps their combined configured interval budgets; admission
@@ -51,21 +54,38 @@ flushes outcomes, publishes the terminal session event and exact reservation rel
 main consumers. Partial preparation publishes a failed/cold terminal event, releases prepared
 resources and the matching reservation, and cold-starts main consumption.
 
-Reservations carry an absolute epoch-millisecond expiry covering discovery, negotiation, warming,
-drain, cleanup, and delegation timeout. Donors stop admission at expiry and locally fall back work
-whose source ownership is still valid; shutdown/rebalance cancellation remains a handoff and never
-processes after ownership loss. All hosts must have bounded wall-clock skew well below the cleanup
-and delegation timeouts (NTP is the operational assumption). Forwarded records carry the
+Reservations carry an absolute epoch-millisecond authorization deadline covering discovery,
+negotiation, warming, drain, cleanup, and delegation timeout. Reading after that deadline never
+changes the replicated table: only an ordered `ReservationReleased` for the exact session and
+reservation generation removes ownership. A normal release is published by the recipient after
+the CORE-90 donor-drain acknowledgements (or after recipient cleanup on cold fallback). A late or
+repeated release cannot remove a partition held by a newer generation. The protocol caps this
+authorization lifetime at 10 minutes; configurations whose combined lifecycle budget exceeds that
+cap are rejected at context construction.
+
+Donors stop admission at the authorization deadline and locally fall back work whose source
+ownership is still valid; shutdown/rebalance cancellation remains a handoff and never processes
+after ownership loss. Every synchronized authoritative context schedules an
+`EMERGENCY_TIMEOUT` release for each reservation it knows. It may publish that event only after
+`authorization deadline + 5 seconds`; the table rejects an earlier emergency event. This covers a
+lost recipient, a lost donor, or both while any synchronized observer survives. Multiple observers
+may publish the same exact release safely. The operational clock assumption is NTP plus no more
+than 5 seconds pairwise wall-clock difference between any participants. Five seconds is therefore
+the reuse guard after the maximum delegation authorization, not a lease evaluated while applying
+control records. Forwarded records carry the
 `ckc-warmup-session` header. Recipient admission accepts exactly its current session ID; an old or
 foreign record is discarded before the business handler and does not publish `RecordCompleted`.
 
 If no authoritative snapshot source exists (first namespace start or simultaneous loss of every
 context), each pod immediately uses ordinary cold main-consumer startup. It continues observing the
-control tail but cannot reserve or publish an empty authoritative snapshot. After one maximum
-reservation lifetime has elapsed from the observed starting tail, every reservation that could
-have existed before that boundary is necessarily expired; the fully observed context may then
-bootstrap an authoritative table and serve later joiners. This makes recovery safe and eventually
-live without replaying control history.
+control tail but cannot reserve or publish an empty authoritative snapshot. Silence is not evidence
+of an empty table. After the protocol-wide 10-minute maximum authorization lifetime plus the
+5-second pairwise-clock guard
+has elapsed from the observed starting tail, no pre-boundary donor may still delegate under an old
+authorization. The fully observed context may then bootstrap an authoritative table while retaining
+all post-boundary events and serve later joiners. This is the only no-replay case that can retire
+unknown historical ownership without an explicit release; it makes total-loss recovery safe and
+eventually live.
 
 Capacity planning is direct: each simultaneous recipient needs one partition in every warm-up topic
 it maps. For `N` simultaneous recipients, every such topic therefore needs at least `N` partitions,

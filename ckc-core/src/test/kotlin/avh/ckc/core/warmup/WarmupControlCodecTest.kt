@@ -37,7 +37,10 @@ class WarmupControlCodecTest {
             ReservationRequested(
                 session, recipient, WarmupReservationId("reservation-1"), listOf(assignment), fingerprint, deadline
             ),
-            ReservationReleased(session, recipient, WarmupReservationId("reservation-1"), fingerprint, deadline),
+            ReservationReleased(
+                session, recipient, WarmupReservationId("reservation-1"), WarmupReservationReleaseKind.NORMAL,
+                9_000L, fingerprint, deadline
+            ),
             SessionAccepted(session, recipient, donor, listOf(assignment), fingerprint, deadline),
             DonorAccepted(session, donor, recipient, fingerprint, deadline),
             SessionRejected(session, donor, recipient, "busy", fingerprint, deadline),

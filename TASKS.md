@@ -6234,7 +6234,8 @@ Discover warm-up and control partitions through Kafka metadata, reserve complete
 Allow one donor to serve multiple recipients fairly while preserving recipient-driven completion, local fallback, and ownership-safe shutdown.
 Tag forwarded records with their session generation and filter stale records before business, metric/audit, and completion outcomes.
 Bootstrap an authoritative empty table only after one maximum reservation lifetime has been observed from the current tail.
-Verification: `./gradlew :ckc-core:check` passes 264 unit tests and 27 real-Kafka integration tests, including one donor warming two recipients concurrently on exclusive metadata-discovered partitions.
+P1 follow-up makes reservation arbitration depend only on ordered control events: expiry stops data-plane work locally, while normal and emergency releases are explicit generation-bound records.
+The original CORE-91 baseline passed `./gradlew :ckc-core:check` with 264 unit tests and 27 real-Kafka integration tests; for the P1 follow-up only production compilation was run, and the updated test commands were intentionally left for explicit execution.
 
 <a id="infra-348"></a>
 ### INFRA-348 - Provision parallel warm-up capacity and scenarios

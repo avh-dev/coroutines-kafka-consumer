@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.max
+import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -51,6 +52,8 @@ class TrafficWarmupContextConfiguration {
     var maxDonorSessions: Int = 4
     /** Aggregate interval quota cap across all concurrently active donor sessions. */
     var maxDonorDelegationsPerInterval: Int = 40
+    internal var reservationInitialJitterMillis: LongRange = 1_000L..2_000L
+    internal var reservationRetryJitterMillis: LongRange = 100L..500L
     var parentContext: CoroutineContext = Dispatchers.Default
 }
 
@@ -158,6 +161,7 @@ class TrafficWarmupContext internal constructor(
     private val shutdownJob = AtomicReference<Job?>()
     private val activeRecipientRequest = AtomicReference<WarmupRequested?>()
     private val activeReservationId = AtomicReference<WarmupReservationId?>()
+    private val scheduledEmergencyReleases = mutableSetOf<Pair<WarmupSessionId, WarmupReservationId>>()
     private lateinit var fingerprint: String
     private var recipientJob: Job? = null
     private val transport: WarmupControlChannel
@@ -301,6 +305,11 @@ class TrafficWarmupContext internal constructor(
             while (observations.size > configuration.controlObservationLimit) observations.removeFirst()
         }
         observationSignal.trySend(Unit)
+        if (record.message is ReservationRequested &&
+            decision.kind in setOf(WarmupTableDecisionKind.RESERVATION_WON, WarmupTableDecisionKind.DUPLICATE)
+        ) {
+            scheduleEmergencyRelease(record.message.sessionId)
+        }
         val message = record.message
         if (message is WarmupRequested && message.senderInstanceId != configuration.instanceId) {
             scope.launch { offer(message) }
@@ -587,6 +596,52 @@ class TrafficWarmupContext internal constructor(
         }
     }
 
+    private fun scheduleKnownEmergencyReleases() {
+        sessionTable.snapshot()?.sessions?.filter { it.reservationId != null }?.forEach {
+            scheduleEmergencyRelease(it.sessionId)
+        }
+    }
+
+    private fun scheduleEmergencyRelease(sessionId: WarmupSessionId) {
+        val session = sessionTable.reservationFor(sessionId) ?: return
+        val reservationId = session.reservationId ?: return
+        if (session.lifecycle == WarmupSessionLifecycle.CLOSED) return
+        val generation = session.sessionId to reservationId
+        if (!synchronized(scheduledEmergencyReleases) { scheduledEmergencyReleases.add(generation) }) return
+        scope.launch {
+            val notBefore = session.expiresAtEpochMillis + WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS
+            delay(max(0, notBefore - System.currentTimeMillis()))
+            while (true) {
+                val current = sessionTable.reservationFor(session.sessionId)
+                if (current?.reservationId != reservationId || current.lifecycle == WarmupSessionLifecycle.CLOSED) return@launch
+                if (!sessionTable.isAuthoritative()) {
+                    delay(100)
+                    continue
+                }
+                val now = System.currentTimeMillis()
+                if (now < notBefore) {
+                    delay(notBefore - now)
+                    continue
+                }
+                if (runCatching {
+                        send(
+                            ReservationReleased(
+                                session.sessionId,
+                                configuration.instanceId,
+                                reservationId,
+                                WarmupReservationReleaseKind.EMERGENCY_TIMEOUT,
+                                now,
+                                session.configurationFingerprint,
+                                session.expiresAtEpochMillis
+                            )
+                        )
+                    }.isSuccess
+                ) return@launch
+                delay(1.seconds)
+            }
+        }
+    }
+
     private suspend fun runRecipientSession() {
         val now = System.currentTimeMillis()
         val session = WarmupSessionId.random()
@@ -621,6 +676,7 @@ class TrafficWarmupContext internal constructor(
                 sessionTable.install(snapshot, observationSnapshot().map(Observed::record))
             }
             check(installed) { "no complete authoritative warm-up state snapshot was received" }
+            scheduleKnownEmergencyReleases()
         }
         val selected = selectDonors(mappings, offers)
         val metadata = withTimeout(configuration.negotiationTimeout) {
@@ -736,6 +792,8 @@ class TrafficWarmupContext internal constructor(
                 session,
                 configuration.instanceId,
                 reservationId.first,
+                WarmupReservationReleaseKind.NORMAL,
+                System.currentTimeMillis(),
                 fingerprint,
                 expiresAt
             )
@@ -772,8 +830,8 @@ class TrafficWarmupContext internal constructor(
 
     private fun scheduleBootstrapAuthority() {
         val boundary = transport.initialOffsetBoundary() ?: -1L
-        val recoveryWindow = configuration.offerWindow + configuration.negotiationTimeout +
-            configuration.warmupDuration + configuration.cleanupTimeout * 2 + configuration.delegationTimeout
+        val recoveryWindow = (WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS +
+            WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS).milliseconds
         scope.launch {
             delay(recoveryWindow)
             sessionTable.markBootstrapAuthoritative(maxOf(boundary, sessionTable.lastOffset()))
@@ -787,7 +845,16 @@ class TrafficWarmupContext internal constructor(
         expiresAtEpochMillis: Long,
         negotiationDeadlineEpochMillis: Long
     ): Pair<WarmupReservationId, List<WarmupPartitionAssignment>> {
+        check(delayForReservationAttempt(configuration.reservationInitialJitterMillis, negotiationDeadlineEpochMillis)) {
+            "warm-up partition reservation deadline expired before initial contention delay"
+        }
+        var retry = false
         while (System.currentTimeMillis() < negotiationDeadlineEpochMillis) {
+            if (retry && !delayForReservationAttempt(
+                    configuration.reservationRetryJitterMillis,
+                    negotiationDeadlineEpochMillis
+                )
+            ) break
             val unavailable = sessionTable.reservedPartitions().toMutableSet()
             val assignments = mappings
                 .groupBy(WarmupTopicMapping::warmupTopic)
@@ -821,8 +888,16 @@ class TrafficWarmupContext internal constructor(
             if (observed.decision.kind == WarmupTableDecisionKind.RESERVATION_WON ||
                 observed.decision.kind == WarmupTableDecisionKind.DUPLICATE
             ) return reservationId to assignments
+            retry = true
         }
         error("warm-up partition reservation deadline expired")
+    }
+
+    private suspend fun delayForReservationAttempt(range: LongRange, deadlineEpochMillis: Long): Boolean {
+        val waitMillis = if (range.first == range.last) range.first else Random.nextLong(range.first, range.last + 1)
+        if (System.currentTimeMillis() + waitMillis >= deadlineEpochMillis) return false
+        delay(waitMillis)
+        return true
     }
 
     private fun selectDonors(
@@ -861,6 +936,8 @@ class TrafficWarmupContext internal constructor(
                             request.sessionId,
                             configuration.instanceId,
                             reservationId,
+                            WarmupReservationReleaseKind.NORMAL,
+                            System.currentTimeMillis(),
                             request.configurationFingerprint,
                             request.expiresAtEpochMillis
                         )
@@ -977,5 +1054,17 @@ class TrafficWarmupContext internal constructor(
         require(configuration.maxDonorDelegationsPerInterval >= configuration.quotaPerInterval) {
             "maxDonorDelegationsPerInterval must be at least quotaPerInterval"
         }
+        val authorizationLifetime = configuration.offerWindow + configuration.negotiationTimeout +
+            configuration.warmupDuration + configuration.cleanupTimeout * 2 + configuration.delegationTimeout
+        require(authorizationLifetime.inWholeMilliseconds <= WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS) {
+            "warm-up reservation authorization lifetime must not exceed " +
+                "$WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS ms"
+        }
+        require(configuration.reservationInitialJitterMillis.first >= 0 &&
+            configuration.reservationInitialJitterMillis.last >= configuration.reservationInitialJitterMillis.first
+        ) { "reservationInitialJitterMillis must be a non-negative ordered range" }
+        require(configuration.reservationRetryJitterMillis.first >= 0 &&
+            configuration.reservationRetryJitterMillis.last >= configuration.reservationRetryJitterMillis.first
+        ) { "reservationRetryJitterMillis must be a non-negative ordered range" }
     }
 }

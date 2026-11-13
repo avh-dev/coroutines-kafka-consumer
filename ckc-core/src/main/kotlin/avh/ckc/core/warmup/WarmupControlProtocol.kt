@@ -2,7 +2,11 @@ package avh.ckc.core.warmup
 
 import org.apache.kafka.common.TopicPartition
 
-internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 3
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 4
+
+/** Maximum permitted difference between any two participant wall clocks. */
+internal const val WARMUP_MAX_PAIRWISE_CLOCK_SKEW_MILLIS = 5_000L
+internal const val WARMUP_MAX_RESERVATION_AUTHORIZATION_MILLIS = 600_000L
 
 internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
@@ -46,7 +50,12 @@ internal data class WarmupPartitionAssignment(
 }
 
 internal enum class WarmupSessionLifecycle {
-    DISCOVERING, RESERVED, NEGOTIATING, READY, CLOSING, CLOSED, EXPIRED
+    DISCOVERING, RESERVED, NEGOTIATING, READY, CLOSING, CLOSED
+}
+
+internal enum class WarmupReservationReleaseKind {
+    NORMAL,
+    EMERGENCY_TIMEOUT
 }
 
 internal data class WarmupSessionSnapshot(
@@ -139,12 +148,17 @@ internal data class ReservationReleased(
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
     val reservationId: WarmupReservationId,
+    val kind: WarmupReservationReleaseKind,
+    val releasedAtEpochMillis: Long,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
 ) : WarmupControlMessage {
     override val targetInstanceId: WarmupInstanceId? = null
-    init { validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis) }
+    init {
+        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
+        require(releasedAtEpochMillis > 0) { "Reservation release time must be positive" }
+    }
 }
 
 internal data class SessionAccepted(
