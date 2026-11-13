@@ -196,7 +196,7 @@
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-110](#demo-110) | Wire the simplified traffic warm-up library API into the demo and record forwarding diagnostics through the existing observation path. | DONE |
 | [DEMO-111](#demo-111) | Expose the absolute warm-up quota ramp through demo configuration. | DONE |
-| [DEMO-112](#demo-112) | Preserve audit callbacks while forwarding the remote-processing marker through demo metrics wrappers. | PLANNED |
+| [DEMO-112](#demo-112) | Preserve audit callbacks while forwarding the remote-processing marker through demo metrics wrappers. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6126,6 +6126,8 @@ _Date: 2026-11-13_
 Forward the core remote-processing marker through the demo `ConsumerMetrics` audit wrapper.
 Keep the donor callback and audit publication while allowing the Micrometer delegate to suppress
 duplicate ordinary processing counters and latency measurements.
+Tests were intentionally not run under the task instruction; an audit-wrapper regression command
+is prepared for handoff.
 
 <a id="infra-343"></a>
 ### INFRA-343 - Add a short fourth-pod warm-up diagnostic

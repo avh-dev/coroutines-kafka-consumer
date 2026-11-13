@@ -222,8 +222,31 @@ object DemoConsumers {
                 record: ConsumerRecord<K, V>,
                 endToEndLatencyMillis: Long,
                 durationNanos: Long
+            ) = onRecordProcessed(
+                key,
+                value,
+                record,
+                endToEndLatencyMillis,
+                durationNanos,
+                processedRemotely = false
+            )
+
+            override fun onRecordProcessed(
+                key: K?,
+                value: V?,
+                record: ConsumerRecord<K, V>,
+                endToEndLatencyMillis: Long,
+                durationNanos: Long,
+                processedRemotely: Boolean
             ) {
-                delegate.onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos)
+                delegate.onRecordProcessed(
+                    key,
+                    value,
+                    record,
+                    endToEndLatencyMillis,
+                    durationNanos,
+                    processedRemotely
+                )
                 logProcessed(record, audit)
             }
 
