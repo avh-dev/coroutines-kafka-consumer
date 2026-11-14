@@ -410,6 +410,7 @@ class ConsumerPollLoopTest {
             val pollNumber = AtomicInteger()
             val revoked = CountDownLatch(1)
             val occupyingRecord = record(offset = -1L)
+            val own = record(offset = 16L).withWarmupSession("recipient")
             val foreign = record(offset = 17L).withWarmupSession("other")
             val fixture = PollLoopFixture(
                 processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
@@ -420,7 +421,7 @@ class ConsumerPollLoopTest {
                 recordSinkDecorator = warmupSessionFilter("recipient"),
                 pollAnswer = {
                     when (pollNumber.getAndIncrement()) {
-                        0 -> recordsOf(topicPartition, foreign)
+                        0 -> recordsOf(topicPartition, own, foreign)
                         1 -> {
                             checkNotNull(listener.get()).onPartitionsRevoked(setOf(topicPartition))
                             revoked.countDown()
@@ -434,11 +435,12 @@ class ConsumerPollLoopTest {
 
             assertTrue(revoked.await(2, TimeUnit.SECONDS))
             awaitFor(2_000L, 10L) {
-                metrics.polls.firstOrNull { it.first == 1 }
+                metrics.polls.firstOrNull { it.first == 2 }
             }
 
-            assertTrue(metrics.handedOff.isEmpty())
+            assertEquals(listOf(own), metrics.handedOff.map { it.record })
             assertEquals(occupyingRecord, fixture.workChannel.tryReceive().getOrNull())
+            assertFalse(fixture.registry.tryStart(own))
             assertFalse(fixture.registry.tryStart(foreign))
 
             job.cancel()
