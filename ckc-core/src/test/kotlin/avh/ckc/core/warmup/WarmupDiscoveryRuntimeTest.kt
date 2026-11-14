@@ -78,6 +78,10 @@ class WarmupDiscoveryRuntimeTest {
             ),
             channel.sent.map { it::class }
         )
+        val sentAfterCompletion = channel.sent.toList()
+        assertEquals(WarmupCompletionResult.Completed, runtime.completeWarmup(recipient))
+        assertEquals(1, stopped.get())
+        assertEquals(sentAfterCompletion, channel.sent)
         runtime.stop()
         runtime.close()
         scope.cancel()

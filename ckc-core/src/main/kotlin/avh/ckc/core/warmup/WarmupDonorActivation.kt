@@ -1,12 +1,13 @@
 package avh.ckc.core.warmup
 
+import avh.ckc.core.isFatalJvmError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -38,6 +39,12 @@ internal class WarmupDonorActivation<K, V>(
         PREPARING, WAITING_RECIPIENT_READY, ACTIVE, DRAINING, CLOSED, FAILED, CANCELLED
     }
 
+    private sealed interface PreparationCompletion {
+        data object Installed : PreparationCompletion
+        data object Cancelled : PreparationCompletion
+        data class LateCleanupFailed(val error: Throwable) : PreparationCompletion
+    }
+
     private class LocalSession<K, V>(val acceptance: SessionAccepted) {
         var state = State.PREPARING
         var readySeen = false
@@ -45,13 +52,17 @@ internal class WarmupDonorActivation<K, V>(
         var prepared: WarmupDonorSession<K, V>? = null
         var closeStarted = false
         var acknowledgeClose = false
-        val preparationFinished = CompletableDeferred<Unit>()
+        var preparationJob: Job? = null
+        var latePrepared: WarmupDonorSession<K, V>? = null
+        var lateCleanupFailureObserved = false
+        val preparationFinished = CompletableDeferred<PreparationCompletion>()
     }
 
     private val lock = Any()
     private val supportedMappings = supportedMappings.associateBy(::mappingIdentity)
     private val sessions = linkedMapOf<WarmupSessionId, LocalSession<K, V>>()
     private val terminalSessionOrder = linkedSetOf<WarmupSessionId>()
+    private var admissionBlockedUntilEpochMillis = 0L
 
     init {
         require(drainTimeout.isPositive()) { "Donor drain timeout must be > 0" }
@@ -62,12 +73,16 @@ internal class WarmupDonorActivation<K, V>(
     fun accept(acceptance: SessionAccepted): WarmupControlMessage {
         rejectionReason(acceptance)?.let { return rejection(acceptance, it) }
         synchronized(lock) {
+            pruneExpiredTerminalFencesLocked()
             sessions[acceptance.sessionId]?.let { existing ->
                 return if (existing.acceptance == acceptance && existing.state !in terminalStates) {
                     accepted(acceptance)
                 } else {
                     rejection(acceptance, "session_conflict")
                 }
+            }
+            if (nowEpochMillis() <= admissionBlockedUntilEpochMillis) {
+                return rejection(acceptance, "terminal_fence_capacity")
             }
             if (!supportsAcceptedMappings(acceptance)) return rejection(acceptance, "mapping_mismatch")
             if (!ownsAcceptedMappings(acceptance)) return rejection(acceptance, "source_ownership_changed")
@@ -89,11 +104,17 @@ internal class WarmupDonorActivation<K, V>(
         val local = synchronized(lock) {
             val existing = sessions[sessionId] ?: return@synchronized null
             if (existing.state != State.PREPARING || existing.preparationStarted) return@synchronized null
-            existing.preparationStarted = true
             existing
         } ?: return false
-        scope.launch { prepare(local) }
-        return true
+        val job = scope.launch(start = CoroutineStart.LAZY) { prepare(local) }
+        val installed = synchronized(lock) {
+            if (local.state != State.PREPARING || local.preparationStarted) return@synchronized false
+            local.preparationStarted = true
+            local.preparationJob = job
+            true
+        }
+        if (installed) job.start() else job.cancel()
+        return installed
     }
 
     /** Unknown, foreign, expired, or mismatched readiness cannot create or mutate local state. */
@@ -142,48 +163,22 @@ internal class WarmupDonorActivation<K, V>(
 
     /** Completion is idempotent and closes delegation before any in-flight wait begins. */
     fun onCompletionRequested(request: WarmupCompletionRequested): Boolean {
-        val local = synchronized(lock) {
-            val existing = sessions[request.sessionId] ?: return@synchronized null
-            if (!matchesSession(existing.acceptance, request)) return@synchronized null
-            when (existing.state) {
-                State.PREPARING -> {
-                    dataPlane.cancelPreparingAdmission(request.sessionId)
-                    if (!existing.preparationStarted) existing.preparationFinished.complete(Unit)
-                }
-                State.WAITING_RECIPIENT_READY,
-                State.ACTIVE -> dataPlane.stopDelegating(request.sessionId)
-                State.DRAINING -> {
-                    existing.acknowledgeClose = true
-                    return@synchronized existing
-                }
-                State.CLOSED -> {
-                    scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
-                    return@synchronized existing
-                }
-                State.FAILED,
-                State.CANCELLED -> return@synchronized null
+        return synchronized(lock) {
+            val existing = sessions[request.sessionId] ?: return@synchronized false
+            if (!matchesSession(existing.acceptance, request)) return@synchronized false
+            if (existing.state == State.CLOSED) {
+                scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
+                return@synchronized true
             }
-            existing.state = State.DRAINING
-            existing.readySeen = false
-            existing.acknowledgeClose = true
-            if (!existing.closeStarted) {
-                existing.closeStarted = true
-                scope.launch { finishClose(existing) }
-            }
-            existing
+            beginCloseLocked(existing, acknowledge = true)
         }
-        return local != null
     }
 
     /** Used by recipient fallback/shutdown; late preparation is fenced and cleans its own result. */
     fun cancelPreparation(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
         val local = sessions[sessionId] ?: return@synchronized false
         if (local.state != State.PREPARING) return@synchronized false
-        local.state = State.CANCELLED
-        local.readySeen = false
-        dataPlane.cancelPreparingAdmission(sessionId)
-        recordTerminalLocked(local)
-        true
+        beginCloseLocked(local, acknowledge = false)
     }
 
     /** Broadcast fallback fences new delegation in every pre-completion state. */
@@ -199,32 +194,52 @@ internal class WarmupDonorActivation<K, V>(
             ) {
                 return@synchronized false
             }
-            when (local.state) {
-                State.PREPARING -> {
-                    dataPlane.cancelPreparingAdmission(ended.sessionId)
-                    if (!local.preparationStarted) local.preparationFinished.complete(Unit)
-                }
-                State.WAITING_RECIPIENT_READY,
-                State.ACTIVE -> dataPlane.stopDelegating(ended.sessionId)
-                State.DRAINING -> Unit
-                State.CLOSED,
-                State.FAILED,
-                State.CANCELLED -> return@synchronized false
-            }
-            local.readySeen = false
-            local.acknowledgeClose = false
-            local.state = State.DRAINING
-            if (!local.closeStarted) {
-                local.closeStarted = true
-                scope.launch { finishClose(local) }
-            }
-            true
+            beginCloseLocked(local, acknowledge = false)
         }
+    }
+
+    /** All completion, fallback, and expiry paths share the same close transition. */
+    private fun beginCloseLocked(local: LocalSession<K, V>, acknowledge: Boolean): Boolean {
+        when (local.state) {
+            State.PREPARING -> {
+                dataPlane.cancelPreparingAdmission(local.acceptance.sessionId)
+                if (!local.preparationStarted) {
+                    local.preparationFinished.complete(PreparationCompletion.Cancelled)
+                }
+                local.preparationJob?.cancel()
+            }
+            State.WAITING_RECIPIENT_READY,
+            State.ACTIVE -> dataPlane.stopDelegating(local.acceptance.sessionId)
+            State.DRAINING -> Unit
+            State.CLOSED,
+            State.FAILED,
+            State.CANCELLED -> return false
+        }
+        local.readySeen = false
+        local.acknowledgeClose = acknowledge
+        local.state = State.DRAINING
+        if (!local.closeStarted) {
+            local.closeStarted = true
+            scope.launch { finishClose(local) }
+        }
+        return true
     }
 
     private suspend fun finishClose(local: LocalSession<K, V>) {
         val acceptance = local.acceptance
-        local.preparationFinished.await()
+        val preparationCompletion = local.preparationFinished.await()
+        if (preparationCompletion is PreparationCompletion.LateCleanupFailed) {
+            val retry = synchronized(lock) {
+                if (local.lateCleanupFailureObserved) true else {
+                    local.lateCleanupFailureObserved = true
+                    false
+                }
+            }
+            if (!retry || !retryLateCleanup(local)) {
+                synchronized(lock) { local.closeStarted = false }
+                return
+            }
+        }
         if (local.prepared != null) {
             val remaining = (acceptance.expiresAtEpochMillis - nowEpochMillis()).coerceAtLeast(1).milliseconds
             val timeout = minOf(drainTimeout, remaining)
@@ -251,6 +266,19 @@ internal class WarmupDonorActivation<K, V>(
         if (acknowledge) onDonorClosed(closedMessage(acceptance))
     }
 
+    /** A failed late close retains the resource and is retried only by another close trigger. */
+    private fun retryLateCleanup(local: LocalSession<K, V>): Boolean {
+        val resource = synchronized(lock) { local.latePrepared } ?: return true
+        return try {
+            resource.close()
+            synchronized(lock) { if (local.latePrepared === resource) local.latePrepared = null }
+            true
+        } catch (error: Throwable) {
+            if (error.isFatalJvmError()) throw error
+            false
+        }
+    }
+
     /** Recipient loss has no coordinator observer, so the immutable session deadline owns cleanup. */
     private fun scheduleExpiry(sessionId: WarmupSessionId, expiresAtEpochMillis: Long) {
         scope.launch {
@@ -262,25 +290,7 @@ internal class WarmupDonorActivation<K, V>(
 
     private fun expire(sessionId: WarmupSessionId) = synchronized(lock) {
         val local = sessions[sessionId] ?: return@synchronized
-        when (local.state) {
-            State.PREPARING -> {
-                dataPlane.cancelPreparingAdmission(sessionId)
-                if (!local.preparationStarted) local.preparationFinished.complete(Unit)
-            }
-            State.WAITING_RECIPIENT_READY,
-            State.ACTIVE -> dataPlane.stopDelegating(sessionId)
-            State.DRAINING -> Unit
-            State.CLOSED,
-            State.FAILED,
-            State.CANCELLED -> return@synchronized
-        }
-        local.readySeen = false
-        local.acknowledgeClose = false
-        local.state = State.DRAINING
-        if (!local.closeStarted) {
-            local.closeStarted = true
-            scope.launch { finishClose(local) }
-        }
+        beginCloseLocked(local, acknowledge = false)
     }
 
     internal fun state(sessionId: WarmupSessionId): State? = synchronized(lock) { sessions[sessionId]?.state }
@@ -289,18 +299,17 @@ internal class WarmupDonorActivation<K, V>(
         val prepared = try {
             val remainingMillis = local.acceptance.expiresAtEpochMillis - nowEpochMillis()
             require(remainingMillis > 0) { "Warm-up donor preparation deadline expired" }
-            withTimeout(remainingMillis) { preparation.prepare(local.acceptance) }
-        } catch (_: TimeoutCancellationException) {
-            failPreparation(local, "donor_preparation_timeout")
-            local.preparationFinished.complete(Unit)
-            return
+            // Session expiry cancels this stored job. Calling preparation directly lets a
+            // non-cooperative implementation that returns after cancellation transfer its late
+            // resource to the cleanup path instead of losing it at a withTimeout boundary.
+            preparation.prepare(local.acceptance)
         } catch (_: CancellationException) {
             failPreparation(local, "donor_preparation_cancelled")
-            local.preparationFinished.complete(Unit)
+            local.preparationFinished.complete(PreparationCompletion.Cancelled)
             return
         } catch (_: Throwable) {
             failPreparation(local, "donor_preparation_failed")
-            local.preparationFinished.complete(Unit)
+            local.preparationFinished.complete(PreparationCompletion.Cancelled)
             return
         }
         val keep = synchronized(lock) {
@@ -321,8 +330,21 @@ internal class WarmupDonorActivation<K, V>(
             }
             true
         }
-        if (!keep) prepared.close()
-        local.preparationFinished.complete(Unit)
+        if (keep) {
+            local.preparationFinished.complete(PreparationCompletion.Installed)
+            return
+        }
+        val completion = try {
+            prepared.close()
+            PreparationCompletion.Cancelled
+        } catch (error: Throwable) {
+            synchronized(lock) { local.latePrepared = prepared }
+            PreparationCompletion.LateCleanupFailed(error)
+        }
+        local.preparationFinished.complete(completion)
+        if (completion is PreparationCompletion.LateCleanupFailed && completion.error.isFatalJvmError()) {
+            throw completion.error
+        }
     }
 
     private suspend fun failPreparation(local: LocalSession<K, V>, reasonCode: String) {
@@ -348,16 +370,35 @@ internal class WarmupDonorActivation<K, V>(
         recordTerminalLocked(local)
     }
 
-    /** Keeps duplicate fencing bounded; eviction never owns a live resource or data-plane slot. */
+    /**
+     * Keeps exact fences bounded without forgetting a still-valid session. When exact storage is
+     * full, the omitted fence blocks every new admission until its immutable deadline expires.
+     */
     private fun recordTerminalLocked(local: LocalSession<K, V>) {
+        pruneExpiredTerminalFencesLocked()
         val sessionId = local.acceptance.sessionId
-        terminalSessionOrder.remove(sessionId)
-        terminalSessionOrder.add(sessionId)
-        while (terminalSessionOrder.size > maxTerminalSessionFences) {
-            val oldest = terminalSessionOrder.first()
-            terminalSessionOrder.remove(oldest)
-            sessions.remove(oldest)
+        if (sessionId in terminalSessionOrder) return
+        if (terminalSessionOrder.size < maxTerminalSessionFences) {
+            terminalSessionOrder.add(sessionId)
+        } else {
+            sessions.remove(sessionId)
+            admissionBlockedUntilEpochMillis = maxOf(
+                admissionBlockedUntilEpochMillis,
+                local.acceptance.expiresAtEpochMillis
+            )
         }
+    }
+
+    private fun pruneExpiredTerminalFencesLocked() {
+        val now = nowEpochMillis()
+        val expired = terminalSessionOrder.filter { sessionId ->
+            sessions[sessionId]?.acceptance?.expiresAtEpochMillis?.let { it < now } != false
+        }
+        expired.forEach { sessionId ->
+            terminalSessionOrder.remove(sessionId)
+            sessions.remove(sessionId)
+        }
+        if (admissionBlockedUntilEpochMillis < now) admissionBlockedUntilEpochMillis = 0L
     }
 
     private fun rejectionReason(acceptance: SessionAccepted): String? = when {

@@ -6026,3 +6026,6 @@ exact sessions and destinations, stop admission before drain, convert their own 
 ownership-safe local fallback, retain bounded terminal fences, and expire abandoned sessions locally.
 The full core unit suite and the 24-test real-Kafka `:ckc-core:integrationTest` suite pass. No smoke,
 load, chaos, or experiment run was started.
+Review hardening keeps every unexpired terminal fence effective under bounded storage, cancels the
+actual preparation job on close, retains and retries failed late-resource cleanup, and makes repeated
+successful recipient completion return the stored result without repeating messages or cleanup.

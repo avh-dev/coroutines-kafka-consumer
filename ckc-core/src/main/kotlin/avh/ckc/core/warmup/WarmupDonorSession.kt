@@ -55,9 +55,12 @@ internal class WarmupDonorSession<K, V>(
         nanoTime = nanoTime
     )
     private val sessionLock = Any()
+    private val closeLock = Any()
     private var state = State.ADMITTED
     private var inflight = 0
     private var inflightDrained = CompletableDeferred<Unit>().also { it.complete(Unit) }
+    private var trackerClosed = false
+    private var senderClosed = false
     private val tracker = WarmupResultTracker(
         sessionId = sessionId,
         maxEarlyResults = maxEarlyResults,
@@ -255,17 +258,24 @@ internal class WarmupDonorSession<K, V>(
     }
 
     /** Closes an unactivated or stopped session. Active or inflight sessions are a caller error. */
-    override fun close() {
+    override fun close() = synchronized(closeLock) {
         synchronized(sessionLock) {
-            check(state != State.ACTIVE && inflight == 0) {
-                "Warm-up donor session ${sessionId.value} must stop and drain before close"
+            if (state != State.CLOSED) {
+                check(state != State.ACTIVE && inflight == 0) {
+                    "Warm-up donor session ${sessionId.value} must stop and drain before close"
+                }
+                state = State.CLOSED
+                inflightDrained.complete(Unit)
             }
-            if (state == State.CLOSED) return
-            state = State.CLOSED
-            inflightDrained.complete(Unit)
         }
-        tracker.close()
-        (sender as? AutoCloseable)?.close()
+        if (!trackerClosed) {
+            tracker.close()
+            trackerClosed = true
+        }
+        if (!senderClosed) {
+            (sender as? AutoCloseable)?.close()
+            senderClosed = true
+        }
     }
 
     private fun finishDelegation() = synchronized(sessionLock) {

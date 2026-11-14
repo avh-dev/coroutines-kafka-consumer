@@ -53,6 +53,7 @@ internal class WarmupDiscoveryRuntime<K, V>(
     private val recipientSignal = Channel<Unit>(Channel.CONFLATED)
     private val registration = router.register(this)
     private var activeRecipient: WarmupRecipientDiscovery? = null
+    private var completedRecipient: Pair<WarmupRecipientDiscovery, WarmupCompletionResult>? = null
     @Volatile private var controlFailure: Throwable? = null
 
     init {
@@ -147,6 +148,9 @@ internal class WarmupDiscoveryRuntime<K, V>(
      * incomplete local cleanup re-sends the same requests and retries the retained resources.
      */
     suspend fun completeWarmup(recipient: WarmupRecipientDiscovery): WarmupCompletionResult {
+        synchronized(lock) {
+            completedRecipient?.takeIf { it.first === recipient }?.let { return it.second }
+        }
         require(synchronized(lock) { activeRecipient === recipient }) {
             "Recipient is not the active local warm-up session"
         }
@@ -167,13 +171,13 @@ internal class WarmupDiscoveryRuntime<K, V>(
             when (val cleanup = recipient.completeAfterDonorsClosed()) {
                 WarmupRecipientCleanupResult.Complete -> {
                     publishCompletedFence(recipient)
-                    clearRecipient(recipient)
-                    WarmupCompletionResult.Completed
+                    WarmupCompletionResult.Completed.also { rememberCompletion(recipient, it) }
                 }
                 is WarmupRecipientCleanupResult.CompleteWithDiagnostics -> {
                     publishCompletedFence(recipient)
-                    clearRecipient(recipient)
-                    WarmupCompletionResult.CompletedWithDiagnostics(cleanup.diagnostics)
+                    WarmupCompletionResult.CompletedWithDiagnostics(cleanup.diagnostics).also {
+                        rememberCompletion(recipient, it)
+                    }
                 }
                 is WarmupRecipientCleanupResult.Incomplete ->
                     WarmupCompletionResult.CleanupIncomplete("recipient_cleanup_incomplete", cleanup)
@@ -304,6 +308,16 @@ internal class WarmupDiscoveryRuntime<K, V>(
 
     private fun clearRecipient(recipient: WarmupRecipientDiscovery) {
         synchronized(lock) {
+            if (activeRecipient === recipient) activeRecipient = null
+        }
+    }
+
+    private fun rememberCompletion(
+        recipient: WarmupRecipientDiscovery,
+        result: WarmupCompletionResult
+    ) {
+        synchronized(lock) {
+            completedRecipient = recipient to result
             if (activeRecipient === recipient) activeRecipient = null
         }
     }
