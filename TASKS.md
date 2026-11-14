@@ -525,10 +525,10 @@
 | [INFRA-335](#infra-335) | Publish the warm-up Kafka endpoint during topic provisioning to avoid a readiness deadlock. | DONE |
 | [INFRA-336](#infra-336) | Gate application deployment on complete ephemeral warm-up Kafka topic provisioning. | DONE |
 | [INFRA-337](#infra-337) | Remove the ephemeral warm-up Kafka broker during experiment cleanup. | DONE |
-| [INFRA-338](#infra-338) | Add internal-lab Kubernetes node utilization to the experiment dashboard. | IN_PROGRESS |
+| [INFRA-338](#infra-338) | Add internal-lab Kubernetes node utilization to the experiment dashboard. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
-| [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | IN_PROGRESS |
+| [GLOBAL-3](#global-3) | Build an unordered real-traffic warm-up MVP across CKC core, demo, audit, and experiment infrastructure. | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -5916,6 +5916,9 @@ plane before adding the shared coordinator and automatic control protocol.
 Keep all child work isolated on local branches rooted in the long-lived GLOBAL-3
 umbrella branch; do not merge it into `master` or push related branches without an
 explicit later instruction.
+Archived on 2026-11-14 as the first historical attempt at automatic real-traffic
+warm-up. The branch is retained for reference and must not be merged into `master`;
+future work will restart from a new design and manually port only useful ideas.
 
 <a id="core-74"></a>
 ### CORE-74 - Define real-traffic warm-up contracts
@@ -6556,3 +6559,4 @@ Add internal-lab CPU and memory utilization panels for every Kubernetes node usi
 existing cAdvisor root-cgroup and machine-capacity metrics. Keep the row out of AWS dashboards,
 where host capacity is represented by environment-specific infrastructure evidence. This is a
 child task of GLOBAL-3.
+Verification: all 30 focused dashboard tests pass.
