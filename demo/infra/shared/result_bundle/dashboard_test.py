@@ -219,6 +219,26 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertTrue(all(variable.get("description") for variable in variables))
 
+        def targets_with_pod_legend(panels: list[dict]) -> list[dict]:
+            targets: list[dict] = []
+            for panel in panels:
+                targets.extend(
+                    target
+                    for target in panel.get("targets", [])
+                    if "pod_legend" in target.get("legendFormat", "")
+                )
+                targets.extend(targets_with_pod_legend(panel.get("panels", [])))
+            return targets
+
+        pod_targets = targets_with_pod_legend(dashboard["panels"])
+        self.assertTrue(pod_targets)
+        for target in pod_targets:
+            expression = target["expr"]
+            self.assertIn(") > 0)", expression)
+            self.assertIn(") <= 0)", expression)
+            self.assertNotIn(") > 1)", expression)
+            self.assertNotIn(") <= 1)", expression)
+
     def test_application_resources_show_total_and_average_per_pod(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
