@@ -216,9 +216,15 @@ mapping compatibility, immutable parameters, deadline, main-consumer readiness, 
 ownership. Failure returns `SessionRejected` and leaves the session `ABSENT`.
 
 Preparation that finishes after cancellation revalidates the local generation and immediately
-cleans up its result instead of installing it. `RecipientReady` may activate only the matching
-`WAITING_RECIPIENT_READY` generation. Repeated acceptance/readiness/completion messages are
-idempotent and can never revive `DRAINING` or `CLOSED` state.
+cleans up its result instead of installing it. `DonorAccepted` confirms atomic admission and may
+therefore be published while donor resource preparation is still running. A valid matching
+`RecipientReady` received in `PREPARING` is recorded as a generation-local `readySeen` fact; it is
+not rejected and does not activate delegation early. When preparation finishes, one atomic
+transition either activates the same generation immediately when `readySeen` is set, or moves it to
+`WAITING_RECIPIENT_READY`. If completion, cancellation, expiry, or preparation failure has already
+won, cleanup wins and the saved readiness cannot activate the session. A matching readiness received
+in `WAITING_RECIPIENT_READY` activates directly. Repeated acceptance/readiness/completion messages
+are idempotent and can never revive `DRAINING` or `CLOSED` state.
 
 Completion closes admission before waiting. The donor stops selecting the session for new records,
 then lets every admitted record receive a remote terminal result or execute required local
@@ -410,10 +416,15 @@ records and never enter any business runtime queue.
 ### CORE-76 — discovery and activation
 
 Implement the v6 codec/transport, stateless offers, mapping selection, atomic donor acceptance,
-metadata preparation, explicit consumer assignment/positioning, and `RecipientReady` gate.
+metadata preparation, explicit consumer assignment/positioning, and `RecipientReady` gate. Add a
+deterministic race test in which `RecipientReady` arrives after `DonorAccepted` but before donor
+preparation completes; completion of preparation must activate exactly once without another
+readiness message. Also cover cancellation or completion winning that race so saved readiness
+cannot revive the session.
 
-Review gate: no forwarded record exists before every recipient consumer is ready; any incomplete
-mapping preparation cold-starts the complete context and cleans partial resources.
+Review gate: no forwarded record exists before every recipient consumer is ready; early readiness
+is retained through donor preparation without early activation; any incomplete mapping preparation
+cold-starts the complete context and cleans partial resources.
 
 ### CORE-77 — completion and failures
 
@@ -493,8 +504,9 @@ the exact archived commits used by each completed child task.
 
 ## Planned validation
 
-Implementation tasks must record the exact commands suitable for their changed modules. The initial
-validation families are:
+Implementation tasks must run the applicable unit and integration tests and record the exact
+commands and results for their changed modules. They also run ordinary build, lint, static, shell,
+manifest, and Compose validation needed for the change. The initial command families are:
 
 ```bash
 ./gradlew :ckc-core:test
@@ -502,10 +514,11 @@ validation families are:
 ./gradlew :ckc-demo:test
 ```
 
-Focused Gradle test filters should run during development, followed by the complete affected-module
-tests before review. INFRA tasks run their focused Python/unit, shell syntax, manifest, and Compose
-validation commands as applicable. The internal-lab smoke command is prepared only after installation
-steps are known. Under repository rules it is shown to the operator and is not launched automatically.
+Start development checks with focused unit or integration test filters and then run the complete
+affected-module test commands before review. INFRA tasks likewise run their applicable focused
+Python/unit tests, shell syntax checks, manifest checks, and Compose validation. Load tests, chaos
+scenarios, internal-lab smoke runs, and other experiment runs are different: prepare and present
+their exact commands, but do not launch them without a separate explicit user request.
 
 ## Acceptance trace
 
