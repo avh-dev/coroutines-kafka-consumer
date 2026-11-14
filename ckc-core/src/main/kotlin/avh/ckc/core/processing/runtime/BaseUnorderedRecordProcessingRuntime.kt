@@ -8,10 +8,12 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.localRecordInterceptor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineName
@@ -34,6 +36,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
     private val retryPolicy: RetryPolicy,
     private val processingFailureHandler: ProcessingFailureHandler<K, V>,
     protected val processedRecordTracker: ProcessedRecordTracker,
+    private val interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
     private val recordProcessingContext: RecordProcessingContext<K, V>? = null,
     private val recordDropPolicy: FreshnessRecordAgeDropPolicy<K, V>? = null,
     private val handoffOnAssignmentEnd: Boolean = false
@@ -44,6 +47,8 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
+        handoffReason = ::handoffReason,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
@@ -80,7 +85,7 @@ internal abstract class BaseUnorderedRecordProcessingRuntime<K, V>(
                                 processedRecordTracker.attach(record, pipeline)
                                 pipeline.start()
                                 try {
-                                    if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                                    if (pipeline.await() is RecordProcessingOutcome.HandedOff) {
                                         reportAssignmentEnd(record)
                                     }
                                 } catch (error: kotlinx.coroutines.CancellationException) {

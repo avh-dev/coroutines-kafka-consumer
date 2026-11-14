@@ -6,7 +6,9 @@ import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.ProcessedRecordTracker
+import avh.ckc.core.processing.localRecordInterceptor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -23,7 +25,8 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor()
 ) : BaseUnorderedRecordProcessingRuntime<K, V>(
     workerConcurrency = workerConcurrency,
     workChannelCapacity = workChannelCapacity,
@@ -35,6 +38,7 @@ internal class AtLeastOnceNoOrderingRecordProcessingRuntime<K, V>(
     processingFailureHandler = processingFailureHandler,
     recordProcessingContext = recordProcessingContext,
     processedRecordTracker = processedRecordTracker,
+    interceptor = interceptor,
     handoffOnAssignmentEnd = true
 ) {
     override fun createChannel(

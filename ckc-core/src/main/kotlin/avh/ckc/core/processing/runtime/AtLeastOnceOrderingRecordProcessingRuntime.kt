@@ -8,10 +8,12 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.localRecordInterceptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
@@ -42,7 +44,8 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor()
 ) : RecordProcessingRuntime<K, V> {
     enum class Ordering {
         BY_KEY,
@@ -55,6 +58,8 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
+        handoffReason = ::handoffReason,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )
@@ -208,7 +213,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
                         processedRecordTracker.attach(workItem.record, pipeline)
                         pipeline.start()
                         try {
-                            if (pipeline.await() == RecordProcessingOutcome.HANDED_OFF) {
+                            if (pipeline.await() is RecordProcessingOutcome.HandedOff) {
                                 reportAssignmentEnd(workItem.record)
                             }
                         } catch (error: CancellationException) {
@@ -286,12 +291,15 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
             Ordering.BY_PARTITION -> OrderingKey.Partition(record.topic(), record.partition())
         }
 
-    private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
-        val reason = if (processedRecordTracker.isTerminallyClosed()) {
+    private fun handoffReason(): RecordHandoffReason =
+        if (processedRecordTracker.isTerminallyClosed()) {
             RecordHandoffReason.CONSUMER_FAILED
         } else {
             RecordHandoffReason.ASSIGNMENT_ENDED
         }
+
+    private fun reportAssignmentEnd(record: ConsumerRecord<K, V>) {
+        val reason = handoffReason()
         metrics.onRecordHandedOff(record, reason)
     }
 
