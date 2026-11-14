@@ -47,7 +47,7 @@ internal fun <K, V> createTestConsumer(
         topicsPattern = null,
         warmupRecipientSessionId = warmupRecipientSessionId,
         handler = handler,
-        pollLoopFactory = { _, context, processingMode, _, _, pollMetrics, _, _, _, _, recordSink, registry ->
+        pollLoopFactory = { _, context, processingMode, _, _, pollMetrics, _, _, _, _, recordSink, registry, _ ->
             FakePollLoopControl(context, processingMode, pollMetrics, recordSink, records, registry)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime
@@ -63,6 +63,7 @@ internal class FakePollLoopControl<K, V>(
 ) : ConsumerPollLoopControl {
     private val scope = CoroutineScope(coroutineContext)
     private val stopSignal = CompletableDeferred<Unit>()
+    private val readinessSignal = CompletableDeferred<Unit>()
     @Volatile
     private var started = false
     @Volatile
@@ -77,6 +78,7 @@ internal class FakePollLoopControl<K, V>(
             partitionRegistry.onPartitionsAssigned(recordsByPartition.keys).forEach { state ->
                 state.init(recordsByPartition.getValue(state.topicPartition).minOf { it.offset() })
             }
+            readinessSignal.complete(Unit)
             metrics.onPoll(records.size, 0L)
             for (record in records) {
                 partitionRegistry.observe(
@@ -96,6 +98,8 @@ internal class FakePollLoopControl<K, V>(
         stopSignal.complete(Unit)
         return CompletableDeferred(Unit)
     }
+
+    override fun readiness(): Deferred<Unit> = readinessSignal
 
     override fun stateSnapshot(): PollLoopStateSnapshot =
         PollLoopStateSnapshot(

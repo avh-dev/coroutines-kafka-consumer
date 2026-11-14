@@ -8,13 +8,27 @@ import java.util.UUID
 private const val MAX_WARMUP_IDENTIFIER_LENGTH = 255
 
 @JvmInline
+internal value class WarmupInstanceId(val value: String) {
+    init {
+        validateWarmupIdentifier("instanceId", value)
+    }
+
+    companion object {
+        fun random(): WarmupInstanceId = WarmupInstanceId(UUID.randomUUID().toString())
+    }
+}
+
+@JvmInline
+internal value class WarmupParticipantId(val value: String) {
+    init {
+        validateWarmupIdentifier("participantId", value)
+    }
+}
+
+@JvmInline
 internal value class WarmupSessionId(val value: String) {
     init {
-        require(value.isNotBlank()) { "sessionId must not be blank" }
-        require(value.length <= MAX_WARMUP_IDENTIFIER_LENGTH) {
-            "sessionId must be at most $MAX_WARMUP_IDENTIFIER_LENGTH characters"
-        }
-        require(value.none(Char::isISOControl)) { "sessionId must not contain control characters" }
+        validateWarmupIdentifier("sessionId", value)
     }
 
     companion object {
@@ -75,3 +89,11 @@ internal interface WarmupDataPlaneObserver<K, V> {
 
 internal fun <K, V> noOpWarmupDataPlaneObserver(): WarmupDataPlaneObserver<K, V> =
     object : WarmupDataPlaneObserver<K, V> {}
+
+private fun validateWarmupIdentifier(name: String, value: String) {
+    require(value.isNotBlank()) { "$name must not be blank" }
+    require(value.length <= MAX_WARMUP_IDENTIFIER_LENGTH) {
+        "$name must be at most $MAX_WARMUP_IDENTIFIER_LENGTH characters"
+    }
+    require(value.none(Char::isISOControl)) { "$name must not contain control characters" }
+}
