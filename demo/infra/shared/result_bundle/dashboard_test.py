@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dashboard import (
     _latest_kafka_mode,
+    environment_dashboard_options,
     materialize_environment_dashboard,
     metric_names_from_dashboard,
     patch_dashboard,
@@ -260,6 +261,34 @@ class DashboardTest(unittest.TestCase):
             if not title.startswith("Application Container"):
                 continue
             self.assertNotIn("${pod_grouping}", " ".join(target.get("expr", "") for target in panel.get("targets", [])))
+
+    def test_internal_lab_dashboard_contains_node_and_per_core_utilization(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("title") == "Kubernetes Nodes")
+        panels = {panel["title"]: panel for panel in row["panels"]}
+
+        cpu = panels["Node CPU Utilization"]
+        self.assertIn(
+            'container_cpu_usage_seconds_total{job="kubernetes-cadvisor", id="/", cpu="total"}',
+            cpu["targets"][0]["expr"],
+        )
+        self.assertIn('machine_cpu_cores{job="kubernetes-cadvisor"}', cpu["targets"][0]["expr"])
+        memory = panels["Node Memory Utilization"]
+        self.assertIn('container_memory_working_set_bytes{job="kubernetes-cadvisor", id="/"}', memory["targets"][0]["expr"])
+        self.assertIn('machine_memory_bytes{job="kubernetes-cadvisor"}', memory["targets"][0]["expr"])
+
+        per_core = panels["Node CPU Utilization by Core"]
+        self.assertIn('node_cpu_seconds_total{job="ckc-node-exporter", mode="idle"}', per_core["targets"][0]["expr"])
+        self.assertEqual("{{node}} cpu{{cpu}}", per_core["targets"][0]["legendFormat"])
+        softirq = panels["Node SoftIRQ CPU by Core"]
+        self.assertIn('mode="softirq"', softirq["targets"][0]["expr"])
+        softnet_expressions = " ".join(target["expr"] for target in panels["Node Softnet Pressure by Core"]["targets"])
+        self.assertIn("node_softnet_dropped_total", softnet_expressions)
+        self.assertIn("node_softnet_times_squeezed_total", softnet_expressions)
+
+        options = environment_dashboard_options("aws", "msk")
+        self.assertIn("Kubernetes Nodes", options["excluded_row_titles"])
 
     def test_application_replica_count_tolerates_short_cadvisor_scrape_gaps(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"

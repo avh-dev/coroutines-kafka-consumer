@@ -4481,6 +4481,81 @@
     },
     {
       "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Whole-node CPU utilization from the cAdvisor root cgroup, divided by the node's logical CPU capacity. This includes Kubernetes workloads and host processes.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "id": 166,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "100 * rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", id=\"/\", cpu=\"total\"}[$__rate_interval]) / on (node) machine_cpu_cores{job=\"kubernetes-cadvisor\"}", "legendFormat": "{{node}}", "refId": "A"}
+          ],
+          "title": "Node CPU Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Whole-node working-set memory from the cAdvisor root cgroup as a percentage of detected machine memory.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "id": 167,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "100 * container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", id=\"/\"} / on (node) machine_memory_bytes{job=\"kubernetes-cadvisor\"}", "legendFormat": "{{node}}", "refId": "A"}
+          ],
+          "title": "Node Memory Utilization",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Busy time for every logical CPU. A single line pinned near 100% while the node aggregate remains moderate exposes per-core saturation such as a concentrated network receive path.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 10, "w": 12, "x": 0, "y": 22},
+          "id": 168,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "clamp_max(clamp_min(100 * (1 - rate(node_cpu_seconds_total{job=\"ckc-node-exporter\", mode=\"idle\"}[$__rate_interval])), 0), 100)", "legendFormat": "{{node}} cpu{{cpu}}", "refId": "A"}
+          ],
+          "title": "Node CPU Utilization by Core",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Per-core CPU time spent processing software interrupts. Concentration on one core is expected evidence for a single RX queue or insufficient receive-packet steering.",
+          "fieldConfig": {"defaults": {"max": 100, "min": 0, "unit": "percent"}, "overrides": []},
+          "gridPos": {"h": 10, "w": 12, "x": 12, "y": 22},
+          "id": 169,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "100 * rate(node_cpu_seconds_total{job=\"ckc-node-exporter\", mode=\"softirq\"}[$__rate_interval])", "legendFormat": "{{node}} cpu{{cpu}}", "refId": "A"}
+          ],
+          "title": "Node SoftIRQ CPU by Core",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Per-core Linux softnet drops and budget exhaustion. Non-zero rates indicate that the networking backlog or poll budget could not keep up.",
+          "fieldConfig": {"defaults": {"min": 0, "unit": "ops"}, "overrides": []},
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 32},
+          "id": 170,
+          "options": {"legend": {"calcs": ["lastNotNull", "mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "rate(node_softnet_dropped_total{job=\"ckc-node-exporter\"}[$__rate_interval])", "legendFormat": "{{node}} cpu{{cpu}} dropped", "refId": "A"},
+            {"expr": "rate(node_softnet_times_squeezed_total{job=\"ckc-node-exporter\"}[$__rate_interval])", "legendFormat": "{{node}} cpu{{cpu}} squeezed", "refId": "B"}
+          ],
+          "title": "Node Softnet Pressure by Core",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Kubernetes Nodes",
+      "type": "row",
+      "id": 165
+    },
+    {
+      "collapsed": true,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
