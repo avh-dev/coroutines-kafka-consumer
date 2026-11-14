@@ -522,6 +522,7 @@
 | [INFRA-346](#infra-346) | Cap the two-to-four-pod warm-up diagnostic at 14k and trigger the fourth pod before the peak. | DONE |
 | [INFRA-347](#infra-347) | Add internal-lab node and per-core CPU/network observability. | DONE |
 | [INFRA-348](#infra-348) | Provision multi-recipient warm-up partition capacity and add parallel-session experiment scenarios. | PLANNED |
+| [INFRA-349](#infra-349) | Tune the warm-up diagnostic Kafka clients while preserving the telemetry baseline. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
@@ -6320,3 +6321,14 @@ Raise the pre-created warm-up topic partition counts to the maximum concurrent-r
 Keep the control topic at exactly one partition and do not resize warm-up topics during a running protocol namespace.
 Add experiment coverage for simultaneous recipients, reservation contention, participant loss, expiry, and partition reuse.
 Wire explicit donor session and aggregate delegation limits into experiment configuration where non-default capacity is required.
+
+<a id="infra-349"></a>
+### INFRA-349 - Tune warm-up diagnostic Kafka clients
+
+_Date: 2026-11-13_
+
+Reduce the order and batch consumer fetch threshold and wait together for the next two-to-four-pod diagnostic.
+Keep the lower-traffic telemetry topic unchanged as the established latency baseline.
+Align the explicit warm-up forwarding producer linger with the library-owned low-latency default.
+Keep the diagnostic quota within the library's default aggregate donor limit until that capacity becomes demo-configurable.
+Verification: all 84 orchestration tests and the focused 19-test materialization suite pass; resolved quota is `0 -> 40` over 120 seconds, and the installed experiment checksum matches the repository.

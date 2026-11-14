@@ -102,6 +102,25 @@ class MaterializeTest(unittest.TestCase):
             80,
             plan["application"]["configuration"]["hpa"]["hot_pod_cpu"]["target_utilization_percentage"],
         )
+        env = plan["application"]["runtime"]["env"]
+        self.assertEqual((32768, 200), (
+            env["ORDER_KAFKA_CONSUMER_FETCH_MIN_BYTES"],
+            env["ORDER_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"],
+        ))
+        self.assertEqual((32768, 200), (
+            env["BATCH_KAFKA_CONSUMER_FETCH_MIN_BYTES"],
+            env["BATCH_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"],
+        ))
+        self.assertEqual((16384, 350), (
+            env["TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES"],
+            env["TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS"],
+        ))
+        self.assertEqual((0, 40, 120), (
+            env["TRAFFIC_WARMUP_INITIAL_QUOTA_PER_INTERVAL"],
+            env["TRAFFIC_WARMUP_QUOTA_PER_INTERVAL"],
+            env["TRAFFIC_WARMUP_QUOTA_RAMP_SECONDS"],
+        ))
+        self.assertEqual(5, env["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
 
     def test_materializes_eks_1_35_autoscaling_smoke(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-eks-1-35-autoscaling-smoke.yaml"
