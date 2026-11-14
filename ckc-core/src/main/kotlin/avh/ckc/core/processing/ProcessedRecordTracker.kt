@@ -66,10 +66,5 @@ internal class PartitionProcessedRecordTracker(
     override suspend fun <K, V> awaitRetryPermission(
         record: ConsumerRecord<K, V>,
         retryDelay: Duration
-    ): Boolean = if (trackOffsets) {
-        partitionRegistry.awaitRetryPermission(record, retryDelay)
-    } else {
-        if (retryDelay.isPositive()) delay(retryDelay)
-        true
-    }
+    ): Boolean = partitionRegistry.awaitRetryPermission(record, retryDelay)
 }

@@ -76,6 +76,7 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
+| [CORE-74](#core-74) | Implement the shared-partition warm-up data plane with isolated donor sessions, fair selection, quota ramp, result routing, and ownership-safe fallback. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5948,3 +5949,21 @@ donor readiness criterion in the [GLOBAL-5 architecture](docs/design/shared-part
 Record `2cdde950` as the selected GLOBAL-4 source and map reusable components to their
 exact commits. Explicitly exclude coordinator, reservation, snapshot, retirement, and
 quarantine code, then split delivery into reviewable CORE, DEMO, INFRA, and DOC tasks.
+
+<a id="core-74"></a>
+### CORE-74 - Implement the multi-session warm-up data plane
+
+_Date: 2026-11-14_
+
+Selectively adapt the terminal processing seam and data-plane primitives from archived
+GLOBAL-4 commits `e83dae2d`, `f013ae6b`, `7e0918cc`, `e76be636`, `fc8708c2`,
+`dec5ab81`, `9405c1fc`, `d88571f7`, and `33ab8172`. Support independent donor
+sessions, atomic aggregate capacity, quota ramp, fair single-recipient selection, routed
+remote results, and ownership-safe local fallback without reservations or global state.
+Review hardening revalidates ownership before every first local handler attempt, distinguishes
+the delegation deadline from external cancellation, and rejects session removal until inflight
+work drains. Activation and removal are serialized, and removal seals admitted sessions against
+late activation before releasing their capacity. Names, round-robin selection, result tracking,
+and concurrency documentation now describe their actual effects and guarantees.
+The focused processing/data-plane suite, the complete core unit suite, and the real-Kafka
+`:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment run was started.
