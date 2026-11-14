@@ -37,6 +37,40 @@ def command_json(arguments: list[str]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def docker_resource_limits(
+    container: str,
+    *,
+    fallback_cpu: float,
+    fallback_memory_gib: float,
+) -> dict[str, float]:
+    host_config = command_json([
+        "docker",
+        "inspect",
+        "--format={{json .HostConfig}}",
+        container,
+    ])
+    nano_cpus = host_config.get("NanoCpus")
+    memory_bytes = host_config.get("Memory")
+    cpu_limit = (
+        float(nano_cpus) / 1_000_000_000
+        if isinstance(nano_cpus, (int, float))
+        and not isinstance(nano_cpus, bool)
+        and nano_cpus > 0
+        else fallback_cpu
+    )
+    memory_limit_gib = (
+        float(memory_bytes) / (1024 ** 3)
+        if isinstance(memory_bytes, (int, float))
+        and not isinstance(memory_bytes, bool)
+        and memory_bytes > 0
+        else fallback_memory_gib
+    )
+    return {
+        "cpu_limit": cpu_limit,
+        "memory_limit_gib": memory_limit_gib,
+    }
+
+
 def command_text(arguments: list[str]) -> str:
     try:
         result = subprocess.run(
@@ -376,6 +410,11 @@ def main() -> int:
         inter_host_link,
         split_expected=bool(os.environ.get("LAB_APPLICATION_TARGET")),
     )
+    redis_resources = docker_resource_limits(
+        "ckc-perf-redis",
+        fallback_cpu=1,
+        fallback_memory_gib=2,
+    )
     metadata["environment_evidence"] = {
         "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "provider": "bare metal",
@@ -403,7 +442,11 @@ def main() -> int:
             "cpu_limit_per_broker": resources.get("cpu_per_broker") or (1 if topology == "cluster" else 2),
             "memory_limit_gib_per_broker": memory_per_broker_gib,
         },
-        "redis": {"mode": "Docker container", "version": "7.4", "cpu_limit": 1, "memory_limit_gib": 2},
+        "redis": {
+            "mode": "Docker container",
+            "version": "7.4",
+            **redis_resources,
+        },
         "observability": {
             "kubernetes": [
                 {"name": "Prometheus", "version": "3.3.1", "role": "metrics"},
