@@ -495,6 +495,7 @@
 | [INFRA-317](#infra-317) | Classify lifecycle handoff reprocessing separately from conflicting audit outcomes. | DONE |
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-319](#infra-319) | Preserve stable pod identities in Grafana legends during replica-count changes. | DONE |
+| [INFRA-320](#infra-320) | Add internal-lab node and per-core CPU/network observability. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5882,3 +5883,13 @@ commit `712ec248`. Keep pod identities visible in pod-grouped panels even when o
 one pod is present so scale-up and scale-down do not split one series across legend
 formats. Preserve the combined view and add a regression test for every pod legend.
 Verification: all 29 focused dashboard tests pass and the dashboard JSON validates.
+
+<a id="infra-320"></a>
+### INFRA-320 - Add node and per-core observability
+
+_Date: 2026-11-14_
+
+Port the environment-independent observability work from archived GLOBAL-4 commit
+`27b9febe`. Collect host CPU, SoftIRQ, and softnet pressure from a lightweight node
+exporter on every internal-lab Kubernetes node. Add aggregate node and per-logical-CPU
+dashboard panels while keeping the shared dashboard filtered by environment.
