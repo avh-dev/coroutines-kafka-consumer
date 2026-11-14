@@ -500,6 +500,7 @@
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
+| [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -5923,3 +5924,15 @@ retain the `noeviction` policy, and preserve explicit runtime headroom. Keep the
 capacity fixed for every target in an experiment rather than exposing a target override.
 Verification: all 12 environment-evidence tests pass, Compose validation succeeds,
 and the configuration retains 1 GiB of memory outside the Redis dataset limit.
+
+<a id="global-5"></a>
+### GLOBAL-5 - Shared-partition real-traffic warm-up
+
+_Date: 2026-11-14_
+
+Implement real-traffic warm-up over shared single-partition Kafka topics without a
+coordinator, distributed reservations, replicated snapshots, or bootstrap quarantine.
+Allow one donor to serve multiple isolated recipient sessions while preserving source
+ownership, local fallback, draining, and the processing guarantees of main consumers.
+Develop child tasks on branches based on this umbrella and merge them only back into
+`GLOBAL-5_shared_partition_warmup` until publication is authorized separately.
