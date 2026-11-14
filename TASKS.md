@@ -525,7 +525,7 @@
 | [INFRA-349](#infra-349) | Tune the warm-up diagnostic Kafka clients while preserving the telemetry baseline. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
-| [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | IN_PROGRESS |
+| [GLOBAL-4](#global-4) | Replace the first real-traffic warm-up MVP with a simpler runtime-owned delegated-processing design. | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -5916,6 +5916,9 @@ The proposal for review is maintained in [the MVP design](docs/design/traffic-wa
 Updated the proposal on 2026-11-11 with GLOBAL-3 transfer candidates through `b0c2c80`,
 worker-local stubs and ephemeral Kafka, network limitations, and deferred AWS sizing checks.
 Implementation and protocol approval remain pending; child task IDs are proposals only.
+Archived on 2026-11-14 as the second historical attempt at automatic real-traffic
+warm-up. The branch is retained for reference and must not be merged into `master`;
+future work will restart from a new design and manually port only useful ideas.
 
 <a id="doc-10"></a>
 ### DOC-10 - Organize the traffic warm-up MVP design

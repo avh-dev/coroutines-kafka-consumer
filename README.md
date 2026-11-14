@@ -1,5 +1,12 @@
 # Coroutines Kafka Consumer
 
+> [!WARNING]
+> This branch archives **GLOBAL-4**, the second historical attempt at automatic
+> real-traffic consumer warm-up. The approach is a development dead end retained
+> for reference and must not be merged into `master`. Future work will start from
+> a new design; useful ideas should be ported deliberately rather than by merging
+> this branch.
+
 `coroutines-kafka-consumer` is an experimental Kotlin library for building coroutine-native Kafka consumers with explicit processing modes, backpressure, metrics, and offset advancement that remains safe when records are processed concurrently.
 
 The project is pre-release. APIs, package names, and configuration names may still change while the library shape is being refined.
