@@ -70,9 +70,50 @@ class WarmupDonorActivationTest {
         prepared.complete(session(acceptance.sessionId, closed))
         awaitFor(2_000, 10) { closed.get().takeIf { it == 1 } }
 
-        assertEquals(WarmupDonorActivation.State.CANCELLED, activation.state(acceptance.sessionId))
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(acceptance.sessionId))
         assertFalse(activation.onRecipientReady(ready()))
         assertEquals(0, plane.admittedSessionCount())
+        scope.cancel()
+    }
+
+    @Test
+    fun `completion during preparation waits for late resource cleanup before acknowledgement`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val prepared = CompletableDeferred<WarmupDonorSession<String, String>>()
+        val closedResources = AtomicInteger()
+        val acknowledgement = CompletableDeferred<DonorClosed>()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { prepared.await() },
+            scope = scope,
+            onPreparationFailed = {},
+            onDonorClosed = { acknowledgement.complete(it) },
+            nowEpochMillis = { 1_000 }
+        )
+        val accepted = acceptance()
+        acceptAndStart(activation, accepted)
+
+        assertTrue(
+            activation.onCompletionRequested(
+                WarmupCompletionRequested(
+                    namespace, accepted.sessionId, recipient, donor, "fingerprint", 10_000
+                )
+            )
+        )
+        assertEquals(WarmupDonorActivation.State.DRAINING, activation.state(accepted.sessionId))
+        assertFalse(acknowledgement.isCompleted)
+
+        prepared.complete(session(accepted.sessionId, closedResources))
+        withTimeout(2_000) { acknowledgement.await() }
+        assertEquals(1, closedResources.get())
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        assertEquals(0, plane.admittedSessionCount())
+        assertFalse(activation.onRecipientReady(ready()))
         scope.cancel()
     }
 
@@ -172,6 +213,58 @@ class WarmupDonorActivationTest {
     }
 
     @Test
+    fun `unknown or mismatched terminal messages cannot mutate an active session`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val activation = activation(scope, plane) { session(WarmupSessionId("session")) }
+        val accepted = acceptance()
+        acceptAndStart(activation, accepted)
+        withTimeout(2_000) {
+            while (activation.state(accepted.sessionId) != WarmupDonorActivation.State.WAITING_RECIPIENT_READY) {
+                kotlinx.coroutines.yield()
+            }
+        }
+        assertTrue(activation.onRecipientReady(ready()))
+
+        assertFalse(
+            activation.onCompletionRequested(
+                WarmupCompletionRequested(
+                    namespace, accepted.sessionId, WarmupInstanceId("intruder"), donor,
+                    "fingerprint", 10_000
+                )
+            )
+        )
+        assertFalse(
+            activation.onCompletionRequested(
+                WarmupCompletionRequested(
+                    namespace, WarmupSessionId("unknown"), recipient, donor,
+                    "fingerprint", 10_000
+                )
+            )
+        )
+        assertEquals(
+            WarmupResultTracker.Completion.IGNORED,
+            activation.onRecordCompleted(
+                ControlRecordCompleted(
+                    namespace, accepted.sessionId, WarmupInstanceId("intruder"), donor,
+                    WarmupRecordCompleted(
+                        WarmupRecordId(accepted.sessionId, TopicPartition("warmup-orders", 0), 0),
+                        WarmupRemoteOutcome.Succeeded
+                    ),
+                    "fingerprint", 10_000
+                )
+            )
+        )
+        assertEquals(WarmupDonorActivation.State.ACTIVE, activation.state(accepted.sessionId))
+
+        assertTrue(activation.onSessionEnded(fallbackEnded()))
+        awaitFor(2_000, 10) {
+            activation.state(accepted.sessionId).takeIf { it == WarmupDonorActivation.State.CLOSED }
+        }
+        scope.cancel()
+    }
+
+    @Test
     fun `recipient fallback after readiness stops and removes an activated donor session`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
@@ -192,8 +285,81 @@ class WarmupDonorActivationTest {
                 )
             )
         )
-        assertEquals(WarmupDonorActivation.State.CANCELLED, activation.state(WarmupSessionId("session")))
+        awaitFor(2_000, 10) {
+            activation.state(WarmupSessionId("session"))
+                .takeIf { it == WarmupDonorActivation.State.CLOSED }
+        }
         assertEquals(0, plane.admittedSessionCount())
+        scope.cancel()
+    }
+
+    @Test
+    fun `recipient completion drains inflight fences delegation and releases capacity`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val acknowledgements = mutableListOf<DonorClosed>()
+        val donorSession = session(WarmupSessionId("session"))
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { donorSession },
+            scope = scope,
+            onPreparationFailed = {},
+            onDonorClosed = { acknowledgements += it },
+            nowEpochMillis = { 1_000 }
+        )
+        val accepted = acceptance()
+        acceptAndStart(activation, accepted)
+        withTimeout(2_000) {
+            while (activation.state(accepted.sessionId) != WarmupDonorActivation.State.WAITING_RECIPIENT_READY) {
+                kotlinx.coroutines.yield()
+            }
+        }
+        assertTrue(activation.onRecipientReady(ready()))
+        val delegated = async {
+            plane.process(ConsumerRecord("orders", 0, 0, "key", "value")) {
+                error("Successful remote completion must not fall back")
+            }
+        }
+        withTimeout(2_000) {
+            while (donorSession.pendingResultCount() != 1) kotlinx.coroutines.yield()
+        }
+        val completion = WarmupCompletionRequested(
+            namespace, accepted.sessionId, recipient, donor, "fingerprint", 10_000
+        )
+
+        assertTrue(activation.onCompletionRequested(completion))
+        assertEquals(WarmupDonorActivation.State.DRAINING, activation.state(accepted.sessionId))
+        val localCalls = AtomicInteger()
+        plane.process(ConsumerRecord("orders", 0, 1, "other", "value")) {
+            localCalls.incrementAndGet()
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+        assertEquals(1, localCalls.get())
+        assertEquals(
+            WarmupResultTracker.Completion.DELIVERED,
+            activation.onRecordCompleted(
+                ControlRecordCompleted(
+                    namespace, accepted.sessionId, recipient, donor,
+                    WarmupRecordCompleted(
+                        WarmupRecordId(accepted.sessionId, TopicPartition("warmup-orders", 0), 0),
+                        WarmupRemoteOutcome.Succeeded
+                    ),
+                    "fingerprint", 10_000
+                )
+            )
+        )
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, delegated.await())
+        awaitFor(2_000, 10) { acknowledgements.size.takeIf { it == 1 } }
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        assertEquals(0, plane.admittedSessionCount())
+
+        assertTrue(activation.onCompletionRequested(completion))
+        awaitFor(2_000, 10) { acknowledgements.size.takeIf { it == 2 } }
+        assertFalse(activation.onRecipientReady(ready()))
         scope.cancel()
     }
 
@@ -264,6 +430,58 @@ class WarmupDonorActivationTest {
         assertTrue(plane.removeDrainedSession(siblingId))
         plane.stopDelegating(WarmupSessionId("replacement"))
         assertTrue(plane.removeDrainedSession(WarmupSessionId("replacement")))
+        scope.cancel()
+    }
+
+    @Test
+    fun `recipient loss expires donor session falls back inflight and releases capacity`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val donorSession = session(WarmupSessionId("expiring"))
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { donorSession },
+            scope = scope,
+            onPreparationFailed = {},
+            drainTimeout = 20.milliseconds
+        )
+        val expiresAt = System.currentTimeMillis() + 200
+        val accepted = acceptance().copy(
+            sessionId = WarmupSessionId("expiring"),
+            expiresAtEpochMillis = expiresAt
+        )
+        assertInstanceOf(DonorAccepted::class.java, acceptAndStart(activation, accepted))
+        withTimeout(2_000) {
+            while (activation.state(accepted.sessionId) != WarmupDonorActivation.State.WAITING_RECIPIENT_READY) {
+                kotlinx.coroutines.yield()
+            }
+        }
+        assertTrue(
+            activation.onRecipientReady(
+                ready().copy(sessionId = accepted.sessionId, expiresAtEpochMillis = expiresAt)
+            )
+        )
+        val localCalls = AtomicInteger()
+        val outcome = async {
+            plane.process(ConsumerRecord("orders", 0, 0, "key", "value")) {
+                localCalls.incrementAndGet()
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        withTimeout(2_000) {
+            while (donorSession.pendingResultCount() != 1) kotlinx.coroutines.yield()
+        }
+
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, withTimeout(2_000) { outcome.await() })
+        assertEquals(1, localCalls.get())
+        awaitFor(2_000, 10) {
+            activation.state(accepted.sessionId).takeIf { it == WarmupDonorActivation.State.CLOSED }
+        }
+        assertEquals(0, plane.admittedSessionCount())
         scope.cancel()
     }
 

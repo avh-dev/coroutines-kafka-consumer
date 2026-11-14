@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -49,10 +50,11 @@ class WarmupDiscoveryRuntimeTest {
             donorAcceptanceTimeout = 1.seconds
         )
         val request = request()
+        val stopped = AtomicInteger()
         val recipient = WarmupRecipientDiscovery(
             request = request,
             metadata = WarmupDestinationMetadata { mapOf(0 to 42L) },
-            consumerPreparation = WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start) },
+            consumerPreparation = WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
             preparationTimeout = 1.seconds
         )
 
@@ -62,6 +64,18 @@ class WarmupDiscoveryRuntimeTest {
         assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, result)
         assertEquals(
             listOf(WarmupRequested::class, SessionAccepted::class, RecipientReady::class),
+            channel.sent.map { it::class }
+        )
+        assertEquals(WarmupCompletionResult.Completed, runtime.completeWarmup(recipient))
+        assertEquals(1, stopped.get())
+        assertEquals(
+            listOf(
+                WarmupRequested::class,
+                SessionAccepted::class,
+                RecipientReady::class,
+                WarmupCompletionRequested::class,
+                SessionEnded::class
+            ),
             channel.sent.map { it::class }
         )
         runtime.stop()
@@ -139,6 +153,50 @@ class WarmupDiscoveryRuntimeTest {
         scope.cancel()
     }
 
+    @Test
+    fun `missing donor close acknowledgement cold falls back and stops recipient consumer`() = runBlocking {
+        val router = WarmupControlRouter(recipientId, namespace)
+        val channel = InMemoryControlChannel(router, remoteDonor, mapping, acknowledgeCompletion = false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val activation = WarmupDonorActivation(
+            localInstanceId = recipientId,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { null },
+            preparation = WarmupDonorSessionPreparation { error("local donor is not selected") },
+            scope = scope,
+            onPreparationFailed = { channel.send(it) }
+        )
+        val runtime = WarmupDiscoveryRuntime(
+            recipientId, namespace, router, channel,
+            StatelessWarmupDonorDiscovery(recipientId, namespace, emptyList()) { null },
+            activation, 1.milliseconds, 1.seconds, 10.milliseconds
+        )
+        val stopped = AtomicInteger()
+        val recipient = WarmupRecipientDiscovery(
+            request(),
+            WarmupDestinationMetadata { mapOf(0 to 0L) },
+            WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
+            1.seconds
+        )
+
+        runtime.startControl()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, runtime.discoverAndPrepare(recipient))
+        val result = runtime.completeWarmup(recipient)
+
+        val fallback = assertInstanceOf(WarmupCompletionResult.ColdFallback::class.java, result)
+        assertEquals("donor_completion_failed", fallback.reasonCode)
+        assertEquals(1, stopped.get())
+        assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, recipient.state())
+        assertTrue(channel.sent[channel.sent.lastIndex - 1] is WarmupCompletionRequested)
+        assertTrue(channel.sent.last() is SessionEnded)
+        runtime.stop()
+        runtime.close()
+        scope.cancel()
+    }
+
     private fun request(): WarmupRequested {
         val now = System.currentTimeMillis()
         return WarmupRequested(
@@ -147,18 +205,24 @@ class WarmupDiscoveryRuntimeTest {
         )
     }
 
-    private fun readyConsumer(start: WarmupDestinationStart) = object : PreparedWarmupRecipientConsumer {
+    private fun readyConsumer(
+        start: WarmupDestinationStart,
+        stopped: AtomicInteger = AtomicInteger()
+    ) = object : PreparedWarmupRecipientConsumer {
         override val assignment = start.assignment
         override val startOffset = start.offset
         override fun start() = Unit
         override suspend fun awaitReady() = Unit
-        override suspend fun stop() = Unit
+        override suspend fun stop() {
+            stopped.incrementAndGet()
+        }
     }
 
     private class InMemoryControlChannel(
         private val router: WarmupControlRouter,
         private val donor: WarmupInstanceId,
-        private val mapping: WarmupTopicMapping
+        private val mapping: WarmupTopicMapping,
+        private val acknowledgeCompletion: Boolean = true
     ) : WarmupControlChannel {
         val sent = mutableListOf<WarmupControlMessage>()
 
@@ -187,6 +251,15 @@ class WarmupDiscoveryRuntimeTest {
                         DonorAccepted(
                             message.namespace, message.sessionId, donor, message.senderInstanceId,
                             message.mappings, message.intervalBudget, message.initialQuota,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
+                        )
+                    )
+                )
+                is WarmupCompletionRequested -> if (acknowledgeCompletion) router.onMessage(
+                    WarmupControlRecord(
+                        sent.size.toLong(),
+                        DonorClosed(
+                            message.namespace, message.sessionId, donor, message.senderInstanceId,
                             message.configurationFingerprint, message.expiresAtEpochMillis
                         )
                     )

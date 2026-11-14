@@ -79,6 +79,7 @@
 | [CORE-74](#core-74) | Implement the shared-partition warm-up data plane with isolated donor sessions, fair selection, quota ramp, result routing, and ownership-safe fallback. | DONE |
 | [CORE-75](#core-75) | Filter foreign warm-up sessions before recipient records enter processing queues while preserving ownership and offset ordering. | DONE |
 | [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
+| [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6008,3 +6009,20 @@ typed transport send timeouts, and final local-mapping revalidation. No smoke, l
 experiment run was started. Rollback follow-up converts donor drain expiry into an ordinary session
 failure, waits for ownership-safe fallback before releasing capacity, and reports incomplete
 recipient cleanup as a distinct result while retaining resources for a later cleanup attempt.
+
+<a id="core-77"></a>
+### CORE-77 - Complete and fail warm-up sessions safely
+
+_Date: 2026-11-14_
+
+Implement recipient-driven completion across every selected donor, bounded inflight drain and
+acknowledgement, recipient consumer shutdown, and handoff to normal consumers. Fence terminal and
+unknown sessions against late control messages, cancel unfinished preparation, clean late resources,
+validate senders and mappings, and isolate loss or failure to the affected parallel session.
+Selectively adapt the recipient-owned close ordering from archived GLOBAL-4 commit `005afa9c` and
+the lifecycle cleanup guarantees from `45464da2` and `72048208`, without coordinator state,
+reservations, snapshots, retirement, or emergency release. Donors now route remote results only for
+exact sessions and destinations, stop admission before drain, convert their own drain deadline to
+ownership-safe local fallback, retain bounded terminal fences, and expire abandoned sessions locally.
+The full core unit suite and the 24-test real-Kafka `:ckc-core:integrationTest` suite pass. No smoke,
+load, chaos, or experiment run was started.
