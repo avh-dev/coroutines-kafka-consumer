@@ -11,6 +11,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -169,6 +171,43 @@ class WarmupDonorActivationTest {
     }
 
     @Test
+    fun `completion before queued preparation starts still closes and releases admission`() {
+        val scheduler = TestCoroutineScheduler()
+        val dispatcher = StandardTestDispatcher(scheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val preparationCalls = AtomicInteger()
+        val acknowledgements = AtomicInteger()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation {
+                preparationCalls.incrementAndGet()
+                session(it.sessionId)
+            },
+            scope = scope,
+            onPreparationFailed = {},
+            onDonorClosed = { acknowledgements.incrementAndGet() },
+            nowEpochMillis = { 1_000 }
+        )
+        val accepted = acceptance()
+        assertInstanceOf(DonorAccepted::class.java, activation.accept(accepted))
+        assertTrue(activation.startPreparation(accepted.sessionId))
+
+        assertTrue(activation.onCompletionRequested(completion(accepted)))
+        scheduler.runCurrent()
+
+        assertEquals(0, preparationCalls.get())
+        assertEquals(1, acknowledgements.get())
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        assertEquals(0, plane.admittedSessionCount())
+        scope.cancel()
+    }
+
+    @Test
     fun `failed late resource close is retained and retried without early donor acknowledgement`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
@@ -207,6 +246,50 @@ class WarmupDonorActivationTest {
         awaitFor(2_000, 10) { closeAttempts.get().takeIf { it == 1 } }
         assertEquals(0, acknowledgements.get())
         assertEquals(WarmupDonorActivation.State.DRAINING, activation.state(accepted.sessionId))
+
+        assertTrue(activation.onCompletionRequested(completion(accepted)))
+        awaitFor(2_000, 10) { acknowledgements.get().takeIf { it == 1 } }
+        assertEquals(2, closeAttempts.get())
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        scope.cancel()
+    }
+
+    @Test
+    fun `failed installed resource close is retained and retried before acknowledgement`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val closeAttempts = AtomicInteger()
+        val acknowledgements = AtomicInteger()
+        val installedSession = session(
+            WarmupSessionId("session"),
+            onClose = {
+                if (closeAttempts.incrementAndGet() == 1) throw IllegalStateException("close failed")
+            }
+        )
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { installedSession },
+            scope = scope,
+            onPreparationFailed = {},
+            onDonorClosed = { acknowledgements.incrementAndGet() },
+            nowEpochMillis = { 1_000 }
+        )
+        val accepted = acceptance()
+        acceptAndStart(activation, accepted)
+        awaitFor(2_000, 10) {
+            activation.state(accepted.sessionId)
+                .takeIf { it == WarmupDonorActivation.State.WAITING_RECIPIENT_READY }
+        }
+
+        assertTrue(activation.onCompletionRequested(completion(accepted)))
+        awaitFor(2_000, 10) { closeAttempts.get().takeIf { it == 1 } }
+        assertEquals(0, acknowledgements.get())
+        assertEquals(WarmupDonorActivation.State.DRAINING, activation.state(accepted.sessionId))
+        assertEquals(0, plane.admittedSessionCount())
 
         assertTrue(activation.onCompletionRequested(completion(accepted)))
         awaitFor(2_000, 10) { acknowledgements.get().takeIf { it == 1 } }

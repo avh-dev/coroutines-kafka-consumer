@@ -42,19 +42,21 @@ internal class WarmupDonorActivation<K, V>(
     private sealed interface PreparationCompletion {
         data object Installed : PreparationCompletion
         data object Cancelled : PreparationCompletion
-        data class LateCleanupFailed(val error: Throwable) : PreparationCompletion
+        data class ResourceCleanupFailed(val error: Throwable) : PreparationCompletion
     }
 
     private class LocalSession<K, V>(val acceptance: SessionAccepted) {
         var state = State.PREPARING
         var readySeen = false
         var preparationStarted = false
+        var preparationBodyEntered = false
         var prepared: WarmupDonorSession<K, V>? = null
         var closeStarted = false
+        var closeRetryRequested = false
         var acknowledgeClose = false
         var preparationJob: Job? = null
-        var latePrepared: WarmupDonorSession<K, V>? = null
-        var lateCleanupFailureObserved = false
+        var retainedCleanupResource: WarmupDonorSession<K, V>? = null
+        var preparationCleanupFailureObserved = false
         val preparationFinished = CompletableDeferred<PreparationCompletion>()
     }
 
@@ -106,7 +108,19 @@ internal class WarmupDonorActivation<K, V>(
             if (existing.state != State.PREPARING || existing.preparationStarted) return@synchronized null
             existing
         } ?: return false
-        val job = scope.launch(start = CoroutineStart.LAZY) { prepare(local) }
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            synchronized(lock) { local.preparationBodyEntered = true }
+            prepare(local)
+        }
+        job.invokeOnCompletion {
+            synchronized(lock) {
+                // Cancellation before dispatch never enters prepare(), so no body can publish the
+                // terminal signal. Once entered, the body owns both resource cleanup and signaling.
+                if (!local.preparationBodyEntered) {
+                    local.preparationFinished.complete(PreparationCompletion.Cancelled)
+                }
+            }
+        }
         val installed = synchronized(lock) {
             if (local.state != State.PREPARING || local.preparationStarted) return@synchronized false
             local.preparationStarted = true
@@ -216,11 +230,14 @@ internal class WarmupDonorActivation<K, V>(
             State.CANCELLED -> return false
         }
         local.readySeen = false
-        local.acknowledgeClose = acknowledge
+        local.acknowledgeClose = local.acknowledgeClose || acknowledge
         local.state = State.DRAINING
         if (!local.closeStarted) {
             local.closeStarted = true
             scope.launch { finishClose(local) }
+        } else {
+            // A close trigger racing a failed cleanup must not be lost before closeStarted resets.
+            local.closeRetryRequested = true
         }
         return true
     }
@@ -228,19 +245,19 @@ internal class WarmupDonorActivation<K, V>(
     private suspend fun finishClose(local: LocalSession<K, V>) {
         val acceptance = local.acceptance
         val preparationCompletion = local.preparationFinished.await()
-        if (preparationCompletion is PreparationCompletion.LateCleanupFailed) {
+        if (preparationCompletion is PreparationCompletion.ResourceCleanupFailed) {
             val retry = synchronized(lock) {
-                if (local.lateCleanupFailureObserved) true else {
-                    local.lateCleanupFailureObserved = true
+                if (local.preparationCleanupFailureObserved) true else {
+                    local.preparationCleanupFailureObserved = true
                     false
                 }
             }
-            if (!retry || !retryLateCleanup(local)) {
-                synchronized(lock) { local.closeStarted = false }
+            if (!retry) {
+                awaitAnotherCloseTrigger(local)
                 return
             }
         }
-        if (local.prepared != null) {
+        if (synchronized(lock) { local.prepared != null }) {
             val remaining = (acceptance.expiresAtEpochMillis - nowEpochMillis()).coerceAtLeast(1).milliseconds
             val timeout = minOf(drainTimeout, remaining)
             try {
@@ -253,9 +270,19 @@ internal class WarmupDonorActivation<K, V>(
                 dataPlane.fail(acceptance.sessionId, error)
                 dataPlane.awaitInflightCompletion(acceptance.sessionId)
             }
-            check(dataPlane.removeDrainedSession(acceptance.sessionId)) {
-                "Warm-up donor session ${acceptance.sessionId.value} did not drain"
+            val detached = dataPlane.detachDrainedSession(acceptance.sessionId)
+            if (detached == null) {
+                awaitAnotherCloseTrigger(local)
+                return
             }
+            synchronized(lock) {
+                local.prepared = null
+                local.retainedCleanupResource = detached
+            }
+        }
+        if (!closeRetainedResource(local)) {
+            awaitAnotherCloseTrigger(local)
+            return
         }
         val acknowledge = synchronized(lock) {
             if (local.state != State.DRAINING) return@synchronized false
@@ -266,12 +293,29 @@ internal class WarmupDonorActivation<K, V>(
         if (acknowledge) onDonorClosed(closedMessage(acceptance))
     }
 
-    /** A failed late close retains the resource and is retried only by another close trigger. */
-    private fun retryLateCleanup(local: LocalSession<K, V>): Boolean {
-        val resource = synchronized(lock) { local.latePrepared } ?: return true
+    /** Leaves cleanup dormant, or consumes one close trigger that raced the failed attempt. */
+    private fun awaitAnotherCloseTrigger(local: LocalSession<K, V>) {
+        val retryNow = synchronized(lock) {
+            if (local.state != State.DRAINING) return@synchronized false
+            if (local.closeRetryRequested) {
+                local.closeRetryRequested = false
+                true
+            } else {
+                local.closeStarted = false
+                false
+            }
+        }
+        if (retryNow) scope.launch { finishClose(local) }
+    }
+
+    /** Both late and installed resources remain reachable until a close attempt succeeds. */
+    private fun closeRetainedResource(local: LocalSession<K, V>): Boolean {
+        val resource = synchronized(lock) { local.retainedCleanupResource } ?: return true
         return try {
             resource.close()
-            synchronized(lock) { if (local.latePrepared === resource) local.latePrepared = null }
+            synchronized(lock) {
+                if (local.retainedCleanupResource === resource) local.retainedCleanupResource = null
+            }
             true
         } catch (error: Throwable) {
             if (error.isFatalJvmError()) throw error
@@ -338,11 +382,11 @@ internal class WarmupDonorActivation<K, V>(
             prepared.close()
             PreparationCompletion.Cancelled
         } catch (error: Throwable) {
-            synchronized(lock) { local.latePrepared = prepared }
-            PreparationCompletion.LateCleanupFailed(error)
+            synchronized(lock) { local.retainedCleanupResource = prepared }
+            PreparationCompletion.ResourceCleanupFailed(error)
         }
         local.preparationFinished.complete(completion)
-        if (completion is PreparationCompletion.LateCleanupFailed && completion.error.isFatalJvmError()) {
+        if (completion is PreparationCompletion.ResourceCleanupFailed && completion.error.isFatalJvmError()) {
             throw completion.error
         }
     }

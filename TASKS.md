@@ -6029,3 +6029,6 @@ load, chaos, or experiment run was started.
 Review hardening keeps every unexpired terminal fence effective under bounded storage, cancels the
 actual preparation job on close, retains and retries failed late-resource cleanup, and makes repeated
 successful recipient completion return the stored result without repeating messages or cleanup.
+The final race fixes publish preparation completion even when cancellation wins before coroutine
+dispatch, and use one retained-resource cleanup path for late and detached installed sessions so a
+failed sender close remains retryable and cannot acknowledge completion early.
