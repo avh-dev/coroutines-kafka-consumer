@@ -510,6 +510,7 @@
 | [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 | [DOC-8](#doc-8) | Document replay after failures and the scope of ordered at-least-once processing guarantees. | DONE |
 | [DOC-9](#doc-9) | Close the remaining stale in-progress entries in the repository task tracker. | DONE |
+| [DOC-11](#doc-11) | Define the GLOBAL-5 shared-partition warm-up protocol, participant state machines, transfer map, and child-task plan. | DONE |
 
 ## Task Details
 
@@ -5936,3 +5937,14 @@ Allow one donor to serve multiple isolated recipient sessions while preserving s
 ownership, local fallback, draining, and the processing guarantees of main consumers.
 Develop child tasks on branches based on this umbrella and merge them only back into
 `GLOBAL-5_shared_partition_warmup` until publication is authorized separately.
+
+<a id="doc-11"></a>
+### DOC-11 - Define the GLOBAL-5 warm-up architecture
+
+_Date: 2026-11-14_
+
+Define protocol v6, participant state machines, validation, failure handling, and the
+donor readiness criterion in the [GLOBAL-5 architecture](docs/design/shared-partition-warmup/README.md).
+Record `2cdde950` as the selected GLOBAL-4 source and map reusable components to their
+exact commits. Explicitly exclude coordinator, reservation, snapshot, retirement, and
+quarantine code, then split delivery into reviewable CORE, DEMO, INFRA, and DOC tasks.
