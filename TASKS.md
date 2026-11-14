@@ -496,6 +496,7 @@
 | [INFRA-318](#infra-318) | Focus the triangular autoscaling experiment on one target with a five-minute plateau. | DONE |
 | [INFRA-319](#infra-319) | Preserve stable pod identities in Grafana legends during replica-count changes. | DONE |
 | [INFRA-320](#infra-320) | Add internal-lab node and per-core CPU/network observability. | DONE |
+| [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5895,3 +5896,13 @@ exporter on every internal-lab Kubernetes node. Add aggregate node and per-logic
 dashboard panels while keeping the shared dashboard filtered by environment.
 Verification: all 30 dashboard tests and all 3 metrics-contract tests pass; shell
 syntax checks and Kubernetes server-side dry-runs accept the deployment manifests.
+
+<a id="infra-321"></a>
+### INFRA-321 - Capture runtime Redis resource evidence
+
+_Date: 2026-11-14_
+
+Separate the evidence consistency goal of archived GLOBAL-4 INFRA-339 from its
+Redis capacity increase. Read CPU and memory limits from the running Redis container
+with the existing 1 CPU and 2 GiB values as a compatibility fallback. Keep the
+`master` Compose sizing and Redis `maxmemory` configuration unchanged.
