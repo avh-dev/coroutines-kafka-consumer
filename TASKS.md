@@ -497,7 +497,7 @@
 | [INFRA-319](#infra-319) | Preserve stable pod identities in Grafana legends during replica-count changes. | DONE |
 | [INFRA-320](#infra-320) | Add internal-lab node and per-core CPU/network observability. | DONE |
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
-| [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | IN_PROGRESS |
+| [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
@@ -5921,3 +5921,5 @@ Port the capacity portion of archived GLOBAL-4 INFRA-339 as an independent lab
 configuration change. Raise Redis `maxmemory` to 3 GiB inside a 4 GiB container,
 retain the `noeviction` policy, and preserve explicit runtime headroom. Keep the
 capacity fixed for every target in an experiment rather than exposing a target override.
+Verification: all 12 environment-evidence tests pass, Compose validation succeeds,
+and the configuration retains 1 GiB of memory outside the Redis dataset limit.
