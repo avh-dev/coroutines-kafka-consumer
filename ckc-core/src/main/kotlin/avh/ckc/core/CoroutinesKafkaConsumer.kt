@@ -18,6 +18,8 @@ import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntim
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
+import avh.ckc.core.warmup.WarmupRecipientSessionFilteringSink
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -132,6 +134,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
     private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    private val warmupRecipientSessionId: WarmupSessionId? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
@@ -176,6 +179,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         admittedRecordInterceptor
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
+    private val recordSink: PolledRecordSink<K, V> = warmupRecipientSessionId?.let { sessionId ->
+        WarmupRecipientSessionFilteringSink(sessionId, processingRuntime, processedRecordTracker)
+    } ?: processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
         pollLoopFactory(
             index,
@@ -188,7 +194,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             consumerConfigAdapter,
             topics,
             topicsPattern,
-            processingRuntime,
+            recordSink,
             partitionRegistry
         )
     }
@@ -276,6 +282,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
+        warmupRecipientSessionId: WarmupSessionId? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
         processingMode = processingMode,
@@ -301,6 +308,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext = parentContext,
         topics = topics,
         topicsPattern = topicsPattern,
+        warmupRecipientSessionId = warmupRecipientSessionId,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime
     )

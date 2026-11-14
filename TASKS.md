@@ -77,6 +77,7 @@
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-74](#core-74) | Implement the shared-partition warm-up data plane with isolated donor sessions, fair selection, quota ramp, result routing, and ownership-safe fallback. | DONE |
+| [CORE-75](#core-75) | Filter foreign warm-up sessions before recipient records enter processing queues while preserving ownership and offset ordering. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5967,3 +5968,18 @@ late activation before releasing their capacity. Names, round-robin selection, r
 and concurrency documentation now describe their actual effects and guarantees.
 The focused processing/data-plane suite, the complete core unit suite, and the real-Kafka
 `:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-75"></a>
+### CORE-75 - Filter foreign recipient sessions before processing
+
+_Date: 2026-11-14_
+
+Add a warm-up-only `PolledRecordSink` wrapper after poll-time ownership registration and before
+the ordinary processing runtime. Admit records carrying exactly one matching session header;
+discard foreign, stale, missing, duplicated, or malformed headers through existing ownership
+bookkeeping without invoking business handling or ordinary terminal metrics.
+Adapt the exact-header validation introduced by archived GLOBAL-4 commit `dec5ab81` to this earlier
+poll boundary; the wrapper, offset closure, and queue-isolation behavior are new for the v6 contract.
+Focused coverage passes for interleaved offsets, blocked own records, malformed headers, ownership
+generation loss, and all processing modes. The complete core unit suite and the 23-test real-Kafka
+`:ckc-core:integrationTest` suite pass; no smoke, load, chaos, or experiment run was started.

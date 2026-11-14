@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.ConsumerPollLoopControl
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -21,6 +22,8 @@ internal fun <K, V> createTestConsumer(
     @Suppress("UNCHECKED_CAST")
     metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
     processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
+    recordProcessingContext: RecordProcessingContext<K, V>? = null,
+    warmupRecipientSessionId: WarmupSessionId? = null,
     workerConcurrency: Int = 1,
     parentContext: CoroutineContext = kotlinx.coroutines.Dispatchers.Default,
     runtime: TestConsumerRuntime = testRuntime(processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING)
@@ -37,14 +40,15 @@ internal fun <K, V> createTestConsumer(
         processingDispatcher = runtime.processingDispatcher,
         retryPolicy = retryPolicy,
         metrics = metrics,
-        recordProcessingContext = null,
+        recordProcessingContext = recordProcessingContext,
         processingFailureHandler = processingFailureHandler,
         parentContext = parentContext,
         topics = listOf("topic-a"),
         topicsPattern = null,
+        warmupRecipientSessionId = warmupRecipientSessionId,
         handler = handler,
-        pollLoopFactory = { _, context, processingMode, _, _, _, _, _, _, _, recordSink, registry ->
-            FakePollLoopControl(context, processingMode, recordSink, records, registry)
+        pollLoopFactory = { _, context, processingMode, _, _, pollMetrics, _, _, _, _, recordSink, registry ->
+            FakePollLoopControl(context, processingMode, pollMetrics, recordSink, records, registry)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
@@ -52,6 +56,7 @@ internal fun <K, V> createTestConsumer(
 internal class FakePollLoopControl<K, V>(
     coroutineContext: kotlin.coroutines.CoroutineContext,
     private val processingMode: ProcessingMode,
+    private val metrics: ConsumerMetrics<K, V>,
     private val recordSink: PolledRecordSink<K, V>,
     private val records: List<ConsumerRecord<K, V>>,
     private val partitionRegistry: PartitionRegistry
@@ -72,8 +77,13 @@ internal class FakePollLoopControl<K, V>(
             partitionRegistry.onPartitionsAssigned(recordsByPartition.keys).forEach { state ->
                 state.init(recordsByPartition.getValue(state.topicPartition).minOf { it.offset() })
             }
+            metrics.onPoll(records.size, 0L)
             for (record in records) {
-                partitionRegistry.observe(record, observeOffset = processingMode.tracksProcessedOffsets())
+                partitionRegistry.observe(
+                    record,
+                    observeOffset = processingMode.tracksProcessedOffsets(),
+                    acceptOffset = processingMode.isFreshnessFirst()
+                )
                 recordSink.tryEmit(record)
             }
             stopSignal.await()
