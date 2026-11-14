@@ -78,6 +78,7 @@
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
 | [CORE-74](#core-74) | Implement the shared-partition warm-up data plane with isolated donor sessions, fair selection, quota ramp, result routing, and ownership-safe fallback. | DONE |
 | [CORE-75](#core-75) | Filter foreign warm-up sessions before recipient records enter processing queues while preserving ownership and offset ordering. | DONE |
+| [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -5983,3 +5984,27 @@ poll boundary; the wrapper, offset closure, and queue-isolation behavior are new
 Focused coverage passes for interleaved offsets, blocked own records, malformed headers, ownership
 generation loss, and all processing modes. The complete core unit suite and the 23-test real-Kafka
 `:ckc-core:integrationTest` suite pass; no smoke, load, chaos, or experiment run was started.
+
+<a id="core-76"></a>
+### CORE-76 - Implement warm-up discovery and activation
+
+_Date: 2026-11-14_
+
+Implement protocol-v6 control messages and coordinator-free recipient/donor discovery. Resolve and
+prepare every source-to-destination mapping through its participant connection, atomically admit
+selected donor sessions, assign recipient warm-up consumers from captured starting positions, and
+gate all delegation on `RecipientReady`. Retain readiness that races donor preparation without
+allowing cancellation, completion, or failed preparation to revive a terminal session. Any missing
+donor or failed mapping preparation cold-starts the complete context and cleans partial resources.
+Selectively adapt the bounded codec/transport and lifecycle seams from archived GLOBAL-4 commits
+`20f7bead`, `69fa2fc`, `aa31b88c`, `be0018c8`, `ba75bc78`, and `33ab8172`; exclude coordinator,
+reservation, snapshot, retirement, and quarantine state. Protocol v6 adds an explicit control
+namespace, stateless offers, ownership-generation revalidation, local pending admission, and a
+runtime that routes only locally owned recipient/donor sessions. Focused discovery tests, the full
+core unit suite, and the 24-test real-Kafka `:ckc-core:integrationTest` suite pass. Review follow-up
+adds participant-scoped Kafka metadata lookup, a real independently assigned recipient runtime at
+the captured partition-0 position, cancellation-safe bounded cleanup, partial-readiness rollback,
+typed transport send timeouts, and final local-mapping revalidation. No smoke, load, chaos, or
+experiment run was started. Rollback follow-up converts donor drain expiry into an ordinary session
+failure, waits for ownership-safe fallback before releasing capacity, and reports incomplete
+recipient cleanup as a distinct result while retaining resources for a later cleanup attempt.

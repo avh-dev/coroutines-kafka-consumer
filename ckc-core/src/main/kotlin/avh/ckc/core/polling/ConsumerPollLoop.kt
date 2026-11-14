@@ -68,6 +68,7 @@ internal class ConsumerPollLoop<K, V>(
     private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
+    private val fixedAssignment: Map<TopicPartition, Long>? = null,
     private val recordSink: PolledRecordSink<K, V>,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
@@ -179,6 +180,7 @@ internal class ConsumerPollLoop<K, V>(
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
     private val finalizedShutdownSignal = CompletableDeferred<Unit>()
+    private val readinessSignal = CompletableDeferred<Unit>()
 
     @Volatile
     private var finalizationRequested = false
@@ -199,6 +201,8 @@ internal class ConsumerPollLoop<K, V>(
         return job!!
     }
 
+    override fun readiness(): Deferred<Unit> = readinessSignal
+
     /**
      * Phase 1 shutdown: request draining and pause poll().
      * Phase 2: loop completes [readyForShutdownSignal] once stash drained and poll returns empty.
@@ -210,6 +214,10 @@ internal class ConsumerPollLoop<K, V>(
     override fun prepareForShutdown(deadlineNanos: Long): Deferred<Unit> {
         shutdownDeadlineNanos = deadlineNanos
         shutdownRequested = true
+        if (!started) {
+            readyForShutdownSignal.complete(Unit)
+            finalizedShutdownSignal.complete(Unit)
+        }
         consumerRef?.wakeup()
         return readyForShutdownSignal
     }
@@ -254,6 +262,11 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     override suspend fun releaseResources() {
+        if (!started && !readinessSignal.isCompleted) {
+            readinessSignal.completeExceptionally(
+                CancellationException("Kafka consumer #$id stopped before start")
+            )
+        }
         if (resourceReleaseStarted.compareAndSet(false, true)) {
             try {
                 withContext(NonCancellable) {
@@ -325,6 +338,9 @@ internal class ConsumerPollLoop<K, V>(
                     }
                 }
             }
+        } catch (error: Throwable) {
+            readinessSignal.completeExceptionally(error)
+            throw error
         } finally {
             if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
             running = false
@@ -333,15 +349,42 @@ internal class ConsumerPollLoop<K, V>(
             // but it is already safe for the owner to join the completed job.
             readyForShutdownSignal.complete(Unit)
             finalizedShutdownSignal.complete(Unit)
+            if (!readinessSignal.isCompleted) {
+                readinessSignal.completeExceptionally(
+                    CancellationException("Kafka consumer #$id stopped before assignment readiness")
+                )
+            }
         }
     }
 
     private fun subscribe(consumer: KafkaConsumer<K, V>) {
-        if (topicsPattern != null) {
+        if (fixedAssignment != null) {
+            val partitions = fixedAssignment.keys
+            consumer.assign(partitions)
+            partitions.forEach { partition -> consumer.seek(partition, fixedAssignment.getValue(partition)) }
+            // Force Kafka to validate the assignment and every seek before protocol readiness.
+            partitions.forEach(consumer::position)
+            handleFixedPartitionsAssigned(partitions, fixedAssignment)
+        } else if (topicsPattern != null) {
             consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
         } else {
             consumer.subscribe(topics, createRebalanceListener(consumer, processingMode))
         }
+    }
+
+    /** Registers an explicitly assigned warm-up partition at its captured session start offset. */
+    private fun handleFixedPartitionsAssigned(
+        partitions: Set<TopicPartition>,
+        startOffsets: Map<TopicPartition, Long>
+    ) {
+        val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        assignedPartitionStates.forEach { state ->
+            state.init(startOffsets.getValue(state.topicPartition), forceReset = true)
+            metrics.bindPartitionMetrics(id, state)
+        }
+        assignedPartitions += assignedPartitionStates
+        refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     /**
@@ -457,6 +500,12 @@ internal class ConsumerPollLoop<K, V>(
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        if (partitions.isEmpty()) {
+            if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
+            refreshAssignedPartitionSnapshot()
+            readinessSignal.complete(Unit)
+            return
+        }
         val recoveryCallTimeout = remainingRecoveryCallTimeout()
         val committedOffsets = if (recoveryCallTimeout == null) {
             consumer.committed(partitions.toSet())
@@ -490,6 +539,7 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     private fun remainingRecoveryCallTimeout(): Duration? {

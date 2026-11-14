@@ -5,7 +5,6 @@ import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -213,7 +212,19 @@ internal class WarmupDonorSession<K, V>(
             if (inflight == 0) inflightDrained.complete(Unit)
             inflightDrained
         }
-        withTimeout(timeout) { completion.await() }
+        val drained = withTimeoutOrNull(timeout) {
+            completion.await()
+            true
+        }
+        if (drained != true) {
+            throw WarmupInflightDrainTimeoutException(timeout)
+        }
+    }
+
+    /** Waits after a session failure until every ownership-safe fallback has left the pipeline. */
+    suspend fun awaitInflightCompletion() {
+        val completion = synchronized(sessionLock) { inflightDrained }
+        completion.await()
     }
 
     fun fail(error: Throwable) {
@@ -278,6 +289,9 @@ internal class WarmupDonorSession<K, V>(
 
 internal class WarmupDelegationFailedException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
+
+internal class WarmupInflightDrainTimeoutException(timeout: Duration) :
+    IllegalStateException("Warm-up in-flight drain exceeded $timeout")
 
 internal class WarmupDelegationDeadlineException(val acknowledged: Boolean) :
     IllegalStateException("Warm-up delegation deadline expired")

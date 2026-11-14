@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
@@ -184,6 +185,43 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             parentContext = parentContext,
             topics = topics,
             topicsPattern = topicsPattern,
+            handler = configuredHandler
+        )
+    }
+
+    /** Builds one session-filtered runtime with an explicit warm-up partition and captured start. */
+    internal fun buildWarmupRecipient(
+        consumerProperties: Map<String, Any?>,
+        sessionId: avh.ckc.core.warmup.WarmupSessionId,
+        topicPartition: TopicPartition,
+        startOffset: Long
+    ): CoroutinesKafkaConsumer<K, V> {
+        val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
+        require(startOffset >= 0) { "Warm-up start offset must not be negative" }
+        return CoroutinesKafkaConsumer(
+            consumerProperties = consumerProperties,
+            processingMode = processingMode,
+            workerConcurrency = workerConcurrency,
+            consumerPollLoopConcurrency = 1,
+            commitIntervalMs = commitIntervalMs,
+            commitRecordsThreshold = commitRecordsThreshold,
+            maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition,
+            workChannelCapacity = workChannelCapacity,
+            freshnessMaxRecordAge = freshnessMaxRecordAge,
+            partitionHandoffTimeout = partitionHandoffTimeout,
+            shutdownDrainTimeout = shutdownDrainTimeout,
+            processingCancellationTimeout = processingCancellationTimeout,
+            recoveryTimeout = recoveryTimeout,
+            recoveryRetryBackoff = recoveryRetryBackoff,
+            processingDispatcher = processingDispatcher,
+            retryPolicy = retryPolicy,
+            metrics = metrics,
+            recordProcessingContext = recordProcessingContext,
+            processingFailureHandler = processingFailureHandler,
+            parentContext = parentContext,
+            topics = listOf(topicPartition.topic()),
+            warmupRecipientSessionId = sessionId,
+            fixedAssignment = mapOf(topicPartition to startOffset),
             handler = configuredHandler
         )
     }

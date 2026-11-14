@@ -48,6 +48,18 @@ import kotlin.time.Duration.Companion.seconds
 class CoroutinesKafkaConsumerTest {
 
     @Test
+    fun `when prepared consumer is stopped before start then poll resources are released`() = runBlocking {
+        val consumer = coroutinesKafkaConsumer<String, String>(stringSerdeProperties()) {
+            topics("topic-a")
+            handle { }
+        }
+
+        withTimeout(2_000) { consumer.stop() }
+
+        assertTrue(consumer.stateSnapshot().stopped)
+    }
+
+    @Test
     @Suppress("UNCHECKED_CAST")
     fun `when auto commit is omitted then poll loop receives it disabled`() {
         lateinit var receivedProperties: Map<String, Any?>
@@ -70,7 +82,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { _, _, _, _, _, _, properties, _, _, _, _, _ ->
+            pollLoopFactory = { _, _, _, _, _, _, properties, _, _, _, _, _, _ ->
                 receivedProperties = properties
                 object : ConsumerPollLoopControl {
                     override fun start() = error("not started")
@@ -345,7 +357,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = parentJob + Dispatchers.Default,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { id, context, mode, interval, threshold, metrics, properties, config, topics, pattern, sink, registry ->
+            pollLoopFactory = { id, context, mode, interval, threshold, metrics, properties, config, topics, pattern, sink, registry, fixedAssignment ->
                 ConsumerPollLoop(
                     id = id,
                     parentContext = context,
@@ -357,6 +369,7 @@ class CoroutinesKafkaConsumerTest {
                     consumerConfigAdapter = config,
                     topics = topics,
                     topicsPattern = pattern,
+                    fixedAssignment = fixedAssignment,
                     recordSink = sink,
                     partitionStateRegistry = registry,
                     kafkaConsumerFactory = { kafkaConsumer }
@@ -600,7 +613,7 @@ class CoroutinesKafkaConsumerTest {
             parentContext = EmptyCoroutineContext,
             topics = listOf("topic-a"),
             topicsPattern = null,
-            pollLoopFactory = { index: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry ->
+            pollLoopFactory = { index: Int, context, _: ProcessingMode, _: Long, _: Int, _: ConsumerMetrics<String, String>, _: Map<String, Any?>, _: KafkaConsumerConfigAdapter, _: List<String>?, _: java.util.regex.Pattern?, _: PolledRecordSink<String, String>, _: PartitionRegistry, _: Map<org.apache.kafka.common.TopicPartition, Long>? ->
                 object : ConsumerPollLoopControl {
                     override fun start() = CoroutineScope(context).launch {
                         if (index == 0) {
@@ -771,7 +784,7 @@ class CoroutinesKafkaConsumerTest {
         parentContext = parentContext,
         topics = listOf("topic-a"),
         topicsPattern = null,
-        pollLoopFactory = { id, context, _, _, _, _, _, _, _, _, _, _ ->
+        pollLoopFactory = { id, context, _, _, _, _, _, _, _, _, _, _, _ ->
             pollLoopFactory(id, context)
         },
         processingRuntimeFactory = ::defaultProcessingRuntime
