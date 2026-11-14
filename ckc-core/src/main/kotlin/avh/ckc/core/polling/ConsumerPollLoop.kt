@@ -988,8 +988,10 @@ internal class ConsumerPollLoop<K, V>(
         val retained = stash.filterTo(ArrayDeque()) { record ->
             val discard = TopicPartition(record.topic(), record.partition()) in revoked
             if (discard) {
-                metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
-                partitionStateRegistry.discard(record)
+                if (!recordSink.discardIfFiltered(record)) {
+                    metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+                    partitionStateRegistry.discard(record)
+                }
                 activeUnobservedRecords?.remove(record)
                 activeTrackerBlockedRecords?.remove(record)
             }
@@ -1058,7 +1060,9 @@ internal class ConsumerPollLoop<K, V>(
                 // No new records are admitted once shutdown starts.
                 if (finalizationRequested) break
                 pollRecords(consumer, State.DRAINING_TAIL).forEach { record ->
-                    metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
+                    if (!recordSink.discardIfFiltered(record)) {
+                        metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
+                    }
                 }
                 continue
             }

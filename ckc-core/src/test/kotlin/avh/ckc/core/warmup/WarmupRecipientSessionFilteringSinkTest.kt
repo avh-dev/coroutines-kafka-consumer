@@ -1,15 +1,26 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.KafkaRecordHandler
+import avh.ckc.core.ProcessingFailureHandler
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.RecordProcessingContext
 import avh.ckc.core.RecordingMetrics
+import avh.ckc.core.RetryPolicy
 import avh.ckc.core.createTestConsumer
+import avh.ckc.core.defaultProcessingRuntime
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.stringSerdeProperties
 import avh.ckc.core.testRuntime
+import avh.ckc.core.isFreshnessFirst
+import avh.ckc.core.tracksProcessedOffsets
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -24,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class WarmupRecipientSessionFilteringSinkTest {
     @Test
-    fun `foreign records do not consume capacity while an own record is backpressured`() {
+    fun `foreign record is not passed to a backpressured delegate`() {
         val sessionId = WarmupSessionId("recipient")
         val registry = assignedRegistry()
         val tracker = PartitionProcessedRecordTracker(registry)
@@ -50,6 +61,81 @@ class WarmupRecipientSessionFilteringSinkTest {
         assertEquals(listOf(0L), delegateCalls)
         assertTrue(tracker.tryStart(own))
         tracker.finish(own)
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun `foreign record cannot displace an own record from a full runtime queue`() = runBlocking {
+        listOf(
+            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+        ).forEach { mode ->
+            val sessionId = WarmupSessionId("recipient-$mode")
+            val registry = assignedRegistry()
+            val tracker = PartitionProcessedRecordTracker(registry, mode.tracksProcessedOffsets())
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val firstStarted = CompletableDeferred<Unit>()
+            val releaseFirst = CompletableDeferred<Unit>()
+            val handledOffsets = CopyOnWriteArrayList<Long>()
+            val failure = CompletableDeferred<Throwable>()
+            val runtime = defaultProcessingRuntime(
+                parentScope = scope,
+                processingMode = mode,
+                workerConcurrency = 1,
+                workChannelCapacity = 1,
+                freshnessMaxRecordAge = null,
+                processingDispatcher = Dispatchers.Default,
+                metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+                handler = KafkaRecordHandler { record ->
+                    if (record.offset() == 0L) {
+                        firstStarted.complete(Unit)
+                        releaseFirst.await()
+                    }
+                    handledOffsets += record.offset()
+                },
+                retryPolicy = RetryPolicy.none(),
+                recordProcessingContext = null,
+                processingFailureHandler = ProcessingFailureHandler.skip(),
+                processedRecordTracker = tracker
+            )
+            val sink = WarmupRecipientSessionFilteringSink(sessionId, runtime, tracker)
+            val ownInFlight = record(0, sessionId.value, key = "shared")
+            val ownPending = record(1, sessionId.value, key = "shared")
+            val foreign = record(2, "other", key = "shared")
+
+            runtime.start { failure.complete(it) }
+            try {
+                listOf(ownInFlight, ownPending, foreign).forEach { record ->
+                    assertTrue(
+                        registry.observe(
+                            record,
+                            observeOffset = mode.tracksProcessedOffsets(),
+                            acceptOffset = mode.isFreshnessFirst()
+                        ) != null,
+                        "mode $mode failed to observe offset ${record.offset()}"
+                    )
+                    if (record === ownInFlight) {
+                        assertTrue(sink.tryEmit(record), "mode $mode")
+                        withTimeout(2_000) { firstStarted.await() }
+                    } else {
+                        assertTrue(sink.tryEmit(record), "mode $mode offset ${record.offset()}")
+                    }
+                }
+
+                assertEquals(1, runtime.stateSnapshot().workQueueSize, "mode $mode")
+                releaseFirst.complete(Unit)
+                withTimeout(2_000) {
+                    while (handledOffsets.size != 2) kotlinx.coroutines.yield()
+                }
+
+                assertEquals(listOf(0L, 1L), handledOffsets, "mode $mode")
+                assertFalse(failure.isCompleted, "mode $mode")
+            } finally {
+                releaseFirst.complete(Unit)
+                runtime.stop()
+                scope.cancel()
+            }
+        }
     }
 
     @Test
@@ -194,13 +280,18 @@ class WarmupRecipientSessionFilteringSinkTest {
         registry.onPartitionsAssigned(listOf(PARTITION)).single().init(0L)
     }
 
-    private fun record(offset: Long, vararg sessions: String): ConsumerRecord<String, String> =
-        record(offset, sessions.map { it.toByteArray(Charsets.UTF_8) })
+    private fun record(
+        offset: Long,
+        vararg sessions: String,
+        key: String = "key-$offset"
+    ): ConsumerRecord<String, String> =
+        record(offset, sessions.map { it.toByteArray(Charsets.UTF_8) }, key)
 
     private fun record(
         offset: Long,
-        headerValues: List<ByteArray?>
-    ): ConsumerRecord<String, String> = ConsumerRecord("warmup", 0, offset, "key-$offset", "value-$offset").also {
+        headerValues: List<ByteArray?>,
+        key: String = "key-$offset"
+    ): ConsumerRecord<String, String> = ConsumerRecord("warmup", 0, offset, key, "value-$offset").also {
         headerValues.forEach { value -> it.headers().add(WARMUP_SESSION_HEADER, value) }
     }
 

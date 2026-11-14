@@ -11,6 +11,10 @@ import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.partition.PartitionState
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.processing.PolledRecordSink
+import avh.ckc.core.processing.PartitionProcessedRecordTracker
+import avh.ckc.core.warmup.WARMUP_SESSION_HEADER
+import avh.ckc.core.warmup.WarmupRecipientSessionFilteringSink
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -84,6 +88,48 @@ class ConsumerPollLoopTest {
 
     @Nested
     inner class FRESHNESS_FIRST_DROP_OLDEST {
+
+        @Test
+        fun `when shutdown tail polls a foreign warmup record then lifecycle drop is suppressed`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val activePollEntered = CountDownLatch(1)
+            val releaseActivePoll = CountDownLatch(1)
+            val shutdownRecordReturned = AtomicBoolean(false)
+            val foreign = record(offset = 41L).withWarmupSession("other")
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                metrics = metrics,
+                workChannelCapacity = 1,
+                recordSinkDecorator = warmupSessionFilter("recipient"),
+                filterPausedPollRecords = false,
+                pollAnswer = {
+                    if (activePollEntered.count == 1L) {
+                        activePollEntered.countDown()
+                        check(releaseActivePoll.await(2, TimeUnit.SECONDS))
+                        emptyRecords()
+                    } else if (shutdownRecordReturned.compareAndSet(false, true)) {
+                        recordsOf(topicPartition, foreign)
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+            val job = fixture.start()
+            assertTrue(activePollEntered.await(2, TimeUnit.SECONDS))
+
+            val ready = fixture.loop.prepareForShutdown()
+            releaseActivePoll.countDown()
+            withTimeout(2_000) { ready.await() }
+            awaitFor(2_000L, 10L) {
+                metrics.polls.firstOrNull { it.first == 1 }
+            }
+
+            assertTrue(metrics.dropped.isEmpty())
+            assertTrue(fixture.workChannel.tryReceive().isFailure)
+
+            fixture.loop.finalizeShutdown()
+            withTimeout(2_000) { job.join() }
+        }
 
         @Test
         fun `when FRESHNESS_FIRST_DROP_OLDEST loop polls records then they are sent to work channel`() = runBlocking {
@@ -356,6 +402,48 @@ class ConsumerPollLoopTest {
 
     @Nested
     inner class AT_LEAST_ONCE_NO_ORDERING {
+
+        @Test
+        fun `when revoke discards a stashed foreign warmup record then handoff is suppressed`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val listener = AtomicReference<ConsumerRebalanceListener?>()
+            val pollNumber = AtomicInteger()
+            val revoked = CountDownLatch(1)
+            val occupyingRecord = record(offset = -1L)
+            val foreign = record(offset = 17L).withWarmupSession("other")
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                metrics = metrics,
+                workChannelCapacity = 1,
+                initialChannelRecords = listOf(occupyingRecord),
+                listenerRef = listener,
+                recordSinkDecorator = warmupSessionFilter("recipient"),
+                pollAnswer = {
+                    when (pollNumber.getAndIncrement()) {
+                        0 -> recordsOf(topicPartition, foreign)
+                        1 -> {
+                            checkNotNull(listener.get()).onPartitionsRevoked(setOf(topicPartition))
+                            revoked.countDown()
+                            emptyRecords()
+                        }
+                        else -> emptyRecords()
+                    }
+                }
+            )
+            val job = fixture.start()
+
+            assertTrue(revoked.await(2, TimeUnit.SECONDS))
+            awaitFor(2_000L, 10L) {
+                metrics.polls.firstOrNull { it.first == 1 }
+            }
+
+            assertTrue(metrics.handedOff.isEmpty())
+            assertEquals(occupyingRecord, fixture.workChannel.tryReceive().getOrNull())
+            assertFalse(fixture.registry.tryStart(foreign))
+
+            job.cancel()
+            job.join()
+        }
 
         @Test
         fun `when poll fails then terminal completion releases shutdown readiness`() = runBlocking {
@@ -1410,6 +1498,11 @@ private class PollLoopFixture(
     private val additionalAssignmentPositions: Map<TopicPartition, Long> = emptyMap(),
     initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
     private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
+    recordSinkDecorator: (
+        PolledRecordSink<ByteArray, ByteArray>,
+        PartitionProcessedRecordTracker
+    ) -> PolledRecordSink<ByteArray, ByteArray> = { sink, _ -> sink },
+    private val filterPausedPollRecords: Boolean = true,
     private val pollAnswer: PollLoopFixture.() -> ConsumerRecords<ByteArray, ByteArray>
 ) {
     val consumer: KafkaConsumer<ByteArray, ByteArray> = mock()
@@ -1423,7 +1516,8 @@ private class PollLoopFixture(
             ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> BufferOverflow.DROP_OLDEST
         }
     )
-    private val recordSink = object : PolledRecordSink<ByteArray, ByteArray> {
+    val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
+    private val baseRecordSink = object : PolledRecordSink<ByteArray, ByteArray> {
         override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
             if (processingMode.tracksProcessedOffsets() &&
                 registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
@@ -1433,7 +1527,10 @@ private class PollLoopFixture(
             return workChannel.trySend(record).isSuccess
         }
     }
-    val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
+    private val recordSink = recordSinkDecorator(
+        baseRecordSink,
+        PartitionProcessedRecordTracker(registry, processingMode.tracksProcessedOffsets())
+    )
     val topicPartition = TopicPartition("topic-a", 0)
     private val assignmentPositions = ConcurrentHashMap<TopicPartition, Long>().apply {
         put(topicPartition, assignmentPosition)
@@ -1494,7 +1591,7 @@ private class PollLoopFixture(
                 val fetched = pollAnswer()
                 ConsumerRecords(
                     fetched.partitions()
-                        .filterNot { it in pausedPartitions }
+                        .filterNot { filterPausedPollRecords && it in pausedPartitions }
                         .associateWith { fetched.records(it) }
                 )
             }
@@ -1581,3 +1678,16 @@ private fun record(
     key.toByteArray(),
     value.toByteArray()
 )
+
+private fun ConsumerRecord<ByteArray, ByteArray>.withWarmupSession(
+    sessionId: String
+): ConsumerRecord<ByteArray, ByteArray> = apply {
+    headers().add(WARMUP_SESSION_HEADER, sessionId.toByteArray(Charsets.UTF_8))
+}
+
+private fun warmupSessionFilter(
+    sessionId: String
+): (PolledRecordSink<ByteArray, ByteArray>, PartitionProcessedRecordTracker) ->
+    PolledRecordSink<ByteArray, ByteArray> = { delegate, tracker ->
+    WarmupRecipientSessionFilteringSink(WarmupSessionId(sessionId), delegate, tracker)
+}
