@@ -233,8 +233,14 @@ internal class WarmupDonorSession<K, V>(
 
     fun isActive(): Boolean = synchronized(sessionLock) { state == State.ACTIVE }
 
-    fun isDrainedForRemoval(): Boolean = synchronized(sessionLock) {
-        state != State.ACTIVE && inflight == 0
+    /**
+     * Atomically prevents a not-yet-activated session from becoming active and verifies drain.
+     * Once this succeeds, a caller may remove the session from its registry and close it.
+     */
+    fun trySealForRemoval(): Boolean = synchronized(sessionLock) {
+        if (state == State.ACTIVE || inflight != 0) return@synchronized false
+        if (state == State.ADMITTED) state = State.DRAINING
+        true
     }
 
     /** Closes an unactivated or stopped session. Active or inflight sessions are a caller error. */

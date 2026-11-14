@@ -5962,7 +5962,8 @@ sessions, atomic aggregate capacity, quota ramp, fair single-recipient selection
 remote results, and ownership-safe local fallback without reservations or global state.
 Review hardening revalidates ownership before every first local handler attempt, distinguishes
 the delegation deadline from external cancellation, and rejects session removal until inflight
-work drains. Names, round-robin selection, result tracking, and concurrency documentation now
-describe their actual effects and guarantees.
+work drains. Activation and removal are serialized, and removal seals admitted sessions against
+late activation before releasing their capacity. Names, round-robin selection, result tracking,
+and concurrency documentation now describe their actual effects and guarantees.
 The focused processing/data-plane suite, the complete core unit suite, and the real-Kafka
 `:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment run was started.

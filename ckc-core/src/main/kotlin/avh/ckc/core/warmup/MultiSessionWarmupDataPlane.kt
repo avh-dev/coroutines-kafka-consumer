@@ -20,7 +20,7 @@ internal class MultiSessionWarmupDataPlane<K, V>(
         val destination: WarmupDestination
     )
 
-    /** Protects membership, aggregate capacity, and the round-robin cursor. */
+    /** Protects membership, aggregate capacity, the round-robin cursor, and activation versus removal. */
     private val lock = Any()
     private val sessions = linkedMapOf<WarmupSessionId, WarmupDonorSession<K, V>>()
     private var aggregateIntervalBudget = 0
@@ -42,8 +42,9 @@ internal class MultiSessionWarmupDataPlane<K, V>(
         Admission.ACCEPTED
     }
 
-    fun activate(sessionId: WarmupSessionId): Boolean =
-        synchronized(lock) { sessions[sessionId] }?.activate() ?: false
+    fun activate(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
+        sessions[sessionId]?.activate() ?: false
+    }
 
     override suspend fun process(
         record: ConsumerRecord<K, V>,
@@ -91,7 +92,7 @@ internal class MultiSessionWarmupDataPlane<K, V>(
     fun removeDrainedSession(sessionId: WarmupSessionId): Boolean {
         val removed = synchronized(lock) {
             val session = sessions[sessionId] ?: return@synchronized null
-            if (!session.isDrainedForRemoval()) return@synchronized null
+            if (!session.trySealForRemoval()) return@synchronized null
             sessions.remove(sessionId)
             aggregateIntervalBudget -= session.intervalBudget
             if (sessions.isEmpty()) {
@@ -113,7 +114,7 @@ internal class MultiSessionWarmupDataPlane<K, V>(
     override fun close() {
         val removed = synchronized(lock) {
             sessions.values.forEach(WarmupDonorSession<K, V>::stopDelegating)
-            check(sessions.values.all(WarmupDonorSession<K, V>::isDrainedForRemoval)) {
+            check(sessions.values.all(WarmupDonorSession<K, V>::trySealForRemoval)) {
                 "Warm-up data plane must drain every donor session before close"
             }
             sessions.values.toList().also {

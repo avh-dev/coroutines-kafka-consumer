@@ -24,11 +24,64 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.doAnswer
+import org.mockito.kotlin.spy
+import org.mockito.kotlin.whenever
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration.Companion.seconds
 
 class MultiSessionWarmupDataPlaneTest {
+    @Test
+    fun `activation keeps admitted session registered until its state transition completes`() {
+        val activationEntered = CountDownLatch(1)
+        val releaseActivation = CountDownLatch(1)
+        val session = spy(idleSession("activation-removal-race"))
+        doAnswer { invocation ->
+            activationEntered.countDown()
+            check(releaseActivation.await(2, TimeUnit.SECONDS)) { "Timed out releasing session activation" }
+            invocation.callRealMethod()
+        }.whenever(session).activate()
+
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        plane.admit(session)
+        val removalThread = AtomicReference<Thread>()
+        val removalStarted = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val activation = executor.submit<Boolean> { plane.activate(session.sessionId) }
+            assertTrue(activationEntered.await(2, TimeUnit.SECONDS))
+            val removal = executor.submit<Boolean> {
+                removalThread.set(Thread.currentThread())
+                removalStarted.countDown()
+                plane.removeDrainedSession(session.sessionId)
+            }
+            assertTrue(removalStarted.await(2, TimeUnit.SECONDS))
+
+            val blockedDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (removalThread.get().state != Thread.State.BLOCKED && !removal.isDone) {
+                check(System.nanoTime() < blockedDeadline) { "Removal did not contend with activation" }
+                Thread.yield()
+            }
+            assertEquals(Thread.State.BLOCKED, removalThread.get().state)
+
+            releaseActivation.countDown()
+            assertTrue(activation.get(2, TimeUnit.SECONDS))
+            assertFalse(removal.get(2, TimeUnit.SECONDS))
+            assertEquals(1, plane.admittedSessionCount())
+
+            plane.stopDelegating(session.sessionId)
+            assertTrue(plane.removeDrainedSession(session.sessionId))
+        } finally {
+            releaseActivation.countDown()
+            executor.shutdownNow()
+        }
+    }
+
     @Test
     @Suppress("UNCHECKED_CAST")
     fun `rejected inflight removal leaves main runtime and sibling session operational`() = runBlocking {
