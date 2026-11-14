@@ -15,6 +15,41 @@ SPEC.loader.exec_module(MODULE)
 
 
 class EnvironmentEvidenceTest(unittest.TestCase):
+    def test_docker_resource_limits_use_running_container_configuration(self) -> None:
+        with patch.object(MODULE, "command_json", return_value={
+            "NanoCpus": 1_500_000_000,
+            "Memory": 3 * 1024 ** 3,
+        }) as inspect:
+            resources = MODULE.docker_resource_limits(
+                "ckc-perf-redis",
+                fallback_cpu=1,
+                fallback_memory_gib=2,
+            )
+
+        self.assertEqual({"cpu_limit": 1.5, "memory_limit_gib": 3.0}, resources)
+        inspect.assert_called_once_with([
+            "docker",
+            "inspect",
+            "--format={{json .HostConfig}}",
+            "ckc-perf-redis",
+        ])
+
+    def test_docker_resource_limits_fall_back_when_runtime_limits_are_unavailable(self) -> None:
+        for host_config in ({}, {"NanoCpus": 0, "Memory": 0}, {"NanoCpus": True, "Memory": False}):
+            with self.subTest(host_config=host_config), patch.object(
+                MODULE,
+                "command_json",
+                return_value=host_config,
+            ):
+                self.assertEqual(
+                    {"cpu_limit": 1, "memory_limit_gib": 2},
+                    MODULE.docker_resource_limits(
+                        "ckc-perf-redis",
+                        fallback_cpu=1,
+                        fallback_memory_gib=2,
+                    ),
+                )
+
     def test_external_command_timeout_returns_no_evidence(self) -> None:
         with patch.object(MODULE.subprocess, "run", side_effect=subprocess.TimeoutExpired(["probe"], 5)):
             self.assertEqual({}, MODULE.command_json(["probe"]))
