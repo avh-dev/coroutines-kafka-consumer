@@ -11,7 +11,14 @@ internal class WarmupResultTimeoutException(recordId: WarmupRecordId) :
 internal class WarmupEarlyResultOverflowException(limit: Int) :
     IllegalStateException("Warm-up early-result limit $limit exceeded")
 
-/** Matches remote outcomes to one donor session without performing I/O under its lock. */
+/**
+ * Matches remote outcomes to one donor session without performing I/O under its lock.
+ *
+ * A control result may overtake the producer coroutine between Kafka acknowledgement and waiter
+ * registration, so [earlyResults] temporarily retains that result. [recentlyCompletedRecordIds]
+ * suppresses late duplicates for already resolved coordinates; it is local duplicate bookkeeping,
+ * not protocol session retirement.
+ */
 internal class WarmupResultTracker(
     private val sessionId: WarmupSessionId,
     private val maxEarlyResults: Int,
@@ -31,9 +38,10 @@ internal class WarmupResultTracker(
 
     private val lock = Any()
     private val waiters = mutableMapOf<WarmupRecordId, CompletableDeferred<WarmupRemoteOutcome>>()
-    private val early = linkedMapOf<WarmupRecordId, TimedOutcome>()
-    private val retired = linkedSetOf<WarmupRecordId>()
-    private val retiredLimit = (maxEarlyResults.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    private val earlyResults = linkedMapOf<WarmupRecordId, TimedOutcome>()
+    private val recentlyCompletedRecordIds = linkedSetOf<WarmupRecordId>()
+    private val recentlyCompletedLimit =
+        (maxEarlyResults.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     private var failure: Throwable? = null
     private var closed = false
 
@@ -50,11 +58,11 @@ internal class WarmupResultTracker(
             purgeExpired(nanoTime())
             failure?.let { throw it }
             check(!closed) { "Warm-up result tracker is closed" }
-            early.remove(recordId)?.let {
-                retire(recordId)
+            earlyResults.remove(recordId)?.let {
+                rememberCompleted(recordId)
                 return it.outcome
             }
-            check(recordId !in retired) { "Warm-up result $recordId is already completed" }
+            check(recordId !in recentlyCompletedRecordIds) { "Warm-up result $recordId is already completed" }
             check(waiters.putIfAbsent(recordId, waiter) == null) {
                 "Warm-up result $recordId is already awaited"
             }
@@ -67,7 +75,7 @@ internal class WarmupResultTracker(
             val timeoutWon = synchronized(lock) {
                 if (waiters[recordId] === waiter) {
                     waiters.remove(recordId)
-                    retire(recordId)
+                    rememberCompleted(recordId)
                     onPendingChanged(waiters.size)
                     true
                 } else {
@@ -75,12 +83,14 @@ internal class WarmupResultTracker(
                 }
             }
             if (timeoutWon) throw WarmupResultTimeoutException(recordId)
+            // Completion removed this waiter while the timeout path was competing for the same lock.
+            // The deferred is therefore already completing; await it instead of reporting a false timeout.
             return waiter.await()
         } catch (error: CancellationException) {
             synchronized(lock) {
                 if (waiters[recordId] === waiter) {
                     waiters.remove(recordId)
-                    retire(recordId)
+                    rememberCompleted(recordId)
                     onPendingChanged(waiters.size)
                 }
             }
@@ -95,17 +105,19 @@ internal class WarmupResultTracker(
         }
         val now = nanoTime()
         purgeExpired(now)
-        if (recordId in retired || recordId in early) return@synchronized Completion.DUPLICATE
+        if (recordId in recentlyCompletedRecordIds || recordId in earlyResults) {
+            return@synchronized Completion.DUPLICATE
+        }
         val waiter = waiters.remove(recordId)
         if (waiter != null) {
-            retire(recordId)
+            rememberCompleted(recordId)
             waiter.complete(completed.outcome)
             onPendingChanged(waiters.size)
             Completion.DELIVERED
-        } else if (early.size >= maxEarlyResults) {
+        } else if (earlyResults.size >= maxEarlyResults) {
             Completion.OVERFLOW
         } else {
-            early[recordId] = TimedOutcome(completed.outcome, now)
+            earlyResults[recordId] = TimedOutcome(completed.outcome, now)
             Completion.STORED_EARLY
         }
     }
@@ -114,7 +126,7 @@ internal class WarmupResultTracker(
         val pending = synchronized(lock) {
             if (failure != null || closed) return
             failure = error
-            drainWaiters()
+            clearBufferedStateAndSnapshotWaiters()
         }
         pending.forEach { it.completeExceptionally(error) }
     }
@@ -123,7 +135,7 @@ internal class WarmupResultTracker(
         val pending = synchronized(lock) {
             if (closed) return
             closed = true
-            drainWaiters()
+            clearBufferedStateAndSnapshotWaiters()
         }
         val error = CancellationException("Warm-up result tracker closed")
         pending.forEach { it.completeExceptionally(error) }
@@ -131,22 +143,25 @@ internal class WarmupResultTracker(
 
     fun pendingCount(): Int = synchronized(lock) { waiters.size }
 
-    private fun drainWaiters(): List<CompletableDeferred<WarmupRemoteOutcome>> {
+    /** Clears waiters, early results, and duplicate history while returning waiters for out-of-lock completion. */
+    private fun clearBufferedStateAndSnapshotWaiters(): List<CompletableDeferred<WarmupRemoteOutcome>> {
         val pending = waiters.values.toList()
         waiters.clear()
-        early.clear()
-        retired.clear()
+        earlyResults.clear()
+        recentlyCompletedRecordIds.clear()
         onPendingChanged(0)
         return pending
     }
 
     private fun purgeExpired(now: Long) {
         val ttlNanos = earlyResultTtl.inWholeNanoseconds
-        early.entries.removeIf { now < it.value.receivedAt || now - it.value.receivedAt >= ttlNanos }
+        earlyResults.entries.removeIf { now < it.value.receivedAt || now - it.value.receivedAt >= ttlNanos }
     }
 
-    private fun retire(recordId: WarmupRecordId) {
-        retired += recordId
-        while (retired.size > retiredLimit) retired.remove(retired.first())
+    private fun rememberCompleted(recordId: WarmupRecordId) {
+        recentlyCompletedRecordIds += recordId
+        while (recentlyCompletedRecordIds.size > recentlyCompletedLimit) {
+            recentlyCompletedRecordIds.remove(recentlyCompletedRecordIds.first())
+        }
     }
 }

@@ -88,6 +88,7 @@ class RecordProcessorTest {
         val attempts = AtomicInteger()
         val failureHandlerCalls = AtomicInteger()
         val processedCalls = AtomicInteger()
+        val permissionChecks = AtomicInteger()
         val metrics = RecordingMetrics<String, String>()
         val processor = createRecordProcessor(
             handler = KafkaRecordHandler<String, String> {
@@ -100,12 +101,13 @@ class RecordProcessorTest {
             metrics = metrics,
             processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
             onRecordProcessed = { processedCalls.incrementAndGet() },
-            awaitRetryPermission = { _, _ -> false }
+            awaitRetryPermission = { _, _ -> permissionChecks.getAndIncrement() == 0 }
         )
 
         processor.process(typedTestRecord(offset = 9L))
 
         assertEquals(1, attempts.get())
+        assertEquals(2, permissionChecks.get())
         assertEquals(0, failureHandlerCalls.get())
         assertEquals(0, processedCalls.get())
         assertEquals(emptyList<Int>(), metrics.retries.map { it.attempt })

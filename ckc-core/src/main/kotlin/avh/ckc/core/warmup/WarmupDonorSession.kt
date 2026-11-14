@@ -5,19 +5,31 @@ import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.slf4j.LoggerFactory
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 
 internal fun interface WarmupDestinationResolver<K, V> {
     fun destinationFor(record: ConsumerRecord<K, V>): WarmupDestination?
 }
 
-/** One isolated donor session with its own quota, inflight drain, result tracker, and deadline. */
+/**
+ * One isolated donor session with its own quota, inflight drain, result tracker, and deadline.
+ *
+ * [sessionLock] protects [state], [inflight], and [inflightDrained]. Result waiters have a separate
+ * lock inside [WarmupResultTracker]: `inflight` counts every delegation from successful admission
+ * through its `finally`, while pending results count only acknowledged sends currently awaiting a
+ * recipient outcome. A successful [tryBeginDelegation] must therefore have exactly one matching
+ * [finishDelegation].
+ *
+ * `DRAINING` rejects new delegation but accepts results for existing work. `FAILED` also rejects new
+ * work and releases existing waits through ownership-safe local fallback. `CLOSED` owns no inflight
+ * work and accepts no result. The session owns [sender] and closes it only after the inflight count
+ * reaches zero.
+ */
 internal class WarmupDonorSession<K, V>(
     val sessionId: WarmupSessionId,
     val intervalBudget: Int,
@@ -43,10 +55,10 @@ internal class WarmupDonorSession<K, V>(
         rampDuration = quotaRampDuration,
         nanoTime = nanoTime
     )
-    private val lock = Any()
-    private val state = AtomicReference(State.ADMITTED)
+    private val sessionLock = Any()
+    private var state = State.ADMITTED
     private var inflight = 0
-    private var drained = CompletableDeferred<Unit>().also { it.complete(Unit) }
+    private var inflightDrained = CompletableDeferred<Unit>().also { it.complete(Unit) }
     private val tracker = WarmupResultTracker(
         sessionId = sessionId,
         maxEarlyResults = maxEarlyResults,
@@ -59,99 +71,127 @@ internal class WarmupDonorSession<K, V>(
         require(delegationTimeout.isPositive()) { "Warm-up delegation timeout must be > 0" }
     }
 
-    fun activate(): Boolean = synchronized(lock) {
-        state.compareAndSet(State.ADMITTED, State.ACTIVE)
+    fun activate(): Boolean = synchronized(sessionLock) {
+        if (state != State.ADMITTED) return@synchronized false
+        state = State.ACTIVE
+        true
     }
 
-    fun tryReserve(record: ConsumerRecord<K, V>): WarmupDestination? {
+    fun tryBeginDelegation(record: ConsumerRecord<K, V>): WarmupDestination? {
         val destination = destinationResolver.destinationFor(record) ?: return null
-        return synchronized(lock) {
-            if (state.get() != State.ACTIVE || !quota.tryAcquire()) return@synchronized null
-            if (inflight == 0) drained = CompletableDeferred()
+        return synchronized(sessionLock) {
+            if (state != State.ACTIVE || !quota.tryAcquire()) return@synchronized null
+            if (inflight == 0) inflightDrained = CompletableDeferred()
             inflight++
             destination
         }
     }
 
-    suspend fun processReserved(
+    suspend fun processDelegatedRecord(
         record: ConsumerRecord<K, V>,
         destination: WarmupDestination,
         processLocally: suspend () -> RecordProcessingOutcome
     ): RecordProcessingOutcome {
         try {
-            var acknowledged = false
-            val remote = try {
-                withTimeout(delegationTimeout) {
-                    val sendStarted = System.nanoTime()
-                    val acknowledgement = sender.send(record, destination, sessionId)
-                    acknowledged = true
-                    val forwarded = WarmupForwardedEvent(
-                        sessionId = sessionId,
-                        sourceTopicPartition = TopicPartition(record.topic(), record.partition()),
-                        sourceOffset = record.offset(),
-                        destinationTopicPartition = acknowledgement.topicPartition,
-                        destinationOffset = acknowledgement.offset
-                    )
-                    observe { observer.onForwarded(forwarded, System.nanoTime() - sendStarted) }
-                    val recordId = WarmupRecordId(
-                        sessionId = sessionId,
-                        topicPartition = acknowledgement.topicPartition,
-                        offset = acknowledgement.offset
-                    )
-                    val waitStarted = System.nanoTime()
-                    val outcome = tracker.await(recordId, delegationTimeout)
-                    observe { observer.onResult(record, outcome, System.nanoTime() - waitStarted) }
-                    outcome
-                }
-            } catch (error: TimeoutCancellationException) {
-                fail(WarmupDelegationFailedException("Warm-up delegation deadline expired", error))
-                fallback(
+            val remoteOutcome = try {
+                sendAndAwaitResult(record, destination)
+            } catch (error: CancellationException) {
+                // External cancellation and ownership handoff must never become local fallback.
+                throw error
+            } catch (error: WarmupDelegationDeadlineException) {
+                fail(error)
+                reportFallback(
                     record,
-                    if (acknowledged) WarmupFallbackReason.RESULT_TIMEOUT else WarmupFallbackReason.SEND_FAILURE
+                    if (error.acknowledged) {
+                        WarmupFallbackReason.RESULT_TIMEOUT
+                    } else {
+                        WarmupFallbackReason.SEND_FAILURE
+                    }
                 )
                 return processLocally()
             } catch (error: WarmupResultTimeoutException) {
                 fail(WarmupDelegationFailedException("Warm-up result deadline expired", error))
-                fallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
+                reportFallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
                 return processLocally()
-            } catch (error: CancellationException) {
-                throw error
+            } catch (error: WarmupSendFailedException) {
+                fail(error)
+                reportFallback(record, WarmupFallbackReason.SEND_FAILURE)
+                return processLocally()
             } catch (error: Throwable) {
                 if (error.isFatalJvmError()) throw error
                 fail(error)
-                fallback(
-                    record,
-                    if (acknowledged) WarmupFallbackReason.SESSION_FAILURE else WarmupFallbackReason.SEND_FAILURE
-                )
+                reportFallback(record, WarmupFallbackReason.SESSION_FAILURE)
                 return processLocally()
             }
 
-            return when (remote) {
-                WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceededRemotely
-                WarmupRemoteOutcome.TerminalFailure -> {
-                    fallback(record, WarmupFallbackReason.REMOTE_TERMINAL_FAILURE)
-                    processLocally()
-                }
-                is WarmupRemoteOutcome.Discarded -> {
-                    if (supportsRemoteDiscard(remote.reason)) {
-                        RecordProcessingOutcome.PolicyDiscarded(remote.reason)
-                    } else {
-                        fail(
-                            InvalidWarmupRemoteOutcomeException(
-                                "Remote discard ${remote.reason} is not supported by the source processing mode"
-                            )
-                        )
-                        fallback(record, WarmupFallbackReason.SESSION_FAILURE)
-                        processLocally()
-                    }
-                }
-            }
+            return applyRemoteOutcome(record, remoteOutcome, processLocally)
         } finally {
             finishDelegation()
         }
     }
 
-    fun accept(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
+    private suspend fun sendAndAwaitResult(
+        record: ConsumerRecord<K, V>,
+        destination: WarmupDestination
+    ): WarmupRemoteOutcome {
+        var acknowledged = false
+        return withTimeoutOrNull(delegationTimeout) {
+            val sendStarted = System.nanoTime()
+            val acknowledgement = try {
+                sender.send(record, destination, sessionId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (error.isFatalJvmError()) throw error
+                throw WarmupSendFailedException(error)
+            }
+            acknowledged = true
+            val forwarded = WarmupForwardedEvent(
+                sessionId = sessionId,
+                sourceTopicPartition = TopicPartition(record.topic(), record.partition()),
+                sourceOffset = record.offset(),
+                destinationTopicPartition = acknowledgement.topicPartition,
+                destinationOffset = acknowledgement.offset
+            )
+            observe { observer.onForwarded(forwarded, System.nanoTime() - sendStarted) }
+            val recordId = WarmupRecordId(
+                sessionId = sessionId,
+                topicPartition = acknowledgement.topicPartition,
+                offset = acknowledgement.offset
+            )
+            val waitStarted = System.nanoTime()
+            val outcome = tracker.await(recordId, delegationTimeout)
+            observe { observer.onResult(record, outcome, System.nanoTime() - waitStarted) }
+            outcome
+        } ?: throw WarmupDelegationDeadlineException(acknowledged)
+    }
+
+    private suspend fun applyRemoteOutcome(
+        record: ConsumerRecord<K, V>,
+        remoteOutcome: WarmupRemoteOutcome,
+        processLocally: suspend () -> RecordProcessingOutcome
+    ): RecordProcessingOutcome = when (remoteOutcome) {
+        WarmupRemoteOutcome.Succeeded -> RecordProcessingOutcome.HandlerSucceededRemotely
+        WarmupRemoteOutcome.TerminalFailure -> {
+            reportFallback(record, WarmupFallbackReason.REMOTE_TERMINAL_FAILURE)
+            processLocally()
+        }
+        is WarmupRemoteOutcome.Discarded -> {
+            if (supportsRemoteDiscard(remoteOutcome.reason)) {
+                RecordProcessingOutcome.PolicyDiscarded(remoteOutcome.reason)
+            } else {
+                fail(
+                    InvalidWarmupRemoteOutcomeException(
+                        "Remote discard ${remoteOutcome.reason} is not supported by the source processing mode"
+                    )
+                )
+                reportFallback(record, WarmupFallbackReason.SESSION_FAILURE)
+                processLocally()
+            }
+        }
+    }
+
+    fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
         val result = tracker.complete(completed)
         if (result == WarmupResultTracker.Completion.OVERFLOW) {
             fail(WarmupEarlyResultOverflowException(maxEarlyResults))
@@ -160,54 +200,64 @@ internal class WarmupDonorSession<K, V>(
     }
 
     fun stopDelegating() {
-        synchronized(lock) {
-            state.compareAndSet(State.ADMITTED, State.DRAINING)
-            state.compareAndSet(State.ACTIVE, State.DRAINING)
-            if (inflight == 0) drained.complete(Unit)
+        synchronized(sessionLock) {
+            if (state == State.ADMITTED || state == State.ACTIVE) state = State.DRAINING
+            if (inflight == 0) inflightDrained.complete(Unit)
         }
     }
 
     suspend fun stopDelegatingAndAwaitInflight(timeout: Duration) {
         require(timeout.isPositive()) { "Warm-up in-flight drain timeout must be > 0" }
-        val completion = synchronized(lock) {
-            stopDelegating()
-            drained
+        val completion = synchronized(sessionLock) {
+            if (state == State.ADMITTED || state == State.ACTIVE) state = State.DRAINING
+            if (inflight == 0) inflightDrained.complete(Unit)
+            inflightDrained
         }
         withTimeout(timeout) { completion.await() }
     }
 
     fun fail(error: Throwable) {
-        val won = synchronized(lock) {
-            val current = state.get()
-            if (current == State.FAILED || current == State.CLOSED) false else {
-                state.set(State.FAILED)
-                if (inflight == 0) drained.complete(Unit)
+        val won = synchronized(sessionLock) {
+            if (state == State.FAILED || state == State.CLOSED) {
+                false
+            } else {
+                state = State.FAILED
+                if (inflight == 0) inflightDrained.complete(Unit)
                 true
             }
         }
         if (won) tracker.fail(error)
     }
 
-    fun pendingCount(): Int = tracker.pendingCount()
+    fun pendingResultCount(): Int = tracker.pendingCount()
 
-    fun isActive(): Boolean = state.get() == State.ACTIVE
+    fun isActive(): Boolean = synchronized(sessionLock) { state == State.ACTIVE }
 
+    fun isDrainedForRemoval(): Boolean = synchronized(sessionLock) {
+        state != State.ACTIVE && inflight == 0
+    }
+
+    /** Closes an unactivated or stopped session. Active or inflight sessions are a caller error. */
     override fun close() {
-        synchronized(lock) {
-            state.set(State.CLOSED)
-            if (inflight == 0) drained.complete(Unit)
+        synchronized(sessionLock) {
+            check(state != State.ACTIVE && inflight == 0) {
+                "Warm-up donor session ${sessionId.value} must stop and drain before close"
+            }
+            if (state == State.CLOSED) return
+            state = State.CLOSED
+            inflightDrained.complete(Unit)
         }
         tracker.close()
         (sender as? AutoCloseable)?.close()
     }
 
-    private fun finishDelegation() = synchronized(lock) {
+    private fun finishDelegation() = synchronized(sessionLock) {
         check(inflight > 0) { "Warm-up delegation accounting underflow" }
         inflight--
-        if (inflight == 0) drained.complete(Unit)
+        if (inflight == 0) inflightDrained.complete(Unit)
     }
 
-    private fun fallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) {
+    private fun reportFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) {
         observe { observer.onFallback(record, reason) }
     }
 
@@ -222,5 +272,11 @@ internal class WarmupDonorSession<K, V>(
 
 internal class WarmupDelegationFailedException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
+
+internal class WarmupDelegationDeadlineException(val acknowledged: Boolean) :
+    IllegalStateException("Warm-up delegation deadline expired")
+
+internal class WarmupSendFailedException(cause: Throwable) :
+    IllegalStateException("Warm-up record send failed", cause)
 
 internal class InvalidWarmupRemoteOutcomeException(message: String) : IllegalStateException(message)

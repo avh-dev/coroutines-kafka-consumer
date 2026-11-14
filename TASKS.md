@@ -5960,6 +5960,9 @@ GLOBAL-4 commits `e83dae2d`, `f013ae6b`, `7e0918cc`, `e76be636`, `fc8708c2`,
 `dec5ab81`, `9405c1fc`, `d88571f7`, and `33ab8172`. Support independent donor
 sessions, atomic aggregate capacity, quota ramp, fair single-recipient selection, routed
 remote results, and ownership-safe local fallback without reservations or global state.
-The focused 13-test processing/data-plane suite, the complete core unit suite, and the
-real-Kafka `:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment
-run was started.
+Review hardening revalidates ownership before every first local handler attempt, distinguishes
+the delegation deadline from external cancellation, and rejects session removal until inflight
+work drains. Names, round-robin selection, result tracking, and concurrency documentation now
+describe their actual effects and guarantees.
+The focused processing/data-plane suite, the complete core unit suite, and the real-Kafka
+`:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment run was started.

@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
@@ -21,6 +22,7 @@ import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CopyOnWriteArrayList
@@ -28,7 +30,62 @@ import kotlin.time.Duration.Companion.seconds
 
 class MultiSessionWarmupDataPlaneTest {
     @Test
-    fun `pending result in one session does not block delegation through another session`() = runBlocking {
+    @Suppress("UNCHECKED_CAST")
+    fun `rejected inflight removal leaves main runtime and sibling session operational`() = runBlocking {
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
+        val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
+        val first = pendingSession("first-runtime", 1, firstForwarded)
+        val second = pendingSession("second-runtime", 2, secondForwarded)
+        plane.admit(first)
+        plane.admit(second)
+        plane.activate(first.sessionId)
+        plane.activate(second.sessionId)
+
+        val localHandled = CompletableDeferred<Long>()
+        val runtimeFailure = CompletableDeferred<Throwable>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val runtime = defaultProcessingRuntime(
+            parentScope = scope,
+            processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+            workerConcurrency = 2,
+            workChannelCapacity = 4,
+            freshnessMaxRecordAge = null,
+            processingDispatcher = Dispatchers.Default,
+            metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>,
+            handler = KafkaRecordHandler { localHandled.complete(it.offset()) },
+            retryPolicy = RetryPolicy.none(),
+            recordProcessingContext = null,
+            processingFailureHandler = ProcessingFailureHandler.skip(),
+            processedRecordTracker = NoopProcessedRecordTracker,
+            interceptor = plane
+        )
+        runtime.start { runtimeFailure.complete(it) }
+
+        assertTrue(runtime.tryEmit(record(1)))
+        val firstEvent = firstForwarded.await()
+        assertFalse(plane.removeDrainedSession(first.sessionId))
+
+        assertTrue(runtime.tryEmit(record(2)))
+        val secondEvent = secondForwarded.await()
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(secondEvent.completed()))
+        plane.stopDelegatingAndAwaitInflight(second.sessionId, 1.seconds)
+        assertTrue(plane.removeDrainedSession(second.sessionId))
+
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(firstEvent.completed()))
+        plane.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
+        assertTrue(plane.removeDrainedSession(first.sessionId))
+
+        assertTrue(runtime.tryEmit(record(3)))
+        assertEquals(3L, withTimeout(2_000) { localHandled.await() })
+        assertFalse(runtimeFailure.isCompleted)
+        runtime.stop()
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        Unit
+    }
+
+    @Test
+    fun `early removal with inflight is rejected while sibling session continues`() = runBlocking {
         val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
         val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
@@ -62,16 +119,51 @@ class MultiSessionWarmupDataPlaneTest {
         val firstResult = async { plane.process(record(1)) { error("fallback not expected") } }
         val firstEvent = firstForwarded.await()
         assertFalse(firstResult.isCompleted)
+        assertFalse(plane.removeDrainedSession(first.sessionId))
 
         val secondResult = async { plane.process(record(2)) { error("fallback not expected") } }
         val secondEvent = secondForwarded.await()
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.accept(secondEvent.completed()))
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(secondEvent.completed()))
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, secondResult.await())
         assertFalse(firstResult.isCompleted)
 
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.accept(firstEvent.completed()))
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(firstEvent.completed()))
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, firstResult.await())
+        plane.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
+        assertTrue(plane.removeDrainedSession(first.sessionId))
         plane.close()
+    }
+
+    @Test
+    fun `external timeout cancels delegation without local fallback`() {
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val sent = CompletableDeferred<Unit>()
+        val localCalls = AtomicInteger()
+        val session = idleSession(
+            id = "outer-timeout",
+            sender = WarmupRecordSender { _, destination, _ ->
+                sent.complete(Unit)
+                WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), 1)
+            }
+        )
+        plane.admit(session)
+        plane.activate(session.sessionId)
+
+        assertThrows(TimeoutCancellationException::class.java) {
+            runBlocking {
+                withTimeout(250) {
+                    plane.process(record(1)) {
+                        localCalls.incrementAndGet()
+                        RecordProcessingOutcome.HandlerSucceeded
+                    }
+                }
+            }
+        }
+
+        assertTrue(sent.isCompleted)
+        assertEquals(0, localCalls.get())
+        runBlocking { plane.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds) }
+        assertTrue(plane.removeDrainedSession(session.sessionId))
     }
 
     @Test
@@ -122,9 +214,9 @@ class MultiSessionWarmupDataPlaneTest {
         withTimeout(2_000) { while (events.size != 1) kotlinx.coroutines.yield() }
         assertEquals(1, sends.get())
 
-        plane.accept(events[0].completed())
+        plane.acceptResult(events[0].completed())
         withTimeout(2_000) { while (events.size != 2) kotlinx.coroutines.yield() }
-        plane.accept(events[1].completed())
+        plane.acceptResult(events[1].completed())
 
         runtime.stop()
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
@@ -242,8 +334,8 @@ class MultiSessionWarmupDataPlaneTest {
         plane.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds)
 
         assertEquals(0, localCalls.get())
-        assertEquals(0, session.pendingCount())
-        plane.finish(session.sessionId)
+        assertEquals(0, session.pendingResultCount())
+        assertTrue(plane.removeDrainedSession(session.sessionId))
         Unit
     }
 
@@ -258,7 +350,7 @@ class MultiSessionWarmupDataPlaneTest {
             sender = WarmupRecordSender { _, destination, actualSessionId ->
                 val offset = sends.getAndIncrement().toLong()
                 val topicPartition = TopicPartition(destination.topic, destination.partition)
-                plane.accept(
+                plane.acceptResult(
                     WarmupRecordCompleted(
                         WarmupRecordId(actualSessionId, topicPartition, offset),
                         WarmupRemoteOutcome.Succeeded
@@ -282,6 +374,25 @@ class MultiSessionWarmupDataPlaneTest {
         delegationTimeout = 5.seconds,
         destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
         sender = sender
+    )
+
+    private fun pendingSession(
+        id: String,
+        destinationOffset: Long,
+        forwarded: CompletableDeferred<WarmupForwardedEvent>
+    ): WarmupDonorSession<String, String> = WarmupDonorSession(
+        sessionId = WarmupSessionId(id),
+        intervalBudget = 10,
+        quotaInterval = 1.seconds,
+        delegationTimeout = 5.seconds,
+        destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
+        sender = WarmupRecordSender { _, destination, _ ->
+            WarmupSendAcknowledgement(
+                TopicPartition(destination.topic, destination.partition),
+                destinationOffset
+            )
+        },
+        observer = forwardingObserver(forwarded)
     )
 
     private fun record(offset: Long): ConsumerRecord<String, String> =

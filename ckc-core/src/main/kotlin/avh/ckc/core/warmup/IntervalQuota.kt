@@ -4,7 +4,13 @@ import kotlin.math.floor
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 
-/** Lazy non-carrying quota whose rollover and acquisition form one atomic operation. */
+/**
+ * Atomic interval quota with no carry-over of unused capacity.
+ *
+ * The first acquisition attempt starts both the first quota window and the optional ramp. Each
+ * later window starts lazily on the first attempt after [interval] elapsed. Ramp progress is thus
+ * measured from the first [tryAcquire], not from object construction or donor-session activation.
+ */
 internal class IntervalQuota(
     private val limit: Int,
     private val interval: Duration,

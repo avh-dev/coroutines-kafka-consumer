@@ -10,6 +10,7 @@ import avh.ckc.core.metrics.RecordHandoffReason
 import kotlinx.coroutines.CancellationException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
 
 /**
  * Record processing pipeline executed by worker coroutines.
@@ -101,19 +102,26 @@ internal class RecordProcessor<K, V>(
         record: ConsumerRecord<K, V>,
         key: K?,
         value: V?
-    ): RecordProcessingOutcome = try {
-        val completed = executeWithRetry(record, key, value) {
-            handler.process(record)
+    ): RecordProcessingOutcome {
+        // Delegation may have suspended for a remote result after the runtime acquired its lease.
+        // Revalidate that lease immediately before the first local handler attempt, not only before retries.
+        if (!awaitRetryPermission(record, ZERO)) {
+            return RecordProcessingOutcome.HandedOff(handoffReason())
         }
-        if (completed) {
-            RecordProcessingOutcome.HandlerSucceeded
-        } else {
-            RecordProcessingOutcome.HandedOff(handoffReason())
+        return try {
+            val completed = executeWithRetry(record, key, value) {
+                handler.process(record)
+            }
+            if (completed) {
+                RecordProcessingOutcome.HandlerSucceeded
+            } else {
+                RecordProcessingOutcome.HandedOff(handoffReason())
+            }
+        } catch (error: Throwable) {
+            if (error.isCancellation() || error.isFatalJvmError()) throw error
+            processingFailureHandler.handle(record, error)
+            RecordProcessingOutcome.HandlerFailed(error)
         }
-    } catch (error: Throwable) {
-        if (error.isCancellation() || error.isFatalJvmError()) throw error
-        processingFailureHandler.handle(record, error)
-        RecordProcessingOutcome.HandlerFailed(error)
     }
 
     /**

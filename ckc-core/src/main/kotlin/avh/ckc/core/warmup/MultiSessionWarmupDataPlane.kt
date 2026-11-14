@@ -15,10 +15,16 @@ internal class MultiSessionWarmupDataPlane<K, V>(
 ) : AdmittedRecordInterceptor<K, V>, AutoCloseable {
     internal enum class Admission { ACCEPTED, DUPLICATE, SESSION_LIMIT, BUDGET_LIMIT }
 
+    private data class SelectedDelegation<K, V>(
+        val session: WarmupDonorSession<K, V>,
+        val destination: WarmupDestination
+    )
+
+    /** Protects membership, aggregate capacity, and the round-robin cursor. */
     private val lock = Any()
     private val sessions = linkedMapOf<WarmupSessionId, WarmupDonorSession<K, V>>()
     private var aggregateIntervalBudget = 0
-    private var nextIndex = 0
+    private var nextSessionIndex = 0
 
     init {
         require(maxSessions > 0) { "Maximum donor sessions must be > 0" }
@@ -43,31 +49,26 @@ internal class MultiSessionWarmupDataPlane<K, V>(
         record: ConsumerRecord<K, V>,
         processLocally: suspend () -> RecordProcessingOutcome
     ): RecordProcessingOutcome {
-        val selected = synchronized(lock) {
-            val snapshot = sessions.values.filter(WarmupDonorSession<K, V>::isActive)
-            if (snapshot.isEmpty()) {
-                null
-            } else {
-                var reservation: Pair<WarmupDonorSession<K, V>, WarmupDestination>? = null
-                repeat(snapshot.size) { offset ->
-                    if (reservation == null) {
-                        val index = (nextIndex + offset).mod(snapshot.size)
-                        val session = snapshot[index]
-                        session.tryReserve(record)?.let { destination ->
-                            reservation = session to destination
-                            nextIndex = (index + 1).mod(snapshot.size)
-                        }
-                    }
-                }
-                reservation
-            }
-        }
-        return selected?.first?.processReserved(record, selected.second, processLocally) ?: processLocally()
+        val selected = selectDelegation(record) ?: return processLocally()
+        return selected.session.processDelegatedRecord(record, selected.destination, processLocally)
     }
 
-    fun accept(completed: WarmupRecordCompleted): WarmupResultTracker.Completion =
+    private fun selectDelegation(record: ConsumerRecord<K, V>): SelectedDelegation<K, V>? =
+        synchronized(lock) {
+            val activeSessions = sessions.values.filter(WarmupDonorSession<K, V>::isActive)
+            for (offset in activeSessions.indices) {
+                val index = (nextSessionIndex + offset).mod(activeSessions.size)
+                val session = activeSessions[index]
+                val destination = session.tryBeginDelegation(record) ?: continue
+                nextSessionIndex = (index + 1).mod(activeSessions.size)
+                return@synchronized SelectedDelegation(session, destination)
+            }
+            null
+        }
+
+    fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion =
         synchronized(lock) { sessions[completed.recordId.sessionId] }
-            ?.accept(completed)
+            ?.acceptResult(completed)
             ?: WarmupResultTracker.Completion.IGNORED
 
     fun stopDelegating(sessionId: WarmupSessionId) {
@@ -83,11 +84,21 @@ internal class MultiSessionWarmupDataPlane<K, V>(
         synchronized(lock) { sessions[sessionId] }?.fail(error)
     }
 
-    fun finish(sessionId: WarmupSessionId): Boolean {
+    /**
+     * Removes and closes only an unactivated, drained, or failed session. Callers must first stop
+     * admission and await inflight completion; an early removal attempt leaves the session intact.
+     */
+    fun removeDrainedSession(sessionId: WarmupSessionId): Boolean {
         val removed = synchronized(lock) {
-            val session = sessions.remove(sessionId) ?: return@synchronized null
+            val session = sessions[sessionId] ?: return@synchronized null
+            if (!session.isDrainedForRemoval()) return@synchronized null
+            sessions.remove(sessionId)
             aggregateIntervalBudget -= session.intervalBudget
-            if (sessions.isEmpty()) nextIndex = 0 else nextIndex %= sessions.size
+            if (sessions.isEmpty()) {
+                nextSessionIndex = 0
+            } else {
+                nextSessionIndex %= sessions.size
+            }
             session
         } ?: return false
         removed.close()
@@ -98,12 +109,17 @@ internal class MultiSessionWarmupDataPlane<K, V>(
 
     internal fun admittedIntervalBudget(): Int = synchronized(lock) { aggregateIntervalBudget }
 
+    /** Stops admission and closes the plane only when no session still has inflight work. */
     override fun close() {
         val removed = synchronized(lock) {
+            sessions.values.forEach(WarmupDonorSession<K, V>::stopDelegating)
+            check(sessions.values.all(WarmupDonorSession<K, V>::isDrainedForRemoval)) {
+                "Warm-up data plane must drain every donor session before close"
+            }
             sessions.values.toList().also {
                 sessions.clear()
                 aggregateIntervalBudget = 0
-                nextIndex = 0
+                nextSessionIndex = 0
             }
         }
         removed.forEach(WarmupDonorSession<K, V>::close)
