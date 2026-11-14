@@ -13,6 +13,7 @@ AWS_ONLY_PANEL_TITLES = {
     "MSK CloudWatch Time Lag",
 }
 INTERNAL_HOST_ROW_TITLES = {
+    "Kubernetes Nodes",
     "Host Services: Kafka Broker",
     "Host Services: Kafka Thread Stats",
     "Host Services: Redis",
