@@ -6059,3 +6059,6 @@ and mandatory protocol settings retain final priority. Donor callbacks mark remo
 duplicating Micrometer processed, duration, or E2E series; pending results aggregate across donor
 sessions without high-cardinality session tags. Full core and Micrometer unit suites and all 24
 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.
+Review hardening serializes aggregate pending publication with its session-state update so a delayed
+callback cannot restore a stale gauge value. Recipient Kafka client identities now include the full
+destination coordinate, keeping concurrent mappings of one participant distinct in JMX and metrics.

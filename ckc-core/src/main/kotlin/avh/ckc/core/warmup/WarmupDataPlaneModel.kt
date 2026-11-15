@@ -73,7 +73,7 @@ internal data class WarmupForwardedEvent(
     val destinationOffset: Long
 )
 
-/** Internal observation seam; CORE-78 connects it to the public metrics callback. */
+/** Session-aware observation seam for donor forwarding, results, fallback, and pending accounting. */
 internal interface WarmupDataPlaneObserver<K, V> {
     fun onForwarded(record: ConsumerRecord<K, V>, event: WarmupForwardedEvent, durationNanos: Long) = Unit
     fun onResult(record: ConsumerRecord<K, V>, outcome: WarmupRemoteOutcome, durationNanos: Long) = Unit

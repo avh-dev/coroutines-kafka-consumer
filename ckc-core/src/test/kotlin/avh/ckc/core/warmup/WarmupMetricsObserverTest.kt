@@ -1,12 +1,19 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.RecordingMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.WarmupFallbackReason
 import avh.ckc.core.metrics.WarmupResultMetricOutcome
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 class WarmupMetricsObserverTest {
     @Test
@@ -46,5 +53,48 @@ class WarmupMetricsObserverTest {
         )
         assertEquals(listOf(record to WarmupFallbackReason.RESULT_TIMEOUT), metrics.warmupFallbacks)
         assertEquals(listOf(2, 5, 3), metrics.warmupPending)
+    }
+
+    @Test
+    fun `concurrent pending updates cannot publish an older aggregate last`() {
+        val firstCallbackEntered = CountDownLatch(1)
+        val releaseFirstCallback = CountDownLatch(1)
+        val zeroPublished = CountDownLatch(1)
+        val published = CopyOnWriteArrayList<Int>()
+        val metrics = object : ConsumerMetrics<String, String> {
+            override fun onWarmupPendingChanged(pending: Int) {
+                if (pending == 1) {
+                    firstCallbackEntered.countDown()
+                    releaseFirstCallback.await()
+                }
+                published += pending
+                if (pending == 0) zeroPublished.countDown()
+            }
+        }
+        val observer = WarmupMetricsObserver(metrics)
+        val sessionId = WarmupSessionId("session")
+        val first = thread(name = "first-pending-update", isDaemon = true) {
+            observer.onPendingChanged(sessionId, 1)
+        }
+        assertTrue(firstCallbackEntered.await(1, TimeUnit.SECONDS))
+        val secondInvocationStarted = CountDownLatch(1)
+        val second = thread(name = "second-pending-update", isDaemon = true) {
+            secondInvocationStarted.countDown()
+            observer.onPendingChanged(sessionId, 0)
+        }
+        assertTrue(secondInvocationStarted.await(1, TimeUnit.SECONDS))
+
+        val publishedBeforeRelease = try {
+            zeroPublished.await(250, TimeUnit.MILLISECONDS)
+        } finally {
+            releaseFirstCallback.countDown()
+            first.join(1_000)
+            second.join(1_000)
+        }
+
+        assertFalse(publishedBeforeRelease)
+        assertFalse(first.isAlive)
+        assertFalse(second.isAlive)
+        assertEquals(listOf(1, 0), published)
     }
 }

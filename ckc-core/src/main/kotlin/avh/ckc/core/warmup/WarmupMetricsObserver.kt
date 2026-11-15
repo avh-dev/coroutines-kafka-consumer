@@ -28,11 +28,10 @@ internal class WarmupMetricsObserver<K, V>(
         metrics.onWarmupFallback(record, reason)
 
     override fun onPendingChanged(sessionId: WarmupSessionId, pending: Int) {
-        val aggregate = synchronized(pendingLock) {
+        synchronized(pendingLock) {
             if (pending > 0) pendingBySession[sessionId] = pending else pendingBySession.remove(sessionId)
-            pendingBySession.values.sum()
+            metrics.onWarmupPendingChanged(pendingBySession.values.sum())
         }
-        metrics.onWarmupPendingChanged(aggregate)
     }
 
     private fun WarmupRemoteOutcome.metricOutcome(): WarmupResultMetricOutcome = when (this) {

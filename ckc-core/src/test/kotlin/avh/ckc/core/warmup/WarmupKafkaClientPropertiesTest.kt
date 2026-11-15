@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
 class WarmupKafkaClientPropertiesTest {
@@ -104,4 +105,34 @@ class WarmupKafkaClientPropertiesTest {
         assertEquals(userBefore, user)
         assertEquals(requiredBefore, required)
     }
+
+    @Test
+    fun `recipient client identity distinguishes mappings of one participant`() {
+        val participantId = WarmupParticipantId("orders-participant")
+        val sessionId = WarmupSessionId("recipient-session")
+        val first = destinationStart(participantId, "warmup-orders", "orders-fingerprint")
+        val second = destinationStart(participantId, "warmup-payments", "payments-fingerprint")
+
+        val firstClientId = warmupRecipientClientId(sessionId, first)
+        val secondClientId = warmupRecipientClientId(sessionId, second)
+
+        assertNotEquals(firstClientId, secondClientId)
+        assertEquals(firstClientId, warmupRecipientClientId(sessionId, first))
+    }
+
+    private fun destinationStart(
+        participantId: WarmupParticipantId,
+        warmupTopic: String,
+        fingerprint: String
+    ) = WarmupDestinationStart(
+        assignment = WarmupPartitionAssignment(
+            WarmupTopicMapping(
+                participantId = participantId,
+                sourceTopic = warmupTopic.removePrefix("warmup-"),
+                warmupTopic = warmupTopic,
+                mappingFingerprint = fingerprint
+            )
+        ),
+        offset = 0
+    )
 }

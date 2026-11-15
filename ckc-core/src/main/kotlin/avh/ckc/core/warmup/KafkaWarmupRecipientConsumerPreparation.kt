@@ -16,10 +16,7 @@ internal fun <K, V> warmupRecipientParticipantRuntime(
     consumerProperties: Map<String, Any?>,
     configure: CoroutinesKafkaConsumerBuilder<K, V>.() -> Unit
 ): WarmupRecipientParticipantRuntime = WarmupRecipientParticipantRuntime { sessionId, start ->
-    val participantId = start.assignment.mapping.participantId
-    val connectionIdentity = "${participantId.value}\u0000${sessionId.value}"
-    val clientId = "ckc.traffic-warmup.v6.recipient." +
-        UUID.nameUUIDFromBytes(connectionIdentity.toByteArray(Charsets.UTF_8))
+    val clientId = warmupRecipientClientId(sessionId, start)
     val effectiveProperties = buildWarmupRecipientConsumerProperties(
         consumerProperties,
         mapOf(
@@ -32,6 +29,19 @@ internal fun <K, V> warmupRecipientParticipantRuntime(
     CoroutinesKafkaConsumerBuilder<K, V>()
         .apply(configure)
         .buildWarmupRecipient(effectiveProperties, sessionId, start.assignment.destination, start.offset)
+}
+
+internal fun warmupRecipientClientId(sessionId: WarmupSessionId, start: WarmupDestinationStart): String {
+    val assignment = start.assignment
+    val destination = assignment.destination
+    val connectionIdentity = listOf(
+        assignment.mapping.participantId.value,
+        sessionId.value,
+        destination.topic(),
+        destination.partition().toString()
+    ).joinToString("\u0000")
+    return "ckc.traffic-warmup.v6.recipient." +
+        UUID.nameUUIDFromBytes(connectionIdentity.toByteArray(Charsets.UTF_8))
 }
 
 /** Production preparation for heterogeneous participants and independently assigned consumers. */
