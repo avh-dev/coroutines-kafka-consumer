@@ -78,7 +78,15 @@ internal class WarmupRecipientDiscovery(
     private val preparationTimeout: Duration,
     private val nowEpochMillis: () -> Long = System::currentTimeMillis
 ) {
-    internal enum class State { DISCOVERING, ADMITTING_DONORS, PREPARING_CONSUMERS, READY, COLD_FALLBACK }
+    internal enum class State {
+        DISCOVERING,
+        ADMITTING_DONORS,
+        PREPARING_CONSUMERS,
+        READY,
+        DRAINING,
+        COMPLETED,
+        COLD_FALLBACK
+    }
 
     private val lock = Any()
     private val cleanupMutex = Mutex()
@@ -86,6 +94,7 @@ internal class WarmupRecipientDiscovery(
     private val offers = linkedMapOf<WarmupInstanceId, DonorOffered>()
     private var acceptances = emptyMap<WarmupInstanceId, SessionAccepted>()
     private val confirmations = linkedMapOf<WarmupInstanceId, DonorAccepted>()
+    private val closedDonors = linkedMapOf<WarmupInstanceId, DonorClosed>()
     private val prepared = mutableListOf<PreparedWarmupRecipientConsumer>()
 
     init {
@@ -152,18 +161,78 @@ internal class WarmupRecipientDiscovery(
     }
 
     fun onDonorRejected(rejected: SessionRejected): Boolean = synchronized(lock) {
-        if (state != State.ADMITTING_DONORS && state != State.PREPARING_CONSUMERS) return@synchronized false
+        if (state !in setOf(State.ADMITTING_DONORS, State.PREPARING_CONSUMERS, State.READY, State.DRAINING)) {
+            return@synchronized false
+        }
         val expected = acceptances[rejected.senderInstanceId] ?: return@synchronized false
         if (rejected.protocolVersion != WARMUP_CONTROL_PROTOCOL_VERSION ||
             rejected.namespace != expected.namespace || rejected.sessionId != expected.sessionId ||
             rejected.senderInstanceId != expected.targetInstanceId ||
             rejected.targetInstanceId != expected.senderInstanceId ||
-            rejected.configurationFingerprint != expected.configurationFingerprint
+            rejected.configurationFingerprint != expected.configurationFingerprint ||
+            rejected.expiresAtEpochMillis != expected.expiresAtEpochMillis
         ) {
             return@synchronized false
         }
         state = State.COLD_FALLBACK
         true
+    }
+
+    /** Starts completion once and returns the same immutable requests for duplicate local calls. */
+    fun completionRequests(): List<WarmupCompletionRequested> = synchronized(lock) {
+        check(state == State.READY || state == State.DRAINING) {
+            "Recipient warm-up is not ready for completion"
+        }
+        state = State.DRAINING
+        acceptances.map { (donor, acceptance) ->
+            WarmupCompletionRequested(
+                namespace = request.namespace,
+                sessionId = request.sessionId,
+                senderInstanceId = request.senderInstanceId,
+                targetInstanceId = donor,
+                configurationFingerprint = acceptance.configurationFingerprint,
+                expiresAtEpochMillis = acceptance.expiresAtEpochMillis
+            )
+        }
+    }
+
+    /** Unknown, forged, or parameter-mismatched acknowledgements cannot advance completion. */
+    fun onDonorClosed(closed: DonorClosed): Boolean = synchronized(lock) {
+        if (state != State.DRAINING) return@synchronized false
+        val expected = acceptances[closed.senderInstanceId] ?: return@synchronized false
+        if (closed.protocolVersion != WARMUP_CONTROL_PROTOCOL_VERSION ||
+            closed.namespace != expected.namespace || closed.sessionId != expected.sessionId ||
+            closed.senderInstanceId != expected.targetInstanceId ||
+            closed.targetInstanceId != expected.senderInstanceId ||
+            closed.configurationFingerprint != expected.configurationFingerprint ||
+            closed.expiresAtEpochMillis != expected.expiresAtEpochMillis
+        ) {
+            return@synchronized false
+        }
+        val existing = closedDonors[closed.senderInstanceId]
+        if (existing != null && existing != closed) return@synchronized false
+        closedDonors[closed.senderInstanceId] = closed
+        true
+    }
+
+    fun allDonorsClosed(): Boolean = synchronized(lock) {
+        state == State.DRAINING && closedDonors.keys == acceptances.keys
+    }
+
+    /** Stops recipient consumers only after every selected donor has fenced new delegation. */
+    suspend fun completeAfterDonorsClosed(): WarmupRecipientCleanupResult {
+        synchronized(lock) {
+            check(state == State.DRAINING && closedDonors.keys == acceptances.keys) {
+                "Recipient donors have not all closed"
+            }
+        }
+        val cleanup = cleanupPreparedConsumers()
+        if (cleanup !is WarmupRecipientCleanupResult.Incomplete) {
+            synchronized(lock) {
+                if (state == State.DRAINING) state = State.COMPLETED
+            }
+        }
+        return cleanup
     }
 
     suspend fun prepareConsumers(): WarmupRecipientPreparationResult {
@@ -248,6 +317,12 @@ internal class WarmupRecipientDiscovery(
                 prepared.toList()
             }
             stopAll(resources)
+        }
+    }
+
+    private suspend fun cleanupPreparedConsumers(): WarmupRecipientCleanupResult = withContext(NonCancellable) {
+        cleanupMutex.withLock {
+            stopAll(synchronized(lock) { prepared.toList() })
         }
     }
 

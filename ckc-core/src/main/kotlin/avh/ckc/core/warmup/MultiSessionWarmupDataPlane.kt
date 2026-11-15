@@ -126,11 +126,11 @@ internal class MultiSessionWarmupDataPlane<K, V>(
     }
 
     /**
-     * Removes and closes only an unactivated, drained, or failed session. Callers must first stop
-     * admission and await inflight completion; an early removal attempt leaves the session intact.
+     * Removes only an unactivated, drained, or failed session and transfers cleanup ownership to
+     * the caller. An early removal attempt leaves the session and its accounted capacity intact.
      */
-    fun removeDrainedSession(sessionId: WarmupSessionId): Boolean {
-        val removed = synchronized(lock) {
+    fun detachDrainedSession(sessionId: WarmupSessionId): WarmupDonorSession<K, V>? =
+        synchronized(lock) {
             val slot = sessions[sessionId] ?: return@synchronized null
             val session = slot.session ?: return@synchronized null
             if (!session.trySealForRemoval()) return@synchronized null
@@ -142,8 +142,12 @@ internal class MultiSessionWarmupDataPlane<K, V>(
                 nextSessionIndex %= sessions.size
             }
             session
-        } ?: return false
-        removed.close()
+        }
+
+    /** Removes and closes a session when the caller does not need retryable cleanup ownership. */
+    fun removeDrainedSession(sessionId: WarmupSessionId): Boolean {
+        val detached = detachDrainedSession(sessionId) ?: return false
+        detached.close()
         return true
     }
 
