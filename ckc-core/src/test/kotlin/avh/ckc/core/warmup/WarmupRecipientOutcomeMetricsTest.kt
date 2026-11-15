@@ -7,12 +7,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
 
@@ -73,6 +75,51 @@ class WarmupRecipientOutcomeMetricsTest {
         assertEquals(listOf(first, second), sent)
         outbox.stop()
         scope.cancel()
+    }
+
+    @Test
+    fun `scope cancellation closes outbox and graceful stop reports lost delivery`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val sendStarted = CompletableDeferred<Unit>()
+        val outbox = WarmupCompletionOutbox(scope, capacity = 2) {
+            sendStarted.complete(Unit)
+            awaitCancellation()
+        }
+        outbox.publish(completed(offset = 1))
+        sendStarted.await()
+
+        scope.cancel()
+        delay(50)
+
+        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+            outbox.publish(completed(offset = 2))
+        }
+        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+            runBlocking { outbox.flush(2.seconds) }
+        }
+        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+            runBlocking { outbox.stop() }
+        }
+        Unit
+    }
+
+    @Test
+    fun `send cancellation closes outbox instead of accepting undeliverable results`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val outbox = WarmupCompletionOutbox(scope, capacity = 2) {
+            throw kotlinx.coroutines.CancellationException("transport cancelled")
+        }
+        outbox.publish(completed(offset = 1))
+        delay(50)
+
+        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+            outbox.publish(completed(offset = 2))
+        }
+        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+            runBlocking { outbox.stop() }
+        }
+        scope.cancel()
+        Unit
     }
 
     private fun completed(offset: Long) = WarmupRecordCompleted(

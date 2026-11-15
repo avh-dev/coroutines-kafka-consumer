@@ -5,7 +5,11 @@ import avh.ckc.core.CoroutinesKafkaConsumerBuilder
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.RecordingMetrics
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -42,9 +46,11 @@ import kotlin.time.Duration.Companion.seconds
 @Testcontainers(disabledWithoutDocker = true)
 class WarmupSharedPartitionIntegrationTest {
     private val openTopologies = CopyOnWriteArrayList<Topology>()
+    private val openProtocolPairs = CopyOnWriteArrayList<ProtocolPair>()
 
     @AfterEach
     fun closeOpenTopologies() = runBlocking {
+        openProtocolPairs.toList().asReversed().forEach { it.close() }
         openTopologies.toList().asReversed().forEach { it.close() }
     }
 
@@ -89,6 +95,28 @@ class WarmupSharedPartitionIntegrationTest {
         )
         assertTrue(topology.localHandled.isEmpty())
         assertTrue(topology.donorMetrics.consumerFailures.isEmpty())
+        topology.close()
+    }
+
+    @Test
+    fun `donor pending metric aggregates two simultaneously waiting sessions and drains to zero`() = runBlocking {
+        val topology = topology(maxSessions = 2, delegationTimeout = 5.seconds)
+        val release = CompletableDeferred<Unit>()
+        val first = topology.startRecipient("first-pending") { release.await() }
+        val second = topology.startRecipient("second-pending") { release.await() }
+        topology.startDonor()
+
+        topology.produceSource("first-wait")
+        topology.produceSource("second-wait")
+        awaitFor { (first.handled.size + second.handled.size).takeIf { it == 2 } }
+        awaitFor { topology.donorMetrics.warmupPending.lastOrNull()?.takeIf { it == 2 } }
+
+        release.complete(Unit)
+        topology.awaitSourceOffset(2)
+        awaitFor { topology.donorMetrics.warmupPending.lastOrNull()?.takeIf { it == 0 } }
+
+        assertEquals(2, topology.donorMetrics.warmupPending.max())
+        assertEquals(0, topology.donorMetrics.warmupPending.last())
         topology.close()
     }
 
@@ -224,7 +252,95 @@ class WarmupSharedPartitionIntegrationTest {
     }
 
     @Test
-    fun `namespace restart warms again without replay or quarantine state`() = runBlocking {
+    fun `kafka control lifecycle discovers activates reports and closes a warmup session`() = runBlocking {
+        val pair = protocolPair()
+        pair.start()
+
+        val discovery = pair.discover()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, discovery)
+        pair.produceSource("protocol-remote")
+        pair.awaitSourceOffset(1)
+        pair.outbox.flush(5.seconds)
+        assertEquals(WarmupCompletionResult.Completed, pair.complete())
+
+        assertEquals(listOf("protocol-remote"), pair.recipientHandled.toList())
+        assertTrue(pair.localHandled.isEmpty())
+        assertTrue(pair.donorMessages.any { it is WarmupCompletionRequested })
+        assertTrue(pair.recipientMessages.any { it is DonorClosed })
+        assertTrue(pair.donorMessages.any { it is ControlRecordCompleted })
+        assertEquals(0, pair.plane.admittedSessionCount())
+        assertTrue(pair.donorMetrics.processed.single().processedRemotely)
+        assertFalse(pair.donor.stateSnapshot().failed)
+        pair.close()
+    }
+
+    @Test
+    fun `restarted kafka control namespace starts at tail and warms a new session`() = runBlocking {
+        val sourceTopic = unique("protocol-source-restart")
+        val warmupTopic = unique("protocol-warmup-restart")
+        val controlTopic = unique("protocol-control-restart")
+        val namespace = WarmupControlNamespace(unique("global5-v6-restart"))
+        val donorGroup = unique("protocol-donor-group")
+        createTopic(sourceTopic)
+        createTopic(warmupTopic)
+        createTopic(controlTopic)
+
+        val first = protocolPair(sourceTopic, warmupTopic, controlTopic, namespace, donorGroup)
+        first.start()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, first.discover())
+        first.produceSource("before-restart")
+        first.awaitSourceOffset(1)
+        first.outbox.flush(5.seconds)
+        assertEquals(WarmupCompletionResult.Completed, first.complete())
+        val firstSession = first.sessionId
+        first.close()
+
+        val second = protocolPair(sourceTopic, warmupTopic, controlTopic, namespace, donorGroup)
+        second.start()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, second.discover())
+        second.produceSource("after-restart")
+        second.awaitSourceOffset(2)
+        second.outbox.flush(5.seconds)
+        assertEquals(WarmupCompletionResult.Completed, second.complete())
+
+        assertEquals(listOf("after-restart"), second.recipientHandled.toList())
+        assertTrue(second.recipientMessages.none { it.sessionId == firstSession })
+        assertTrue(second.donorMessages.none { it.sessionId == firstSession })
+        assertFalse(second.donor.stateSnapshot().failed)
+        second.close()
+    }
+
+    @Test
+    fun `protocol metadata fallback cold starts the main recipient consumer`() = runBlocking {
+        val pair = protocolPair(warmupPartitions = 2)
+        pair.start()
+
+        val fallback = pair.discover()
+
+        assertInstanceOf(WarmupDiscoveryResult.ColdFallback::class.java, fallback)
+        awaitFor { pair.donorActivation.state(pair.sessionId)?.takeIf { it == WarmupDonorActivation.State.CLOSED } }
+        val coldHandled = CopyOnWriteArrayList<String>()
+        val cold = pair.coldMainConsumer(coldHandled)
+        try {
+            cold.start()
+            withTimeout(10_000) { cold.awaitReady() }
+            pair.produceSource("cold-main")
+            awaitFor { coldHandled.takeIf { "cold-main" in it } }
+
+            assertEquals(listOf("cold-main"), coldHandled.toList())
+            assertTrue(pair.recipientMessages.any {
+                it is SessionEnded && it.state == WarmupSessionEndState.COLD_FALLBACK
+            })
+            assertEquals(0, pair.plane.admittedSessionCount())
+            assertFalse(cold.stateSnapshot().failed)
+        } finally {
+            cold.stop()
+            pair.close()
+        }
+    }
+
+    @Test
+    fun `recreated data plane uses stable source offset and a new recipient session`() = runBlocking {
         val warmupTopic = unique("warmup-restart")
         val sourceTopic = unique("source-restart")
         val donorGroup = unique("donor-restart-group")
@@ -250,7 +366,7 @@ class WarmupSharedPartitionIntegrationTest {
     }
 
     @Test
-    fun `one invalid destination metadata cold falls back the complete recipient context`() = runBlocking {
+    fun `real metadata validation prevents all preparation when one destination is incompatible`() = runBlocking {
         val validTopic = unique("warmup-valid")
         val invalidTopic = unique("warmup-invalid")
         createTopic(validTopic)
@@ -315,6 +431,275 @@ class WarmupSharedPartitionIntegrationTest {
             .also(openTopologies::add)
     }
 
+    private fun protocolPair(
+        sourceTopic: String = unique("protocol-source"),
+        warmupTopic: String = unique("protocol-warmup"),
+        controlTopic: String = unique("protocol-control"),
+        namespace: WarmupControlNamespace = WarmupControlNamespace(unique("global5-v6")),
+        donorGroup: String = unique("protocol-donor-group"),
+        warmupPartitions: Int = 1
+    ): ProtocolPair {
+        createTopicIfMissing(sourceTopic)
+        if (warmupTopic !in topicNames()) createTopic(warmupTopic, warmupPartitions)
+        createTopicIfMissing(controlTopic)
+        return ProtocolPair(sourceTopic, warmupTopic, controlTopic, namespace, donorGroup)
+            .also(openProtocolPairs::add)
+    }
+
+    private inner class ProtocolPair(
+        val sourceTopic: String,
+        val warmupTopic: String,
+        private val controlTopic: String,
+        private val namespace: WarmupControlNamespace,
+        private val donorGroup: String
+    ) {
+        val sessionId = WarmupSessionId.random()
+        private val donorId = WarmupInstanceId.random()
+        private val recipientId = WarmupInstanceId.random()
+        private val participant = WarmupParticipantId("participant-${UUID.randomUUID()}")
+        private val mapping = mapping(participant, sourceTopic, warmupTopic)
+        private val configurationFingerprint = "configuration-${UUID.randomUUID()}"
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val plane = MultiSessionWarmupDataPlane<String, String>(2, 2_000)
+        val donorMetrics = RecordingMetrics<String, String>()
+        private val donorObserver = WarmupMetricsObserver(donorMetrics)
+        val localHandled = CopyOnWriteArrayList<String>()
+        val recipientHandled = CopyOnWriteArrayList<String>()
+        private val recipientMetrics = RecordingMetrics<String, String>()
+        val donorMessages = CopyOnWriteArrayList<WarmupControlMessage>()
+        val recipientMessages = CopyOnWriteArrayList<WarmupControlMessage>()
+        private val donorRouter = WarmupControlRouter(donorId, namespace)
+        private val recipientRouter = WarmupControlRouter(recipientId, namespace)
+        private val donorTap = donorRouter.register { donorMessages += it.message }
+        private val recipientTap = recipientRouter.register { recipientMessages += it.message }
+        val donor = CoroutinesKafkaConsumerBuilder<String, String>()
+            .apply {
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+                workerConcurrency = 4
+                workChannelCapacity = 32
+                commitIntervalMs = 100
+                commitRecordsThreshold = 1
+                metrics = donorMetrics
+                topics(sourceTopic)
+                handle { localHandled += it.value() }
+            }
+            .buildWarmupDonor(consumerProperties(donorGroup), plane)
+        private lateinit var donorTransport: WarmupControlTransport
+        private lateinit var recipientTransport: WarmupControlTransport
+        val donorActivation: WarmupDonorActivation<String, String>
+        private val recipientActivation: WarmupDonorActivation<String, String>
+        private val donorRuntime: WarmupDiscoveryRuntime<String, String>
+        private val recipientRuntime: WarmupDiscoveryRuntime<String, String>
+        private val request: WarmupRequested
+        private lateinit var recipientDiscovery: WarmupRecipientDiscovery
+        val outbox: WarmupCompletionOutbox
+        private var started = false
+        private var completed = false
+        private var closed = false
+
+        init {
+            donorActivation = WarmupDonorActivation(
+                localInstanceId = donorId,
+                namespace = namespace,
+                supportedMappings = listOf(mapping),
+                dataPlane = plane,
+                eligibility = MainConsumerWarmupDonorEligibility(mapOf(participant to donor)),
+                preparation = WarmupDonorSessionPreparation { acceptance -> donorSession(acceptance) },
+                scope = scope,
+                onPreparationFailed = { donorTransport.send(it) },
+                onDonorClosed = { donorTransport.send(it) },
+                drainTimeout = 3.seconds
+            )
+            val recipientPlane = MultiSessionWarmupDataPlane<String, String>(1, 1)
+            recipientActivation = WarmupDonorActivation(
+                localInstanceId = recipientId,
+                namespace = namespace,
+                supportedMappings = emptyList(),
+                dataPlane = recipientPlane,
+                eligibility = WarmupDonorEligibility { null },
+                preparation = WarmupDonorSessionPreparation { error("Recipient is not a donor") },
+                scope = scope,
+                onPreparationFailed = { recipientTransport.send(it) },
+                onDonorClosed = { recipientTransport.send(it) }
+            )
+            donorTransport = controlTransport(donorId, namespace, controlTopic, donorRouter)
+            recipientTransport = controlTransport(recipientId, namespace, controlTopic, recipientRouter)
+            donorRuntime = WarmupDiscoveryRuntime(
+                donorId,
+                namespace,
+                donorRouter,
+                donorTransport,
+                StatelessWarmupDonorDiscovery(
+                    donorId,
+                    namespace,
+                    listOf(mapping),
+                    MainConsumerWarmupDonorEligibility(mapOf(participant to donor))
+                ),
+                donorActivation,
+                150.milliseconds,
+                5.seconds,
+                5.seconds
+            )
+            recipientRuntime = WarmupDiscoveryRuntime(
+                recipientId,
+                namespace,
+                recipientRouter,
+                recipientTransport,
+                StatelessWarmupDonorDiscovery(recipientId, namespace, emptyList()) { null },
+                recipientActivation,
+                150.milliseconds,
+                5.seconds,
+                5.seconds
+            )
+            val now = System.currentTimeMillis()
+            request = WarmupRequested(
+                namespace = namespace,
+                sessionId = sessionId,
+                senderInstanceId = recipientId,
+                mappings = listOf(mapping),
+                offerDeadlineEpochMillis = now + 5_000,
+                intervalBudget = 1_000,
+                initialQuota = 1_000,
+                configurationFingerprint = configurationFingerprint,
+                expiresAtEpochMillis = now + 30_000
+            )
+            outbox = WarmupCompletionOutbox(scope, 64) { completed ->
+                recipientTransport.send(
+                    ControlRecordCompleted(
+                        namespace,
+                        sessionId,
+                        recipientId,
+                        donorId,
+                        completed,
+                        configurationFingerprint,
+                        request.expiresAtEpochMillis
+                    )
+                )
+            }
+        }
+
+        suspend fun start() {
+            donor.start()
+            withTimeout(10_000) { donor.awaitReady() }
+            check(donorRuntime.startControl())
+            check(recipientRuntime.startControl())
+            started = true
+        }
+
+        suspend fun discover(): WarmupDiscoveryResult {
+            val preparation = KafkaWarmupRecipientConsumerPreparation(
+                mapOf(
+                    participant to warmupRecipientParticipantRuntime<String, String>(
+                        consumerProperties(unique("protocol-recipient-group")),
+                        completionPublisher = { outbox }
+                    ) {
+                        processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+                        workerConcurrency = 2
+                        workChannelCapacity = 16
+                        commitIntervalMs = 100
+                        commitRecordsThreshold = 1
+                        metrics = recipientMetrics
+                        handle { recipientHandled += it.value() }
+                    }
+                )
+            )
+            recipientDiscovery = WarmupRecipientDiscovery(
+                request,
+                KafkaWarmupDestinationMetadata(
+                    mapOf(participant to mapOf("bootstrap.servers" to kafka.bootstrapServers)),
+                    5.seconds
+                ),
+                preparation,
+                5.seconds
+            )
+            return recipientRuntime.discoverAndPrepare(recipientDiscovery)
+        }
+
+        suspend fun complete(): WarmupCompletionResult {
+            val result = recipientRuntime.completeWarmup(recipientDiscovery)
+            if (result is WarmupCompletionResult.Completed ||
+                result is WarmupCompletionResult.CompletedWithDiagnostics
+            ) {
+                completed = true
+            }
+            return result
+        }
+
+        fun produceSource(value: String) = produce(sourceTopic, value)
+
+        suspend fun awaitSourceOffset(offset: Long) {
+            awaitFor(timeoutMillis = 15_000) {
+                committedOffset(donorGroup, sourceTopic)?.takeIf { it.offset() == offset }
+            }
+        }
+
+        fun coldMainConsumer(handled: MutableList<String>): CoroutinesKafkaConsumer<String, String> =
+            CoroutinesKafkaConsumerBuilder<String, String>()
+                .apply {
+                    processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
+                    commitIntervalMs = 100
+                    commitRecordsThreshold = 1
+                    topics(sourceTopic)
+                    handle { handled += it.value() }
+                }
+                .build(consumerProperties(unique("cold-recipient-group")))
+
+        suspend fun close() {
+            if (closed) return
+            if (::recipientDiscovery.isInitialized && !completed) {
+                runCatching { recipientDiscovery.terminate() }
+            }
+            runCatching { outbox.stop() }
+            if (started) {
+                runCatching { recipientRuntime.stop() }
+                runCatching { donorRuntime.stop() }
+            }
+            recipientRuntime.close()
+            donorRuntime.close()
+            donorTap.close()
+            recipientTap.close()
+            donor.stop()
+            scope.cancel()
+            closed = true
+            openProtocolPairs.remove(this)
+        }
+
+        private fun donorSession(acceptance: SessionAccepted): WarmupDonorSession<String, String> {
+            val destinations = acceptance.mappings.associate {
+                it.mapping.sourceTopic to WarmupDestination(it.mapping.warmupTopic)
+            }
+            return WarmupDonorSession(
+                sessionId = acceptance.sessionId,
+                intervalBudget = acceptance.intervalBudget,
+                quotaInterval = 1.seconds,
+                initialQuota = acceptance.initialQuota,
+                delegationTimeout = 5.seconds,
+                destinationResolver = WarmupDestinationResolver { record -> destinations[record.topic()] },
+                sender = KafkaWarmupRecordSender(producerProperties()),
+                observer = donorObserver
+            )
+        }
+    }
+
+    private fun controlTransport(
+        instanceId: WarmupInstanceId,
+        namespace: WarmupControlNamespace,
+        topic: String,
+        router: WarmupControlRouter
+    ) = WarmupControlTransport(
+        WarmupControlTransportConfiguration(
+            instanceId,
+            namespace,
+            topic,
+            producerProperties = mapOf("bootstrap.servers" to kafka.bootstrapServers),
+            consumerProperties = mapOf("bootstrap.servers" to kafka.bootstrapServers),
+            pollTimeout = 20.milliseconds,
+            sendTimeout = 5.seconds,
+            metadataTimeout = 5.seconds
+        ),
+        router
+    )
+
     private inner class Topology(
         val sourceTopic: String,
         val warmupTopic: String,
@@ -324,6 +709,7 @@ class WarmupSharedPartitionIntegrationTest {
     ) {
         val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions, maxSessions * 1_000)
         val donorMetrics = RecordingMetrics<String, String>()
+        private val donorObserver = WarmupMetricsObserver(donorMetrics)
         val localHandled = CopyOnWriteArrayList<String>()
         private val participant = WarmupParticipantId("participant-${UUID.randomUUID()}")
         private val sessions = CopyOnWriteArrayList<Recipient>()
@@ -381,8 +767,21 @@ class WarmupSharedPartitionIntegrationTest {
                 sessionId,
                 WarmupDestinationStart(WarmupPartitionAssignment(mapping), startOffset)
             )
-            prepared.start()
-            withTimeout(10_000) { prepared.awaitReady() }
+            val recipient = Recipient(sessionId, prepared, handled, metrics)
+            sessions += recipient
+            try {
+                prepared.start()
+                withTimeout(10_000) { prepared.awaitReady() }
+            } catch (error: Throwable) {
+                try {
+                    prepared.stop()
+                    recipient.stopped = true
+                    sessions.remove(recipient)
+                } catch (stopError: Throwable) {
+                    error.addSuppressed(stopError)
+                }
+                throw error
+            }
             val session = WarmupDonorSession(
                 sessionId = sessionId,
                 intervalBudget = 1_000,
@@ -393,11 +792,24 @@ class WarmupSharedPartitionIntegrationTest {
                     WarmupDestination(warmupTopic).takeIf { record.topic() == sourceTopic }
                 },
                 sender = KafkaWarmupRecordSender(producerProperties()),
-                observer = WarmupMetricsObserver(donorMetrics)
+                observer = donorObserver
             )
-            assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(session))
-            assertTrue(plane.activate(sessionId))
-            return Recipient(sessionId, prepared, handled, metrics).also(sessions::add)
+            try {
+                assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(session))
+                assertTrue(plane.activate(sessionId))
+            } catch (error: Throwable) {
+                plane.stopDelegating(sessionId)
+                runCatching { plane.removeDrainedSession(sessionId) }
+                try {
+                    prepared.stop()
+                    recipient.stopped = true
+                    sessions.remove(recipient)
+                } catch (stopError: Throwable) {
+                    error.addSuppressed(stopError)
+                }
+                throw error
+            }
+            return recipient
         }
 
         fun produceSource(value: String) = produce(sourceTopic, value)
@@ -492,6 +904,11 @@ class WarmupSharedPartitionIntegrationTest {
             }
         }
     }
+
+    private fun topicNames(): Set<String> =
+        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
+            admin.listTopics().names().get()
+        }
 
     private fun createTopic(topic: String, partitions: Int = 1) {
         AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->

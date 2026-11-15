@@ -6075,13 +6075,20 @@ recipients and donors, mid-session joins, session filtering, late records, lifec
 capacity reuse, total namespace restart without quarantine, context-wide metadata fallback, and
 remote-success metric suppression. Assert handlers, source outcomes, offsets, lifecycle state,
 metrics, released capacity, and absence of terminal consumer failure where applicable.
-Nine real-Kafka acceptance tests cover all thirteen planned topologies and failure scenarios using
-the actual source poll loop, processing runtime, forwarding producer, shared one-partition topic,
-independently assigned session-filtered recipients, source commits, and runtime metrics. A narrow
-internal donor builder seam connects the multi-session interceptor to the normal consumer runtime.
+Thirteen real-Kafka acceptance tests provide layered coverage. Full-protocol cases use independent
+tail-started Kafka control transports, discovery runtimes, donor activation, recipient readiness,
+`ControlRecordCompleted`, `WarmupCompletionRequested`, and `DonorClosed`; they verify namespace
+restart without history replay and metadata fallback followed by an actual cold main consumer.
+Focused data-plane/runtime cases isolate concurrency, filtering, inflight loss, fair selection, and
+capacity reuse through the actual source poll loop, forwarding producer, shared one-partition topic,
+session-filtered recipients, and source commits. A narrow internal donor builder seam connects the
+multi-session interceptor to the normal consumer runtime.
 Recipient terminal result publication selectively adapts archived GLOBAL-4 commits `f013ae6b` and
 `45464da2`: the metrics adapter publishes only after actual success/failure/drop observation, while
 the bounded outbox preserves transport order and offers an acknowledged flush barrier. Foreign and
-handed-off records publish no result. All 257 core unit tests, 27 Micrometer tests, and 33 real-Kafka
-integration tests pass; the focused acceptance class also passes twice. No smoke, load, chaos, or
-experiment run was started.
+handed-off records publish no result. Review hardening closes the outbox on scope or sender
+cancellation, shares one pending aggregator across donor sessions, retains prepared consumers before
+startup, and proves that two pending sessions aggregate to two and drain to zero. The Micrometer
+adapter test records a local success first and verifies that the subsequent remote callback changes
+neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and 37 real-Kafka
+integration tests pass. No smoke, load, chaos, or experiment run was started.

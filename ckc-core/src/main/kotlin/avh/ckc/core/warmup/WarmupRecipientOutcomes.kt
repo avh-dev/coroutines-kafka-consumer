@@ -96,15 +96,20 @@ internal class WarmupCompletionOutbox(
         }
     }.also { job ->
         job.invokeOnCompletion { error ->
-            if (error != null && error !is CancellationException && failure.compareAndSet(null, error)) {
-                failureSignal.complete(error)
-                channel.close(error)
+            val terminalError = when (error) {
+                null -> null
+                is CancellationException -> WarmupCompletionOutboxCancelledException(error)
+                else -> error
             }
+            if (terminalError != null && failure.compareAndSet(null, terminalError)) {
+                failureSignal.complete(terminalError)
+            }
+            channel.close(terminalError)
         }
     }
 
     override fun publish(completed: WarmupRecordCompleted) {
-        failure.get()?.let { throw IllegalStateException("Warm-up completion outbox failed", it) }
+        failure.get()?.let { throw it }
         check(channel.trySend(Item.Result(completed)).isSuccess) {
             "Warm-up completion outbox is full or closed"
         }
@@ -112,6 +117,7 @@ internal class WarmupCompletionOutbox(
 
     suspend fun flush(timeout: Duration) {
         require(timeout.isPositive()) { "Warm-up completion flush timeout must be positive" }
+        failure.get()?.let { throw it }
         val completion = CompletableDeferred<Unit>()
         withTimeout(timeout) {
             channel.send(Item.Flush(completion))
@@ -133,3 +139,6 @@ internal class WarmupCompletionOutbox(
         job.cancel()
     }
 }
+
+internal class WarmupCompletionOutboxCancelledException(cause: CancellationException) :
+    IllegalStateException("Warm-up completion outbox worker was cancelled before drain", cause)
