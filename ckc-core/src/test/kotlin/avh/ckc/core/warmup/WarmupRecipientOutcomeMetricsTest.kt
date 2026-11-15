@@ -11,9 +11,11 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
@@ -85,20 +87,25 @@ class WarmupRecipientOutcomeMetricsTest {
             sendStarted.complete(Unit)
             awaitCancellation()
         }
-        outbox.publish(completed(offset = 1))
-        sendStarted.await()
+        try {
+            outbox.publish(completed(offset = 1))
+            sendStarted.await()
 
-        scope.cancel()
-        delay(50)
+            scope.cancel()
+            val stopFailure = withTimeout(2.seconds) {
+                runCatching { outbox.stop() }.exceptionOrNull()
+            }
+            assertInstanceOf(WarmupCompletionOutboxCancelledException::class.java, stopFailure)
 
-        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
-            outbox.publish(completed(offset = 2))
-        }
-        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
-            runBlocking { outbox.flush(2.seconds) }
-        }
-        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
-            runBlocking { outbox.stop() }
+            assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+                outbox.publish(completed(offset = 2))
+            }
+            assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+                runBlocking { outbox.flush(2.seconds) }
+            }
+        } finally {
+            outbox.close()
+            scope.cancel()
         }
         Unit
     }
@@ -109,16 +116,20 @@ class WarmupRecipientOutcomeMetricsTest {
         val outbox = WarmupCompletionOutbox(scope, capacity = 2) {
             throw kotlinx.coroutines.CancellationException("transport cancelled")
         }
-        outbox.publish(completed(offset = 1))
-        delay(50)
+        try {
+            outbox.publish(completed(offset = 1))
+            val stopFailure = withTimeout(2.seconds) {
+                runCatching { outbox.stop() }.exceptionOrNull()
+            }
+            assertInstanceOf(WarmupCompletionOutboxCancelledException::class.java, stopFailure)
 
-        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
-            outbox.publish(completed(offset = 2))
+            assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
+                outbox.publish(completed(offset = 2))
+            }
+        } finally {
+            outbox.close()
+            scope.cancel()
         }
-        assertThrows(WarmupCompletionOutboxCancelledException::class.java) {
-            runBlocking { outbox.stop() }
-        }
-        scope.cancel()
         Unit
     }
 

@@ -6088,7 +6088,10 @@ Recipient terminal result publication selectively adapts archived GLOBAL-4 commi
 the bounded outbox preserves transport order and offers an acknowledged flush barrier. Foreign and
 handed-off records publish no result. Review hardening closes the outbox on scope or sender
 cancellation, shares one pending aggregator across donor sessions, retains prepared consumers before
-startup, and proves that two pending sessions aggregate to two and drain to zero. The Micrometer
-adapter test records a local success first and verifies that the subsequent remote callback changes
-neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and 37 real-Kafka
-integration tests pass. No smoke, load, chaos, or experiment run was started.
+startup, and proves that two pending sessions aggregate to two and drain to zero. Protocol harness
+cleanup independently owns both control transports, validates recipient cleanup results, and reports
+all shutdown failures; discovery deadlines now start immediately before discovery. Cancellation
+regressions wait explicitly for outbox worker termination instead of relying on scheduler delays.
+The Micrometer adapter test records a local success first and verifies that the subsequent remote
+callback changes neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and
+37 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.

@@ -490,10 +490,11 @@ class WarmupSharedPartitionIntegrationTest {
         private val recipientActivation: WarmupDonorActivation<String, String>
         private val donorRuntime: WarmupDiscoveryRuntime<String, String>
         private val recipientRuntime: WarmupDiscoveryRuntime<String, String>
-        private val request: WarmupRequested
+        private lateinit var request: WarmupRequested
         private lateinit var recipientDiscovery: WarmupRecipientDiscovery
         val outbox: WarmupCompletionOutbox
-        private var started = false
+        private var donorControlStartAttempted = false
+        private var recipientControlStartAttempted = false
         private var completed = false
         private var closed = false
 
@@ -551,18 +552,6 @@ class WarmupSharedPartitionIntegrationTest {
                 5.seconds,
                 5.seconds
             )
-            val now = System.currentTimeMillis()
-            request = WarmupRequested(
-                namespace = namespace,
-                sessionId = sessionId,
-                senderInstanceId = recipientId,
-                mappings = listOf(mapping),
-                offerDeadlineEpochMillis = now + 5_000,
-                intervalBudget = 1_000,
-                initialQuota = 1_000,
-                configurationFingerprint = configurationFingerprint,
-                expiresAtEpochMillis = now + 30_000
-            )
             outbox = WarmupCompletionOutbox(scope, 64) { completed ->
                 recipientTransport.send(
                     ControlRecordCompleted(
@@ -581,12 +570,26 @@ class WarmupSharedPartitionIntegrationTest {
         suspend fun start() {
             donor.start()
             withTimeout(10_000) { donor.awaitReady() }
+            donorControlStartAttempted = true
             check(donorRuntime.startControl())
+            recipientControlStartAttempted = true
             check(recipientRuntime.startControl())
-            started = true
         }
 
         suspend fun discover(): WarmupDiscoveryResult {
+            check(!::recipientDiscovery.isInitialized) { "Protocol discovery already started" }
+            val now = System.currentTimeMillis()
+            request = WarmupRequested(
+                namespace = namespace,
+                sessionId = sessionId,
+                senderInstanceId = recipientId,
+                mappings = listOf(mapping),
+                offerDeadlineEpochMillis = now + 5_000,
+                intervalBudget = 1_000,
+                initialQuota = 1_000,
+                configurationFingerprint = configurationFingerprint,
+                expiresAtEpochMillis = now + 30_000
+            )
             val preparation = KafkaWarmupRecipientConsumerPreparation(
                 mapOf(
                     participant to warmupRecipientParticipantRuntime<String, String>(
@@ -646,22 +649,50 @@ class WarmupSharedPartitionIntegrationTest {
 
         suspend fun close() {
             if (closed) return
+            val cleanupErrors = mutableListOf<Throwable>()
+
+            suspend fun cleanup(operation: String, action: suspend () -> Unit) {
+                try {
+                    action()
+                } catch (error: Throwable) {
+                    cleanupErrors += IllegalStateException("ProtocolPair cleanup failed: $operation", error)
+                }
+            }
+
             if (::recipientDiscovery.isInitialized && !completed) {
-                runCatching { recipientDiscovery.terminate() }
+                cleanup("recipient discovery") {
+                    when (val result = recipientDiscovery.terminate()) {
+                        WarmupRecipientCleanupResult.Complete -> Unit
+                        is WarmupRecipientCleanupResult.CompleteWithDiagnostics -> error(
+                            "Recipient cleanup completed with diagnostics: ${result.diagnostics.joinToString()}"
+                        )
+                        is WarmupRecipientCleanupResult.Incomplete -> error(
+                            "Recipient cleanup is incomplete: ${result.pendingAssignments}; " +
+                                result.diagnostics.joinToString()
+                        )
+                    }
+                }
             }
-            runCatching { outbox.stop() }
-            if (started) {
-                runCatching { recipientRuntime.stop() }
-                runCatching { donorRuntime.stop() }
+            cleanup("completion outbox") { outbox.stop() }
+            if (recipientControlStartAttempted) {
+                cleanup("recipient control transport") { recipientRuntime.stop() }
             }
-            recipientRuntime.close()
-            donorRuntime.close()
-            donorTap.close()
-            recipientTap.close()
-            donor.stop()
+            if (donorControlStartAttempted) {
+                cleanup("donor control transport") { donorRuntime.stop() }
+            }
+            cleanup("recipient runtime registration") { recipientRuntime.close() }
+            cleanup("donor runtime registration") { donorRuntime.close() }
+            cleanup("donor message tap") { donorTap.close() }
+            cleanup("recipient message tap") { recipientTap.close() }
+            cleanup("main donor consumer") { donor.stop() }
             scope.cancel()
             closed = true
             openProtocolPairs.remove(this)
+            if (cleanupErrors.isNotEmpty()) {
+                throw IllegalStateException("ProtocolPair cleanup had ${cleanupErrors.size} failure(s)").apply {
+                    cleanupErrors.forEach(::addSuppressed)
+                }
+            }
         }
 
         private fun donorSession(acceptance: SessionAccepted): WarmupDonorSession<String, String> {
