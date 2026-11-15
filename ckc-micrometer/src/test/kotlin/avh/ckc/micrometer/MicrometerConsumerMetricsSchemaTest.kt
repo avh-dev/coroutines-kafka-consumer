@@ -32,23 +32,37 @@ import java.util.concurrent.TimeUnit
 class MicrometerConsumerMetricsSchemaTest {
 
     @Test
-    fun `remote donor success does not duplicate ordinary processing metrics`() {
+    fun `remote donor success leaves existing local processed and end to end counts unchanged`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         )
+        val record = testRecord<String, TestLifecycleEvent>(partition = 0)
 
         metrics.onRecordProcessed(
             "key",
             TestLifecycleEvent("ORDER_CREATED"),
-            testRecord(partition = 0),
+            record,
+            123,
+            TimeUnit.MILLISECONDS.toNanos(25),
+            processedRemotely = false
+        )
+        val processingBeforeRemote = registry.get("test.ckc.record.process.duration").timer().count()
+        val endToEndBeforeRemote = registry.get("test.ckc.record.end.to.end.duration").timer().count()
+
+        metrics.onRecordProcessed(
+            "key",
+            TestLifecycleEvent("ORDER_CREATED"),
+            record,
             123,
             TimeUnit.MILLISECONDS.toNanos(25),
             processedRemotely = true
         )
 
-        assertTrue(registry.find("test.ckc.record.process.duration").meters().isEmpty())
-        assertTrue(registry.find("test.ckc.record.end.to.end.duration").meters().isEmpty())
+        assertEquals(1L, processingBeforeRemote)
+        assertEquals(1L, endToEndBeforeRemote)
+        assertEquals(processingBeforeRemote, registry.get("test.ckc.record.process.duration").timer().count())
+        assertEquals(endToEndBeforeRemote, registry.get("test.ckc.record.end.to.end.duration").timer().count())
     }
 
     @Test

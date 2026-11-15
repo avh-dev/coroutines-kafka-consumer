@@ -14,6 +14,7 @@ internal fun interface WarmupRecipientParticipantRuntime {
 /** Creates a typed CKC runtime whose poll loop owns exactly warm-up partition 0 from [start]. */
 internal fun <K, V> warmupRecipientParticipantRuntime(
     consumerProperties: Map<String, Any?>,
+    completionPublisher: ((WarmupSessionId) -> WarmupCompletionPublisher)? = null,
     configure: CoroutinesKafkaConsumerBuilder<K, V>.() -> Unit
 ): WarmupRecipientParticipantRuntime = WarmupRecipientParticipantRuntime { sessionId, start ->
     val clientId = warmupRecipientClientId(sessionId, start)
@@ -28,7 +29,13 @@ internal fun <K, V> warmupRecipientParticipantRuntime(
     )
     CoroutinesKafkaConsumerBuilder<K, V>()
         .apply(configure)
-        .buildWarmupRecipient(effectiveProperties, sessionId, start.assignment.destination, start.offset)
+        .buildWarmupRecipient(
+            effectiveProperties,
+            sessionId,
+            start.assignment.destination,
+            start.offset,
+            completionPublisher?.invoke(sessionId)
+        )
 }
 
 internal fun warmupRecipientClientId(sessionId: WarmupSessionId, start: WarmupDestinationStart): String {

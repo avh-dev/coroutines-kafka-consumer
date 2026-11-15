@@ -297,6 +297,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
+        admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
         warmupRecipientSessionId: WarmupSessionId? = null,
         fixedAssignment: Map<TopicPartition, Long>? = null,
         handler: KafkaRecordHandler<K, V>
@@ -324,6 +325,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext = parentContext,
         topics = topics,
         topicsPattern = topicsPattern,
+        admittedRecordInterceptor = admittedRecordInterceptor,
         warmupRecipientSessionId = warmupRecipientSessionId,
         fixedAssignment = fixedAssignment,
         pollLoopFactory = defaultPollLoopFactory(),

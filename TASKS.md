@@ -81,6 +81,7 @@
 | [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
 | [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
 | [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
+| [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6062,3 +6063,35 @@ real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was 
 Review hardening serializes aggregate pending publication with its session-state update so a delayed
 callback cannot restore a stale gauge value. Recipient Kafka client identities now include the full
 destination coordinate, keeping concurrent mappings of one participant distinct in JMX and metrics.
+
+<a id="core-79"></a>
+### CORE-79 - Cover shared-partition warm-up with real Kafka and runtime
+
+_Date: 2026-11-15_
+
+Build a reusable real-Kafka acceptance harness around the v6 discovery, multi-session donor data
+plane, independently assigned recipient consumers, and actual processing runtime. Cover concurrent
+recipients and donors, mid-session joins, session filtering, late records, lifecycle drain and loss,
+capacity reuse, total namespace restart without quarantine, context-wide metadata fallback, and
+remote-success metric suppression. Assert handlers, source outcomes, offsets, lifecycle state,
+metrics, released capacity, and absence of terminal consumer failure where applicable.
+Thirteen real-Kafka acceptance tests provide layered coverage. Full-protocol cases use independent
+tail-started Kafka control transports, discovery runtimes, donor activation, recipient readiness,
+`ControlRecordCompleted`, `WarmupCompletionRequested`, and `DonorClosed`; they verify namespace
+restart without history replay and metadata fallback followed by an actual cold main consumer.
+Focused data-plane/runtime cases isolate concurrency, filtering, inflight loss, fair selection, and
+capacity reuse through the actual source poll loop, forwarding producer, shared one-partition topic,
+session-filtered recipients, and source commits. A narrow internal donor builder seam connects the
+multi-session interceptor to the normal consumer runtime.
+Recipient terminal result publication selectively adapts archived GLOBAL-4 commits `f013ae6b` and
+`45464da2`: the metrics adapter publishes only after actual success/failure/drop observation, while
+the bounded outbox preserves transport order and offers an acknowledged flush barrier. Foreign and
+handed-off records publish no result. Review hardening closes the outbox on scope or sender
+cancellation, shares one pending aggregator across donor sessions, retains prepared consumers before
+startup, and proves that two pending sessions aggregate to two and drain to zero. Protocol harness
+cleanup independently owns both control transports, validates recipient cleanup results, and reports
+all shutdown failures; discovery deadlines now start immediately before discovery. Cancellation
+regressions wait explicitly for outbox worker termination instead of relying on scheduler delays.
+The Micrometer adapter test records a local success first and verifies that the subsequent remote
+callback changes neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and
+37 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.

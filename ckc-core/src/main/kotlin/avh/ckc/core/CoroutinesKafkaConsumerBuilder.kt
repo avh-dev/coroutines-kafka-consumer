@@ -1,6 +1,11 @@
 package avh.ckc.core
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.warmup.WarmupCompletionPublisher
+import avh.ckc.core.warmup.WarmupRecipientOutcomeMetrics
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -157,6 +162,19 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
      * Builds a low-level [CoroutinesKafkaConsumer] from the accumulated builder state.
      */
     internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> {
+        return buildSubscribed(consumerProperties, localRecordInterceptor())
+    }
+
+    /** Builds a subscribed runtime whose admitted records may be delegated by a warm-up donor. */
+    internal fun buildWarmupDonor(
+        consumerProperties: Map<String, Any?>,
+        interceptor: AdmittedRecordInterceptor<K, V>
+    ): CoroutinesKafkaConsumer<K, V> = buildSubscribed(consumerProperties, interceptor)
+
+    private fun buildSubscribed(
+        consumerProperties: Map<String, Any?>,
+        interceptor: AdmittedRecordInterceptor<K, V>
+    ): CoroutinesKafkaConsumer<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
         require((topics == null) != (topicsPattern == null)) {
             "Exactly one of topics or topicsPattern must be specified"
@@ -185,6 +203,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             parentContext = parentContext,
             topics = topics,
             topicsPattern = topicsPattern,
+            admittedRecordInterceptor = interceptor,
             handler = configuredHandler
         )
     }
@@ -192,9 +211,10 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     /** Builds one session-filtered runtime with an explicit warm-up partition and captured start. */
     internal fun buildWarmupRecipient(
         consumerProperties: Map<String, Any?>,
-        sessionId: avh.ckc.core.warmup.WarmupSessionId,
+        sessionId: WarmupSessionId,
         topicPartition: TopicPartition,
-        startOffset: Long
+        startOffset: Long,
+        completionPublisher: WarmupCompletionPublisher? = null
     ): CoroutinesKafkaConsumer<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
         require(startOffset >= 0) { "Warm-up start offset must not be negative" }
@@ -215,7 +235,9 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             recoveryRetryBackoff = recoveryRetryBackoff,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
-            metrics = metrics,
+            metrics = completionPublisher?.let {
+                WarmupRecipientOutcomeMetrics(sessionId, it, metrics)
+            } ?: metrics,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,
