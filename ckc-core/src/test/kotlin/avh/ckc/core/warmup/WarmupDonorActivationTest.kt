@@ -208,6 +208,55 @@ class WarmupDonorActivationTest {
     }
 
     @Test
+    fun `concurrent preparation starts create one queued job and completion waits for its cancellation`() = runBlocking {
+        val scheduler = TestCoroutineScheduler()
+        val dispatcher = StandardTestDispatcher(scheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val preparationCalls = AtomicInteger()
+        val acknowledgements = AtomicInteger()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation {
+                preparationCalls.incrementAndGet()
+                session(it.sessionId)
+            },
+            scope = scope,
+            onPreparationFailed = {},
+            onDonorClosed = { acknowledgements.incrementAndGet() },
+            nowEpochMillis = { 1_000 }
+        )
+        val accepted = acceptance()
+        assertInstanceOf(DonorAccepted::class.java, activation.accept(accepted))
+        val callersReady = CountDownLatch(2)
+        val startCallers = CountDownLatch(1)
+        val starts = List(2) {
+            async(Dispatchers.Default) {
+                callersReady.countDown()
+                startCallers.await()
+                activation.startPreparation(accepted.sessionId)
+            }
+        }
+        callersReady.await()
+        startCallers.countDown()
+
+        assertEquals(listOf(false, true), starts.map { it.await() }.sortedBy { it })
+        assertEquals(0, preparationCalls.get())
+        assertTrue(activation.onCompletionRequested(completion(accepted)))
+        scheduler.runCurrent()
+
+        assertEquals(0, preparationCalls.get())
+        assertEquals(1, acknowledgements.get())
+        assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        assertEquals(0, plane.admittedSessionCount())
+        scope.cancel()
+    }
+
+    @Test
     fun `failed late resource close is retained and retried without early donor acknowledgement`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)

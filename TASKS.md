@@ -6032,3 +6032,5 @@ successful recipient completion return the stored result without repeating messa
 The final race fixes publish preparation completion even when cancellation wins before coroutine
 dispatch, and use one retained-resource cleanup path for late and detached installed sessions so a
 failed sender close remains retryable and cannot acknowledge completion early.
+Concurrent preparation starts now create and install their single lazy job atomically, preventing a
+losing launch from completing the winning preparation's shared terminal signal.

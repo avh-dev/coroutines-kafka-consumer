@@ -103,15 +103,18 @@ internal class WarmupDonorActivation<K, V>(
 
     /** Starts preparation only after the caller has durably published [DonorAccepted]. */
     fun startPreparation(sessionId: WarmupSessionId): Boolean {
-        val local = synchronized(lock) {
+        val pending = synchronized(lock) {
             val existing = sessions[sessionId] ?: return@synchronized null
             if (existing.state != State.PREPARING || existing.preparationStarted) return@synchronized null
-            existing
+            val job = scope.launch(start = CoroutineStart.LAZY) {
+                synchronized(lock) { existing.preparationBodyEntered = true }
+                prepare(existing)
+            }
+            existing.preparationStarted = true
+            existing.preparationJob = job
+            existing to job
         } ?: return false
-        val job = scope.launch(start = CoroutineStart.LAZY) {
-            synchronized(lock) { local.preparationBodyEntered = true }
-            prepare(local)
-        }
+        val (local, job) = pending
         job.invokeOnCompletion {
             synchronized(lock) {
                 // Cancellation before dispatch never enters prepare(), so no body can publish the
@@ -121,14 +124,8 @@ internal class WarmupDonorActivation<K, V>(
                 }
             }
         }
-        val installed = synchronized(lock) {
-            if (local.state != State.PREPARING || local.preparationStarted) return@synchronized false
-            local.preparationStarted = true
-            local.preparationJob = job
-            true
-        }
-        if (installed) job.start() else job.cancel()
-        return installed
+        job.start()
+        return true
     }
 
     /** Unknown, foreign, expired, or mismatched readiness cannot create or mutate local state. */
