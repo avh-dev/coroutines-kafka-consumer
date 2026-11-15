@@ -313,7 +313,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         sessionId: WarmupSessionId,
         topicPartition: TopicPartition,
         startOffset: Long,
-        completionPublisher: WarmupCompletionPublisher? = null
+        completionPublisher: WarmupCompletionPublisher? = null,
+        runtimeMetrics: ConsumerMetrics<K, V> = metrics
     ): CoroutinesKafkaConsumer<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
         require(startOffset >= 0) { "Warm-up start offset must not be negative" }
@@ -335,8 +336,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
             metrics = completionPublisher?.let {
-                WarmupRecipientOutcomeMetrics(sessionId, it, metrics)
-            } ?: metrics,
+                WarmupRecipientOutcomeMetrics(sessionId, it, runtimeMetrics)
+            } ?: runtimeMetrics,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,

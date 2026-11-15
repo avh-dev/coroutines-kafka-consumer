@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 internal class BoundMicrometerConsumerMetrics<K, V>(
     private val schema: MicrometerConsumerMetricsSchema,
-    consumerId: String,
+    private val consumerId: String,
     private val recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>
 ) : ConsumerMetrics<K, V> {
     private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
@@ -47,6 +47,15 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     ) { it.get().toDouble() }
         .tags(consumerTags)
         .register(schema.meterRegistry)
+
+    override fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> {
+        require(bindingId.isNotBlank()) { "Metrics runtime binding id must not be blank" }
+        return BoundMicrometerConsumerMetrics(
+            schema,
+            "$consumerId.$bindingId",
+            recordDrivenTagExtractors
+        )
+    }
 
     override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) {
         if (!schema.kafkaClientMetricsEnabled) {

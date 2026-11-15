@@ -1,6 +1,8 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.ConsumerPartitionStats
+import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.RecordDropReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -9,6 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import java.util.concurrent.atomic.AtomicReference
@@ -17,6 +20,33 @@ import kotlin.time.Duration
 internal fun interface WarmupCompletionPublisher {
     /** Enqueues a terminal recipient result without blocking the processing worker. */
     fun publish(completed: WarmupRecordCompleted)
+}
+
+/** Keeps user processing callbacks while isolating runtime-owned gauge and Kafka-client bindings. */
+internal fun <K, V> warmupRecipientRuntimeMetrics(
+    callbacks: ConsumerMetrics<K, V>,
+    bindingId: String
+): ConsumerMetrics<K, V> {
+    val binding = callbacks.runtimeBinding(bindingId)
+    if (binding === callbacks) return callbacks
+    return object : ConsumerMetrics<K, V> by callbacks {
+        override fun bindKafkaClientMetrics(pollLoopId: Int, consumer: Consumer<K, V>) =
+            binding.bindKafkaClientMetrics(pollLoopId, consumer)
+
+        override fun unbindKafkaClientMetrics(pollLoopId: Int) =
+            binding.unbindKafkaClientMetrics(pollLoopId)
+
+        override fun bindRuntimeMetrics(stats: ConsumerRuntimeStats) =
+            binding.bindRuntimeMetrics(stats)
+
+        override fun unbindRuntimeMetrics() = binding.unbindRuntimeMetrics()
+
+        override fun bindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) =
+            binding.bindPartitionMetrics(pollLoopId, stats)
+
+        override fun unbindPartitionMetrics(pollLoopId: Int, stats: ConsumerPartitionStats) =
+            binding.unbindPartitionMetrics(pollLoopId, stats)
+    }
 }
 
 /** Publishes recipient results only after the ordinary runtime records a terminal outcome. */

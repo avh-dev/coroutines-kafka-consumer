@@ -1,6 +1,7 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.ManagedConsumerLifecycle
+import avh.ckc.core.isFatalJvmError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
@@ -32,12 +33,18 @@ import kotlin.time.Duration
 class TrafficWarmupContext internal constructor(
     private val configuration: TrafficWarmupContextConfiguration
 ) {
+    /**
+     * All mutable fields are protected by the context lock. Runtime ownership begins when
+     * startMainRuntime returns, before readiness, so stop can never lose an in-progress startup.
+     */
     private class ParticipantState(val participant: RegisteredTrafficWarmupParticipant) {
         val ready = CompletableDeferred<Unit>()
         var startRequested = false
         var stopRequested = false
-        var mainStarting = false
-        var mainStarted = false
+        var mainLaunchClaimed = false
+        var mainRuntimeOwned = false
+        var mainReady = false
+        var mainLaunchFinished: CompletableDeferred<Unit>? = null
         var terminationMonitorStarted = false
         var stopAttempt: CompletableDeferred<Unit>? = null
     }
@@ -59,6 +66,7 @@ class TrafficWarmupContext internal constructor(
     private var startupJob: Job? = null
     private var activeRecipient: WarmupRecipientDiscovery? = null
     private var activeOutbox: WarmupCompletionOutbox? = null
+    private var activeRecipientCleanup: RetriableWarmupRecipientCleanup? = null
 
     private lateinit var transport: WarmupControlTransport
     private lateinit var router: WarmupControlRouter
@@ -98,7 +106,7 @@ class TrafficWarmupContext internal constructor(
             override suspend fun stop() = requestStop(state)
             override suspend fun awaitTermination() {
                 state.ready.await()
-                if (synchronized(lock) { state.mainStarted }) participant.awaitMainTermination()
+                if (synchronized(lock) { state.mainRuntimeOwned }) participant.awaitMainTermination()
             }
         }
     }
@@ -107,14 +115,26 @@ class TrafficWarmupContext internal constructor(
         var workflowToStart: Job? = null
         var launchCold = false
         var terminalFailure: Throwable? = null
+        var initializationFailure: Throwable? = null
         synchronized(lock) {
             check(!state.startRequested) { "Consumer already started" }
             check(!state.stopRequested) { "Stopped consumer cannot be started" }
             state.startRequested = true
             if (!registrationFrozen) {
                 registrationFrozen = true
-                initializeProtocolLocked()
-                workflowToStart = scope.launch(start = CoroutineStart.LAZY) { runInitialRecipientAttempt() }
+                initializationFailure = try {
+                    initializeProtocolLocked()
+                    null
+                } catch (error: Throwable) {
+                    if (error.isFatalJvmError()) throw error
+                    log.warn("Traffic warm-up protocol initialization failed; using cold start", error)
+                    error
+                }
+                workflowToStart = scope.launch(start = CoroutineStart.LAZY) {
+                    val failure = initializationFailure
+                    if (failure == null) runInitialRecipientAttempt()
+                    else runProtocolInitializationFallback()
+                }
                 startupJob = workflowToStart
             } else if (recipientFinished) {
                 terminalFailure = recipientCleanupFailure
@@ -132,13 +152,13 @@ class TrafficWarmupContext internal constructor(
         val attempt: CompletableDeferred<Unit>
         val ownsAttempt: Boolean
         val workflow: Job?
-        val stopMain: Boolean
+        val launchFinished: CompletableDeferred<Unit>?
         synchronized(lock) {
             state.stopAttempt?.let {
                 attempt = it
                 ownsAttempt = false
                 workflow = null
-                stopMain = false
+                launchFinished = null
                 return@synchronized
             }
             attempt = CompletableDeferred()
@@ -146,8 +166,8 @@ class TrafficWarmupContext internal constructor(
             ownsAttempt = true
             state.stopRequested = true
             workflow = startupJob?.takeIf { !recipientFinished && !it.isCompleted }
-            stopMain = state.mainStarted
-            if (!state.ready.isCompleted && !stopMain) {
+            launchFinished = state.mainLaunchFinished
+            if (!state.ready.isCompleted) {
                 state.ready.completeExceptionally(CancellationException("Consumer stopped before main readiness"))
             }
         }
@@ -158,13 +178,17 @@ class TrafficWarmupContext internal constructor(
         try {
             workflow?.cancel(CancellationException("Warm-up participant stopped"))
             workflow?.join()
+            launchFinished?.await()
             if (::donorActivation.isInitialized) {
                 donorActivation.onParticipantUnavailable(state.participant.participantId)
             }
             retryIncompleteRecipientCleanup()
-            if (stopMain || synchronized(lock) { state.mainStarted }) {
+            if (synchronized(lock) { state.mainRuntimeOwned }) {
                 state.participant.stopMain()
-                synchronized(lock) { state.mainStarted = false }
+                synchronized(lock) {
+                    state.mainRuntimeOwned = false
+                    state.mainReady = false
+                }
             }
             observe(TrafficWarmupLifecyclePhase.PARTICIPANT_STOPPED, state.participant.participantId)
             closeSharedResourcesIfAllStopped()
@@ -185,8 +209,8 @@ class TrafficWarmupContext internal constructor(
         require(mappings.map { it.warmupTopic }.distinct().size == mappings.size) {
             "Warm-up destination topics must be unique within the context namespace"
         }
-        router = WarmupControlRouter(instanceId, namespace)
-        transport = WarmupControlTransport(
+        val newRouter = WarmupControlRouter(instanceId, namespace)
+        val newTransport = WarmupControlTransport(
             WarmupControlTransportConfiguration(
                 instanceId = instanceId,
                 namespace = namespace,
@@ -196,39 +220,60 @@ class TrafficWarmupContext internal constructor(
                 sendTimeout = configuration.preparationTimeout,
                 metadataTimeout = configuration.preparationTimeout
             ),
-            router,
+            newRouter,
             parentContext = scope.coroutineContext
         )
-        donorStore = LogicalWarmupDonorSessionStore(
+        val newDonorStore = LogicalWarmupDonorSessionStore(
             configuration.maxDonorSessions,
             configuration.maxAggregateQuotaPerSecond
         )
         val eligibility = MainConsumerWarmupDonorEligibility(
             registered.associate { it.participantId to it.mainConsumer }
         )
-        donorActivation = WarmupDonorActivation(
+        val newDonorActivation = WarmupDonorActivation(
             localInstanceId = instanceId,
             namespace = namespace,
             supportedMappings = mappings,
-            dataPlane = donorStore,
+            dataPlane = newDonorStore,
             eligibility = eligibility,
             preparation = WarmupDonorSessionPreparation(::prepareLogicalDonorSession),
             scope = scope,
-            onPreparationFailed = { transport.send(it) },
-            onDonorClosed = { transport.send(it) },
+            onPreparationFailed = { newTransport.send(it) },
+            onDonorClosed = { newTransport.send(it) },
             drainTimeout = configuration.completionTimeout
         )
-        runtime = WarmupDiscoveryRuntime(
+        val newRuntime = WarmupDiscoveryRuntime(
             instanceId,
             namespace,
-            router,
-            transport,
+            newRouter,
+            newTransport,
             StatelessWarmupDonorDiscovery(instanceId, namespace, mappings, eligibility),
-            donorActivation,
+            newDonorActivation,
             configuration.offerWindow,
             configuration.preparationTimeout,
             configuration.completionTimeout
         )
+        router = newRouter
+        transport = newTransport
+        donorStore = newDonorStore
+        donorActivation = newDonorActivation
+        runtime = newRuntime
+    }
+
+    private suspend fun runProtocolInitializationFallback() {
+        try {
+            val allStarted = withTimeoutOrNull(configuration.participantStartTimeout) {
+                while (!allParticipantsStarted()) startSignal.receive()
+                true
+            } == true
+            completeRecipientPhaseAndStartMains(
+                if (allStarted) "protocol_initialization_failed" else "participant_start_timeout"
+            )
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                completeRecipientPhaseAndStartMains("participant_stopped")
+            }
+        }
     }
 
     private suspend fun prepareLogicalDonorSession(acceptance: SessionAccepted): LogicalWarmupDonorSession {
@@ -259,7 +304,7 @@ class TrafficWarmupContext internal constructor(
             controlReady = runtime.startControl()
             if (!controlReady) {
                 observe(TrafficWarmupLifecyclePhase.CONTROL_UNAVAILABLE, reasonCode = "control_unavailable")
-                finishRecipientAndStartCold("control_unavailable")
+                completeRecipientPhaseAndStartMains("control_unavailable")
                 return
             }
             val allStarted = withTimeoutOrNull(configuration.participantStartTimeout) {
@@ -267,7 +312,7 @@ class TrafficWarmupContext internal constructor(
                 true
             } == true
             if (!allStarted) {
-                finishRecipientAndStartCold("participant_start_timeout")
+                completeRecipientPhaseAndStartMains("participant_start_timeout")
                 return
             }
             runDiscoveryAndWarmup()
@@ -331,6 +376,10 @@ class TrafficWarmupContext internal constructor(
         synchronized(lock) {
             activeRecipient = discovery
             activeOutbox = outbox
+            activeRecipientCleanup = RetriableWarmupRecipientCleanup(
+                terminate = discovery::terminate,
+                afterComplete = outbox::stop
+            )
         }
         observe(TrafficWarmupLifecyclePhase.DISCOVERING, sessionId = sessionId.value)
         when (val result = runtime.discoverAndPrepare(discovery)) {
@@ -353,18 +402,18 @@ class TrafficWarmupContext internal constructor(
                             is WarmupCompletionResult.ColdFallbackWithDiagnostics -> completion.reasonCode
                             else -> null
                         }
-                        finishRecipientAndStartCold(reasonCode)
+                        completeRecipientPhaseAndStartMains(reasonCode)
                     }
                     is WarmupCompletionResult.CleanupIncomplete -> failRecipientCleanup(completion.reasonCode)
                 }
             }
             is WarmupDiscoveryResult.ColdFallback -> {
                 outbox.stop()
-                finishRecipientAndStartCold(result.reasonCode)
+                completeRecipientPhaseAndStartMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.ColdFallbackWithDiagnostics -> {
                 outbox.stop()
-                finishRecipientAndStartCold(result.reasonCode)
+                completeRecipientPhaseAndStartMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.CleanupIncomplete -> failRecipientCleanup(result.reasonCode)
         }
@@ -382,16 +431,17 @@ class TrafficWarmupContext internal constructor(
         if (rollback is WarmupDiscoveryResult.CleanupIncomplete) {
             failRecipientCleanup(rollback.reasonCode)
         } else {
-            finishRecipientAndStartCold(reasonCode)
+            completeRecipientPhaseAndStartMains(reasonCode)
         }
     }
 
-    private suspend fun finishRecipientAndStartCold(reasonCode: String?) {
+    private suspend fun completeRecipientPhaseAndStartMains(reasonCode: String?) {
         synchronized(lock) {
             recipientFinished = true
             recipientCleanupFailure = null
             activeRecipient = null
             activeOutbox = null
+            activeRecipientCleanup = null
         }
         if (reasonCode != null) {
             observe(TrafficWarmupLifecyclePhase.COLD_FALLBACK, reasonCode = reasonCode)
@@ -413,46 +463,52 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun retryIncompleteRecipientCleanup() {
-        val recipient = synchronized(lock) { activeRecipient } ?: return
-        when (recipient.terminate()) {
-            WarmupRecipientCleanupResult.Complete,
-            is WarmupRecipientCleanupResult.CompleteWithDiagnostics -> {
-                activeOutbox?.stop()
-                synchronized(lock) {
-                    if (activeRecipient === recipient) activeRecipient = null
-                    activeOutbox = null
-                }
+        val cleanup = synchronized(lock) { activeRecipientCleanup } ?: return
+        cleanup.run()
+        synchronized(lock) {
+            if (activeRecipientCleanup === cleanup) {
+                activeRecipient = null
+                activeOutbox = null
+                activeRecipientCleanup = null
             }
-            is WarmupRecipientCleanupResult.Incomplete -> Unit
         }
     }
 
     private suspend fun startMain(state: ParticipantState) {
-        val shouldStart = synchronized(lock) {
-            if (state.stopRequested || state.mainStarted || state.mainStarting) false
+        val launchFinished = synchronized(lock) {
+            if (state.stopRequested || state.mainLaunchClaimed) null
             else {
-                state.mainStarting = true
-                true
+                state.mainLaunchClaimed = true
+                CompletableDeferred<Unit>().also { state.mainLaunchFinished = it }
             }
-        }
-        if (!shouldStart) return
+        } ?: return
         try {
-            state.participant.startMain()
-            val stopped = synchronized(lock) {
-                state.mainStarting = false
-                state.mainStarted = true
-                state.stopRequested
+            state.participant.startMainRuntime()
+            synchronized(lock) { state.mainRuntimeOwned = true }
+            launchFinished.complete(Unit)
+            state.participant.awaitMainReady()
+            val publishReady = synchronized(lock) {
+                if (state.stopRequested) false
+                else {
+                    state.mainReady = true
+                    state.ready.complete(Unit)
+                }
             }
-            if (stopped) {
-                state.participant.stopMain()
-                synchronized(lock) { state.mainStarted = false }
-            } else {
-                state.ready.complete(Unit)
+            if (publishReady) {
                 observe(TrafficWarmupLifecyclePhase.MAIN_READY, state.participant.participantId)
                 monitorMainTermination(state)
             }
         } catch (error: Throwable) {
-            synchronized(lock) { state.mainStarting = false }
+            launchFinished.complete(Unit)
+            val stopped = synchronized(lock) { state.stopRequested }
+            if (!stopped && synchronized(lock) { state.mainRuntimeOwned }) {
+                try {
+                    state.participant.stopMain()
+                    synchronized(lock) { state.mainRuntimeOwned = false }
+                } catch (stopError: Throwable) {
+                    error.addSuppressed(stopError)
+                }
+            }
             state.ready.completeExceptionally(error)
         }
     }
@@ -499,7 +555,7 @@ class TrafficWarmupContext internal constructor(
             }
         }
         if (!close) return
-        val donorsDrained = withTimeoutOrNull(configuration.completionTimeout) {
+        val donorsDrained = !::donorStore.isInitialized || withTimeoutOrNull(configuration.completionTimeout) {
             while (donorStore.admittedSessionCount() != 0) delay(10)
             true
         } == true
@@ -508,8 +564,10 @@ class TrafficWarmupContext internal constructor(
             error("Warm-up donor sessions did not drain before context shutdown")
         }
         try {
-            runtime.stop()
-            runtime.close()
+            if (::runtime.isInitialized) {
+                runtime.stop()
+                runtime.close()
+            }
             scope.cancel()
         } catch (error: Throwable) {
             synchronized(lock) { sharedClosed = false }

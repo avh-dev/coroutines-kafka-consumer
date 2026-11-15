@@ -24,7 +24,8 @@ internal interface RegisteredTrafficWarmupParticipant {
         start: WarmupDestinationStart,
         completionPublisher: WarmupCompletionPublisher
     ): PreparedWarmupRecipientConsumer
-    suspend fun startMain()
+    fun startMainRuntime()
+    suspend fun awaitMainReady()
     suspend fun stopMain()
     suspend fun awaitMainTermination()
 }
@@ -38,7 +39,7 @@ internal class TrafficWarmupParticipant<K, V>(
     private val recipientBuilder: CoroutinesKafkaConsumerBuilder<K, V>,
     override val mainConsumer: CoroutinesKafkaConsumer<K, V>,
     private val dataPlane: WarmupParticipantDataPlane<K, V>,
-    metrics: ConsumerMetrics<K, V>,
+    private val metrics: ConsumerMetrics<K, V>,
     private val delegationTimeoutMillis: Long,
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
 ) : RegisteredTrafficWarmupParticipant {
@@ -101,8 +102,8 @@ internal class TrafficWarmupParticipant<K, V>(
         }
         val clientId = warmupRecipientClientId(sessionId, start)
         val effectiveProperties = buildWarmupRecipientConsumerProperties(
-            mainProperties,
-            warmupConsumerProperties + mapOf(
+            warmupRecipientUserProperties(mainProperties, warmupConsumerProperties),
+            mapOf(
                 ConsumerConfig.GROUP_ID_CONFIG to clientId,
                 ConsumerConfig.CLIENT_ID_CONFIG to clientId,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
@@ -114,7 +115,11 @@ internal class TrafficWarmupParticipant<K, V>(
             sessionId,
             start.assignment.destination,
             start.offset,
-            completionPublisher
+            completionPublisher,
+            warmupRecipientRuntimeMetrics(
+                metrics,
+                "warmup-${start.assignment.mapping.mappingFingerprint}"
+            )
         )
         return object : PreparedWarmupRecipientConsumer {
             override val assignment = start.assignment
@@ -135,10 +140,8 @@ internal class TrafficWarmupParticipant<K, V>(
         }
     }
 
-    override suspend fun startMain() {
-        mainConsumer.startRuntime()
-        mainConsumer.awaitRuntimeReady()
-    }
+    override fun startMainRuntime() = mainConsumer.startRuntime()
+    override suspend fun awaitMainReady() = mainConsumer.awaitRuntimeReady()
 
     override suspend fun stopMain() = mainConsumer.stopRuntime()
     override suspend fun awaitMainTermination() = mainConsumer.awaitRuntimeTermination()
@@ -153,6 +156,15 @@ internal class TrafficWarmupParticipant<K, V>(
         destinationOffset = destinationOffset
     )
 }
+
+internal fun warmupRecipientUserProperties(
+    mainProperties: Map<String, Any?>,
+    warmupProperties: Map<String, Any?>
+): Map<String, Any?> =
+    listOf(
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
+    ).mapNotNull { key -> mainProperties[key]?.let { key to it } }.toMap() + warmupProperties
 
 internal fun validateWarmupParticipantConnections(
     consumerProperties: Map<String, Any?>,

@@ -3,6 +3,7 @@ package avh.ckc.core.warmup
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.joinAll
@@ -233,6 +234,40 @@ class TrafficWarmupContextIntegrationTest {
         }
     }
 
+    @Test
+    fun `one public participant creates independent metric bindings for two mappings`() = runBlocking {
+        val firstSource = unique("binding-source-one")
+        val secondSource = unique("binding-source-two")
+        val firstWarmup = unique("binding-warmup-one")
+        val secondWarmup = unique("binding-warmup-two")
+        val control = unique("binding-control")
+        createTopics(firstSource, secondSource, firstWarmup, secondWarmup, control)
+        val namespace = unique("binding-namespace")
+        val group = unique("binding-group")
+        val donor = multiTopicStringConsumer(
+            context(namespace, control), group,
+            firstSource, firstWarmup, secondSource, secondWarmup
+        )
+        val recipientMetrics = RuntimeBindingMetrics()
+        val recipient = multiTopicStringConsumer(
+            context(namespace, control), group,
+            firstSource, firstWarmup, secondSource, secondWarmup,
+            recipientMetrics
+        )
+        try {
+            donor.start()
+            withTimeout(10.seconds) { donor.awaitReady() }
+            recipient.start()
+            withTimeout(15.seconds) { recipient.awaitReady() }
+
+            assertEquals(2, recipientMetrics.bindingIds.size)
+            assertTrue(recipientMetrics.bindingIds.all { it.startsWith("warmup-") })
+        } finally {
+            recipient.stop()
+            donor.stop()
+        }
+    }
+
     private suspend fun stopApplications(vararg applications: TypedApplication) {
         val failures = applications.mapNotNull { application ->
             runCatching { application.stopAll() }.exceptionOrNull()
@@ -323,6 +358,39 @@ class TrafficWarmupContextIntegrationTest {
             mapTopic(sourceTopic, warmupTopic)
             warmupConsumerProperties = warmupConsumerConnection()
             forwardingProducerProperties = forwardingConnection(StringSerializer::class.java)
+        }
+    }
+
+    private fun multiTopicStringConsumer(
+        context: TrafficWarmupContext,
+        groupId: String,
+        firstSource: String,
+        firstWarmup: String,
+        secondSource: String,
+        secondWarmup: String,
+        consumerMetrics: ConsumerMetrics<String, String> = object : ConsumerMetrics<String, String> {}
+    ): CoroutinesKafkaConsumer<String, String> = coroutinesKafkaConsumer(
+        consumerProperties(groupId, StringDeserializer::class.java)
+    ) {
+        topics(firstSource, secondSource)
+        metrics = consumerMetrics
+        commitIntervalMs = 50
+        commitRecordsThreshold = 1
+        handle { }
+        trafficWarmup(context, "two-mappings") {
+            mapTopic(firstSource, firstWarmup)
+            mapTopic(secondSource, secondWarmup)
+            warmupConsumerProperties = warmupConsumerConnection()
+            forwardingProducerProperties = forwardingConnection(StringSerializer::class.java)
+        }
+    }
+
+    private class RuntimeBindingMetrics : ConsumerMetrics<String, String> {
+        val bindingIds = CopyOnWriteArrayList<String>()
+
+        override fun runtimeBinding(bindingId: String): ConsumerMetrics<String, String> {
+            bindingIds += bindingId
+            return object : ConsumerMetrics<String, String> {}
         }
     }
 
