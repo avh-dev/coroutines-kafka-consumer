@@ -10,13 +10,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.common.TopicPartition
@@ -266,12 +263,12 @@ class TrafficWarmupContext internal constructor(
                 while (!allParticipantsStarted()) startSignal.receive()
                 true
             } == true
-            completeRecipientPhaseAndStartMains(
+            completeRecipientPhaseAndLaunchMains(
                 if (allStarted) "protocol_initialization_failed" else "participant_start_timeout"
             )
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
-                completeRecipientPhaseAndStartMains("participant_stopped")
+                completeRecipientPhaseAndLaunchMains("participant_stopped")
             }
         }
     }
@@ -304,7 +301,7 @@ class TrafficWarmupContext internal constructor(
             controlReady = runtime.startControl()
             if (!controlReady) {
                 observe(TrafficWarmupLifecyclePhase.CONTROL_UNAVAILABLE, reasonCode = "control_unavailable")
-                completeRecipientPhaseAndStartMains("control_unavailable")
+                completeRecipientPhaseAndLaunchMains("control_unavailable")
                 return
             }
             val allStarted = withTimeoutOrNull(configuration.participantStartTimeout) {
@@ -312,7 +309,7 @@ class TrafficWarmupContext internal constructor(
                 true
             } == true
             if (!allStarted) {
-                completeRecipientPhaseAndStartMains("participant_start_timeout")
+                completeRecipientPhaseAndLaunchMains("participant_start_timeout")
                 return
             }
             runDiscoveryAndWarmup()
@@ -402,18 +399,18 @@ class TrafficWarmupContext internal constructor(
                             is WarmupCompletionResult.ColdFallbackWithDiagnostics -> completion.reasonCode
                             else -> null
                         }
-                        completeRecipientPhaseAndStartMains(reasonCode)
+                        completeRecipientPhaseAndLaunchMains(reasonCode)
                     }
                     is WarmupCompletionResult.CleanupIncomplete -> failRecipientCleanup(completion.reasonCode)
                 }
             }
             is WarmupDiscoveryResult.ColdFallback -> {
                 outbox.stop()
-                completeRecipientPhaseAndStartMains(result.reasonCode)
+                completeRecipientPhaseAndLaunchMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.ColdFallbackWithDiagnostics -> {
                 outbox.stop()
-                completeRecipientPhaseAndStartMains(result.reasonCode)
+                completeRecipientPhaseAndLaunchMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.CleanupIncomplete -> failRecipientCleanup(result.reasonCode)
         }
@@ -431,11 +428,15 @@ class TrafficWarmupContext internal constructor(
         if (rollback is WarmupDiscoveryResult.CleanupIncomplete) {
             failRecipientCleanup(rollback.reasonCode)
         } else {
-            completeRecipientPhaseAndStartMains(reasonCode)
+            completeRecipientPhaseAndLaunchMains(reasonCode)
         }
     }
 
-    private suspend fun completeRecipientPhaseAndStartMains(reasonCode: String?) {
+    /**
+     * Publishes the recipient terminal state after cleanup and only schedules main runtimes.
+     * Their Kafka readiness is participant-local and must never extend another participant's stop.
+     */
+    private fun completeRecipientPhaseAndLaunchMains(reasonCode: String?) {
         synchronized(lock) {
             recipientFinished = true
             recipientCleanupFailure = null
@@ -449,7 +450,7 @@ class TrafficWarmupContext internal constructor(
         val requested = synchronized(lock) {
             participants.values.filter { it.startRequested && !it.stopRequested }
         }
-        supervisorScope { requested.map { async { startMain(it) } }.awaitAll() }
+        requested.forEach { state -> scope.launch { startMain(state) } }
     }
 
     private fun failRecipientCleanup(reasonCode: String) {

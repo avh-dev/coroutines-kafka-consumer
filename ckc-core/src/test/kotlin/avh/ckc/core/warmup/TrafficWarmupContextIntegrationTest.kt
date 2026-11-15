@@ -6,6 +6,7 @@ import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,7 @@ import org.apache.kafka.common.serialization.LongSerializer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
@@ -132,6 +134,88 @@ class TrafficWarmupContextIntegrationTest {
             assertTrue(runCatching { recipient.order.awaitReady() }.exceptionOrNull() is CancellationException)
         } finally {
             stopApplications(recipient, donor)
+        }
+    }
+
+    @Test
+    fun `participant stop does not await a cold started neighbor main readiness`() = runBlocking {
+        val firstSource = unique("independent-stop-source-one")
+        val secondSource = unique("independent-stop-source-two")
+        val firstWarmup = unique("independent-stop-warmup-one")
+        val secondWarmup = unique("independent-stop-warmup-two")
+        val control = unique("independent-stop-control")
+        createTopics(firstSource, secondSource, firstWarmup, secondWarmup, control)
+        val namespace = unique("independent-stop")
+        val donorContext = context(namespace, control)
+        val donorFirst = stringConsumer(
+            donorContext, "first", firstSource, firstWarmup, unique("donor-first"), CopyOnWriteArrayList()
+        )
+        val donorSecond = stringConsumer(
+            donorContext, "second", secondSource, secondWarmup, unique("donor-second"), CopyOnWriteArrayList()
+        )
+        val warming = CompletableDeferred<Unit>()
+        val recipientContext = context(
+            namespace,
+            control,
+            lifecycleObserver = { event ->
+                if (event.phase == TrafficWarmupLifecyclePhase.WARMING) warming.complete(Unit)
+            }
+        )
+        val recipientFirst = stringConsumer(
+            recipientContext,
+            "first",
+            firstSource,
+            firstWarmup,
+            unique("recipient-first"),
+            CopyOnWriteArrayList()
+        )
+        val unavailableMainProperties = consumerProperties(
+            unique("recipient-second"), StringDeserializer::class.java
+        ) + mapOf(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "127.0.0.1:1",
+            ConsumerConfig.RECONNECT_BACKOFF_MS_CONFIG to 50,
+            ConsumerConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG to 100
+        )
+        val recipientSecond = stringConsumer(
+            recipientContext,
+            "second",
+            secondSource,
+            secondWarmup,
+            unique("unused-recipient-second-group"),
+            CopyOnWriteArrayList(),
+            unavailableMainProperties,
+            30.seconds
+        )
+        val secondReadiness = async { runCatching { recipientSecond.awaitReady() } }
+        try {
+            donorFirst.start()
+            donorSecond.start()
+            withTimeout(10.seconds) {
+                donorFirst.awaitReady()
+                donorSecond.awaitReady()
+            }
+            recipientFirst.start()
+            recipientSecond.start()
+            withTimeout(10.seconds) { warming.await() }
+
+            withTimeout(15.seconds) { recipientFirst.stop() }
+
+            val earlyReadiness = if (secondReadiness.isCompleted) secondReadiness.await() else null
+            assertFalse(secondReadiness.isCompleted, "Neighbor readiness completed early: $earlyReadiness")
+        } finally {
+            val cleanupFailures = listOf(recipientSecond, recipientFirst, donorSecond, donorFirst)
+                .mapNotNull { consumer ->
+                    runCatching { withTimeout(10.seconds) { consumer.stop() } }.exceptionOrNull()
+                }
+                .toMutableList()
+            runCatching { withTimeout(10.seconds) { secondReadiness.await() } }
+                .exceptionOrNull()
+                ?.let(cleanupFailures::add)
+            if (cleanupFailures.isNotEmpty()) {
+                throw IllegalStateException("Independent-stop cleanup failed").apply {
+                    cleanupFailures.forEach(::addSuppressed)
+                }
+            }
         }
     }
 
@@ -346,13 +430,16 @@ class TrafficWarmupContextIntegrationTest {
         sourceTopic: String,
         warmupTopic: String,
         groupId: String,
-        handled: MutableList<String>
+        handled: MutableList<String>,
+        mainProperties: Map<String, Any?> = consumerProperties(groupId, StringDeserializer::class.java),
+        mainRecoveryTimeout: kotlin.time.Duration? = null
     ): CoroutinesKafkaConsumer<String, String> = coroutinesKafkaConsumer(
-        consumerProperties(groupId, StringDeserializer::class.java)
+        mainProperties
     ) {
         topics(sourceTopic)
         commitIntervalMs = 50
         commitRecordsThreshold = 1
+        mainRecoveryTimeout?.let { recoveryTimeout = it }
         handle { handled += it.value() }
         trafficWarmup(context, participantId) {
             mapTopic(sourceTopic, warmupTopic)
