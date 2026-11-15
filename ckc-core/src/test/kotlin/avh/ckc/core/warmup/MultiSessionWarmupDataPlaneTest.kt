@@ -238,7 +238,11 @@ class MultiSessionWarmupDataPlaneTest {
                 )
             },
             observer = object : WarmupDataPlaneObserver<String, String> {
-                override fun onForwarded(event: WarmupForwardedEvent, durationNanos: Long) {
+                override fun onForwarded(
+                    record: ConsumerRecord<String, String>,
+                    event: WarmupForwardedEvent,
+                    durationNanos: Long
+                ) {
                     events += event
                 }
             }
@@ -453,7 +457,11 @@ class MultiSessionWarmupDataPlaneTest {
 
     private fun forwardingObserver(target: CompletableDeferred<WarmupForwardedEvent>) =
         object : WarmupDataPlaneObserver<String, String> {
-            override fun onForwarded(event: WarmupForwardedEvent, durationNanos: Long) {
+            override fun onForwarded(
+                record: ConsumerRecord<String, String>,
+                event: WarmupForwardedEvent,
+                durationNanos: Long
+            ) {
                 target.complete(event)
             }
         }

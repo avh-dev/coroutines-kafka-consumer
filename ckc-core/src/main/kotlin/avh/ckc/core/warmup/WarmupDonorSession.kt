@@ -2,6 +2,7 @@ package avh.ckc.core.warmup
 
 import avh.ckc.core.isFatalJvmError
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.WarmupFallbackReason
 import avh.ckc.core.processing.RecordProcessingOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -155,7 +156,7 @@ internal class WarmupDonorSession<K, V>(
                 destinationTopicPartition = acknowledgement.topicPartition,
                 destinationOffset = acknowledgement.offset
             )
-            observe { observer.onForwarded(forwarded, System.nanoTime() - sendStarted) }
+            observe { observer.onForwarded(record, forwarded, System.nanoTime() - sendStarted) }
             val recordId = WarmupRecordId(
                 sessionId = sessionId,
                 topicPartition = acknowledgement.topicPartition,

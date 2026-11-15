@@ -20,6 +20,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -49,7 +50,11 @@ class RecordProcessingSeamTest {
                 WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), 1)
             },
             observer = object : WarmupDataPlaneObserver<String, String> {
-                override fun onForwarded(event: WarmupForwardedEvent, durationNanos: Long) {
+                override fun onForwarded(
+                    record: ConsumerRecord<String, String>,
+                    event: WarmupForwardedEvent,
+                    durationNanos: Long
+                ) {
                     forwarded.complete(event)
                 }
             }

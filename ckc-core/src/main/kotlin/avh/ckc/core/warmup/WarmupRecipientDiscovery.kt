@@ -10,6 +10,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 
 internal data class WarmupDestinationStart(
@@ -66,6 +69,11 @@ internal sealed interface WarmupRecipientCleanupResult {
 private class WarmupRecipientPreparationStoppedException :
     IllegalStateException("Warm-up recipient preparation was stopped")
 
+private class WarmupMetadataLookupException(
+    mapping: WarmupTopicMapping,
+    cause: Throwable
+) : IllegalStateException("Warm-up metadata lookup failed for ${mapping.warmupTopic}", cause)
+
 /**
  * Owns one recipient session only. Offers remain observations until [selectDonors] chooses complete
  * coverage. Preparation captures every destination end before readiness and publishes no readiness
@@ -76,7 +84,8 @@ internal class WarmupRecipientDiscovery(
     private val metadata: WarmupDestinationMetadata,
     private val consumerPreparation: WarmupRecipientConsumerPreparation,
     private val preparationTimeout: Duration,
-    private val nowEpochMillis: () -> Long = System::currentTimeMillis
+    private val nowEpochMillis: () -> Long = System::currentTimeMillis,
+    private val diagnosticObserver: ((String) -> Unit)? = null
 ) {
     internal enum class State {
         DISCOVERING,
@@ -89,6 +98,7 @@ internal class WarmupRecipientDiscovery(
     }
 
     private val lock = Any()
+    private val log = LoggerFactory.getLogger(javaClass)
     private val cleanupMutex = Mutex()
     private var state = State.DISCOVERING
     private val offers = linkedMapOf<WarmupInstanceId, DonorOffered>()
@@ -244,17 +254,39 @@ internal class WarmupRecipientDiscovery(
             }
             state = State.PREPARING_CONSUMERS
         }
+        val unresolvedMappings = ConcurrentHashMap.newKeySet<WarmupTopicMapping>().apply {
+            addAll(request.mappings)
+        }
+        val metadataComplete = AtomicBoolean(false)
         return try {
             val remainingMillis = request.expiresAtEpochMillis - nowEpochMillis()
             if (remainingMillis <= 0) return coldFallback("session_expired")
             val timeoutMillis = minOf(preparationTimeout.inWholeMilliseconds, remainingMillis).coerceAtLeast(1)
             val completed = withTimeoutOrNull(timeoutMillis) {
-                request.mappings.forEach { mapping ->
-                    val endOffsets = metadata.endOffsets(mapping)
-                    require(endOffsets.keys == setOf(0) && endOffsets.getValue(0) >= 0) {
-                        "Warm-up topic ${mapping.warmupTopic} must expose exactly partition 0"
-                    }
-                    val start = WarmupDestinationStart(WarmupPartitionAssignment(mapping), endOffsets.getValue(0))
+                val starts = coroutineScope {
+                    request.mappings.map { mapping ->
+                        async {
+                            try {
+                                val endOffsets = metadata.endOffsets(mapping)
+                                require(endOffsets.keys == setOf(0) && endOffsets.getValue(0) >= 0) {
+                                    "Warm-up topic ${mapping.warmupTopic} must expose exactly partition 0"
+                                }
+                                unresolvedMappings.remove(mapping)
+                                WarmupDestinationStart(
+                                    WarmupPartitionAssignment(mapping),
+                                    endOffsets.getValue(0)
+                                )
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Throwable) {
+                                if (error.isFatalJvmError()) throw error
+                                throw WarmupMetadataLookupException(mapping, error)
+                            }
+                        }
+                    }.awaitAll()
+                }
+                metadataComplete.set(true)
+                starts.forEach { start ->
                     val consumer = consumerPreparation.prepare(request.sessionId, start)
                     // Transfer ownership before validation so every returned resource participates in rollback.
                     val retained = synchronized(lock) {
@@ -274,7 +306,11 @@ internal class WarmupRecipientDiscovery(
                 coroutineScope { consumers.map { async { it.awaitReady() } }.awaitAll() }
                 true
             }
-            if (completed == null) return coldFallback("consumer_preparation_timeout")
+            if (completed == null) {
+                val reason = if (metadataComplete.get()) "consumer_preparation_timeout" else "metadata_timeout"
+                if (!metadataComplete.get()) logMetadataFallback(reason, unresolvedMappings, null)
+                return coldFallback(reason)
+            }
             val readyMessages = synchronized(lock) {
                 if (state != State.PREPARING_CONSUMERS) return@synchronized null
                 acceptances.map { (donor, acceptance) ->
@@ -294,6 +330,9 @@ internal class WarmupRecipientDiscovery(
         } catch (error: CancellationException) {
             coldFallback("preparation_cancelled")
             throw error
+        } catch (error: WarmupMetadataLookupException) {
+            logMetadataFallback("metadata_lookup_failed", unresolvedMappings, error.cause)
+            coldFallback("metadata_lookup_failed")
         } catch (error: Exception) {
             coldFallback("consumer_preparation_failed")
         }
@@ -327,6 +366,31 @@ internal class WarmupRecipientDiscovery(
     }
 
     internal fun state(): State = synchronized(lock) { state }
+
+    private fun logMetadataFallback(
+        reason: String,
+        unfinishedMappings: Collection<WarmupTopicMapping>,
+        cause: Throwable?
+    ) {
+        val mappings = unfinishedMappings.sortedWith(
+            compareBy({ it.participantId.value }, WarmupTopicMapping::sourceTopic)
+        )
+        val diagnostic = buildString {
+            append("event_code=CKC_WARMUP_METADATA_COLD_FALLBACK")
+            append(" reason=").append(reason)
+            append(" session_id=").append(request.sessionId.value)
+            append(" participant_ids=")
+            append(mappings.map { it.participantId.value }.distinct().joinToString(","))
+            append(" topics=").append(mappings.map { it.warmupTopic }.distinct().sorted().joinToString(","))
+            append(" unfinished_mappings=")
+            append(mappings.joinToString(",") { mapping ->
+                "${mapping.participantId.value}:${mapping.sourceTopic}->${mapping.warmupTopic}"
+            })
+            append(" cause_type=").append(cause?.javaClass?.simpleName ?: "timeout")
+        }
+        log.warn(diagnostic)
+        runCatching { diagnosticObserver?.invoke(diagnostic) }
+    }
 
     internal fun allDonorsAccepted(): Boolean = synchronized(lock) {
         state == State.ADMITTING_DONORS && confirmations.keys == acceptances.keys

@@ -3,6 +3,7 @@ package avh.ckc.core.warmup
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -78,10 +79,10 @@ class WarmupRecipientDiscoveryTest {
         val result = discovery.prepareConsumers()
 
         assertEquals(
-            WarmupRecipientPreparationResult.ColdFallback("consumer_preparation_failed"),
+            WarmupRecipientPreparationResult.ColdFallback("metadata_lookup_failed"),
             result
         )
-        assertEquals(listOf("warmup-orders"), stopped)
+        assertTrue(stopped.isEmpty())
         assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, discovery.state())
     }
 
@@ -95,9 +96,57 @@ class WarmupRecipientDiscoveryTest {
         discovery.onDonorAccepted(accepted(selection.messages.single()))
 
         assertEquals(
-            WarmupRecipientPreparationResult.ColdFallback("consumer_preparation_failed"),
+            WarmupRecipientPreparationResult.ColdFallback("metadata_lookup_failed"),
             discovery.prepareConsumers()
         )
+    }
+
+    @Test
+    fun `metadata failure reports safe local diagnostics without provider details`() = runBlocking {
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val discovery = discovery(
+            metadata = WarmupDestinationMetadata { error("password=do-not-log") },
+            diagnosticObserver = diagnostics::add
+        )
+        discovery.onOffer(offer(mappings))
+        val selection = assertInstanceOf(WarmupRecipientSelection.Accepted::class.java, discovery.selectDonors())
+        discovery.onDonorAccepted(accepted(selection.messages.single()))
+
+        assertEquals(
+            WarmupRecipientPreparationResult.ColdFallback("metadata_lookup_failed"),
+            discovery.prepareConsumers()
+        )
+        val diagnostic = diagnostics.single()
+        assertTrue(diagnostic.contains("event_code=CKC_WARMUP_METADATA_COLD_FALLBACK"))
+        assertTrue(diagnostic.contains("reason=metadata_lookup_failed"))
+        assertTrue(diagnostic.contains("session_id=session"))
+        assertTrue(diagnostic.contains("cause_type=IllegalStateException"))
+        assertFalse(diagnostic.contains("do-not-log"))
+    }
+
+    @Test
+    fun `one metadata deadline bounds all mapping lookups and reports unfinished mappings`() = runBlocking {
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val discovery = discovery(
+            metadata = WarmupDestinationMetadata {
+                delay(1.seconds)
+                mapOf(0 to 0L)
+            },
+            preparationTimeout = 20.milliseconds,
+            diagnosticObserver = diagnostics::add
+        )
+        discovery.onOffer(offer(mappings))
+        val selection = assertInstanceOf(WarmupRecipientSelection.Accepted::class.java, discovery.selectDonors())
+        discovery.onDonorAccepted(accepted(selection.messages.single()))
+
+        assertEquals(
+            WarmupRecipientPreparationResult.ColdFallback("metadata_timeout"),
+            discovery.prepareConsumers()
+        )
+        val diagnostic = diagnostics.single()
+        assertTrue(diagnostic.contains("reason=metadata_timeout"))
+        assertTrue(diagnostic.contains("warmup-orders"))
+        assertTrue(diagnostic.contains("warmup-payments"))
     }
 
     @Test
@@ -120,10 +169,12 @@ class WarmupRecipientDiscoveryTest {
     @Test
     fun `external cancellation waits for non cancellable bounded consumer cleanup`() = runBlocking {
         val readiness = CompletableDeferred<Unit>()
+        val consumerCreated = CompletableDeferred<Unit>()
         val stopStarted = CompletableDeferred<Unit>()
         val releaseStop = CompletableDeferred<Unit>()
         val discovery = discovery(
             preparation = WarmupRecipientConsumerPreparation { _, start ->
+                consumerCreated.complete(Unit)
                 object : PreparedWarmupRecipientConsumer {
                     override val assignment = start.assignment
                     override val startOffset = start.offset
@@ -140,7 +191,7 @@ class WarmupRecipientDiscoveryTest {
         val selection = assertInstanceOf(WarmupRecipientSelection.Accepted::class.java, discovery.selectDonors())
         discovery.onDonorAccepted(accepted(selection.messages.single()))
         val preparation = async { discovery.prepareConsumers() }
-        withTimeout(2_000) { while (discovery.state() != WarmupRecipientDiscovery.State.PREPARING_CONSUMERS) kotlinx.coroutines.yield() }
+        withTimeout(2_000) { consumerCreated.await() }
 
         preparation.cancel()
         withTimeout(2_000) { stopStarted.await() }
@@ -258,8 +309,16 @@ class WarmupRecipientDiscoveryTest {
         preparation: WarmupRecipientConsumerPreparation = WarmupRecipientConsumerPreparation { _, start ->
             preparedConsumer(start, CompletableDeferred(Unit), CopyOnWriteArrayList())
         },
-        preparationTimeout: kotlin.time.Duration = 2.seconds
-    ) = WarmupRecipientDiscovery(request(), metadata, preparation, preparationTimeout) { 1_000 }
+        preparationTimeout: kotlin.time.Duration = 2.seconds,
+        diagnosticObserver: ((String) -> Unit)? = null
+    ) = WarmupRecipientDiscovery(
+        request(),
+        metadata,
+        preparation,
+        preparationTimeout,
+        nowEpochMillis = { 1_000 },
+        diagnosticObserver = diagnosticObserver
+    )
 
     private fun request() = WarmupRequested(
         namespace, WarmupSessionId("session"), recipient, mappings, 2_000, 10, 2, "fingerprint", 10_000

@@ -7,6 +7,8 @@ import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
+import avh.ckc.core.metrics.WarmupFallbackReason
+import avh.ckc.core.metrics.WarmupResultMetricOutcome
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.CopyOnWriteArrayList
@@ -16,7 +18,8 @@ data class RecordProcessedCall<K, V>(
     val value: V?,
     val record: ConsumerRecord<K, V>,
     val endToEndLatencyMillis: Long,
-    val durationNanos: Long
+    val durationNanos: Long,
+    val processedRemotely: Boolean = false
 )
 
 data class RecordFailedCall<K, V>(
@@ -35,6 +38,12 @@ data class RecordDroppedCall<K, V>(
 data class RecordHandedOffCall<K, V>(
     val record: ConsumerRecord<K, V>,
     val reason: RecordHandoffReason
+)
+
+data class WarmupResultCall<K, V>(
+    val record: ConsumerRecord<K, V>,
+    val outcome: WarmupResultMetricOutcome,
+    val durationNanos: Long
 )
 
 data class RetryCall<K, V>(
@@ -70,6 +79,10 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
     val failed = CopyOnWriteArrayList<RecordFailedCall<K, V>>()
     val dropped = CopyOnWriteArrayList<RecordDroppedCall<K, V>>()
     val handedOff = CopyOnWriteArrayList<RecordHandedOffCall<K, V>>()
+    val warmupDelegated = CopyOnWriteArrayList<Pair<ConsumerRecord<K, V>, Long>>()
+    val warmupResults = CopyOnWriteArrayList<WarmupResultCall<K, V>>()
+    val warmupFallbacks = CopyOnWriteArrayList<Pair<ConsumerRecord<K, V>, WarmupFallbackReason>>()
+    val warmupPending = CopyOnWriteArrayList<Int>()
     val retries = CopyOnWriteArrayList<RetryCall<K, V>>()
     val commits = CopyOnWriteArrayList<CommitCall>()
     val offsetCommitMetadata = CopyOnWriteArrayList<OffsetCommitMetadataStats>()
@@ -118,6 +131,19 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
         processed += RecordProcessedCall(key, value, record, endToEndLatencyMillis, durationNanos)
     }
 
+    override fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
+    ) {
+        processed += RecordProcessedCall(
+            key, value, record, endToEndLatencyMillis, durationNanos, processedRemotely
+        )
+    }
+
     override fun onRecordFailed(
         key: K?,
         value: V?,
@@ -134,6 +160,26 @@ internal class RecordingMetrics<K, V> : ConsumerMetrics<K, V> {
 
     override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
         handedOff += RecordHandedOffCall(record, reason)
+    }
+
+    override fun onWarmupDelegated(record: ConsumerRecord<K, V>, sendDurationNanos: Long) {
+        warmupDelegated += record to sendDurationNanos
+    }
+
+    override fun onWarmupResult(
+        record: ConsumerRecord<K, V>,
+        outcome: WarmupResultMetricOutcome,
+        waitDurationNanos: Long
+    ) {
+        warmupResults += WarmupResultCall(record, outcome, waitDurationNanos)
+    }
+
+    override fun onWarmupFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) {
+        warmupFallbacks += record to reason
+    }
+
+    override fun onWarmupPendingChanged(pending: Int) {
+        warmupPending += pending
     }
 
     override fun onRetry(key: K?, value: V?, record: ConsumerRecord<K, V>, attempt: Int, error: Throwable) {

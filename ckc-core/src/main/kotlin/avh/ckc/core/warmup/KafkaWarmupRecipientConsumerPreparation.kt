@@ -4,6 +4,8 @@ import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.CoroutinesKafkaConsumerBuilder
 import avh.ckc.core.isFatalJvmError
 import kotlinx.coroutines.CancellationException
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import java.util.UUID
 
 internal fun interface WarmupRecipientParticipantRuntime {
     fun create(sessionId: WarmupSessionId, start: WarmupDestinationStart): CoroutinesKafkaConsumer<*, *>
@@ -14,9 +16,22 @@ internal fun <K, V> warmupRecipientParticipantRuntime(
     consumerProperties: Map<String, Any?>,
     configure: CoroutinesKafkaConsumerBuilder<K, V>.() -> Unit
 ): WarmupRecipientParticipantRuntime = WarmupRecipientParticipantRuntime { sessionId, start ->
+    val participantId = start.assignment.mapping.participantId
+    val connectionIdentity = "${participantId.value}\u0000${sessionId.value}"
+    val clientId = "ckc.traffic-warmup.v6.recipient." +
+        UUID.nameUUIDFromBytes(connectionIdentity.toByteArray(Charsets.UTF_8))
+    val effectiveProperties = buildWarmupRecipientConsumerProperties(
+        consumerProperties,
+        mapOf(
+            ConsumerConfig.GROUP_ID_CONFIG to clientId,
+            ConsumerConfig.CLIENT_ID_CONFIG to clientId,
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "none"
+        )
+    )
     CoroutinesKafkaConsumerBuilder<K, V>()
         .apply(configure)
-        .buildWarmupRecipient(consumerProperties, sessionId, start.assignment.destination, start.offset)
+        .buildWarmupRecipient(effectiveProperties, sessionId, start.assignment.destination, start.offset)
 }
 
 /** Production preparation for heterogeneous participants and independently assigned consumers. */

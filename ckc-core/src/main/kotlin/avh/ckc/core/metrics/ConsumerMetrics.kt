@@ -79,6 +79,21 @@ interface ConsumerMetrics<K, V> {
     ) = Unit
 
     /**
+     * Records a successful source outcome and identifies whether this consumer ran the handler.
+     * The compatibility overload remains the audit seam for implementations that need both local
+     * and remotely confirmed success; metric adapters may suppress ordinary processing series for
+     * [processedRemotely] callbacks.
+     */
+    fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
+    ) = onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos)
+
+    /**
      * Records a failed record after processing cannot continue.
      *
      * [durationNanos] covers the processing attempt until failure is reported.
@@ -100,6 +115,21 @@ interface ConsumerMetrics<K, V> {
      * Records an at-least-once record released without a terminal outcome so a Kafka owner can replay it.
      */
     fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) = Unit
+
+    /** Records one producer-acknowledged delegation without tagging its session or offset. */
+    fun onWarmupDelegated(record: ConsumerRecord<K, V>, sendDurationNanos: Long) = Unit
+
+    /** Records one explicit recipient result and the wait after producer acknowledgement. */
+    fun onWarmupResult(
+        record: ConsumerRecord<K, V>,
+        outcome: WarmupResultMetricOutcome,
+        waitDurationNanos: Long
+    ) = Unit
+
+    fun onWarmupFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) = Unit
+
+    /** Reports aggregate pending remote results across this donor's independent sessions. */
+    fun onWarmupPendingChanged(pending: Int) = Unit
 
     /**
      * Records a retry of the user handler.
@@ -189,4 +219,17 @@ enum class RecordHandoffReason {
     ASSIGNMENT_ENDED,
     /** The consumer failed before reaching a terminal outcome; Kafka may replay the record. */
     CONSUMER_FAILED
+}
+
+enum class WarmupResultMetricOutcome {
+    SUCCEEDED,
+    TERMINAL_FAILURE,
+    DISCARDED
+}
+
+enum class WarmupFallbackReason {
+    SEND_FAILURE,
+    RESULT_TIMEOUT,
+    SESSION_FAILURE,
+    REMOTE_TERMINAL_FAILURE
 }
