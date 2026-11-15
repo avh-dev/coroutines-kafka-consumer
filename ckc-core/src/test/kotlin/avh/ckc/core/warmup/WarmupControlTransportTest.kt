@@ -200,6 +200,7 @@ class WarmupControlTransportTest {
     }
 
     private fun request(namespace: WarmupControlNamespace, session: String) = WarmupRequested(
-        namespace, WarmupSessionId(session), local, listOf(mapping), 2_000, 10, 2, "fingerprint", 10_000
+        namespace, WarmupSessionId(session), local, listOf(mapping), 2_000,
+        normalizedAdmissionBudget(listOf(mapping)), "fingerprint", 10_000
     )
 }

@@ -24,10 +24,10 @@ class WarmupControlCodecTest {
             WarmupRemoteOutcome.Discarded(RecordDropReason.STALE_AGE)
         )
         val messages = listOf(
-            WarmupRequested(namespace, session, recipient, listOf(mapping), 2_000, 10, 2, fingerprint, 10_000),
+            WarmupRequested(namespace, session, recipient, listOf(mapping), 2_000, 10, fingerprint, 10_000),
             DonorOffered(namespace, session, donor, recipient, listOf(donorMapping), fingerprint, 10_000),
-            SessionAccepted(namespace, session, recipient, donor, listOf(donorMapping), 10, 2, fingerprint, 10_000),
-            DonorAccepted(namespace, session, donor, recipient, listOf(donorMapping), 10, 2, fingerprint, 10_000),
+            SessionAccepted(namespace, session, recipient, donor, listOf(donorMapping), 10, fingerprint, 10_000),
+            DonorAccepted(namespace, session, donor, recipient, listOf(donorMapping), 10, fingerprint, 10_000),
             SessionRejected(namespace, session, donor, recipient, "capacity_limit", fingerprint, 10_000),
             RecipientReady(
                 namespace, session, recipient, donor, listOf(WarmupPartitionAssignment(mapping)), fingerprint, 10_000
@@ -44,7 +44,7 @@ class WarmupControlCodecTest {
     @Test
     fun `v5 envelope is rejected before dispatch`() {
         val encoded = WarmupControlCodec.encode(
-            WarmupRequested(namespace, session, recipient, listOf(mapping), 2_000, 10, 2, fingerprint, 10_000)
+            WarmupRequested(namespace, session, recipient, listOf(mapping), 2_000, 10, fingerprint, 10_000)
         )
         encoded[5] = 5
 

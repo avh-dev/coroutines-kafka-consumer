@@ -118,7 +118,7 @@ class WarmupDiscoveryRuntimeTest {
         val now = System.currentTimeMillis()
         val request = WarmupRequested(
             namespace, WarmupSessionId("partial-ready"), recipientId, requestedMappings,
-            now + 500, 10, 2, "fingerprint", now + 5_000
+            now + 500, normalizedAdmissionBudget(requestedMappings), "fingerprint", now + 5_000
         )
         val releaseStop = kotlinx.coroutines.CompletableDeferred<Unit>()
         val stopped = mutableListOf<String>()
@@ -152,6 +152,59 @@ class WarmupDiscoveryRuntimeTest {
         releaseStop.complete(Unit)
         assertEquals(WarmupRecipientCleanupResult.Complete, recipient.terminate())
         assertEquals(requestedMappings.map { it.warmupTopic }.reversed(), stopped)
+        runtime.stop()
+        runtime.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun `donor rejection interrupts active warmup and permits bounded rollback`() = runBlocking {
+        val router = WarmupControlRouter(recipientId, namespace)
+        val channel = InMemoryControlChannel(router, remoteDonor, mapping)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val activation = WarmupDonorActivation(
+            recipientId,
+            namespace,
+            listOf(mapping),
+            MultiSessionWarmupDataPlane<String, String>(1, 10),
+            WarmupDonorEligibility { null },
+            WarmupDonorSessionPreparation { error("local donor is not selected") },
+            scope,
+            onPreparationFailed = { channel.send(it) }
+        )
+        val runtime = WarmupDiscoveryRuntime(
+            recipientId, namespace, router, channel,
+            StatelessWarmupDonorDiscovery(recipientId, namespace, emptyList()) { null },
+            activation, 1.milliseconds, 1.seconds
+        )
+        val request = request()
+        val stopped = AtomicInteger()
+        val recipient = WarmupRecipientDiscovery(
+            request,
+            WarmupDestinationMetadata { mapOf(0 to 0L) },
+            WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
+            1.seconds
+        )
+
+        runtime.startControl()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, runtime.discoverAndPrepare(recipient))
+        router.onMessage(
+            WarmupControlRecord(
+                100,
+                SessionRejected(
+                    namespace, request.sessionId, remoteDonor, recipientId,
+                    "donor_participant_unavailable", request.configurationFingerprint,
+                    request.expiresAtEpochMillis
+                )
+            )
+        )
+
+        assertTrue(runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
+        assertInstanceOf(
+            WarmupDiscoveryResult.ColdFallback::class.java,
+            runtime.abortWarmup(recipient, "donor_session_ended")
+        )
+        assertEquals(1, stopped.get())
         runtime.stop()
         runtime.close()
         scope.cancel()
@@ -205,7 +258,7 @@ class WarmupDiscoveryRuntimeTest {
         val now = System.currentTimeMillis()
         return WarmupRequested(
             namespace, WarmupSessionId("session"), recipientId, listOf(mapping),
-            now + 500, 10, 2, "fingerprint", now + 5_000
+            now + 500, normalizedAdmissionBudget(listOf(mapping)), "fingerprint", now + 5_000
         )
     }
 
@@ -254,7 +307,7 @@ class WarmupDiscoveryRuntimeTest {
                         sent.size.toLong(),
                         DonorAccepted(
                             message.namespace, message.sessionId, donor, message.senderInstanceId,
-                            message.mappings, message.intervalBudget, message.initialQuota,
+                            message.mappings, message.admissionBudgetPerSecond,
                             message.configurationFingerprint, message.expiresAtEpochMillis
                         )
                     )
@@ -311,8 +364,8 @@ class WarmupDiscoveryRuntimeTest {
                         sent.size.toLong(),
                         DonorAccepted(
                             message.namespace, message.sessionId, message.targetInstanceId,
-                            message.senderInstanceId, message.mappings, message.intervalBudget,
-                            message.initialQuota, message.configurationFingerprint, message.expiresAtEpochMillis
+                            message.senderInstanceId, message.mappings, message.admissionBudgetPerSecond,
+                            message.configurationFingerprint, message.expiresAtEpochMillis
                         )
                     )
                 )

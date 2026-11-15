@@ -6,11 +6,13 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
+import org.apache.kafka.common.TopicPartition
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
@@ -85,7 +87,8 @@ internal class WarmupRecipientDiscovery(
     private val consumerPreparation: WarmupRecipientConsumerPreparation,
     private val preparationTimeout: Duration,
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
-    private val diagnosticObserver: ((String) -> Unit)? = null
+    private val diagnosticObserver: ((String) -> Unit)? = null,
+    private val cleanupTimeout: Duration = preparationTimeout
 ) {
     internal enum class State {
         DISCOVERING,
@@ -109,6 +112,7 @@ internal class WarmupRecipientDiscovery(
 
     init {
         require(preparationTimeout.isPositive()) { "Warm-up preparation timeout must be > 0" }
+        require(cleanupTimeout.isPositive()) { "Warm-up cleanup timeout must be > 0" }
         require(request.protocolVersion == WARMUP_CONTROL_PROTOCOL_VERSION) {
             "Recipient request must use warm-up control protocol v$WARMUP_CONTROL_PROTOCOL_VERSION"
         }
@@ -150,8 +154,9 @@ internal class WarmupRecipientDiscovery(
                 senderInstanceId = request.senderInstanceId,
                 targetInstanceId = donor,
                 mappings = mappings,
-                intervalBudget = request.intervalBudget,
-                initialQuota = request.initialQuota,
+                admissionBudgetPerSecond = normalizedAdmissionBudget(
+                    mappings.map(WarmupDonorMapping::mapping)
+                ),
                 configurationFingerprint = request.configurationFingerprint,
                 expiresAtEpochMillis = request.expiresAtEpochMillis
             )
@@ -227,6 +232,12 @@ internal class WarmupRecipientDiscovery(
 
     fun allDonorsClosed(): Boolean = synchronized(lock) {
         state == State.DRAINING && closedDonors.keys == acceptances.keys
+    }
+
+    fun donorFor(destination: TopicPartition): WarmupInstanceId? = synchronized(lock) {
+        acceptances.entries.firstOrNull { (_, acceptance) ->
+            acceptance.mappings.any { WarmupPartitionAssignment(it.mapping).destination == destination }
+        }?.key
     }
 
     /** Stops recipient consumers only after every selected donor has fenced new delegation. */
@@ -405,28 +416,50 @@ internal class WarmupRecipientDiscovery(
         resources: List<PreparedWarmupRecipientConsumer>
     ): WarmupRecipientCleanupResult {
         if (resources.isEmpty()) return WarmupRecipientCleanupResult.Complete
-        val completed = mutableListOf<PreparedWarmupRecipientConsumer>()
-        val diagnostics = mutableListOf<String>()
+        data class StopResult(
+            val resource: PreparedWarmupRecipientConsumer,
+            val completed: Boolean,
+            val diagnostic: String? = null
+        )
+
+        var results = emptyList<StopResult>()
         // Cleanup owns a separate bounded cancellation scope so caller cancellation cannot leak clients.
         val finished = withContext(NonCancellable) {
-            withTimeoutOrNull(preparationTimeout.inWholeMilliseconds.coerceAtLeast(1)) {
-                resources.asReversed().forEach { resource ->
-                    try {
-                        resource.stop()
-                        completed += resource
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
-                        diagnostics += "${resource.assignment.destination}: ${error.cause?.javaClass?.name}: ${error.cause?.message}"
-                        completed += resource
-                    } catch (error: Throwable) {
-                        if (error.isFatalJvmError()) throw error
-                        diagnostics += "${resource.assignment.destination}: ${error.javaClass.name}: ${error.message}"
-                    }
+            withTimeoutOrNull(cleanupTimeout.inWholeMilliseconds.coerceAtLeast(1)) {
+                // Mappings own independent runtimes. Stop them concurrently so the context cleanup
+                // deadline does not grow with the number of registered participants.
+                results = supervisorScope {
+                    resources.asReversed().map { resource ->
+                        async {
+                            try {
+                                resource.stop()
+                                StopResult(resource, completed = true)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
+                                StopResult(
+                                    resource,
+                                    completed = true,
+                                    diagnostic = "${resource.assignment.destination}: " +
+                                        "${error.cause?.javaClass?.name}: ${error.cause?.message}"
+                                )
+                            } catch (error: Throwable) {
+                                if (error.isFatalJvmError()) throw error
+                                StopResult(
+                                    resource,
+                                    completed = false,
+                                    diagnostic = "${resource.assignment.destination}: " +
+                                        "${error.javaClass.name}: ${error.message}"
+                                )
+                            }
+                        }
+                    }.awaitAll()
                 }
                 true
             }
         }
+        val completed = results.filter(StopResult::completed).map(StopResult::resource)
+        val diagnostics = results.mapNotNull(StopResult::diagnostic).toMutableList()
         if (finished != true) diagnostics += "recipient_consumer_cleanup_timeout"
         val pending = synchronized(lock) {
             prepared.removeAll(completed.toSet())
@@ -459,8 +492,7 @@ internal class WarmupRecipientDiscovery(
             accepted.senderInstanceId == expected.targetInstanceId &&
             accepted.targetInstanceId == expected.senderInstanceId &&
             accepted.mappings == expected.mappings &&
-            accepted.intervalBudget == expected.intervalBudget &&
-            accepted.initialQuota == expected.initialQuota &&
+            accepted.admissionBudgetPerSecond == expected.admissionBudgetPerSecond &&
             accepted.configurationFingerprint == expected.configurationFingerprint &&
             accepted.expiresAtEpochMillis == expected.expiresAtEpochMillis
 }

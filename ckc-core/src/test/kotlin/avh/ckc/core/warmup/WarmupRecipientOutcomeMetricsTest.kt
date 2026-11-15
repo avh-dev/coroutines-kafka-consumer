@@ -1,6 +1,7 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.RecordingMetrics
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -12,15 +13,52 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
 import kotlin.time.Duration.Companion.seconds
 
 class WarmupRecipientOutcomeMetricsTest {
+    @Test
+    fun `recipient runtime isolates kafka binding without bypassing processing callbacks`() {
+        var processed = 0
+        var kafkaBindings = 0
+        val callbacks = object : ConsumerMetrics<String, String> {
+            override fun runtimeBinding(bindingId: String): ConsumerMetrics<String, String> =
+                object : ConsumerMetrics<String, String> {
+                    override fun bindKafkaClientMetrics(
+                        pollLoopId: Int,
+                        consumer: Consumer<String, String>
+                    ) {
+                        kafkaBindings += 1
+                    }
+                }
+
+            override fun onRecordProcessed(
+                key: String?,
+                value: String?,
+                record: ConsumerRecord<String, String>,
+                endToEndLatencyMillis: Long,
+                durationNanos: Long
+            ) {
+                processed += 1
+            }
+        }
+        val metrics = warmupRecipientRuntimeMetrics(callbacks, "mapping-one")
+        val record = ConsumerRecord("warmup-orders", 0, 11L, "key", "value")
+
+        metrics.bindKafkaClientMetrics(0, mock())
+        metrics.onRecordProcessed("key", "value", record, 1, 2)
+
+        assertEquals(1, kafkaBindings)
+        assertEquals(1, processed)
+    }
+
     @Test
     fun `recipient publishes terminal runtime outcomes with its session coordinate`() {
         val published = mutableListOf<WarmupRecordCompleted>()

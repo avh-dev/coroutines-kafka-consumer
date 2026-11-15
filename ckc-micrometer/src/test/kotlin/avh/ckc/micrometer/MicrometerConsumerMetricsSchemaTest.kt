@@ -123,6 +123,41 @@ class MicrometerConsumerMetricsSchemaTest {
     }
 
     @Test
+    fun `two warmup mapping runtimes own independent native kafka metric bindings`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, String>(
+            MicrometerConsumerMetricsSchema(
+                registry,
+                metricPrefix = "test",
+                kafkaClientMetricsEnabled = true
+            )
+        ) {
+            consumerId = "orders"
+        }
+        val firstMetrics = metrics.runtimeBinding("warmup-orders")
+        val secondMetrics = metrics.runtimeBinding("warmup-payments")
+        val firstConsumer = testKafkaConsumer()
+        val secondConsumer = testKafkaConsumer()
+
+        try {
+            firstMetrics.bindKafkaClientMetrics(0, firstConsumer)
+            secondMetrics.bindKafkaClientMetrics(0, secondConsumer)
+
+            val consumerIds = registry.meters
+                .filter { it.id.name.startsWith("kafka.consumer") }
+                .mapNotNull { it.id.getTag("consumer_id") }
+                .toSet()
+            assertTrue("orders.warmup-orders" in consumerIds)
+            assertTrue("orders.warmup-payments" in consumerIds)
+        } finally {
+            firstMetrics.unbindKafkaClientMetrics(0)
+            secondMetrics.unbindKafkaClientMetrics(0)
+            firstConsumer.close()
+            secondConsumer.close()
+        }
+    }
+
+    @Test
     fun `kafka client metrics are disabled by default`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, String>(

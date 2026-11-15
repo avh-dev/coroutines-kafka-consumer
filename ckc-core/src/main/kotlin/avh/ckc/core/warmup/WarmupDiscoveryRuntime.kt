@@ -38,13 +38,13 @@ internal sealed interface WarmupCompletionResult {
  * It is not a coordinator in the protocol sense: it owns no namespace table and dispatches only
  * the local recipient session plus donor sessions admitted by [WarmupDonorActivation].
  */
-internal class WarmupDiscoveryRuntime<K, V>(
+internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val localInstanceId: WarmupInstanceId,
     private val namespace: WarmupControlNamespace,
     router: WarmupControlRouter,
     private val channel: WarmupControlChannel,
     private val donorDiscovery: StatelessWarmupDonorDiscovery,
-    private val donorActivation: WarmupDonorActivation<K, V>,
+    private val donorActivation: WarmupDonorActivation<S>,
     private val offerCollectionWindow: Duration,
     private val donorAcceptanceTimeout: Duration,
     private val donorCompletionTimeout: Duration = donorAcceptanceTimeout
@@ -191,6 +191,21 @@ internal class WarmupDiscoveryRuntime<K, V>(
         }
     }
 
+    /** Rolls back an already prepared local recipient and fences its donors before cold start. */
+    suspend fun abortWarmup(recipient: WarmupRecipientDiscovery, reasonCode: String): WarmupDiscoveryResult =
+        fallback(recipient, reasonCode)
+
+    /** Returns early when an accepted donor terminates the active recipient session. */
+    suspend fun awaitWarmupInterruption(
+        recipient: WarmupRecipientDiscovery,
+        duration: Duration
+    ): Boolean = withTimeoutOrNull(duration) {
+        while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
+            recipientSignal.receive()
+        }
+        true
+    } == true
+
     override suspend fun onMessage(record: WarmupControlRecord) {
         val message = record.message
         if (message.namespace != namespace) return
@@ -250,6 +265,7 @@ internal class WarmupDiscoveryRuntime<K, V>(
         } catch (_: Exception) {
             // Cold fallback is already local; failure to publish its best-effort fence is diagnostic only.
         }
+        clearRecipient(recipient)
         return when (cleanup) {
             WarmupRecipientCleanupResult.Complete -> WarmupDiscoveryResult.ColdFallback(reasonCode)
             is WarmupRecipientCleanupResult.CompleteWithDiagnostics ->

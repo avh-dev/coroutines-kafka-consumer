@@ -73,12 +73,15 @@ internal data class WarmupForwardedEvent(
     val destinationOffset: Long
 )
 
+/** Distinguishes mapping-local trackers that belong to one logical donor session. */
+internal data class WarmupPendingKey(val sessionId: WarmupSessionId, val laneId: String)
+
 /** Session-aware observation seam for donor forwarding, results, fallback, and pending accounting. */
 internal interface WarmupDataPlaneObserver<K, V> {
     fun onForwarded(record: ConsumerRecord<K, V>, event: WarmupForwardedEvent, durationNanos: Long) = Unit
     fun onResult(record: ConsumerRecord<K, V>, outcome: WarmupRemoteOutcome, durationNanos: Long) = Unit
     fun onFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) = Unit
-    fun onPendingChanged(sessionId: WarmupSessionId, pending: Int) = Unit
+    fun onPendingChanged(key: WarmupPendingKey, pending: Int) = Unit
 }
 
 internal fun <K, V> noOpWarmupDataPlaneObserver(): WarmupDataPlaneObserver<K, V> =

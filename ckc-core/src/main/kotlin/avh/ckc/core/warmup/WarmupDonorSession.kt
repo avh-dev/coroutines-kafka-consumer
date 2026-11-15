@@ -31,7 +31,7 @@ internal fun interface WarmupDestinationResolver<K, V> {
  * reaches zero.
  */
 internal class WarmupDonorSession<K, V>(
-    val sessionId: WarmupSessionId,
+    override val sessionId: WarmupSessionId,
     val intervalBudget: Int,
     quotaInterval: Duration,
     initialQuota: Int = intervalBudget,
@@ -40,11 +40,13 @@ internal class WarmupDonorSession<K, V>(
     private val destinationResolver: WarmupDestinationResolver<K, V>,
     private val sender: WarmupRecordSender<K, V>,
     private val observer: WarmupDataPlaneObserver<K, V> = noOpWarmupDataPlaneObserver(),
+    private val pendingLaneId: String = "default",
     private val supportsRemoteDiscard: (RecordDropReason) -> Boolean = { false },
     private val maxEarlyResults: Int = 1_024,
     earlyResultTtl: Duration = delegationTimeout,
     nanoTime: () -> Long = System::nanoTime
-) : AutoCloseable {
+) : WarmupDonorSessionLifecycle {
+    override val admissionBudgetPerSecond: Int = normalizedSessionBudget(intervalBudget, quotaInterval)
     private enum class State { ADMITTED, ACTIVE, DRAINING, FAILED, CLOSED }
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -67,14 +69,16 @@ internal class WarmupDonorSession<K, V>(
         maxEarlyResults = maxEarlyResults,
         earlyResultTtl = earlyResultTtl,
         nanoTime = nanoTime,
-        onPendingChanged = { pending -> observe { observer.onPendingChanged(sessionId, pending) } }
+        onPendingChanged = { pending ->
+            observe { observer.onPendingChanged(WarmupPendingKey(sessionId, pendingLaneId), pending) }
+        }
     )
 
     init {
         require(delegationTimeout.isPositive()) { "Warm-up delegation timeout must be > 0" }
     }
 
-    fun activate(): Boolean = synchronized(sessionLock) {
+    override fun activate(): Boolean = synchronized(sessionLock) {
         if (state != State.ADMITTED) return@synchronized false
         state = State.ACTIVE
         true
@@ -194,7 +198,7 @@ internal class WarmupDonorSession<K, V>(
         }
     }
 
-    fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
+    override fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion {
         val result = tracker.complete(completed)
         if (result == WarmupResultTracker.Completion.OVERFLOW) {
             fail(WarmupEarlyResultOverflowException(maxEarlyResults))
@@ -202,14 +206,14 @@ internal class WarmupDonorSession<K, V>(
         return result
     }
 
-    fun stopDelegating() {
+    override fun stopDelegating() {
         synchronized(sessionLock) {
             if (state == State.ADMITTED || state == State.ACTIVE) state = State.DRAINING
             if (inflight == 0) inflightDrained.complete(Unit)
         }
     }
 
-    suspend fun stopDelegatingAndAwaitInflight(timeout: Duration) {
+    override suspend fun stopDelegatingAndAwaitInflight(timeout: Duration) {
         require(timeout.isPositive()) { "Warm-up in-flight drain timeout must be > 0" }
         val completion = synchronized(sessionLock) {
             if (state == State.ADMITTED || state == State.ACTIVE) state = State.DRAINING
@@ -226,12 +230,12 @@ internal class WarmupDonorSession<K, V>(
     }
 
     /** Waits after a session failure until every ownership-safe fallback has left the pipeline. */
-    suspend fun awaitInflightCompletion() {
+    override suspend fun awaitInflightCompletion() {
         val completion = synchronized(sessionLock) { inflightDrained }
         completion.await()
     }
 
-    fun fail(error: Throwable) {
+    override fun fail(error: Throwable) {
         val won = synchronized(sessionLock) {
             if (state == State.FAILED || state == State.CLOSED) {
                 false
@@ -252,7 +256,7 @@ internal class WarmupDonorSession<K, V>(
      * Atomically prevents a not-yet-activated session from becoming active and verifies drain.
      * Once this succeeds, a caller may remove the session from its registry and close it.
      */
-    fun trySealForRemoval(): Boolean = synchronized(sessionLock) {
+    override fun trySealForRemoval(): Boolean = synchronized(sessionLock) {
         if (state == State.ACTIVE || inflight != 0) return@synchronized false
         if (state == State.ADMITTED) state = State.DRAINING
         true
@@ -311,3 +315,12 @@ internal class WarmupSendFailedException(cause: Throwable) :
     IllegalStateException("Warm-up record send failed", cause)
 
 internal class InvalidWarmupRemoteOutcomeException(message: String) : IllegalStateException(message)
+
+private fun normalizedSessionBudget(intervalBudget: Int, quotaInterval: Duration): Int {
+    require(intervalBudget > 0) { "Warm-up interval budget must be > 0" }
+    require(quotaInterval.inWholeMilliseconds > 0) { "Warm-up quota interval must be at least 1 ms" }
+    return Math.ceilDiv(
+        Math.multiplyExact(intervalBudget.toLong(), 1_000L),
+        quotaInterval.inWholeMilliseconds
+    ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}

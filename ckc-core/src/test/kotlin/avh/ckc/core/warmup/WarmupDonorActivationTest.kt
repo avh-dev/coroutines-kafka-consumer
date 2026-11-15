@@ -674,7 +674,7 @@ class WarmupDonorActivationTest {
         assertTrue(activation.onRecipientReady(ready()))
         val siblingId = WarmupSessionId("sibling")
         val sibling = session(siblingId)
-        assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(sibling))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(sibling))
         assertTrue(plane.activate(siblingId))
         val localCalls = AtomicInteger()
         val firstOutcome = async {
@@ -710,7 +710,7 @@ class WarmupDonorActivationTest {
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, siblingOutcome.await())
 
         val replacement = session(WarmupSessionId("replacement"))
-        assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(replacement))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(replacement))
         plane.stopDelegating(siblingId)
         assertTrue(plane.removeDrainedSession(siblingId))
         plane.stopDelegating(WarmupSessionId("replacement"))
@@ -787,7 +787,7 @@ class WarmupDonorActivationTest {
     )
 
     private fun acceptAndStart(
-        activation: WarmupDonorActivation<String, String>,
+        activation: WarmupDonorActivation<WarmupDonorSession<String, String>>,
         acceptance: SessionAccepted
     ): WarmupControlMessage = activation.accept(acceptance).also { response ->
         if (response is DonorAccepted) assertTrue(activation.startPreparation(acceptance.sessionId))
@@ -795,7 +795,8 @@ class WarmupDonorActivationTest {
 
     private fun acceptance() = SessionAccepted(
         namespace, WarmupSessionId("session"), recipient, donor,
-        listOf(WarmupDonorMapping(mapping, ownership)), 10, 2, "fingerprint", 10_000
+        listOf(WarmupDonorMapping(mapping, ownership)),
+        normalizedAdmissionBudget(listOf(mapping)), "fingerprint", 10_000
     )
 
     private fun ready() = RecipientReady(

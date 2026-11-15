@@ -3,6 +3,7 @@ package avh.ckc.core.warmup
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -87,6 +88,38 @@ class WarmupKafkaClientPropertiesTest {
         assertEquals("all", controlProducer[ProducerConfig.ACKS_CONFIG])
         assertEquals(false, controlConsumer[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG])
         assertEquals("required-group", recipient[ConsumerConfig.GROUP_ID_CONFIG])
+        assertFalse(recipient.containsKey(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG))
+    }
+
+    @Test
+    fun `recipient connection inherits only deserializers from main consumer`() {
+        val properties = warmupRecipientUserProperties(
+            mainProperties = mapOf(
+                CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG to "main:9092",
+                CommonClientConfigs.SECURITY_PROTOCOL_CONFIG to "SASL_SSL",
+                ConsumerConfig.GROUP_INSTANCE_ID_CONFIG to "main-static-member",
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+            ),
+            warmupProperties = mapOf(
+                CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG to "warmup:9092"
+            )
+        )
+
+        assertEquals("warmup:9092", properties[CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG])
+        assertFalse(properties.containsKey(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG))
+        assertEquals(StringDeserializer::class.java, properties[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG])
+        assertEquals(StringDeserializer::class.java, properties[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG])
+        assertFalse(properties.containsKey(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG))
+    }
+
+    @Test
+    fun `recipient removes static membership even when required map contains it`() {
+        val recipient = buildWarmupRecipientConsumerProperties(
+            userProperties = emptyMap(),
+            requiredProperties = mapOf(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG to "must-not-return")
+        )
+
         assertFalse(recipient.containsKey(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG))
     }
 

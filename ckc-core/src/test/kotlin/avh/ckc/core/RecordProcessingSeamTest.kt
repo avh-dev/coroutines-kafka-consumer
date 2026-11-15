@@ -39,7 +39,7 @@ class RecordProcessingSeamTest {
     fun `ownership revoked while awaiting remote result prevents local fallback handler`() = runBlocking {
         val localHandled = CompletableDeferred<Long>()
         val forwarded = CompletableDeferred<WarmupForwardedEvent>()
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val session = WarmupDonorSession(
             sessionId = WarmupSessionId("revoked"),
             intervalBudget = 10,

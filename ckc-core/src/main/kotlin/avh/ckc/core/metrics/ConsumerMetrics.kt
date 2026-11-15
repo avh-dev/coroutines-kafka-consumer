@@ -12,6 +12,14 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
  */
 interface ConsumerMetrics<K, V> {
     /**
+     * Returns the metrics binding owned by one auxiliary consumer runtime.
+     *
+     * Stateless callback implementations may return themselves. Adapters that bind gauges or native Kafka
+     * clients must return an independently unbindable binding for every distinct [bindingId].
+     */
+    fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> = this
+
+    /**
      * Binds metrics exposed by the underlying Kafka consumer used by one poll loop.
      *
      * [pollLoopId] is stable within the owning [avh.ckc.core.CoroutinesKafkaConsumer]. Implementations may use it

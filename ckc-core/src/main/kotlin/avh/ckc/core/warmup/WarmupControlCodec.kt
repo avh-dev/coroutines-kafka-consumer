@@ -33,19 +33,16 @@ internal object WarmupControlCodec {
             when (message) {
                 is WarmupRequested -> {
                     data.writeLong(message.offerDeadlineEpochMillis)
-                    data.writeInt(message.intervalBudget)
-                    data.writeInt(message.initialQuota)
+                    data.writeInt(message.admissionBudgetPerSecond)
                     data.writeCollection(message.mappings) { writeMapping(it) }
                 }
                 is DonorOffered -> data.writeCollection(message.mappings) { writeDonorMapping(it) }
                 is SessionAccepted -> {
-                    data.writeInt(message.intervalBudget)
-                    data.writeInt(message.initialQuota)
+                    data.writeInt(message.admissionBudgetPerSecond)
                     data.writeCollection(message.mappings) { writeDonorMapping(it) }
                 }
                 is DonorAccepted -> {
-                    data.writeInt(message.intervalBudget)
-                    data.writeInt(message.initialQuota)
+                    data.writeInt(message.admissionBudgetPerSecond)
                     data.writeCollection(message.mappings) { writeDonorMapping(it) }
                 }
                 is SessionRejected -> data.writeString(message.reasonCode)
@@ -81,11 +78,10 @@ internal object WarmupControlCodec {
             when (type) {
                 TYPE_REQUESTED -> {
                     val offerDeadline = data.readLong()
-                    val intervalBudget = data.readInt()
-                    val initialQuota = data.readInt()
+                    val admissionBudgetPerSecond = data.readInt()
                     val mappings = data.readCollection { readMapping() }
                     WarmupRequested(
-                        namespace, sessionId, sender, mappings, offerDeadline, intervalBudget, initialQuota,
+                        namespace, sessionId, sender, mappings, offerDeadline, admissionBudgetPerSecond,
                         fingerprint, deadline, version
                     )
                 }
@@ -121,21 +117,19 @@ internal object WarmupControlCodec {
                 data.readCollection { readDonorMapping() }, fingerprint, deadline, version
             )
             TYPE_SESSION_ACCEPTED -> {
-                val intervalBudget = data.readInt()
-                val initialQuota = data.readInt()
+                val admissionBudgetPerSecond = data.readInt()
                 val mappings = data.readCollection { readDonorMapping() }
                 SessionAccepted(
                     namespace, sessionId, sender, requiredTarget("SessionAccepted"), mappings,
-                    intervalBudget, initialQuota, fingerprint, deadline, version
+                    admissionBudgetPerSecond, fingerprint, deadline, version
                 )
             }
             TYPE_DONOR_ACCEPTED -> {
-                val intervalBudget = data.readInt()
-                val initialQuota = data.readInt()
+                val admissionBudgetPerSecond = data.readInt()
                 val mappings = data.readCollection { readDonorMapping() }
                 DonorAccepted(
                     namespace, sessionId, sender, requiredTarget("DonorAccepted"), mappings,
-                    intervalBudget, initialQuota, fingerprint, deadline, version
+                    admissionBudgetPerSecond, fingerprint, deadline, version
                 )
             }
             TYPE_SESSION_REJECTED -> SessionRejected(
@@ -185,10 +179,18 @@ internal object WarmupControlCodec {
         writeString(mapping.sourceTopic)
         writeString(mapping.warmupTopic)
         writeString(mapping.mappingFingerprint)
+        writeInt(mapping.quota.quotaPerInterval)
+        writeInt(mapping.quota.initialQuotaPerInterval)
+        writeLong(mapping.quota.quotaIntervalMillis)
+        writeLong(mapping.quota.quotaRampDurationMillis)
     }
 
     private fun DataInputStream.readMapping() = WarmupTopicMapping(
-        WarmupParticipantId(readString()), readString(), readString(), readString()
+        WarmupParticipantId(readString()),
+        readString(),
+        readString(),
+        readString(),
+        WarmupMappingQuota(readInt(), readInt(), readLong(), readLong())
     )
 
     private fun DataOutputStream.writeDonorMapping(mapping: WarmupDonorMapping) {

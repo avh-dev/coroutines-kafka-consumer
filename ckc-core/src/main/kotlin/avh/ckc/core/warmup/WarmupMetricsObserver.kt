@@ -10,7 +10,7 @@ internal class WarmupMetricsObserver<K, V>(
     private val metrics: ConsumerMetrics<K, V>
 ) : WarmupDataPlaneObserver<K, V> {
     private val pendingLock = Any()
-    private val pendingBySession = mutableMapOf<WarmupSessionId, Int>()
+    private val pendingByLane = mutableMapOf<WarmupPendingKey, Int>()
 
     override fun onForwarded(
         record: ConsumerRecord<K, V>,
@@ -27,12 +27,15 @@ internal class WarmupMetricsObserver<K, V>(
     override fun onFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) =
         metrics.onWarmupFallback(record, reason)
 
-    override fun onPendingChanged(sessionId: WarmupSessionId, pending: Int) {
+    override fun onPendingChanged(key: WarmupPendingKey, pending: Int) {
         synchronized(pendingLock) {
-            if (pending > 0) pendingBySession[sessionId] = pending else pendingBySession.remove(sessionId)
-            metrics.onWarmupPendingChanged(pendingBySession.values.sum())
+            if (pending > 0) pendingByLane[key] = pending else pendingByLane.remove(key)
+            metrics.onWarmupPendingChanged(pendingByLane.values.sum())
         }
     }
+
+    internal fun onPendingChanged(sessionId: WarmupSessionId, pending: Int) =
+        onPendingChanged(WarmupPendingKey(sessionId, "default"), pending)
 
     private fun WarmupRemoteOutcome.metricOutcome(): WarmupResultMetricOutcome = when (this) {
         WarmupRemoteOutcome.Succeeded -> WarmupResultMetricOutcome.SUCCEEDED

@@ -39,4 +39,4 @@ internal fun buildWarmupRecipientConsumerProperties(
     userProperties: Map<String, Any?>,
     requiredProperties: Map<String, Any?>
 ): Map<String, Any?> =
-    (recipientConsumerDefaults + userProperties - ConsumerConfig.GROUP_INSTANCE_ID_CONFIG) + requiredProperties
+    (recipientConsumerDefaults + userProperties + requiredProperties) - ConsumerConfig.GROUP_INSTANCE_ID_CONFIG

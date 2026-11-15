@@ -82,6 +82,7 @@
 | [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
 | [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
 | [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
+| [CORE-80](#core-80) | Expose a public protocol-v6 warm-up context and consumer DSL that owns discovery, activation, fallback, completion, and shutdown. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6095,3 +6096,20 @@ regressions wait explicitly for outbox worker termination instead of relying on 
 The Micrometer adapter test records a local success first and verifies that the subsequent remote
 callback changes neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and
 37 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-80"></a>
+### CORE-80 - Expose the protocol-v6 warm-up DSL
+
+_Date: 2026-11-15_
+
+Added `trafficWarmupContext` and per-consumer `trafficWarmup` DSL entry points over protocol v6.
+The context freezes heterogeneous typed participants on first start, coordinates one all-or-cold
+recipient attempt, keeps donor service available after main readiness, and never owns main runtime
+lifecycle. A payload-free logical session spans typed lanes while per-mapping quota, ramp, result
+routing, pending accounting, and destination-cluster identity remain isolated.
+Normalized records-per-second admission atomically limits whole logical sessions; participant loss,
+late donor rejection, partial preparation, and stop during warm-up use bounded cleanup before cold
+start. Public Kafka coverage exercises three payload types, two simultaneous recipients, late start,
+registration freeze, stop rollback, and one-mapping metadata failure. All 264 core unit tests, 27
+Micrometer tests, the full 43-test Kafka suite, and the final six-test public-DSL Kafka suite pass.
+No smoke, load, chaos, or experiment run was started.
