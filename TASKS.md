@@ -81,6 +81,7 @@
 | [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
 | [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
 | [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
+| [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6062,3 +6063,25 @@ real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was 
 Review hardening serializes aggregate pending publication with its session-state update so a delayed
 callback cannot restore a stale gauge value. Recipient Kafka client identities now include the full
 destination coordinate, keeping concurrent mappings of one participant distinct in JMX and metrics.
+
+<a id="core-79"></a>
+### CORE-79 - Cover shared-partition warm-up with real Kafka and runtime
+
+_Date: 2026-11-15_
+
+Build a reusable real-Kafka acceptance harness around the v6 discovery, multi-session donor data
+plane, independently assigned recipient consumers, and actual processing runtime. Cover concurrent
+recipients and donors, mid-session joins, session filtering, late records, lifecycle drain and loss,
+capacity reuse, total namespace restart without quarantine, context-wide metadata fallback, and
+remote-success metric suppression. Assert handlers, source outcomes, offsets, lifecycle state,
+metrics, released capacity, and absence of terminal consumer failure where applicable.
+Nine real-Kafka acceptance tests cover all thirteen planned topologies and failure scenarios using
+the actual source poll loop, processing runtime, forwarding producer, shared one-partition topic,
+independently assigned session-filtered recipients, source commits, and runtime metrics. A narrow
+internal donor builder seam connects the multi-session interceptor to the normal consumer runtime.
+Recipient terminal result publication selectively adapts archived GLOBAL-4 commits `f013ae6b` and
+`45464da2`: the metrics adapter publishes only after actual success/failure/drop observation, while
+the bounded outbox preserves transport order and offers an acknowledged flush barrier. Foreign and
+handed-off records publish no result. All 257 core unit tests, 27 Micrometer tests, and 33 real-Kafka
+integration tests pass; the focused acceptance class also passes twice. No smoke, load, chaos, or
+experiment run was started.
