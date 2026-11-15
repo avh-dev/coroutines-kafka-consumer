@@ -12,8 +12,8 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-internal fun interface WarmupDonorSessionPreparation<K, V> {
-    suspend fun prepare(acceptance: SessionAccepted): WarmupDonorSession<K, V>
+internal fun interface WarmupDonorSessionPreparation<S : WarmupDonorSessionLifecycle> {
+    suspend fun prepare(acceptance: SessionAccepted): S
 }
 
 /**
@@ -21,13 +21,13 @@ internal fun interface WarmupDonorSessionPreparation<K, V> {
  * remembered under [lock], but the data plane is activated only after the matching prepared
  * session is installed. Cancellation wins the same lock and makes every late resource close.
  */
-internal class WarmupDonorActivation<K, V>(
+internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     private val localInstanceId: WarmupInstanceId,
     private val namespace: WarmupControlNamespace,
     supportedMappings: Collection<WarmupTopicMapping>,
-    private val dataPlane: MultiSessionWarmupDataPlane<K, V>,
+    private val dataPlane: WarmupDonorSessionStore<S>,
     private val eligibility: WarmupDonorEligibility,
-    private val preparation: WarmupDonorSessionPreparation<K, V>,
+    private val preparation: WarmupDonorSessionPreparation<S>,
     private val scope: CoroutineScope,
     private val onPreparationFailed: suspend (SessionRejected) -> Unit,
     private val onDonorClosed: suspend (DonorClosed) -> Unit = {},
@@ -45,24 +45,24 @@ internal class WarmupDonorActivation<K, V>(
         data class ResourceCleanupFailed(val error: Throwable) : PreparationCompletion
     }
 
-    private class LocalSession<K, V>(val acceptance: SessionAccepted) {
+    private class LocalSession<S : WarmupDonorSessionLifecycle>(val acceptance: SessionAccepted) {
         var state = State.PREPARING
         var readySeen = false
         var preparationStarted = false
         var preparationBodyEntered = false
-        var prepared: WarmupDonorSession<K, V>? = null
+        var prepared: S? = null
         var closeStarted = false
         var closeRetryRequested = false
         var acknowledgeClose = false
         var preparationJob: Job? = null
-        var retainedCleanupResource: WarmupDonorSession<K, V>? = null
+        var retainedCleanupResource: S? = null
         var preparationCleanupFailureObserved = false
         val preparationFinished = CompletableDeferred<PreparationCompletion>()
     }
 
     private val lock = Any()
     private val supportedMappings = supportedMappings.associateBy(::mappingIdentity)
-    private val sessions = linkedMapOf<WarmupSessionId, LocalSession<K, V>>()
+    private val sessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
     private val terminalSessionOrder = linkedSetOf<WarmupSessionId>()
     private var admissionBlockedUntilEpochMillis = 0L
 
@@ -88,13 +88,13 @@ internal class WarmupDonorActivation<K, V>(
             }
             if (!supportsAcceptedMappings(acceptance)) return rejection(acceptance, "mapping_mismatch")
             if (!ownsAcceptedMappings(acceptance)) return rejection(acceptance, "source_ownership_changed")
-            when (dataPlane.tryAdmitPreparation(acceptance.sessionId, acceptance.intervalBudget)) {
-                MultiSessionWarmupDataPlane.Admission.ACCEPTED -> LocalSession<K, V>(acceptance).also {
+            when (dataPlane.tryAdmitPreparation(acceptance.sessionId, acceptance.admissionBudgetPerSecond)) {
+                DonorSessionAdmission.ACCEPTED -> LocalSession<S>(acceptance).also {
                     sessions[acceptance.sessionId] = it
                 }
-                MultiSessionWarmupDataPlane.Admission.DUPLICATE -> return rejection(acceptance, "session_conflict")
-                MultiSessionWarmupDataPlane.Admission.SESSION_LIMIT -> return rejection(acceptance, "session_limit")
-                MultiSessionWarmupDataPlane.Admission.BUDGET_LIMIT -> return rejection(acceptance, "budget_limit")
+                DonorSessionAdmission.DUPLICATE -> return rejection(acceptance, "session_conflict")
+                DonorSessionAdmission.SESSION_LIMIT -> return rejection(acceptance, "session_limit")
+                DonorSessionAdmission.BUDGET_LIMIT -> return rejection(acceptance, "budget_limit")
             }
         }
         scheduleExpiry(acceptance.sessionId, acceptance.expiresAtEpochMillis)
@@ -209,8 +209,23 @@ internal class WarmupDonorActivation<K, V>(
         }
     }
 
+    /** Ends only logical sessions that depend on a participant whose main runtime is stopping. */
+    fun onParticipantUnavailable(participantId: WarmupParticipantId): Int {
+        val affected = synchronized(lock) {
+            sessions.values.filter { local ->
+                local.state !in terminalStates &&
+                    local.acceptance.mappings.any { it.mapping.participantId == participantId }
+            }.filter { beginCloseLocked(it, acknowledge = false) }
+                .map(LocalSession<S>::acceptance)
+        }
+        affected.forEach { acceptance ->
+            scope.launch { onPreparationFailed(rejection(acceptance, "donor_participant_unavailable")) }
+        }
+        return affected.size
+    }
+
     /** All completion, fallback, and expiry paths share the same close transition. */
-    private fun beginCloseLocked(local: LocalSession<K, V>, acknowledge: Boolean): Boolean {
+    private fun beginCloseLocked(local: LocalSession<S>, acknowledge: Boolean): Boolean {
         when (local.state) {
             State.PREPARING -> {
                 dataPlane.cancelPreparingAdmission(local.acceptance.sessionId)
@@ -239,7 +254,7 @@ internal class WarmupDonorActivation<K, V>(
         return true
     }
 
-    private suspend fun finishClose(local: LocalSession<K, V>) {
+    private suspend fun finishClose(local: LocalSession<S>) {
         val acceptance = local.acceptance
         val preparationCompletion = local.preparationFinished.await()
         if (preparationCompletion is PreparationCompletion.ResourceCleanupFailed) {
@@ -291,7 +306,7 @@ internal class WarmupDonorActivation<K, V>(
     }
 
     /** Leaves cleanup dormant, or consumes one close trigger that raced the failed attempt. */
-    private fun awaitAnotherCloseTrigger(local: LocalSession<K, V>) {
+    private fun awaitAnotherCloseTrigger(local: LocalSession<S>) {
         val retryNow = synchronized(lock) {
             if (local.state != State.DRAINING) return@synchronized false
             if (local.closeRetryRequested) {
@@ -306,7 +321,7 @@ internal class WarmupDonorActivation<K, V>(
     }
 
     /** Both late and installed resources remain reachable until a close attempt succeeds. */
-    private fun closeRetainedResource(local: LocalSession<K, V>): Boolean {
+    private fun closeRetainedResource(local: LocalSession<S>): Boolean {
         val resource = synchronized(lock) { local.retainedCleanupResource } ?: return true
         return try {
             resource.close()
@@ -336,7 +351,7 @@ internal class WarmupDonorActivation<K, V>(
 
     internal fun state(sessionId: WarmupSessionId): State? = synchronized(lock) { sessions[sessionId]?.state }
 
-    private suspend fun prepare(local: LocalSession<K, V>) {
+    private suspend fun prepare(local: LocalSession<S>) {
         val prepared = try {
             val remainingMillis = local.acceptance.expiresAtEpochMillis - nowEpochMillis()
             require(remainingMillis > 0) { "Warm-up donor preparation deadline expired" }
@@ -388,7 +403,7 @@ internal class WarmupDonorActivation<K, V>(
         }
     }
 
-    private suspend fun failPreparation(local: LocalSession<K, V>, reasonCode: String) {
+    private suspend fun failPreparation(local: LocalSession<S>, reasonCode: String) {
         val notify = synchronized(lock) {
             if (local.state != State.PREPARING) return@synchronized false
             failLocked(local)
@@ -397,16 +412,18 @@ internal class WarmupDonorActivation<K, V>(
         if (notify) onPreparationFailed(rejection(local.acceptance, reasonCode))
     }
 
-    private fun failLocked(local: LocalSession<K, V>) {
+    private fun failLocked(local: LocalSession<S>) {
         local.state = State.FAILED
         local.readySeen = false
         if (local.prepared == null) {
             dataPlane.cancelPreparingAdmission(local.acceptance.sessionId)
         } else {
             dataPlane.stopDelegating(local.acceptance.sessionId)
-            check(dataPlane.removeDrainedSession(local.acceptance.sessionId)) {
+            val detached = dataPlane.detachDrainedSession(local.acceptance.sessionId)
+            check(detached != null) {
                 "Failed unactivated donor session ${local.acceptance.sessionId.value} did not close"
             }
+            detached.close()
         }
         recordTerminalLocked(local)
     }
@@ -415,7 +432,7 @@ internal class WarmupDonorActivation<K, V>(
      * Keeps exact fences bounded without forgetting a still-valid session. When exact storage is
      * full, the omitted fence blocks every new admission until its immutable deadline expires.
      */
-    private fun recordTerminalLocked(local: LocalSession<K, V>) {
+    private fun recordTerminalLocked(local: LocalSession<S>) {
         pruneExpiredTerminalFencesLocked()
         val sessionId = local.acceptance.sessionId
         if (sessionId in terminalSessionOrder) return
@@ -494,8 +511,7 @@ internal class WarmupDonorActivation<K, V>(
         senderInstanceId = localInstanceId,
         targetInstanceId = acceptance.senderInstanceId,
         mappings = acceptance.mappings,
-        intervalBudget = acceptance.intervalBudget,
-        initialQuota = acceptance.initialQuota,
+        admissionBudgetPerSecond = acceptance.admissionBudgetPerSecond,
         configurationFingerprint = acceptance.configurationFingerprint,
         expiresAtEpochMillis = acceptance.expiresAtEpochMillis
     )

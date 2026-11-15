@@ -4,8 +4,16 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.localRecordInterceptor
 import avh.ckc.core.warmup.WarmupCompletionPublisher
+import avh.ckc.core.warmup.TrafficWarmupConsumerConfiguration
+import avh.ckc.core.warmup.TrafficWarmupContext
+import avh.ckc.core.warmup.TrafficWarmupParticipant
+import avh.ckc.core.warmup.WarmupParticipantDataPlane
+import avh.ckc.core.warmup.WarmupParticipantId
 import avh.ckc.core.warmup.WarmupRecipientOutcomeMetrics
 import avh.ckc.core.warmup.WarmupSessionId
+import avh.ckc.core.warmup.WarmupTopicMapping
+import avh.ckc.core.warmup.mappingFingerprint
+import avh.ckc.core.warmup.validateWarmupParticipantConnections
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -119,6 +127,13 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private var topics: List<String>? = null
     private var topicsPattern: Pattern? = null
     private var handler: KafkaRecordHandler<K, V>? = null
+    private var warmupDefinition: WarmupDefinition? = null
+
+    private data class WarmupDefinition(
+        val context: TrafficWarmupContext,
+        val participantId: WarmupParticipantId,
+        val configuration: TrafficWarmupConsumerConfiguration
+    )
 
     /**
      * Subscribes the consumer to the provided topic names.
@@ -158,11 +173,95 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         this.handler = KafkaRecordHandler(handler)
     }
 
+    /** Registers this consumer as one typed participant of a shared protocol-v6 context. */
+    fun trafficWarmup(
+        context: TrafficWarmupContext,
+        participantId: String,
+        block: TrafficWarmupConsumerConfiguration.() -> Unit
+    ) {
+        check(warmupDefinition == null) { "Traffic warm-up is already configured for this consumer" }
+        warmupDefinition = WarmupDefinition(
+            context,
+            WarmupParticipantId(participantId),
+            TrafficWarmupConsumerConfiguration().apply(block)
+        )
+    }
+
     /**
      * Builds a low-level [CoroutinesKafkaConsumer] from the accumulated builder state.
      */
     internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> {
-        return buildSubscribed(consumerProperties, localRecordInterceptor())
+        val warmup = warmupDefinition ?: return buildSubscribed(consumerProperties, localRecordInterceptor())
+        val configuredTopics = requireNotNull(topics) {
+            "Traffic warm-up requires an explicit topic subscription"
+        }
+        require(warmup.configuration.mappings.isNotEmpty()) {
+            "At least one warm-up topic mapping is required"
+        }
+        require(warmup.configuration.mappings.keys.all(configuredTopics::contains)) {
+            "Every warm-up source topic must belong to the main consumer subscription"
+        }
+        validateWarmupParticipantConnections(
+            warmup.configuration.warmupConsumerProperties,
+            warmup.configuration.forwardingProducerProperties
+        )
+        val protocolMappings = warmup.configuration.mappings.values.map { mapping ->
+            WarmupTopicMapping(
+                participantId = warmup.participantId,
+                sourceTopic = mapping.sourceTopic,
+                warmupTopic = mapping.warmupTopic,
+                mappingFingerprint = mappingFingerprint(
+                    warmup.participantId,
+                    mapping,
+                    warmup.configuration.warmupConsumerProperties
+                ),
+                quota = mapping.quota
+            )
+        }
+        val dataPlane = WarmupParticipantDataPlane<K, V>()
+        val main = buildSubscribed(consumerProperties, dataPlane)
+        val participant = TrafficWarmupParticipant(
+            participantId = warmup.participantId,
+            mappings = protocolMappings,
+            warmupConsumerProperties = warmup.configuration.warmupConsumerProperties,
+            forwardingProducerProperties = warmup.configuration.forwardingProducerProperties,
+            mainProperties = consumerProperties,
+            recipientBuilder = snapshotForRecipient(),
+            mainConsumer = main,
+            dataPlane = dataPlane,
+            metrics = metrics,
+            delegationTimeoutMillis = warmup.context.delegationTimeoutMillis(),
+            forwardingObserver = warmup.configuration.forwardingObserver
+        )
+        main.attachManagedLifecycle(warmup.context.register(participant))
+        return main
+    }
+
+    private fun snapshotForRecipient(): CoroutinesKafkaConsumerBuilder<K, V> {
+        val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
+        return CoroutinesKafkaConsumerBuilder<K, V>().also { copy ->
+            copy.processingMode = processingMode
+            copy.workerConcurrency = workerConcurrency
+            copy.consumerPollLoopConcurrency = consumerPollLoopConcurrency
+            copy.commitIntervalMs = commitIntervalMs
+            copy.commitRecordsThreshold = commitRecordsThreshold
+            copy.maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition
+            copy.workChannelCapacity = workChannelCapacity
+            copy.freshnessMaxRecordAge = freshnessMaxRecordAge
+            copy.partitionHandoffTimeout = partitionHandoffTimeout
+            copy.shutdownDrainTimeout = shutdownDrainTimeout
+            copy.processingCancellationTimeout = processingCancellationTimeout
+            copy.recoveryTimeout = recoveryTimeout
+            copy.recoveryRetryBackoff = recoveryRetryBackoff
+            copy.processingDispatcher = processingDispatcher
+            copy.retryPolicy = retryPolicy
+            copy.metrics = metrics
+            copy.recordProcessingContext = recordProcessingContext
+            copy.processingFailureHandler = processingFailureHandler
+            copy.parentContext = parentContext
+            copy.topics(requireNotNull(topics))
+            copy.handle(configuredHandler::process)
+        }
     }
 
     /** Builds a subscribed runtime whose admitted records may be delegated by a warm-up donor. */

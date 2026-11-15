@@ -11,9 +11,8 @@ import kotlin.time.Duration
  */
 internal class MultiSessionWarmupDataPlane<K, V>(
     private val maxSessions: Int,
-    private val maxAggregateIntervalBudget: Int
-) : AdmittedRecordInterceptor<K, V>, AutoCloseable {
-    internal enum class Admission { ACCEPTED, DUPLICATE, SESSION_LIMIT, BUDGET_LIMIT }
+    private val maxAggregateBudgetPerSecond: Int
+) : AdmittedRecordInterceptor<K, V>, WarmupDonorSessionStore<WarmupDonorSession<K, V>>, AutoCloseable {
 
     private data class SelectedDelegation<K, V>(
         val session: WarmupDonorSession<K, V>,
@@ -21,24 +20,24 @@ internal class MultiSessionWarmupDataPlane<K, V>(
     )
 
     private data class AdmittedSlot<K, V>(
-        val intervalBudget: Int,
+        val budgetPerSecond: Int,
         var session: WarmupDonorSession<K, V>? = null
     )
 
     /** Protects membership, aggregate capacity, the round-robin cursor, and activation versus removal. */
     private val lock = Any()
     private val sessions = linkedMapOf<WarmupSessionId, AdmittedSlot<K, V>>()
-    private var aggregateIntervalBudget = 0
+    private var aggregateBudgetPerSecond = 0
     private var nextSessionIndex = 0
 
     init {
         require(maxSessions > 0) { "Maximum donor sessions must be > 0" }
-        require(maxAggregateIntervalBudget > 0) { "Maximum aggregate warm-up budget must be > 0" }
+        require(maxAggregateBudgetPerSecond > 0) { "Maximum aggregate warm-up budget must be > 0" }
     }
 
-    fun admit(session: WarmupDonorSession<K, V>): Admission {
-        val admission = tryAdmitPreparation(session.sessionId, session.intervalBudget)
-        if (admission == Admission.ACCEPTED) check(installAdmittedSession(session))
+    fun admit(session: WarmupDonorSession<K, V>): DonorSessionAdmission {
+        val admission = tryAdmitPreparation(session.sessionId, session.admissionBudgetPerSecond)
+        if (admission == DonorSessionAdmission.ACCEPTED) check(installAdmittedSession(session))
         return admission
     }
 
@@ -46,37 +45,40 @@ internal class MultiSessionWarmupDataPlane<K, V>(
      * Atomically accounts local capacity before asynchronous donor preparation starts. This is a
      * local admission, not a distributed partition reservation: no transport coordinate is owned.
      */
-    fun tryAdmitPreparation(sessionId: WarmupSessionId, intervalBudget: Int): Admission = synchronized(lock) {
-        require(intervalBudget > 0) { "Warm-up interval budget must be > 0" }
-        if (sessionId in sessions) return@synchronized Admission.DUPLICATE
-        if (sessions.size >= maxSessions) return@synchronized Admission.SESSION_LIMIT
-        if (intervalBudget > maxAggregateIntervalBudget - aggregateIntervalBudget) {
-            return@synchronized Admission.BUDGET_LIMIT
+    override fun tryAdmitPreparation(
+        sessionId: WarmupSessionId,
+        budgetPerSecond: Int
+    ): DonorSessionAdmission = synchronized(lock) {
+        require(budgetPerSecond > 0) { "Warm-up budget per second must be > 0" }
+        if (sessionId in sessions) return@synchronized DonorSessionAdmission.DUPLICATE
+        if (sessions.size >= maxSessions) return@synchronized DonorSessionAdmission.SESSION_LIMIT
+        if (budgetPerSecond > maxAggregateBudgetPerSecond - aggregateBudgetPerSecond) {
+            return@synchronized DonorSessionAdmission.BUDGET_LIMIT
         }
-        sessions[sessionId] = AdmittedSlot(intervalBudget)
-        aggregateIntervalBudget += intervalBudget
-        Admission.ACCEPTED
+        sessions[sessionId] = AdmittedSlot(budgetPerSecond)
+        aggregateBudgetPerSecond += budgetPerSecond
+        DonorSessionAdmission.ACCEPTED
     }
 
     /** Installs exactly one prepared session into its already accounted admission slot. */
-    fun installAdmittedSession(session: WarmupDonorSession<K, V>): Boolean = synchronized(lock) {
+    override fun installAdmittedSession(session: WarmupDonorSession<K, V>): Boolean = synchronized(lock) {
         val slot = sessions[session.sessionId] ?: return@synchronized false
-        if (slot.session != null || slot.intervalBudget != session.intervalBudget) return@synchronized false
+        if (slot.session != null || slot.budgetPerSecond != session.admissionBudgetPerSecond) return@synchronized false
         slot.session = session
         true
     }
 
     /** Releases capacity only while preparation has not installed a data-plane session. */
-    fun cancelPreparingAdmission(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
+    override fun cancelPreparingAdmission(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
         val slot = sessions[sessionId] ?: return@synchronized false
         if (slot.session != null) return@synchronized false
         sessions.remove(sessionId)
-        aggregateIntervalBudget -= slot.intervalBudget
+        aggregateBudgetPerSecond -= slot.budgetPerSecond
         if (sessions.isEmpty()) nextSessionIndex = 0
         true
     }
 
-    fun activate(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
+    override fun activate(sessionId: WarmupSessionId): Boolean = synchronized(lock) {
         sessions[sessionId]?.session?.activate() ?: false
     }
 
@@ -101,27 +103,27 @@ internal class MultiSessionWarmupDataPlane<K, V>(
             null
         }
 
-    fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion =
+    override fun acceptResult(completed: WarmupRecordCompleted): WarmupResultTracker.Completion =
         synchronized(lock) { sessions[completed.recordId.sessionId] }
             ?.session
             ?.acceptResult(completed)
             ?: WarmupResultTracker.Completion.IGNORED
 
-    fun stopDelegating(sessionId: WarmupSessionId) {
+    override fun stopDelegating(sessionId: WarmupSessionId) {
         synchronized(lock) { sessions[sessionId]?.session }?.stopDelegating()
     }
 
-    suspend fun stopDelegatingAndAwaitInflight(sessionId: WarmupSessionId, timeout: Duration) {
+    override suspend fun stopDelegatingAndAwaitInflight(sessionId: WarmupSessionId, timeout: Duration) {
         val session = synchronized(lock) { sessions[sessionId]?.session }
         session?.stopDelegatingAndAwaitInflight(timeout)
     }
 
-    suspend fun awaitInflightCompletion(sessionId: WarmupSessionId) {
+    override suspend fun awaitInflightCompletion(sessionId: WarmupSessionId) {
         val session = synchronized(lock) { sessions[sessionId]?.session }
         session?.awaitInflightCompletion()
     }
 
-    fun fail(sessionId: WarmupSessionId, error: Throwable) {
+    override fun fail(sessionId: WarmupSessionId, error: Throwable) {
         synchronized(lock) { sessions[sessionId]?.session }?.fail(error)
     }
 
@@ -129,13 +131,13 @@ internal class MultiSessionWarmupDataPlane<K, V>(
      * Removes only an unactivated, drained, or failed session and transfers cleanup ownership to
      * the caller. An early removal attempt leaves the session and its accounted capacity intact.
      */
-    fun detachDrainedSession(sessionId: WarmupSessionId): WarmupDonorSession<K, V>? =
+    override fun detachDrainedSession(sessionId: WarmupSessionId): WarmupDonorSession<K, V>? =
         synchronized(lock) {
             val slot = sessions[sessionId] ?: return@synchronized null
             val session = slot.session ?: return@synchronized null
             if (!session.trySealForRemoval()) return@synchronized null
             sessions.remove(sessionId)
-            aggregateIntervalBudget -= slot.intervalBudget
+            aggregateBudgetPerSecond -= slot.budgetPerSecond
             if (sessions.isEmpty()) {
                 nextSessionIndex = 0
             } else {
@@ -153,7 +155,7 @@ internal class MultiSessionWarmupDataPlane<K, V>(
 
     internal fun admittedSessionCount(): Int = synchronized(lock) { sessions.size }
 
-    internal fun admittedIntervalBudget(): Int = synchronized(lock) { aggregateIntervalBudget }
+    internal fun admittedBudgetPerSecond(): Int = synchronized(lock) { aggregateBudgetPerSecond }
 
     /** Stops admission and closes the plane only when no session still has inflight work. */
     override fun close() {
@@ -165,7 +167,7 @@ internal class MultiSessionWarmupDataPlane<K, V>(
             }
             installed.also {
                 sessions.clear()
-                aggregateIntervalBudget = 0
+                aggregateBudgetPerSecond = 0
                 nextSessionIndex = 0
             }
         }

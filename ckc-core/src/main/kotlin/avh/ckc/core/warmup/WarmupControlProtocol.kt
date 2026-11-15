@@ -23,11 +23,41 @@ internal sealed interface WarmupControlMessage {
     val expiresAtEpochMillis: Long
 }
 
+/** Immutable per-mapping quota carried by every offer and acceptance. */
+internal data class WarmupMappingQuota(
+    val quotaPerInterval: Int,
+    val initialQuotaPerInterval: Int = quotaPerInterval,
+    val quotaIntervalMillis: Long = 1_000,
+    val quotaRampDurationMillis: Long = 0
+) {
+    init {
+        require(quotaPerInterval > 0) { "Mapping quota must be positive" }
+        require(initialQuotaPerInterval in 1..quotaPerInterval) {
+            "Initial mapping quota must be between 1 and the steady quota"
+        }
+        require(quotaIntervalMillis > 0) { "Mapping quota interval must be positive" }
+        require(quotaRampDurationMillis >= 0) { "Mapping quota ramp duration must not be negative" }
+    }
+
+    /** Admission units are records per second, rounded up so capacity is never under-accounted. */
+    fun admissionBudgetPerSecond(): Int {
+        val numerator = Math.multiplyExact(quotaPerInterval.toLong(), 1_000L)
+        return Math.ceilDiv(numerator, quotaIntervalMillis).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+}
+
+internal fun normalizedAdmissionBudget(mappings: Collection<WarmupTopicMapping>): Int {
+    val total = mappings.sumOf { it.quota.admissionBudgetPerSecond().toLong() }
+    require(total in 1..Int.MAX_VALUE.toLong()) { "Aggregate mapping quota exceeds the protocol admission range" }
+    return total.toInt()
+}
+
 internal data class WarmupTopicMapping(
     val participantId: WarmupParticipantId,
     val sourceTopic: String,
     val warmupTopic: String,
-    val mappingFingerprint: String
+    val mappingFingerprint: String,
+    val quota: WarmupMappingQuota = WarmupMappingQuota(10)
 ) {
     init {
         validateTopic("sourceTopic", sourceTopic)
@@ -72,8 +102,7 @@ internal data class WarmupRequested(
     override val senderInstanceId: WarmupInstanceId,
     val mappings: List<WarmupTopicMapping>,
     val offerDeadlineEpochMillis: Long,
-    val intervalBudget: Int,
-    val initialQuota: Int,
+    val admissionBudgetPerSecond: Int,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
@@ -86,8 +115,9 @@ internal data class WarmupRequested(
         require(offerDeadlineEpochMillis > 0 && offerDeadlineEpochMillis <= expiresAtEpochMillis) {
             "Offer deadline must be positive and not exceed the session deadline"
         }
-        validateQuota(intervalBudget, initialQuota)
+        validateAdmissionBudget(admissionBudgetPerSecond, mappings)
     }
+
 }
 
 internal data class DonorOffered(
@@ -112,8 +142,7 @@ internal data class SessionAccepted(
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
     val mappings: List<WarmupDonorMapping>,
-    val intervalBudget: Int,
-    val initialQuota: Int,
+    val admissionBudgetPerSecond: Int,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
@@ -121,8 +150,9 @@ internal data class SessionAccepted(
     init {
         validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
         validateDonorMappings(mappings)
-        validateQuota(intervalBudget, initialQuota)
+        validateAdmissionBudget(admissionBudgetPerSecond, mappings.map(WarmupDonorMapping::mapping))
     }
+
 }
 
 internal data class DonorAccepted(
@@ -131,8 +161,7 @@ internal data class DonorAccepted(
     override val senderInstanceId: WarmupInstanceId,
     override val targetInstanceId: WarmupInstanceId,
     val mappings: List<WarmupDonorMapping>,
-    val intervalBudget: Int,
-    val initialQuota: Int,
+    val admissionBudgetPerSecond: Int,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
     override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
@@ -140,8 +169,9 @@ internal data class DonorAccepted(
     init {
         validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
         validateDonorMappings(mappings)
-        validateQuota(intervalBudget, initialQuota)
+        validateAdmissionBudget(admissionBudgetPerSecond, mappings.map(WarmupDonorMapping::mapping))
     }
+
 }
 
 internal data class SessionRejected(
@@ -269,9 +299,12 @@ private fun validateAssignments(assignments: List<WarmupPartitionAssignment>) {
     }
 }
 
-private fun validateQuota(intervalBudget: Int, initialQuota: Int) {
-    require(intervalBudget > 0) { "Interval budget must be positive" }
-    require(initialQuota in 1..intervalBudget) { "Initial quota must be between 1 and interval budget" }
+private fun validateAdmissionBudget(budgetPerSecond: Int, mappings: List<WarmupTopicMapping>) {
+    require(budgetPerSecond > 0) { "Admission budget per second must be positive" }
+    val expected = mappings.sumOf { it.quota.admissionBudgetPerSecond().toLong() }
+    require(expected <= Int.MAX_VALUE && budgetPerSecond == expected.toInt()) {
+        "Admission budget per second must equal the normalized sum of mapping quotas"
+    }
 }
 
 private fun validateTopic(name: String, topic: String) {

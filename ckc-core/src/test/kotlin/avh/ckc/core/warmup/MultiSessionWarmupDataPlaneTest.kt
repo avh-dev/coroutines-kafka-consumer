@@ -47,7 +47,7 @@ class MultiSessionWarmupDataPlaneTest {
             invocation.callRealMethod()
         }.whenever(session).activate()
 
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         plane.admit(session)
         val removalThread = AtomicReference<Thread>()
         val removalStarted = CountDownLatch(1)
@@ -85,7 +85,7 @@ class MultiSessionWarmupDataPlaneTest {
     @Test
     @Suppress("UNCHECKED_CAST")
     fun `rejected inflight removal leaves main runtime and sibling session operational`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val first = pendingSession("first-runtime", 1, firstForwarded)
@@ -139,7 +139,7 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `early removal with inflight is rejected while sibling session continues`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val first = WarmupDonorSession(
@@ -189,7 +189,7 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `external timeout cancels delegation without local fallback`() {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val sent = CompletableDeferred<Unit>()
         val localCalls = AtomicInteger()
         val session = idleSession(
@@ -222,7 +222,7 @@ class MultiSessionWarmupDataPlaneTest {
     @Test
     @Suppress("UNCHECKED_CAST")
     fun `remote wait keeps the partition ordering slot occupied`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val events = CopyOnWriteArrayList<WarmupForwardedEvent>()
         val sends = AtomicInteger()
         val session = WarmupDonorSession(
@@ -283,14 +283,14 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `one donor selects two active sessions fairly and delegates each record once`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstSends = AtomicInteger()
         val secondSends = AtomicInteger()
         val localCalls = AtomicInteger()
         val first = successfulSession("first", firstSends, plane)
         val second = successfulSession("second", secondSends, plane)
-        assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(first))
-        assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(second))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(first))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(second))
         assertTrue(plane.activate(first.sessionId))
         assertTrue(plane.activate(second.sessionId))
 
@@ -311,25 +311,25 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `admission checks session and aggregate budget limits atomically`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 3, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 3, maxAggregateBudgetPerSecond = 10)
         val candidates = List(20) { index -> idleSession("session-$index", intervalBudget = 4) }
 
         val results = candidates.map { session ->
             async(Dispatchers.Default) { session to plane.admit(session) }
         }.map { it.await() }
 
-        assertEquals(2, results.count { it.second == MultiSessionWarmupDataPlane.Admission.ACCEPTED })
-        assertEquals(18, results.count { it.second == MultiSessionWarmupDataPlane.Admission.BUDGET_LIMIT })
+        assertEquals(2, results.count { it.second == DonorSessionAdmission.ACCEPTED })
+        assertEquals(18, results.count { it.second == DonorSessionAdmission.BUDGET_LIMIT })
         assertEquals(2, plane.admittedSessionCount())
-        assertEquals(8, plane.admittedIntervalBudget())
-        results.filter { it.second != MultiSessionWarmupDataPlane.Admission.ACCEPTED }
+        assertEquals(8, plane.admittedBudgetPerSecond())
+        results.filter { it.second != DonorSessionAdmission.ACCEPTED }
             .forEach { it.first.close() }
         plane.close()
     }
 
     @Test
     fun `failure in one session falls back locally and leaves sibling active`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateIntervalBudget = 20)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val failedSends = AtomicInteger()
         val successfulSends = AtomicInteger()
         val localCalls = AtomicInteger()
@@ -367,7 +367,7 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `cancellation while waiting for a result never invokes local fallback`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateIntervalBudget = 10)
+        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val sent = CompletableDeferred<Unit>()
         val localCalls = AtomicInteger()
         val session = idleSession(

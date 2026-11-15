@@ -321,7 +321,8 @@ class WarmupRecipientDiscoveryTest {
     )
 
     private fun request() = WarmupRequested(
-        namespace, WarmupSessionId("session"), recipient, mappings, 2_000, 10, 2, "fingerprint", 10_000
+        namespace, WarmupSessionId("session"), recipient, mappings, 2_000,
+        normalizedAdmissionBudget(mappings), "fingerprint", 10_000
     )
 
     private fun offer(selected: List<WarmupTopicMapping>) = DonorOffered(
@@ -332,7 +333,7 @@ class WarmupRecipientDiscoveryTest {
 
     private fun accepted(message: SessionAccepted) = DonorAccepted(
         message.namespace, message.sessionId, message.targetInstanceId, message.senderInstanceId,
-        message.mappings, message.intervalBudget, message.initialQuota,
+        message.mappings, message.admissionBudgetPerSecond,
         message.configurationFingerprint, message.expiresAtEpochMillis
     )
 

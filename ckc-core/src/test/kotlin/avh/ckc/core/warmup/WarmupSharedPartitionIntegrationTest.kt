@@ -379,7 +379,8 @@ class WarmupSharedPartitionIntegrationTest {
         val donorId = WarmupInstanceId("donor")
         val request = WarmupRequested(
             WarmupControlNamespace("global5-v6-integration"), WarmupSessionId("metadata-session"),
-            recipientId, listOf(valid, invalid), now + 10_000, 10, 10, "configuration", now + 20_000
+            recipientId, listOf(valid, invalid), now + 10_000,
+            normalizedAdmissionBudget(listOf(valid, invalid)), "configuration", now + 20_000
         )
         val prepared = CopyOnWriteArrayList<WarmupDestinationStart>()
         val discovery = WarmupRecipientDiscovery(
@@ -407,7 +408,7 @@ class WarmupSharedPartitionIntegrationTest {
         ).messages.single()
         assertTrue(discovery.onDonorAccepted(DonorAccepted(
             acceptance.namespace, acceptance.sessionId, donorId, recipientId, acceptance.mappings,
-            acceptance.intervalBudget, acceptance.initialQuota, acceptance.configurationFingerprint,
+            acceptance.admissionBudgetPerSecond, acceptance.configurationFingerprint,
             acceptance.expiresAtEpochMillis
         )))
 
@@ -486,10 +487,10 @@ class WarmupSharedPartitionIntegrationTest {
             .buildWarmupDonor(consumerProperties(donorGroup), plane)
         private lateinit var donorTransport: WarmupControlTransport
         private lateinit var recipientTransport: WarmupControlTransport
-        val donorActivation: WarmupDonorActivation<String, String>
-        private val recipientActivation: WarmupDonorActivation<String, String>
-        private val donorRuntime: WarmupDiscoveryRuntime<String, String>
-        private val recipientRuntime: WarmupDiscoveryRuntime<String, String>
+        val donorActivation: WarmupDonorActivation<WarmupDonorSession<String, String>>
+        private val recipientActivation: WarmupDonorActivation<WarmupDonorSession<String, String>>
+        private val donorRuntime: WarmupDiscoveryRuntime<WarmupDonorSession<String, String>>
+        private val recipientRuntime: WarmupDiscoveryRuntime<WarmupDonorSession<String, String>>
         private lateinit var request: WarmupRequested
         private lateinit var recipientDiscovery: WarmupRecipientDiscovery
         val outbox: WarmupCompletionOutbox
@@ -585,8 +586,7 @@ class WarmupSharedPartitionIntegrationTest {
                 senderInstanceId = recipientId,
                 mappings = listOf(mapping),
                 offerDeadlineEpochMillis = now + 5_000,
-                intervalBudget = 1_000,
-                initialQuota = 1_000,
+                admissionBudgetPerSecond = normalizedAdmissionBudget(listOf(mapping)),
                 configurationFingerprint = configurationFingerprint,
                 expiresAtEpochMillis = now + 30_000
             )
@@ -701,9 +701,9 @@ class WarmupSharedPartitionIntegrationTest {
             }
             return WarmupDonorSession(
                 sessionId = acceptance.sessionId,
-                intervalBudget = acceptance.intervalBudget,
-                quotaInterval = 1.seconds,
-                initialQuota = acceptance.initialQuota,
+                intervalBudget = acceptance.mappings.single().mapping.quota.quotaPerInterval,
+                quotaInterval = acceptance.mappings.single().mapping.quota.quotaIntervalMillis.milliseconds,
+                initialQuota = acceptance.mappings.single().mapping.quota.initialQuotaPerInterval,
                 delegationTimeout = 5.seconds,
                 destinationResolver = WarmupDestinationResolver { record -> destinations[record.topic()] },
                 sender = KafkaWarmupRecordSender(producerProperties()),
@@ -826,7 +826,7 @@ class WarmupSharedPartitionIntegrationTest {
                 observer = donorObserver
             )
             try {
-                assertEquals(MultiSessionWarmupDataPlane.Admission.ACCEPTED, plane.admit(session))
+                assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(session))
                 assertTrue(plane.activate(sessionId))
             } catch (error: Throwable) {
                 plane.stopDelegating(sessionId)
@@ -909,7 +909,8 @@ class WarmupSharedPartitionIntegrationTest {
         warmupTopic: String
     ) = WarmupTopicMapping(
         participant, sourceTopic, warmupTopic,
-        "mapping-${sourceTopic.hashCode()}-${warmupTopic.hashCode()}"
+        "mapping-${sourceTopic.hashCode()}-${warmupTopic.hashCode()}",
+        WarmupMappingQuota(1_000)
     )
 
     private fun consumerProperties(groupId: String): Map<String, Any?> = mapOf(

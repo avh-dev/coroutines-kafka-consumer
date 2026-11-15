@@ -56,6 +56,19 @@ class WarmupMetricsObserverTest {
     }
 
     @Test
+    fun `pending aggregates mappings inside the same logical session`() {
+        val metrics = RecordingMetrics<String, String>()
+        val observer = WarmupMetricsObserver(metrics)
+        val session = WarmupSessionId("shared-session")
+
+        observer.onPendingChanged(WarmupPendingKey(session, "orders"), 2)
+        observer.onPendingChanged(WarmupPendingKey(session, "payments"), 3)
+        observer.onPendingChanged(WarmupPendingKey(session, "orders"), 0)
+
+        assertEquals(listOf(2, 5, 3), metrics.warmupPending)
+    }
+
+    @Test
     fun `concurrent pending updates cannot publish an older aggregate last`() {
         val firstCallbackEntered = CountDownLatch(1)
         val releaseFirstCallback = CountDownLatch(1)

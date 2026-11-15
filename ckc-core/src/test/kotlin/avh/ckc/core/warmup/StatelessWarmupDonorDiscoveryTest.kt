@@ -25,7 +25,7 @@ class StatelessWarmupDonorDiscoveryTest {
         )
         val request = WarmupRequested(
             namespace, WarmupSessionId("session"), recipient, listOf(mapping),
-            2_000, 10, 2, "fingerprint", 10_000
+            2_000, normalizedAdmissionBudget(listOf(mapping)), "fingerprint", 10_000
         )
 
         val first = discovery.offer(request, 1_000)
