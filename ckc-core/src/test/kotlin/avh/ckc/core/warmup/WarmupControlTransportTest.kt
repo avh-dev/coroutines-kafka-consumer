@@ -11,6 +11,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.PartitionInfo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -113,6 +114,26 @@ class WarmupControlTransportTest {
         Unit
     }
 
+    @Test
+    fun `control metadata rejects a topic that does not expose exactly partition zero`() = runBlocking {
+        val consumer = tailConsumer(
+            emptyList(),
+            end = 0,
+            releaseRecords = AtomicBoolean(false),
+            metadataPartitions = listOf(0, 1)
+        )
+        val transport = transport(consumer) { }
+        try {
+            transport.start()
+            val failure = assertThrows(IllegalStateException::class.java) {
+                runBlocking { withTimeout(1_000) { transport.awaitReady() } }
+            }
+            assertTrue(failure.message.orEmpty().contains("exactly partition 0"))
+        } finally {
+            transport.stop()
+        }
+    }
+
     private fun transport(
         consumer: Consumer<String, ByteArray>,
         sendTimeout: kotlin.time.Duration = 30.seconds,
@@ -136,13 +157,17 @@ class WarmupControlTransportTest {
     private fun tailConsumer(
         messages: List<WarmupControlMessage>,
         end: Long,
-        releaseRecords: AtomicBoolean
+        releaseRecords: AtomicBoolean,
+        metadataPartitions: List<Int> = listOf(0)
     ): Consumer<String, ByteArray> {
         val consumer = mock<Consumer<String, ByteArray>>()
         val listener = AtomicReference<ConsumerRebalanceListener>()
         val assigned = AtomicBoolean(false)
         val delivered = AtomicBoolean(false)
         val partition = TopicPartition("control", 0)
+        whenever(consumer.partitionsFor(any(), any<JavaDuration>())).thenReturn(
+            metadataPartitions.map { PartitionInfo("control", it, null, emptyArray(), emptyArray()) }
+        )
         doAnswer {
             listener.set(it.getArgument(1))
             Unit

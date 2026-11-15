@@ -35,7 +35,7 @@ internal class KafkaWarmupRecordSender<K, V>(
     private val closeTimeout: Duration = 5.seconds,
     producerFactory: (Map<String, Any?>) -> Producer<K, V> = { KafkaProducer(it) }
 ) : WarmupRecordSender<K, V>, AutoCloseable {
-    private val producerProperties = producerProperties.toMap()
+    private val producerProperties = buildWarmupForwardingProducerProperties(producerProperties)
     private val producerDelegate = lazy { producerFactory(this.producerProperties) }
     private val producer: Producer<K, V> by producerDelegate
 

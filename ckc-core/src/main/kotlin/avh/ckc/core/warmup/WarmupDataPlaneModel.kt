@@ -1,6 +1,7 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.WarmupFallbackReason
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import java.util.UUID
@@ -72,16 +73,9 @@ internal data class WarmupForwardedEvent(
     val destinationOffset: Long
 )
 
-internal enum class WarmupFallbackReason {
-    SEND_FAILURE,
-    RESULT_TIMEOUT,
-    SESSION_FAILURE,
-    REMOTE_TERMINAL_FAILURE
-}
-
-/** Internal observation seam; CORE-78 connects it to the public metrics callback. */
+/** Session-aware observation seam for donor forwarding, results, fallback, and pending accounting. */
 internal interface WarmupDataPlaneObserver<K, V> {
-    fun onForwarded(event: WarmupForwardedEvent, durationNanos: Long) = Unit
+    fun onForwarded(record: ConsumerRecord<K, V>, event: WarmupForwardedEvent, durationNanos: Long) = Unit
     fun onResult(record: ConsumerRecord<K, V>, outcome: WarmupRemoteOutcome, durationNanos: Long) = Unit
     fun onFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) = Unit
     fun onPendingChanged(sessionId: WarmupSessionId, pending: Int) = Unit

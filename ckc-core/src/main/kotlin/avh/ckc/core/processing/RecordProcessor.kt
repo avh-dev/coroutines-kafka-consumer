@@ -65,7 +65,8 @@ internal class RecordProcessor<K, V>(
                         value = value,
                         record = record,
                         endToEndLatencyMillis = (currentTimeMillis() - record.timestamp()).coerceAtLeast(0L),
-                        durationNanos = System.nanoTime() - startedAt
+                        durationNanos = System.nanoTime() - startedAt,
+                        processedRemotely = outcome == RecordProcessingOutcome.HandlerSucceededRemotely
                     )
                 }
                 is RecordProcessingOutcome.HandlerFailed -> {

@@ -80,6 +80,7 @@
 | [CORE-75](#core-75) | Filter foreign warm-up sessions before recipient records enter processing queues while preserving ownership and offset ordering. | DONE |
 | [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
 | [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
+| [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6034,3 +6035,30 @@ dispatch, and use one retained-resource cleanup path for late and detached insta
 failed sender close remains retryable and cannot acknowledge completion early.
 Concurrent preparation starts now create and install their single lazy job atomically, preventing a
 losing launch from completing the winning preparation's shared terminal signal.
+
+<a id="core-78"></a>
+### CORE-78 - Configure warm-up Kafka connections and observability
+
+_Date: 2026-11-15_
+
+Selectively adapt GLOBAL-4 metadata discovery, Kafka client defaults and configuration merging,
+remote-processing callback semantics, and warm-up metrics to the shared-partition protocol. Resolve
+control metadata through the control connection and every destination through its participant
+connection, with one bounded metadata timeout and context-wide cold fallback on incompatibility.
+Preserve explicit user overrides while applying protocol-mandatory properties last; remote success
+must report `processedRemotely=true` without duplicating ordinary processed, duration, or E2E
+Micrometer observations. Foreign session records remain absent from terminal outcomes and ordinary
+processing metrics. Cover configuration precedence, metadata diagnostics, callback routing, and
+session-isolated metrics with focused unit and real-Kafka integration tests.
+Implementation selectively adapts archived GLOBAL-4 commits `5b1eae53` (safe metadata fallback
+diagnostics), `07e7fe26` (remote-processing and warm-up metrics), and `cb9ed640` (Kafka client
+defaults and precedence). Metadata is resolved concurrently through the exact participant
+connections under one preparation deadline, while the control connection validates its own topic.
+Recipient clients receive bounded unique protocol identities, explicit overrides beat defaults,
+and mandatory protocol settings retain final priority. Donor callbacks mark remote success without
+duplicating Micrometer processed, duration, or E2E series; pending results aggregate across donor
+sessions without high-cardinality session tags. Full core and Micrometer unit suites and all 24
+real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.
+Review hardening serializes aggregate pending publication with its session-state update so a delayed
+callback cannot restore a stale gauge value. Recipient Kafka client identities now include the full
+destination coordinate, keeping concurrent mappings of one participant distinct in JMX and metrics.

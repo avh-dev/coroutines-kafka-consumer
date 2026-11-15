@@ -52,6 +52,7 @@ internal class WarmupControlTransportConfiguration(
     val groupIdPrefix: String = "ckc.traffic-warmup.v6.control",
     val pollTimeout: Duration = 100.milliseconds,
     val sendTimeout: Duration = 30.seconds,
+    val metadataTimeout: Duration = 30.seconds,
     val commandBufferCapacity: Int = 1_024
 ) {
     val producerProperties: Map<String, Any?> = immutableProperties(producerProperties)
@@ -68,6 +69,9 @@ internal class WarmupControlTransportConfiguration(
         }
         require(sendTimeout.isPositive() && sendTimeout.inWholeMilliseconds > 0) {
             "Control send timeout must be at least one millisecond"
+        }
+        require(metadataTimeout.isPositive() && metadataTimeout.inWholeMilliseconds > 0) {
+            "Control metadata timeout must be at least one millisecond"
         }
         require(commandBufferCapacity > 0) { "Control command buffer capacity must be positive" }
         require(this.producerProperties.containsKey(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG)) {
@@ -220,6 +224,13 @@ internal class WarmupControlTransport(
 
     private suspend fun pollLoop(activeConsumer: Consumer<String, ByteArray>) {
         try {
+            val metadata = activeConsumer.partitionsFor(
+                configuration.topic,
+                JavaDuration.ofMillis(configuration.metadataTimeout.inWholeMilliseconds)
+            )
+            check(metadata.size == 1 && metadata.single().partition() == 0) {
+                "Warm-up control topic must expose exactly partition 0"
+            }
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
 
@@ -304,21 +315,27 @@ internal class WarmupControlTransport(
 
     private fun closeDuration() = JavaDuration.ofMillis(configuration.sendTimeout.inWholeMilliseconds)
 
-    private fun producerProperties(): Map<String, Any?> = configuration.producerProperties + mapOf(
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
-        ProducerConfig.ACKS_CONFIG to "all",
-        ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
-        ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+    private fun producerProperties(): Map<String, Any?> = buildControlProducerProperties(
+        configuration.producerProperties,
+        mapOf(
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all",
+            ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
+            ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+        )
     )
 
-    private fun consumerProperties(): Map<String, Any?> = configuration.consumerProperties + mapOf(
-        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
-        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java,
-        ConsumerConfig.GROUP_ID_CONFIG to configuration.groupId,
-        ConsumerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-consumer",
-        ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
-        ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
+    private fun consumerProperties(): Map<String, Any?> = buildControlConsumerProperties(
+        configuration.consumerProperties,
+        mapOf(
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to ByteArrayDeserializer::class.java,
+            ConsumerConfig.GROUP_ID_CONFIG to configuration.groupId,
+            ConsumerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-consumer",
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest"
+        )
     )
 }
 
