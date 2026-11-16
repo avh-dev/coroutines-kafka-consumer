@@ -70,8 +70,8 @@ if [[ "$(grep -c 'PartitionCount: 1' <<< "${descriptions}")" -ne 4 ]]; then
   exit 1
 fi
 
-# The external listener returns the stable Service-like address. This request
-# proves topic preparation did not depend on that address becoming ready first.
+# Verify that the external listener returns the stable Service-like address after
+# the reconciler has prepared the topics through the independent internal listener.
 external_descriptions="$(docker exec "${container}" /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server ckc-warmup-kafka:9092 --describe)"
 if [[ "$(grep -c 'PartitionCount: 1' <<< "${external_descriptions}")" -ne 4 ]]; then
