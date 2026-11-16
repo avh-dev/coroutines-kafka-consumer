@@ -44,6 +44,8 @@ class TrafficWarmupContext internal constructor(
         var mainLaunchFinished: CompletableDeferred<Unit>? = null
         var terminationMonitorStarted = false
         var stopAttempt: CompletableDeferred<Unit>? = null
+        // A terminal consumer error may be reported after both protocol and runtime resources are released.
+        var stopCompleted = false
     }
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -105,6 +107,7 @@ class TrafficWarmupContext internal constructor(
                 state.ready.await()
                 if (synchronized(lock) { state.mainRuntimeOwned }) participant.awaitMainTermination()
             }
+            override fun isStopComplete(): Boolean = synchronized(lock) { state.stopCompleted }
         }
     }
 
@@ -172,28 +175,74 @@ class TrafficWarmupContext internal constructor(
             attempt.await()
             return
         }
+        var failure: Throwable? = null
+        var cleanupIncomplete = false
+        fun recordFailure(error: Throwable, incomplete: Boolean = true) {
+            cleanupIncomplete = cleanupIncomplete || incomplete
+            val current = failure
+            if (current == null) failure = error else current.addSuppressed(error)
+        }
         try {
             workflow?.cancel(CancellationException("Warm-up participant stopped"))
             workflow?.join()
             launchFinished?.await()
+        } catch (error: Throwable) {
+            recordFailure(error)
+        }
+        try {
             if (::donorActivation.isInitialized) {
                 donorActivation.onParticipantUnavailable(state.participant.participantId)
             }
+        } catch (error: Throwable) {
+            recordFailure(error)
+        }
+        try {
             retryIncompleteRecipientCleanup()
-            if (synchronized(lock) { state.mainRuntimeOwned }) {
+        } catch (error: Throwable) {
+            recordFailure(error)
+        }
+        if (synchronized(lock) { state.mainRuntimeOwned }) {
+            try {
                 state.participant.stopMain()
                 synchronized(lock) {
                     state.mainRuntimeOwned = false
                     state.mainReady = false
                 }
+            } catch (error: Throwable) {
+                val runtimeReleased = state.participant.mainConsumer.isShutdownComplete()
+                if (runtimeReleased) {
+                    synchronized(lock) {
+                        state.mainRuntimeOwned = false
+                        state.mainReady = false
+                    }
+                }
+                recordFailure(error, incomplete = !runtimeReleased)
             }
-            observe(TrafficWarmupLifecyclePhase.PARTICIPANT_STOPPED, state.participant.participantId)
+        }
+        try {
             closeSharedResourcesIfAllStopped()
-            attempt.complete(Unit)
         } catch (error: Throwable) {
-            synchronized(lock) {
-                if (state.stopAttempt === attempt) state.stopAttempt = null
-            }
+            recordFailure(error)
+        }
+
+        val complete = !cleanupIncomplete && synchronized(lock) { !state.mainRuntimeOwned }
+        synchronized(lock) {
+            state.stopCompleted = complete
+            if (!complete && state.stopAttempt === attempt) state.stopAttempt = null
+        }
+        if (complete) {
+            observe(TrafficWarmupLifecyclePhase.PARTICIPANT_STOPPED, state.participant.participantId)
+        }
+        failure?.let { error ->
+            attempt.completeExceptionally(error)
+            throw error
+        }
+        if (complete) {
+            attempt.complete(Unit)
+        } else {
+            val error = IllegalStateException(
+                "Warm-up participant ${state.participant.participantId.value} cleanup is incomplete"
+            )
             attempt.completeExceptionally(error)
             throw error
         }

@@ -58,6 +58,7 @@ internal interface ManagedConsumerLifecycle {
     suspend fun awaitReady()
     suspend fun stop()
     suspend fun awaitTermination()
+    fun isStopComplete(): Boolean
 }
 
 fun interface KafkaRecordHandler<K, V> {
@@ -452,6 +453,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     }
 
     internal fun isShutdownComplete(): Boolean = shutdownCompletion.isCompleted
+
+    /** Includes optional feature-owned resources in addition to the main runtime shutdown. */
+    internal fun isLifecycleStopComplete(): Boolean =
+        managedLifecycle?.isStopComplete() ?: isShutdownComplete()
 
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
