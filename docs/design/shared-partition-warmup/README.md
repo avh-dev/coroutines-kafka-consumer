@@ -83,6 +83,22 @@ context consumes only new control messages. When all participants restart, new v
 begin immediately; no snapshots, replay, retirement boundary, emergency release, or quarantine is
 needed because no shared destination is exclusively reserved.
 
+Complete loss and recreation of the warm-up Kafka is a transport boundary, not protocol recovery.
+Recipient runtimes that lose their assigned log terminate the current session, perform bounded
+cleanup, and cold-start their main consumers. Donors close the affected sessions through the same
+deadline, drain, and ownership-safe fallback path used for any other transport failure. Neither
+side resumes an old session or reconstructs control history.
+
+The long-lived donor control transport distinguishes ordinary reconnects from a recreated control
+topic by its Kafka topic identity and by validating that its position still belongs to the current
+log. Short metadata failures leave the existing clients and positions unchanged. A confirmed new
+topic identity replaces the stale control clients after a bounded retry delay. The replacement
+consumer reads the fresh log from its beginning so requests published after topic recreation are
+not skipped; only the very first context start seeks to the then-current tail. Shutdown cancels a
+pending recovery delay. Once infrastructure recreates the one-partition control and destination
+topics at the configured addresses, new recipient sessions can be admitted without restarting an
+otherwise healthy donor context.
+
 ## Domain model
 
 ### Participant and mapping
@@ -337,6 +353,12 @@ fallback for its owned records, and leaves other sessions and the donor main con
 Recipient loss is handled by each donor's local session deadline and close path. A lost donor makes
 the recipient finish or cold-fallback within its own deadline; it does not elect a replacement in
 the same session.
+
+Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
+loss does not stop main consumers and does not revive completed sessions when topics return. New
+sessions use only records from the recreated transport. Cleanup that cannot finish within its
+graceful Kafka-client deadline uses the bounded forced-close path and remains explicitly incomplete
+if resources still cannot be released.
 
 ## Explicit exclusions
 

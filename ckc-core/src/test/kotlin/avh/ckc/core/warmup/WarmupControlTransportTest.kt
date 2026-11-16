@@ -23,6 +23,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration as JavaDuration
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -134,6 +135,120 @@ class WarmupControlTransportTest {
         }
     }
 
+    @Test
+    fun `brief identity lookup outage keeps the current control clients`() = runBlocking {
+        val consumer = tailConsumer(emptyList(), end = 0, releaseRecords = AtomicBoolean(false))
+        val consumerCreations = AtomicInteger()
+        val producerCreations = AtomicInteger()
+        val identityReads = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = {
+                consumerCreations.incrementAndGet()
+                consumer
+            },
+            producerFactory = {
+                producerCreations.incrementAndGet()
+                mock()
+            },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String? =
+                    when (identityReads.incrementAndGet()) {
+                        1 -> "control-topic-id"
+                        2, 3 -> null
+                        else -> "control-topic-id"
+                    }
+            },
+            recoveryFailureThreshold = 3
+        ) { }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (identityReads.get() < 4) kotlinx.coroutines.delay(1)
+            }
+            assertEquals(1, consumerCreations.get())
+            assertEquals(1, producerCreations.get())
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `recreated control topic replaces clients and consumes the fresh log from its beginning`() = runBlocking {
+        val first = tailConsumer(emptyList(), end = 12, releaseRecords = AtomicBoolean(false))
+        val second = tailConsumer(
+            listOf(request(namespace, "after-recreation")),
+            end = 0,
+            releaseRecords = AtomicBoolean(true)
+        )
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val producerCreations = AtomicInteger()
+        val identityReads = AtomicInteger()
+        val handled = mutableListOf<String>()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = {
+                producerCreations.incrementAndGet()
+                mock()
+            },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String =
+                    if (identityReads.incrementAndGet() == 1) "old-topic-id" else "new-topic-id"
+            }
+        ) { handled += it.message.sessionId.value }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (handled.isEmpty()) kotlinx.coroutines.delay(1)
+            }
+            assertEquals(listOf("after-recreation"), handled)
+            assertEquals(2, consumerCreations.get())
+            assertEquals(2, producerCreations.get())
+            verify(first).seek(TopicPartition("control", 0), 12)
+            verify(second, org.mockito.kotlin.never()).seek(
+                org.mockito.kotlin.eq(TopicPartition("control", 0)),
+                any<Long>()
+            )
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `shutdown cancels control recovery backoff`() = runBlocking {
+        val consumer = tailConsumer(emptyList(), end = 0, releaseRecords = AtomicBoolean(false))
+        val consumerCreations = AtomicInteger()
+        val producerCreations = AtomicInteger()
+        val identityReads = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = {
+                consumerCreations.incrementAndGet()
+                consumer
+            },
+            producerFactory = {
+                producerCreations.incrementAndGet()
+                mock()
+            },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String =
+                    if (identityReads.incrementAndGet() == 1) "old-topic-id" else "new-topic-id"
+            },
+            recoveryRetryBackoff = 5.seconds
+        ) { }
+
+        transport.start()
+        transport.awaitReady()
+        withTimeout(1.seconds) {
+            while (producerCreations.get() < 2) kotlinx.coroutines.delay(1)
+        }
+        withTimeout(1.seconds) { transport.stop() }
+        assertEquals(1, consumerCreations.get())
+    }
+
     private fun transport(
         consumer: Consumer<String, ByteArray>,
         sendTimeout: kotlin.time.Duration = 30.seconds,
@@ -151,7 +266,36 @@ class WarmupControlTransportTest {
         handler = handler,
         parentContext = Dispatchers.Default,
         producerFactory = { mock<Producer<String, ByteArray>>() },
-        consumerFactory = { consumer }
+        consumerFactory = { consumer },
+        topicIdentity = object : WarmupControlTopicIdentity {
+            override fun read(topic: String, timeout: kotlin.time.Duration): String = "control-topic-id"
+        }
+    )
+
+    private fun recoveringTransport(
+        consumerFactory: () -> Consumer<String, ByteArray>,
+        producerFactory: () -> Producer<String, ByteArray>,
+        topicIdentity: WarmupControlTopicIdentity,
+        recoveryFailureThreshold: Int = 3,
+        recoveryRetryBackoff: kotlin.time.Duration = 1.milliseconds,
+        handler: WarmupControlMessageHandler
+    ) = WarmupControlTransport(
+        configuration = WarmupControlTransportConfiguration(
+            instanceId = local,
+            namespace = namespace,
+            topic = "control",
+            producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
+            consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
+            pollTimeout = 1.milliseconds,
+            recoveryCheckInterval = 5.milliseconds,
+            recoveryRetryBackoff = recoveryRetryBackoff,
+            recoveryFailureThreshold = recoveryFailureThreshold
+        ),
+        handler = handler,
+        parentContext = Dispatchers.Default,
+        producerFactory = { producerFactory() },
+        consumerFactory = { consumerFactory() },
+        topicIdentity = topicIdentity
     )
 
     private fun tailConsumer(
@@ -174,6 +318,10 @@ class WarmupControlTransportTest {
         }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
         whenever(consumer.endOffsets(listOf(partition))).thenReturn(mapOf(partition to end))
         whenever(consumer.position(partition)).thenReturn(end)
+        whenever(consumer.assignment()).thenReturn(setOf(partition))
+        whenever(consumer.position(org.mockito.kotlin.eq(partition), any<JavaDuration>())).thenReturn(end)
+        whenever(consumer.endOffsets(org.mockito.kotlin.eq(setOf(partition)), any<JavaDuration>()))
+            .thenReturn(mapOf(partition to end))
         doAnswer {
             when {
                 assigned.compareAndSet(false, true) -> {

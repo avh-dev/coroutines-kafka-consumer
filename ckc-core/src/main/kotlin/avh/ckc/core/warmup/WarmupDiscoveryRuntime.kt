@@ -1,9 +1,12 @@
 package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.selects.select
 import kotlin.time.Duration
 
 internal sealed interface WarmupDiscoveryResult {
@@ -200,8 +203,22 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         recipient: WarmupRecipientDiscovery,
         duration: Duration
     ): Boolean = withTimeoutOrNull(duration) {
-        while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
-            recipientSignal.receive()
+        supervisorScope {
+            val controlInterruption = async {
+                while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
+                    recipientSignal.receive()
+                }
+            }
+            val consumerTermination = async { recipient.awaitPreparedConsumerTermination() }
+            try {
+                select<Unit> {
+                    controlInterruption.onAwait { }
+                    consumerTermination.onAwait { }
+                }
+            } finally {
+                controlInterruption.cancel()
+                consumerTermination.cancel()
+            }
         }
         true
     } == true

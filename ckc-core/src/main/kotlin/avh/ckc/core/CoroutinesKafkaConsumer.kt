@@ -428,6 +428,17 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         failure.get()?.let { throw it }
     }
 
+    /** Cancels a feature-owned runtime when its bounded graceful cleanup can no longer progress. */
+    internal suspend fun abortRuntime(cause: Throwable) {
+        if (!shutdownCompletion.isCompleted) {
+            pollLoops.forEach { it.abort() }
+            handleFailure(cause)
+        }
+        val deferred = prepareForStop()
+        deferred.await()
+        failure.get()?.let { throw it }
+    }
+
     /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
     suspend fun awaitTermination() {
         managedLifecycle?.let {

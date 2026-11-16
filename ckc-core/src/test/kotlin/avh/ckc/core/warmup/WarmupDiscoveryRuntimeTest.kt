@@ -211,6 +211,61 @@ class WarmupDiscoveryRuntimeTest {
     }
 
     @Test
+    fun `recipient consumer termination interrupts warmup and permits bounded rollback`() = runBlocking {
+        val router = WarmupControlRouter(recipientId, namespace)
+        val channel = InMemoryControlChannel(router, remoteDonor, mapping)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val activation = WarmupDonorActivation(
+            recipientId,
+            namespace,
+            listOf(mapping),
+            MultiSessionWarmupDataPlane<String, String>(1, 10),
+            WarmupDonorEligibility { null },
+            WarmupDonorSessionPreparation { error("local donor is not selected") },
+            scope,
+            onPreparationFailed = { channel.send(it) }
+        )
+        val runtime = WarmupDiscoveryRuntime(
+            recipientId, namespace, router, channel,
+            StatelessWarmupDonorDiscovery(recipientId, namespace, emptyList()) { null },
+            activation, 1.milliseconds, 1.seconds
+        )
+        val termination = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val stopped = AtomicInteger()
+        val recipient = WarmupRecipientDiscovery(
+            request(),
+            WarmupDestinationMetadata { mapOf(0 to 0L) },
+            WarmupRecipientConsumerPreparation { _, start ->
+                object : PreparedWarmupRecipientConsumer {
+                    override val assignment = start.assignment
+                    override val startOffset = start.offset
+                    override fun start() = Unit
+                    override suspend fun awaitReady() = Unit
+                    override suspend fun awaitTermination() = termination.await()
+                    override suspend fun stop() {
+                        stopped.incrementAndGet()
+                    }
+                }
+            },
+            1.seconds
+        )
+
+        runtime.startControl()
+        assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, runtime.discoverAndPrepare(recipient))
+        termination.completeExceptionally(IllegalStateException("warm-up topic was recreated"))
+
+        assertTrue(runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
+        assertInstanceOf(
+            WarmupDiscoveryResult.ColdFallback::class.java,
+            runtime.abortWarmup(recipient, "recipient_consumer_terminated")
+        )
+        assertEquals(1, stopped.get())
+        runtime.stop()
+        runtime.close()
+        scope.cancel()
+    }
+
+    @Test
     fun `missing donor close acknowledgement cold falls back and stops recipient consumer`() = runBlocking {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = InMemoryControlChannel(router, remoteDonor, mapping, acknowledgeCompletion = false)

@@ -231,6 +231,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             dataPlane = dataPlane,
             metrics = metrics,
             delegationTimeoutMillis = warmup.context.delegationTimeoutMillis(),
+            recipientShutdownTimeoutMillis = warmup.context.recipientShutdownTimeoutMillis(),
             forwardingObserver = warmup.configuration.forwardingObserver
         )
         main.attachManagedLifecycle(warmup.context.register(participant))
@@ -314,7 +315,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         topicPartition: TopicPartition,
         startOffset: Long,
         completionPublisher: WarmupCompletionPublisher? = null,
-        runtimeMetrics: ConsumerMetrics<K, V> = metrics
+        runtimeMetrics: ConsumerMetrics<K, V> = metrics,
+        runtimeShutdownTimeout: Duration = shutdownDrainTimeout
     ): CoroutinesKafkaConsumer<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
         require(startOffset >= 0) { "Warm-up start offset must not be negative" }
@@ -329,7 +331,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
             partitionHandoffTimeout = partitionHandoffTimeout,
-            shutdownDrainTimeout = shutdownDrainTimeout,
+            shutdownDrainTimeout = minOf(shutdownDrainTimeout, runtimeShutdownTimeout),
             processingCancellationTimeout = processingCancellationTimeout,
             recoveryTimeout = recoveryTimeout,
             recoveryRetryBackoff = recoveryRetryBackoff,

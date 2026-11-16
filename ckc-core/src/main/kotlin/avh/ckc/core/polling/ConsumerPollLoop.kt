@@ -139,6 +139,7 @@ internal class ConsumerPollLoop<K, V>(
                 CoroutineName("ConsumerPollLoop-$id")
     )
     private val resourceReleaseStarted = AtomicBoolean(false)
+    private val forceCloseOnExit = AtomicBoolean(false)
     private val resourceReleaseCompletion = CompletableDeferred<Unit>()
 
     private var job: Job? = null
@@ -220,6 +221,12 @@ internal class ConsumerPollLoop<K, V>(
         }
         consumerRef?.wakeup()
         return readyForShutdownSignal
+    }
+
+    /** Bounds Kafka client close when a feature-owned runtime has exhausted its cleanup deadline. */
+    override fun abort() {
+        forceCloseOnExit.set(true)
+        consumerRef?.wakeup()
     }
 
     override fun finalizeShutdown(): Deferred<Unit> {
@@ -328,7 +335,9 @@ internal class ConsumerPollLoop<K, V>(
                             if (kafkaClientMetricsBound) metrics.unbindKafkaClientMetrics(id)
                         } finally {
                             try {
-                                if (recoveringLostAssignment) {
+                                if (forceCloseOnExit.get()) {
+                                    consumer?.close(Duration.ZERO)
+                                } else if (recoveringLostAssignment) {
                                     consumer?.close(remainingRecoveryCloseTimeout())
                                 } else {
                                     consumer?.close()

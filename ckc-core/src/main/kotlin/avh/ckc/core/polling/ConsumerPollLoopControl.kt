@@ -29,6 +29,9 @@ internal interface ConsumerPollLoopControl {
 
     fun configureRecovery(timeout: Duration, retryBackoff: Duration) = Unit
 
+    /** Forces a bounded client close after an owner-specific graceful cleanup deadline. */
+    fun abort() = Unit
+
     /** Releases resources owned by this poll loop after its job has terminated. */
     suspend fun releaseResources() = Unit
 }
