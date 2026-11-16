@@ -9,3 +9,4 @@
 - `audit/`: shared audit analyzer used by local, internal-lab, and AWS flows
 - `grafana/`: shared dashboard and provisioning files
 - `helm/`: shared application and stub charts with environment value profiles
+- `warmup-kafka/`: pinned autonomous Kafka image, continuous protocol-v6 topic reconciliation, readiness, and standalone examples

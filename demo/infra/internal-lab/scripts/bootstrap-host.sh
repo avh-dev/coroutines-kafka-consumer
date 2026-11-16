@@ -276,6 +276,7 @@ image_names=(
   docker.io/ckc-perf/demo-stubs:latest
   docker.io/ckc-perf/load-test:latest
   docker.io/ckc-perf/kafka-network-exporter:latest
+  docker.io/ckc-perf/warmup-kafka:latest
 )
 
 if [[ "$#" -eq 1 && "$1" == "--check" ]]; then

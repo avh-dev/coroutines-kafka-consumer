@@ -502,8 +502,28 @@ execution without changing the audit format.
 
 ### INFRA-323 — separate warm-up Kafka
 
-Transfer optional Kubernetes Kafka, fresh one-partition topics, readiness, independent connections,
-cleanup verification, and evidence into shared infrastructure. Initially qualify internal-lab only.
+Package the pinned official Apache Kafka broker and a continuous topic reconciler as one optional
+image under `demo/infra/shared/warmup-kafka`. One supervised container owns the broker process and
+the reconciler: either process exiting terminates the container, while shutdown forwards signals to
+both under a bounded grace period. `KAFKA_BOOTSTRAP_TOPICS` supplies the complete comma-separated
+v6 control/destination list. Reconciliation trims and deduplicates names, creates only missing topics
+with one partition and replication factor one, rejects incompatible partition counts, and never
+deletes topics or changes existing metadata.
+
+Readiness requires live supervised processes plus a fresh complete metadata reconciliation; a stale
+marker from an earlier broker lifetime is insufficient. Detection of broker or metadata loss removes
+readiness, while successful revalidation restores it. Internal-lab deployment uses a stable Service,
+independent application connection properties, ephemeral broker data, a bounded initial readiness
+wait, verified labeled cleanup, pod logs, and captured image/topic/readiness evidence. If initial
+readiness does not arrive, application deployment proceeds so protocol-v6 cold fallback remains
+available. Full data loss creates fresh topics at the same Service address; CORE-83 closes affected
+sessions and allows healthy donors to serve later recipients without an application restart.
+
+The selective port uses archived GLOBAL-4 commits `088231fa`, `e3fba567`, `4d05e072`,
+`ebcd6513`, and lifecycle reference `dae8a517`. The archived two-container provisioner is not
+transferred; INFRA-323 replaces it with the autonomous single-container image and continuous
+reconciliation required by the v6 recovery contract. AWS deployment and public image publication
+remain out of scope.
 
 Review gate: prepared validation commands pass and exact smoke command is documented; no smoke or
 experiment is launched without explicit operator instruction.

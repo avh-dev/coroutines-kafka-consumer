@@ -457,5 +457,45 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not exceed memory_per_broker"):
             validate_canonical_experiment(invalid, self.source, environment="internal-lab")
 
+    def test_internal_lab_warmup_kafka_is_normalized_for_protocol_v6(self) -> None:
+        experiment = canonical_experiment()
+        experiment["environments"] = {"internal-lab": {
+            "lab": {"profile": "installed"},
+            "warmup_kafka": {
+                "topics": [
+                    " ckc.traffic-warmup.v6.control ",
+                    "ckc.traffic-warmup.v6.order.events",
+                    "ckc.traffic-warmup.v6.control",
+                ],
+            },
+        }}
+
+        snapshot = validate_canonical_experiment(experiment, self.source)
+        warmup = snapshot["environment"]["configuration"]["warmup_kafka"]
+
+        self.assertTrue(warmup["enabled"])
+        self.assertEqual(
+            ["ckc.traffic-warmup.v6.control", "ckc.traffic-warmup.v6.order.events"],
+            warmup["topics"],
+        )
+        self.assertEqual({"cpu": "1", "memory": "1Gi"}, warmup["resources"]["limits"])
+        self.assertEqual(600_000, warmup["retention_ms"])
+
+    def test_warmup_kafka_rejects_wrong_namespace_and_non_internal_environment(self) -> None:
+        experiment = canonical_experiment()
+        experiment["environments"] = {"internal-lab": {
+            "lab": {"profile": "installed"},
+            "warmup_kafka": {"topics": ["ckc.traffic-warmup.v5.control"]},
+        }}
+        with self.assertRaisesRegex(ValueError, "v6 namespace"):
+            validate_canonical_experiment(experiment, self.source)
+
+        experiment = canonical_experiment()
+        experiment["environments"]["aws"]["warmup_kafka"] = {
+            "topics": ["ckc.traffic-warmup.v6.control"],
+        }
+        with self.assertRaisesRegex(ValueError, "only by internal-lab"):
+            validate_canonical_experiment(experiment, self.source, environment="aws")
+
 if __name__ == "__main__":
     unittest.main()

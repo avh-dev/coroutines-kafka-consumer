@@ -14,6 +14,8 @@ from .definition import ResolvedExperiment, ResolvedTarget
 
 
 STUB_SERVICE_PORT = 8085
+WARMUP_KAFKA_SERVICE = "ckc-warmup-kafka"
+WARMUP_KAFKA_PORT = 9092
 DEPLOYMENT_PLAN_VERSION = 1
 GENERATED_ENV_NAMES = {
     "experimentTargetName": "EXPERIMENT_TARGET_NAME",
@@ -109,6 +111,7 @@ class DeploymentBindings:
     kafka_ssl_endpoint_identification_algorithm: str | None = None
     audit_port: int = 5170
     kafka_network_exporter_image: str = "ckc-perf/kafka-network-exporter:latest"
+    warmup_kafka_image: str = "ckc-perf/warmup-kafka:latest"
     image_pull_policy: str = "Always"
     application_namespace: str = "ckc-app"
     load_test_namespace: str = "ckc-loadtest"
@@ -159,6 +162,10 @@ def build_deployment_plan(
             raise ValueError(f"Experiment environment third_party[{index}] must define {', '.join(missing)}")
         if str(release["version"]).lower() == "latest":
             raise ValueError(f"Experiment environment third_party[{index}].version must be pinned")
+    environment = copy.deepcopy(experiment.environment_definition or {})
+    project_resources = ["application", "stubs", "load-test"]
+    if ((environment.get("warmup_kafka") or {}).get("enabled")):
+        project_resources.append("warmup-kafka")
     return {
         "schema_version": DEPLOYMENT_PLAN_VERSION,
         "experiment": {
@@ -171,7 +178,7 @@ def build_deployment_plan(
             "implementation": target.profile,
             "observability": copy.deepcopy(target_snapshot.get("observability") or {}),
         },
-        "environment": copy.deepcopy(experiment.environment_definition or {}),
+        "environment": environment,
         "application": {
             "configuration": copy.deepcopy(target_snapshot.get("application") or {}),
             "runtime": copy.deepcopy(target_snapshot.get("runtime") or {}),
@@ -180,7 +187,7 @@ def build_deployment_plan(
         },
         "placement": copy.deepcopy(target_snapshot.get("placement") or {}),
         "workload": copy.deepcopy(target_snapshot["workload"]),
-        "project_resources": ["application", "stubs", "load-test"],
+        "project_resources": project_resources,
         "third_party": third_party,
     }
 
@@ -752,6 +759,109 @@ def _kafka_ports(bootstrap: str) -> tuple[int, ...]:
     return tuple(sorted(ports))
 
 
+def _warmup_kafka_manifests(
+    configuration: Mapping[str, Any],
+    bindings: DeploymentBindings,
+) -> list[dict[str, Any]]:
+    labels = {
+        "app.kubernetes.io/name": WARMUP_KAFKA_SERVICE,
+        "ckc.dev/component": "warmup-kafka",
+    }
+    pod_labels = {
+        **labels,
+        "ckc.dev/test-run-id": bindings.run_id,
+        "ckc.dev/profile": "warmup-kafka",
+        "ckc_run_id": bindings.run_id,
+        "ckc_profile": "warmup-kafka",
+        "ckc_test_definition": bindings.test_definition,
+    }
+    placement = str(configuration.get("placement") or "application")
+    node_selector = (
+        bindings.application_node_selector
+        if placement == "application"
+        else bindings.support_node_selector
+    )
+    heap = str(configuration.get("heap") or "512Mi")
+    jvm_heap = heap.removesuffix("Mi") + "m" if heap.endswith("Mi") else heap.removesuffix("Gi") + "g"
+    reconcile_interval = int(configuration.get("reconcile_interval_seconds") or 5)
+    operation_timeout = int(configuration.get("operation_timeout_seconds") or 10)
+    topics = ",".join(str(topic) for topic in (configuration.get("topics") or []))
+    container = {
+        "name": "kafka",
+        "image": bindings.warmup_kafka_image,
+        "imagePullPolicy": bindings.image_pull_policy,
+        "ports": [
+            {"name": "kafka", "containerPort": WARMUP_KAFKA_PORT},
+            {"name": "controller", "containerPort": 9093},
+        ],
+        "env": _environment_entries({
+            "CLUSTER_ID": "M8gW-iVjQkGqC1rH0vM4xA",
+            "KAFKA_NODE_ID": 1,
+            "KAFKA_PROCESS_ROLES": "broker,controller",
+            "KAFKA_CONTROLLER_QUORUM_VOTERS": "1@localhost:9093",
+            "KAFKA_LISTENERS": "PLAINTEXT://:9092,CONTROLLER://:9093",
+            "KAFKA_ADVERTISED_LISTENERS": f"PLAINTEXT://{WARMUP_KAFKA_SERVICE}:9092",
+            "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT",
+            "KAFKA_INTER_BROKER_LISTENER_NAME": "PLAINTEXT",
+            "KAFKA_CONTROLLER_LISTENER_NAMES": "CONTROLLER",
+            "KAFKA_AUTO_CREATE_TOPICS_ENABLE": "false",
+            "KAFKA_NUM_PARTITIONS": 1,
+            "KAFKA_DEFAULT_REPLICATION_FACTOR": 1,
+            "KAFKA_MIN_INSYNC_REPLICAS": 1,
+            "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR": 1,
+            "KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS": 1,
+            "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR": 1,
+            "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR": 1,
+            "KAFKA_LOG_RETENTION_MS": int(configuration.get("retention_ms") or 600_000),
+            "KAFKA_LOG_SEGMENT_MS": 60_000,
+            "KAFKA_LOG_DIRS": "/var/lib/kafka/data",
+            "KAFKA_HEAP_OPTS": f"-Xms{jvm_heap} -Xmx{jvm_heap}",
+            "KAFKA_BOOTSTRAP_TOPICS": topics,
+            "KAFKA_RECONCILE_INTERVAL_SECONDS": reconcile_interval,
+            "KAFKA_OPERATION_TIMEOUT_SECONDS": operation_timeout,
+            "KAFKA_READY_MAX_AGE_SECONDS": max(15, reconcile_interval * 3),
+        }),
+        "resources": copy.deepcopy(configuration.get("resources") or {}),
+        "readinessProbe": {
+            "exec": {"command": ["/opt/ckc-warmup-kafka/bin/readiness.sh"]},
+            "periodSeconds": 2,
+            "timeoutSeconds": 1,
+            "failureThreshold": 2,
+        },
+        "volumeMounts": [{"name": "data", "mountPath": "/var/lib/kafka/data"}],
+    }
+    pod_spec: dict[str, Any] = {
+        "securityContext": {"fsGroup": 1000, "fsGroupChangePolicy": "OnRootMismatch"},
+        "containers": [container],
+        "volumes": [{"name": "data", "emptyDir": {}}],
+    }
+    if node_selector:
+        pod_spec["nodeSelector"] = dict(node_selector)
+    if placement == "application" and bindings.application_tolerations:
+        pod_spec["tolerations"] = [dict(item) for item in bindings.application_tolerations]
+    deployment = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": _metadata(WARMUP_KAFKA_SERVICE, bindings.application_namespace, labels),
+        "spec": {
+            "replicas": 1,
+            "strategy": {"type": "Recreate"},
+            "selector": {"matchLabels": labels},
+            "template": {"metadata": {"labels": pod_labels}, "spec": pod_spec},
+        },
+    }
+    service = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": _metadata(WARMUP_KAFKA_SERVICE, bindings.application_namespace, labels),
+        "spec": {
+            "selector": {"app.kubernetes.io/name": WARMUP_KAFKA_SERVICE},
+            "ports": [{"name": "kafka", "port": WARMUP_KAFKA_PORT, "targetPort": WARMUP_KAFKA_PORT}],
+        },
+    }
+    return [deployment, service]
+
+
 def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindings) -> list[dict[str, Any]]:
     application = plan["application"]
     values = application.get("generated_values") or {}
@@ -794,6 +904,16 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
     })
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
+    warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
+    if warmup_kafka.get("enabled"):
+        warmup_bootstrap = f"{WARMUP_KAFKA_SERVICE}:{WARMUP_KAFKA_PORT}"
+        computed_env.update({
+            "TRAFFIC_WARMUP_ENABLED": "true",
+            "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
+            "TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
+            "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
+            "TRAFFIC_WARMUP_DESTINATION_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
+        })
     if bindings.kafka_ssl_endpoint_identification_algorithm is not None:
         computed_env["DEMO_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"] = bindings.kafka_ssl_endpoint_identification_algorithm
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))
@@ -824,6 +944,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}]},
         },
     ]
+    if warmup_kafka.get("enabled"):
+        manifests[0:0] = _warmup_kafka_manifests(warmup_kafka, bindings)
     probes = values.get("probes") or {
         "readiness": {"initialDelaySeconds": 15, "periodSeconds": 10, "timeoutSeconds": 1, "failureThreshold": 3},
         "liveness": {"initialDelaySeconds": 30, "periodSeconds": 15, "timeoutSeconds": 1, "failureThreshold": 3},

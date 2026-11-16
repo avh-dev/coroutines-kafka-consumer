@@ -112,6 +112,9 @@ image_fingerprint() {
     kafka-network-exporter)
       paths+=(demo/kafka-network-exporter)
       ;;
+    warmup-kafka)
+      paths+=(demo/infra/shared/warmup-kafka)
+      ;;
     *)
       echo "Unknown image service: ${service}" >&2
       exit 1
@@ -326,6 +329,7 @@ DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
 LOAD_TEST_FINGERPRINT="$(image_fingerprint load-test)"
 KAFKA_NETWORK_EXPORTER_FINGERPRINT="$(image_fingerprint kafka-network-exporter)"
+WARMUP_KAFKA_FINGERPRINT="$(image_fingerprint warmup-kafka)"
 THREAD_STATS_AGENT_JAR_PATH="$(resolve_thread_stats_agent)"
 if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
   echo "Thread Stats agent jar was not resolved." >&2
@@ -372,7 +376,7 @@ BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
 UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${DEMO_FINGERPRINT}" "${DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
-  printf '%s\n' "${LOAD_TEST_FINGERPRINT}" "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LOAD_TEST_FINGERPRINT}" "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" "${WARMUP_KAFKA_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
   printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}" "${LAB_APPLICATION_LINK}"
   printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
 } | sha256sum | awk '{ print $1 }')"
@@ -431,7 +435,8 @@ if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOT
   echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
   exit 0
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]]; then
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]] && \
+  remote_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}" && worker_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}"; then
   record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
   record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
   record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -489,7 +494,7 @@ ssh "${LAB_TARGET}" "
   fi
   rm -rf '${LEGACY_LAB_ROOT}'
   rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/workspace' '${LAB_ROOT}/shared' '${LAB_ROOT}/build-context' '${LAB_ROOT}/build' '${LAB_ROOT}/compose' '${LAB_ROOT}/runtime' '${LAB_ROOT}/images' '${LAB_ROOT}/fingerprints' '${LAB_ROOT}/generated' '${LAB_ROOT}/pids' '${LAB_ROOT}/audit' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/docker-compose.host-services.yml' '${LAB_ROOT}/process-exporter.yml' '${LAB_ROOT}/fluent-bit.yaml'
-  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/docker/build/load-test/build/install' '${LAB_ROOT}/docker/build/kafka-network-exporter' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
+  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/docker/build/load-test/build/install' '${LAB_ROOT}/docker/build/kafka-network-exporter' '${LAB_ROOT}/docker/build/warmup-kafka' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
 "
 ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
@@ -512,6 +517,7 @@ DEMO_STUBS_IMAGE_CHANGED=0
 THREAD_STATS_AGENT_CHANGED=0
 LOAD_TEST_IMAGE_CHANGED=0
 KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED=0
+WARMUP_KAFKA_IMAGE_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
@@ -534,6 +540,9 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current load-test "${LOAD
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current kafka-network-exporter "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" || ! worker_image_is_current kafka-network-exporter "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}"; then
   KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED=1
+fi
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}" || ! worker_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}"; then
+  WARMUP_KAFKA_IMAGE_CHANGED=1
 fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"; then
   ASSETS_SYNC_CHANGED=1
@@ -561,6 +570,9 @@ fi
 if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
   sync_file "${REPO_ROOT}/demo/kafka-network-exporter/Dockerfile" "${LAB_ROOT}/docker/build/kafka-network-exporter/Dockerfile"
   sync_file "${REPO_ROOT}/demo/kafka-network-exporter/exporter.py" "${LAB_ROOT}/docker/build/kafka-network-exporter/exporter.py"
+fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_path "${REPO_ROOT}/demo/infra/shared/warmup-kafka" "${LAB_ROOT}/docker/build/warmup-kafka"
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   GRADLE_TASKS+=(:ckc-demo:installDist)
@@ -633,6 +645,9 @@ fi
 if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("kafka-network-exporter=${KAFKA_NETWORK_EXPORTER_FINGERPRINT}")
 fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  REBUILD_ARGS+=("warmup-kafka=${WARMUP_KAFKA_FINGERPRINT}")
+fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
   if ! k3s_image_cache_is_current; then
@@ -658,6 +673,7 @@ echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  Thread Stats agent changed=${THREAD_STATS_AGENT_CHANGED}"
 echo "  load-test image changed=${LOAD_TEST_IMAGE_CHANGED}"
 echo "  kafka-network-exporter image changed=${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}"
+echo "  warmup-kafka image changed=${WARMUP_KAFKA_IMAGE_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"

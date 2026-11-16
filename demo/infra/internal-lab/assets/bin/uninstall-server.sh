@@ -45,6 +45,7 @@ if command -v docker >/dev/null 2>&1; then
   docker image rm \
     ckc-perf/demo:latest \
     ckc-perf/demo-stubs:latest \
+    ckc-perf/warmup-kafka:latest \
     docker.redpanda.com/redpandadata/redpanda:v25.1.3 \
     apache/kafka:4.3.1 \
     redis:7.4-alpine \

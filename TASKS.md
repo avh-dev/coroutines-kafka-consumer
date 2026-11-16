@@ -509,6 +509,7 @@
 | [INFRA-320](#infra-320) | Add internal-lab node and per-core CPU/network observability. | DONE |
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
+| [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6205,3 +6206,28 @@ recreates a consumer for the same topic identity, while confirmed topic replacem
 cursor. Kafka-side identity timeouts, interruptible lookup, and bounded Admin shutdown keep context
 stop finite. Focused recovery checks, all 299 core unit tests, and all 47 real-Kafka integration tests
 pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="infra-323"></a>
+### INFRA-323 - Add an autonomous warm-up Kafka image
+
+_Date: 2026-11-16_
+
+Package a pinned Apache Kafka broker and continuous topic reconciler in one optional container for
+the internal lab. Create and verify the configured protocol-v6 control and destination topics with
+one partition and replication factor one, expose freshness-based readiness, and restore missing
+topics after complete broker-data loss without changing or deleting existing topics.
+Supervise broker and reconciliation processes with bounded operations and signal-safe shutdown;
+an unexpected exit of either process terminates the container. Integrate the shared image into
+internal-lab build/import, deployment, evidence, and verified cleanup while keeping the main Kafka
+and application cold-start path independent. A bounded initial readiness gate proceeds to cold
+application startup when the optional transport remains unavailable.
+
+Selectively adapt the broker, topic, deployment gate, cleanup, and lifecycle seams from archived
+GLOBAL-4 commits `088231fa`, `e3fba567`, `4d05e072`, `ebcd6513`, and `dae8a517`.
+Replace the archived sidecar-style provisioner with one autonomous image and continuous
+reconciliation. Seven script tests, all 82 shared orchestration tests, and 36 focused internal-lab
+tests pass. The pinned Docker image builds and its real-container lifecycle passes retained-data
+restart, incompatible metadata, complete data loss, topic restoration, and reconciler failure.
+The complete 195-test internal-lab suite retains the same two report/notification assertion
+failures and one helper-import error documented on the unchanged baseline. The exact internal-lab
+qualification definition is prepared but no smoke, load, chaos, or experiment run was started.
