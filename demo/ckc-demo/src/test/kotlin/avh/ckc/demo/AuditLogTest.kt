@@ -36,6 +36,20 @@ class AuditLogTest {
     }
 
     @Test
+    fun `encodes protocol v6 warmup topics without changing the audit format`() {
+        val encoded = encodeConsumerAuditRecord(
+            type = "C",
+            topic = DemoTopics.WARMUP_ORDER_EVENTS,
+            partition = 0,
+            offset = 19,
+            key = "order-19",
+            auditTimestampMs = 2222
+        )
+
+        assertEquals("C|101|0|19|2222|order-19", encoded)
+    }
+
+    @Test
     fun `encodes retry attempt as compact TCP audit payload`() {
         val encoded = encodeConsumerAuditRecord(
             type = "R",

@@ -12,6 +12,7 @@ data class DemoApplicationProperties(
     var model: Model = Model(),
     var registry: Registry = Registry(),
     var audit: Audit = Audit(),
+    var trafficWarmup: TrafficWarmup = TrafficWarmup(),
     var consumers: Consumers = Consumers()
 ) {
     data class Kafka(
@@ -69,6 +70,45 @@ data class DemoApplicationProperties(
         var port: Int = 5170,
         var runId: String = "local",
         var writerId: String = "demo"
+    )
+
+    data class TrafficWarmup(
+        var enabled: Boolean = false,
+        var instanceId: String = "demo",
+        var namespace: String = "global5-shared-partition-v6-local",
+        var controlTopic: String = DemoTopics.WARMUP_CONTROL,
+        var controlKafka: KafkaConnection = KafkaConnection(),
+        var destinationKafka: KafkaConnection = KafkaConnection(),
+        var mappings: TrafficWarmupMappings = TrafficWarmupMappings(),
+        var durationSeconds: Long = 90,
+        var offerWindowMs: Long = 2_000,
+        var participantStartTimeoutSeconds: Long = 15,
+        var preparationTimeoutSeconds: Long = 15,
+        var completionTimeoutSeconds: Long = 30,
+        var delegationTimeoutSeconds: Long = 10,
+        var maxDonorSessions: Int = 4,
+        var maxAggregateQuotaPerSecond: Int = Int.MAX_VALUE,
+        var producerLingerMs: Int = 5
+    )
+
+    data class TrafficWarmupMappings(
+        var orderEvents: TrafficWarmupMapping = TrafficWarmupMapping(),
+        var batchEvents: TrafficWarmupMapping = TrafficWarmupMapping(),
+        var cauldronEvents: TrafficWarmupMapping = TrafficWarmupMapping()
+    )
+
+    data class TrafficWarmupMapping(
+        var quotaPerInterval: Int = 10,
+        var initialQuotaPerInterval: Int? = null,
+        var quotaIntervalMs: Long = 1_000,
+        var quotaRampSeconds: Long = 0
+    )
+
+    data class KafkaConnection(
+        var bootstrapServers: String = "localhost:9092",
+        var securityProtocol: String = "PLAINTEXT",
+        var sslTruststoreCertificates: String = "",
+        var sslEndpointIdentificationAlgorithm: String? = null
     )
 
     data class Consumers(

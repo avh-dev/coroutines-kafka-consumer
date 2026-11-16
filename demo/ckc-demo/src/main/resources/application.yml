@@ -181,6 +181,46 @@ demo:
     port: ${AUDIT_TCP_PORT:5170}
     run-id: ${AUDIT_RUN_ID:local}
     writer-id: ${AUDIT_WRITER_ID:${HOSTNAME:demo}}
+  traffic-warmup:
+    enabled: ${TRAFFIC_WARMUP_ENABLED:false}
+    instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:demo}}
+    namespace: ${TRAFFIC_WARMUP_NAMESPACE:global5-shared-partition-v6-local}
+    control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v6.control}
+    control-kafka:
+      bootstrap-servers: ${TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      security-protocol: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      ssl-truststore-certificates: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+      ssl-endpoint-identification-algorithm: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+    destination-kafka:
+      bootstrap-servers: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      security-protocol: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      ssl-truststore-certificates: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+      ssl-endpoint-identification-algorithm: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+    mappings:
+      order-events:
+        quota-per-interval: ${TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL:10}
+        initial-quota-per-interval: ${TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-interval-ms: ${TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS:1000}
+        quota-ramp-seconds: ${TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS:0}
+      batch-events:
+        quota-per-interval: ${TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL:10}
+        initial-quota-per-interval: ${TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-interval-ms: ${TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS:1000}
+        quota-ramp-seconds: ${TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS:0}
+      cauldron-events:
+        quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL:10}
+        initial-quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-interval-ms: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS:1000}
+        quota-ramp-seconds: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS:0}
+    duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:90}
+    offer-window-ms: ${TRAFFIC_WARMUP_OFFER_WINDOW_MS:2000}
+    participant-start-timeout-seconds: ${TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS:15}
+    preparation-timeout-seconds: ${TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS:15}
+    completion-timeout-seconds: ${TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS:30}
+    delegation-timeout-seconds: ${TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS:10}
+    max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
+    max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
+    producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
