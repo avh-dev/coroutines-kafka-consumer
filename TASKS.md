@@ -84,6 +84,7 @@
 | [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
 | [CORE-80](#core-80) | Expose a public protocol-v6 warm-up context and consumer DSL that owns discovery, activation, fallback, completion, and shutdown. | DONE |
 | [CORE-81](#core-81) | Add a public container for reliable joint lifecycle management of heterogeneous consumers. | DONE |
+| [CORE-82](#core-82) | Reuse the core consumer container for joint lifecycle management in the Spring Boot starter. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6134,3 +6135,23 @@ from genuinely incomplete warm-up cleanup. Real-Kafka coverage runs three typed 
 shared context through the container and cold-starts participants from independent contexts. All 286
 core unit tests and 46 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was
 started.
+
+<a id="core-82"></a>
+### CORE-82 - Reuse the consumer container in the Spring Boot starter
+
+_Date: 2026-11-16_
+
+Replace the starter's duplicate joint shutdown, failure aggregation, and incomplete-cleanup tracking
+with the core `ConsumerContainer` while preserving named individual control, automatic startup,
+health, snapshots, shutdown deadlines, dispatcher ownership, and terminal-failure policy.
+Keep a single fixed container across shutdown attempts, translate indexed lifecycle failures back to
+Spring consumer names, and ensure a timed-out Spring wait neither cancels nor loses core cleanup.
+Core now exposes a payload-independent participant adapter, per-participant stop on the shared
+container, and a read-only progress snapshot. Individual and collective stops share the same cleanup
+attempt; completed work is not repeated, incomplete work remains retryable, and fatal JVM failures
+remain unwrapped. Starter shutdown errors retain the consumer name, lifecycle phase, cause,
+unfinished set, and distinct Spring-timeout marker.
+Coverage includes automatic/manual isolation, partial startup, concurrent named and application
+stop, retry, delayed cleanup after timeout, terminal and fatal failures, real prepared-consumer
+shutdown, and shared or independent warm-up contexts. All 291 core unit tests, 51 starter tests, and
+46 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.

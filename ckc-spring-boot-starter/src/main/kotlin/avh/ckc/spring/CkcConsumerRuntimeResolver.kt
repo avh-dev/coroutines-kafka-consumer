@@ -29,6 +29,7 @@ internal interface ManagedCkcConsumer {
     suspend fun stop()
     suspend fun awaitTermination()
     suspend fun awaitShutdownCompletion()
+    fun isStopComplete(): Boolean
     fun stateSnapshot(): ConsumerStateSnapshot
 }
 
@@ -39,6 +40,7 @@ private class CoreManagedCkcConsumer(
     override suspend fun stop() = delegate.stop()
     override suspend fun awaitTermination() = delegate.awaitTermination()
     override suspend fun awaitShutdownCompletion() = delegate.awaitShutdownCompletion()
+    override fun isStopComplete(): Boolean = delegate.isStopComplete()
     override fun stateSnapshot(): ConsumerStateSnapshot = delegate.stateSnapshot()
 }
 

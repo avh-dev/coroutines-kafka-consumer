@@ -178,6 +178,50 @@ class ConsumerContainerTest {
     }
 
     @Test
+    fun `individual and collective stop share the participant cleanup attempt`() = runBlocking {
+        val firstEntered = CompletableDeferred<Unit>()
+        val allowFirst = CompletableDeferred<Unit>()
+        val first = FakeParticipant(stopGate = allowFirst, stopEntered = firstEntered)
+        val second = FakeParticipant()
+        val container = container(first, second)
+        container.start()
+
+        val individual = async { container.stopParticipant(0) }
+        firstEntered.await()
+        val collective = async { container.stop() }
+        second.stopFinished.await()
+        allowFirst.complete(Unit)
+        individual.await()
+        collective.await()
+
+        assertEquals(listOf(1, 1), listOf(first.stops, second.stops))
+    }
+
+    @Test
+    fun `status exposes a completed failure while another participant is still stopping`() = runBlocking {
+        val failure = IllegalStateException("failed")
+        val failed = FakeParticipant(
+            stopActions = mutableListOf(StopAction(failure, complete = true))
+        )
+        val slowEntered = CompletableDeferred<Unit>()
+        val allowSlow = CompletableDeferred<Unit>()
+        val slow = FakeParticipant(stopGate = allowSlow, stopEntered = slowEntered)
+        val container = container(failed, slow)
+        container.start()
+
+        val stop = async { assertFailsWith<ConsumerContainerException> { container.stop() } }
+        slowEntered.await()
+        failed.stopFinished.await()
+        val status = container.status()
+
+        assertTrue(status.participants[0].stopComplete)
+        assertEquals(failure, status.participants[0].failure)
+        assertFalse(status.participants[1].stopComplete)
+        allowSlow.complete(Unit)
+        stop.await()
+    }
+
+    @Test
     fun `caller cancellation does not abandon an active stop attempt`() = runBlocking {
         val stopEntered = CompletableDeferred<Unit>()
         val allowStop = CompletableDeferred<Unit>()
@@ -335,6 +379,7 @@ class ConsumerContainerTest {
         private val stopGate: CompletableDeferred<Unit>? = null,
         private val stopEntered: CompletableDeferred<Unit>? = null
     ) : ConsumerContainerParticipant {
+        val stopFinished = CompletableDeferred<Unit>()
         var starts = 0
             private set
         var stops = 0
@@ -356,13 +401,20 @@ class ConsumerContainerTest {
 
         override suspend fun stop() {
             stops += 1
-            if (stopComplete) return
-            cleanupRuns += 1
-            stopEntered?.complete(Unit)
-            stopGate?.await()
-            val action = stopActions.removeFirstOrNull() ?: StopAction(complete = stopComplete)
-            stopComplete = action.complete
-            action.error?.let { throw it }
+            if (stopComplete) {
+                stopFinished.complete(Unit)
+                return
+            }
+            try {
+                cleanupRuns += 1
+                stopEntered?.complete(Unit)
+                stopGate?.await()
+                val action = stopActions.removeFirstOrNull() ?: StopAction(complete = stopComplete)
+                stopComplete = action.complete
+                action.error?.let { throw it }
+            } finally {
+                stopFinished.complete(Unit)
+            }
         }
 
         override fun isStopComplete(): Boolean = stopComplete
