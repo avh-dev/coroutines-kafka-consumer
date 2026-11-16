@@ -190,6 +190,7 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
+| [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6158,3 +6159,20 @@ unit tests, 52 starter tests, and 46 real-Kafka integration tests pass. No smoke
 experiment run was started.
 Spring remains responsible for selecting and starting automatic or named manual consumers; CORE-82
 reuses the shared container specifically for individual and application-wide shutdown coordination.
+
+<a id="demo-106"></a>
+### DEMO-106 - Connect shared-partition traffic warm-up
+
+_Date: 2026-11-16_
+
+Connected the three typed CKC demo consumers to one public protocol-v6 `trafficWarmupContext`, with
+independent control, destination, and main Kafka connections. Order, batch, and cauldron mappings
+have separate quota, initial quota, interval, and ramp settings; explicit empty SSL endpoint
+identification remains a valid connection override. Disabling warm-up retains the original path.
+The fixed core `ConsumerContainer` now starts and stops the heterogeneous consumers. Partial stop
+failures do not skip siblings, incomplete cleanup stays retryable, and Spring lifecycle state is
+cleared only after every participant releases its resources. The remote-aware metrics wrapper keeps
+the compact audit format while forwarding `processedRemotely` to prevent duplicate Micrometer data.
+The selective port adapts archived GLOBAL-4 commits `75d0d4ec`, `2259bf71`, `7b201c41`, `09ea7cf6`,
+and `7483b708` to the v6 shared-partition contract without coordinator or reservation settings. All
+110 demo tests pass. No smoke, load, chaos, or experiment run was started.
