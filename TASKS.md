@@ -510,6 +510,7 @@
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
+| [INFRA-324](#infra-324) | Port the GLOBAL-4 sequential scale-up warm-up experiment to protocol v6. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6234,3 +6235,23 @@ Compose example also starts healthy and serves topic metadata through its publis
 The complete 195-test internal-lab suite retains the same two report/notification assertion
 failures and one helper-import error documented on the unchanged baseline. The exact internal-lab
 qualification definition is prepared but no smoke, load, chaos, or experiment run was started.
+
+<a id="infra-324"></a>
+### INFRA-324 - Port the GLOBAL-4 sequential scale-up warm-up experiment
+
+_Date: 2026-11-16_
+
+Port the GLOBAL-4 local 16k warm-up versus cold scale-up experiment without changing its workload,
+resource, processing-profile, HPA, quota, or one-pod-at-a-time scaling settings. Replace only the
+archived protocol-v1 configuration and transport provisioning with the GLOBAL-5 public DSL wiring,
+protocol-v6 topics, and the autonomous INFRA-323 warm-up Kafka. Preserve audit, metrics, evidence,
+and report collection, validate the materialized experiment, and install it into the internal lab.
+Prepare the exact operator command but do not start the experiment as part of this task.
+
+The port is based on GLOBAL-4 commit `fa8fa0a1`. It retains the two-target 16k workload, forty-minute
+linear ramp, five-minute steady interval, tuned Serial GC profiles, resource requests, twelve main
+topic partitions, mapping quota/ramp values, and HPA limit of one added pod per 180 seconds. Only
+protocol wiring changes: v6 topics, per-mapping quota properties, independent control/destination
+connections, and the INFRA-323 autonomous transport. An explicit target-level disable keeps the
+cold baseline cold even though the experiment provisions the optional transport. All 83 shared
+orchestration tests and 23 focused internal-lab tests pass; the experiment itself was not started.

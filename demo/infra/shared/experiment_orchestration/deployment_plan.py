@@ -912,8 +912,10 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
     warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
     if warmup_kafka.get("enabled"):
         warmup_bootstrap = f"{WARMUP_KAFKA_SERVICE}:{WARMUP_KAFKA_PORT}"
+        # A dedicated transport enables warm-up by default, while an explicit
+        # target override remains authoritative for cold A/B baselines.
+        computed_env.setdefault("TRAFFIC_WARMUP_ENABLED", "true")
         computed_env.update({
-            "TRAFFIC_WARMUP_ENABLED": "true",
             "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
             "TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
             "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
