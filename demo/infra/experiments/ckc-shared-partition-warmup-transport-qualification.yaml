@@ -3,7 +3,7 @@ name: ckc-shared-partition-warmup-transport-qualification
 description: >-
   Qualify the autonomous internal-lab warm-up Kafka by scaling one CKC donor to
   two pods, deleting the ephemeral broker pod and data, then adding a new recipient
-  after topic reconciliation without restarting the surviving application pods.
+  after the replacement broker completes topic bootstrap without restarting the surviving application pods.
 workload:
   stubs:
     error_rate_percent: 0

@@ -92,7 +92,8 @@ class DeploymentPlanTest(unittest.TestCase):
             },
             "topics": topics,
             "retention_ms": 600_000,
-            "reconcile_interval_seconds": 5,
+            "bootstrap_timeout_seconds": 120,
+            "bootstrap_backoff_seconds": 2,
             "operation_timeout_seconds": 10,
         }
         manifests = render_project_manifests(plan, DeploymentBindings(
@@ -129,6 +130,10 @@ class DeploymentPlanTest(unittest.TestCase):
             environment["KAFKA_ADVERTISED_LISTENERS"],
         )
         self.assertEqual("INTERNAL", environment["KAFKA_INTER_BROKER_LISTENER_NAME"])
+        self.assertEqual("120", environment["KAFKA_BOOTSTRAP_TIMEOUT_SECONDS"])
+        self.assertEqual("2", environment["KAFKA_BOOTSTRAP_BACKOFF_SECONDS"])
+        self.assertNotIn("KAFKA_RECONCILE_INTERVAL_SECONDS", environment)
+        self.assertNotIn("KAFKA_READY_MAX_AGE_SECONDS", environment)
         self.assertEqual(
             ["/opt/ckc-warmup-kafka/bin/readiness.sh"],
             containers[0]["readinessProbe"]["exec"]["command"],

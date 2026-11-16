@@ -511,6 +511,7 @@
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
 | [INFRA-324](#infra-324) | Port the GLOBAL-4 sequential scale-up warm-up experiment to protocol v6. | DONE |
+| [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6257,3 +6258,28 @@ control/destination connections, and the INFRA-323 autonomous transport. An expl
 disable keeps the cold baseline cold even though the experiment provisions the optional transport.
 The first operator run exposed the incompatible zero value and was cancelled during application
 startup; no load target ran. The corrected experiment is validated and installed for a fresh run.
+
+<a id="infra-325"></a>
+### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
+
+_Date: 2026-11-16_
+
+Run topic preparation once after each warm-up Kafka broker start instead of continuously launching
+Kafka CLI processes beside the broker. Fetch topic metadata in one bounded operation, create only
+missing one-partition topics, verify the final configuration, and then leave only the broker
+running. Base readiness on successful bootstrap for the current container start plus a lightweight
+broker liveness check that does not start a JVM. Clear bootstrap state on every start and shutdown.
+
+Document that manual topic deletion while the broker remains alive is not repaired automatically;
+an operator restarts the container to repeat bootstrap. Preserve automatic recovery for the required
+case of broker and data loss followed by container recreation, together with bounded startup,
+signal-safe shutdown, retained-data restart, incompatible-metadata diagnostics, and cold fallback.
+
+Bootstrap now reads all topic metadata with one Kafka CLI invocation, creates only missing topics,
+and performs one final metadata read when creation occurred. Its successful exit leaves the broker
+as the only supervised child. Readiness uses the current-start marker, broker PID, and a bounded TCP
+check of the internal listener without starting a JVM. Nine script tests, all 82 shared orchestration
+tests, nine focused internal-lab tests, experiment validation, and the real Docker lifecycle pass.
+The lifecycle covers retained records, an empty replacement volume, incompatible metadata, finished
+bootstrap, independent listeners, and container termination after broker exit. No experiment run was
+started by this task.

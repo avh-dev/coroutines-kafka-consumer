@@ -5,15 +5,14 @@ set -uo pipefail
 KAFKA_BIN_DIR="${KAFKA_BIN_DIR:-/opt/kafka/bin}"
 KAFKA_BOOTSTRAP_SERVER="${KAFKA_BOOTSTRAP_SERVER:-localhost:19092}"
 KAFKA_BOOTSTRAP_TOPICS="${KAFKA_BOOTSTRAP_TOPICS:-}"
-KAFKA_RECONCILE_INTERVAL_SECONDS="${KAFKA_RECONCILE_INTERVAL_SECONDS:-5}"
-KAFKA_RECONCILE_BACKOFF_SECONDS="${KAFKA_RECONCILE_BACKOFF_SECONDS:-2}"
+KAFKA_BOOTSTRAP_TIMEOUT_SECONDS="${KAFKA_BOOTSTRAP_TIMEOUT_SECONDS:-120}"
+KAFKA_BOOTSTRAP_BACKOFF_SECONDS="${KAFKA_BOOTSTRAP_BACKOFF_SECONDS:-2}"
 KAFKA_OPERATION_TIMEOUT_SECONDS="${KAFKA_OPERATION_TIMEOUT_SECONDS:-10}"
-KAFKA_RECONCILE_ONCE="${KAFKA_RECONCILE_ONCE:-false}"
 KAFKA_CLIENT_CONFIG="${KAFKA_CLIENT_CONFIG:-/var/run/ckc-warmup-kafka/client.properties}"
 KAFKA_READY_FILE="${KAFKA_READY_FILE:-/var/run/ckc-warmup-kafka/ready}"
 
 log() {
-  printf '%s warmup-kafka-reconcile level=%s event=%s %s\n' \
+  printf '%s warmup-kafka-bootstrap level=%s event=%s %s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "${3:-}" >&2
 }
 
@@ -24,13 +23,9 @@ positive_integer() {
   }
 }
 
-positive_integer KAFKA_RECONCILE_INTERVAL_SECONDS "${KAFKA_RECONCILE_INTERVAL_SECONDS}"
-positive_integer KAFKA_RECONCILE_BACKOFF_SECONDS "${KAFKA_RECONCILE_BACKOFF_SECONDS}"
+positive_integer KAFKA_BOOTSTRAP_TIMEOUT_SECONDS "${KAFKA_BOOTSTRAP_TIMEOUT_SECONDS}"
+positive_integer KAFKA_BOOTSTRAP_BACKOFF_SECONDS "${KAFKA_BOOTSTRAP_BACKOFF_SECONDS}"
 positive_integer KAFKA_OPERATION_TIMEOUT_SECONDS "${KAFKA_OPERATION_TIMEOUT_SECONDS}"
-if [[ "${KAFKA_RECONCILE_ONCE}" != "true" && "${KAFKA_RECONCILE_ONCE}" != "false" ]]; then
-  log error invalid_configuration "KAFKA_RECONCILE_ONCE must be true or false"
-  exit 2
-fi
 
 declare -a topics=()
 declare -A seen_topics=()
@@ -57,6 +52,7 @@ if [[ ${#topics[@]} -eq 0 ]]; then
 fi
 
 mkdir -p "$(dirname -- "${KAFKA_READY_FILE}")" "$(dirname -- "${KAFKA_CLIENT_CONFIG}")"
+rm -f -- "${KAFKA_READY_FILE}"
 printf 'request.timeout.ms=%s\ndefault.api.timeout.ms=%s\n' \
   "$((KAFKA_OPERATION_TIMEOUT_SECONDS * 1000))" "$((KAFKA_OPERATION_TIMEOUT_SECONDS * 1000))" \
   > "${KAFKA_CLIENT_CONFIG}"
@@ -66,19 +62,14 @@ run_kafka() {
     "$@" --command-config "${KAFKA_CLIENT_CONFIG}"
 }
 
-broker_available() {
-  run_kafka "${KAFKA_BIN_DIR}/kafka-broker-api-versions.sh" \
-    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" >/dev/null 2>&1
+describe_topics() {
+  run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
+    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --describe
 }
 
 topic_partition_count() {
-  local topic="$1" description partitions pattern
-  pattern="\\Q${topic}\\E"
-  if ! description="$(run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
-    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --describe --topic "${pattern}" 2>&1)"; then
-    return 1
-  fi
-  partitions="$(printf '%s\n' "${description}" | awk -v expected="${topic}" '
+  local description="$1" topic="$2"
+  printf '%s\n' "${description}" | awk -v expected="${topic}" '
     $1 == "Topic:" && $2 == expected {
       for (field = 3; field <= NF; field++) {
         if ($field == "PartitionCount:") {
@@ -87,62 +78,57 @@ topic_partition_count() {
         }
       }
     }
-  ')"
-  [[ "${partitions}" =~ ^[0-9]+$ ]] || return 1
-  printf '%s\n' "${partitions}"
+  '
 }
 
-reconcile_topic() {
-  local topic="$1" partitions
-  if ! partitions="$(topic_partition_count "${topic}")"; then
+deadline=$((SECONDS + KAFKA_BOOTSTRAP_TIMEOUT_SECONDS))
+description=""
+while ! description="$(describe_topics 2>/dev/null)"; do
+  if (( SECONDS >= deadline )); then
+    log error bootstrap_timeout "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+    exit 1
+  fi
+  log warn broker_unavailable "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+  sleep "${KAFKA_BOOTSTRAP_BACKOFF_SECONDS}"
+done
+
+created=false
+for topic in "${topics[@]}"; do
+  partitions="$(topic_partition_count "${description}" "${topic}")"
+  if [[ -z "${partitions}" ]]; then
     log info topic_creation "topic=${topic}"
     if ! run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
       --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --create --if-not-exists \
       --topic "${topic}" --partitions 1 --replication-factor 1 >/dev/null 2>&1; then
-      log warn topic_creation_failed "topic=${topic}"
-      return 1
+      log error topic_creation_failed "topic=${topic}"
+      exit 1
     fi
-    if ! partitions="$(topic_partition_count "${topic}")"; then
-      log warn metadata_unavailable "topic=${topic}"
-      return 1
-    fi
-  fi
-  if [[ "${partitions}" != "1" ]]; then
-    rm -f -- "${KAFKA_READY_FILE}"
+    created=true
+  elif [[ "${partitions}" != "1" ]]; then
     log error incompatible_metadata "topic=${topic} partitions=${partitions} expected=1"
-    return 1
-  fi
-}
-
-mark_ready() {
-  local temporary="${KAFKA_READY_FILE}.$$"
-  printf '%s\n' "$(date +%s)" > "${temporary}"
-  mv -f -- "${temporary}" "${KAFKA_READY_FILE}"
-}
-
-while :; do
-  if ! broker_available; then
-    rm -f -- "${KAFKA_READY_FILE}"
-    log warn broker_unavailable "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
-    sleep "${KAFKA_RECONCILE_BACKOFF_SECONDS}"
-    continue
-  fi
-
-  compatible=true
-  for topic in "${topics[@]}"; do
-    if ! reconcile_topic "${topic}"; then
-      compatible=false
-    fi
-  done
-  if [[ "${compatible}" == "true" ]]; then
-    mark_ready
-    log info topics_ready "count=${#topics[@]}"
-    if [[ "${KAFKA_RECONCILE_ONCE}" == "true" ]]; then
-      exit 0
-    fi
-    sleep "${KAFKA_RECONCILE_INTERVAL_SECONDS}"
-  else
-    rm -f -- "${KAFKA_READY_FILE}"
-    sleep "${KAFKA_RECONCILE_BACKOFF_SECONDS}"
+    exit 1
   fi
 done
+
+# A single final metadata snapshot proves that newly created and pre-existing topics
+# expose the exact configuration required by the protocol.
+if [[ "${created}" == "true" ]]; then
+  if ! description="$(describe_topics 2>/dev/null)"; then
+    log error metadata_unavailable "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+    exit 1
+  fi
+fi
+for topic in "${topics[@]}"; do
+  partitions="$(topic_partition_count "${description}" "${topic}")"
+  if [[ -z "${partitions}" ]]; then
+    log error metadata_unavailable "topic=${topic}"
+    exit 1
+  fi
+  if [[ "${partitions}" != "1" ]]; then
+    log error incompatible_metadata "topic=${topic} partitions=${partitions} expected=1"
+    exit 1
+  fi
+done
+
+printf '%s\n' "$(date +%s)" > "${KAFKA_READY_FILE}"
+log info topics_ready "count=${#topics[@]}"
