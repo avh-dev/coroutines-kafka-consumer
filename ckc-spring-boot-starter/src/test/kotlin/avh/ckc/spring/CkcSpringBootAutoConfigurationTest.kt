@@ -34,6 +34,16 @@ class CkcSpringBootAutoConfigurationTest {
         )
 
     @Test
+    fun `starts and closes an enabled starter without configured consumers`() {
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(CkcConsumersLifecycle::class.java)
+            val lifecycle = context.getBean(CkcConsumersLifecycle::class.java)
+            assertThat(lifecycle.isRunning).isTrue()
+            assertThat(lifecycle.consumerNames).isEmpty()
+        }
+    }
+
+    @Test
     fun `creates lifecycle for annotated consumer configured by name`() {
         contextRunner
             .withUserConfiguration(OrdersConsumerConfiguration::class.java)

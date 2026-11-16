@@ -458,6 +458,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     internal fun isLifecycleStopComplete(): Boolean =
         managedLifecycle?.isStopComplete() ?: isShutdownComplete()
 
+    /** Returns true only after the main runtime and any attached optional lifecycle release resources. */
+    fun isStopComplete(): Boolean = isLifecycleStopComplete()
+
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
         val loopSnapshots = pollLoops.map { it.stateSnapshot() }

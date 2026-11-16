@@ -1,21 +1,21 @@
 package avh.ckc.spring
 
+import avh.ckc.core.ConsumerContainer
+import avh.ckc.core.ConsumerContainerException
+import avh.ckc.core.ConsumerContainerParticipant
+import avh.ckc.core.ConsumerContainerPhase
+import avh.ckc.core.consumerContainer
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.context.ApplicationContext
 import org.springframework.context.SmartLifecycle
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Spring-managed lifecycle and registry implementation for starter-managed CKC consumers.
@@ -34,8 +34,11 @@ class CkcConsumersLifecycle internal constructor(
     private val consumerRuntimes: List<NamedConsumerRuntime> by lazy {
         providedConsumerRuntimes ?: resolveConsumerRuntimes(applicationContext, dispatcherRegistry)
     }
+    private val jointContainerLazy = lazy { containerBinding(consumerRuntimes) }
+    private val jointContainer: ContainerBinding by jointContainerLazy
     private val runningConsumerNames = linkedSetOf<String>()
     private val lifecycleObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val stopObservers = mutableMapOf<String, Job>()
     private val terminalFailureCoordinator by lazy {
         CkcTerminalFailureCoordinator(
             applicationContext,
@@ -56,6 +59,12 @@ class CkcConsumersLifecycle internal constructor(
     private var shutdownRequested = false
 
     @Volatile
+    private var destroyRequested = false
+
+    @Volatile
+    private var dispatchersClosed = false
+
+    @Volatile
     internal var lifecycleStarted = false
         private set
 
@@ -66,34 +75,39 @@ class CkcConsumersLifecycle internal constructor(
             }
             logStartupBanner()
             shutdownRequested = false
+            lifecycleStarted = true
             val autoStartupRuntimes = consumerRuntimes.filter { it.autoStartup }
             logger.info(
                 "Starting ${autoStartupRuntimes.size} auto-startup CKC consumer(s); " +
                     "${consumerRuntimes.size - autoStartupRuntimes.size} manual consumer(s) registered"
             )
-            autoStartupRuntimes.forEach { startRuntime(it) }
-            lifecycleStarted = true
-            running = true
+            try {
+                autoStartupRuntimes.forEach { startRuntime(it) }
+            } finally {
+                running = true
+            }
         }
     }
 
     override fun stop() {
         synchronized(this) {
             shutdownRequested = true
-            if (!lifecycleStarted && runningConsumerNames.isEmpty()) {
-                return
-            }
-            val result = stopRuntimes(
-                runtimes = consumerRuntimes.filter { it.name in runningConsumerNames }.asReversed(),
-                timeout = properties.lifecycle.shutdownTimeout
-            )
-            runningConsumerNames.removeAll(result.completedConsumerNames)
-            running = runningConsumerNames.isNotEmpty()
-            if (!running) {
+        }
+        if (consumerRuntimes.isEmpty()) {
+            synchronized(this) {
+                running = false
                 lifecycleStarted = false
             }
-            result.throwIfIncomplete()
+            closeDispatchersIfReleased()
+            return
         }
+        val result = try {
+            stopContainer(jointContainer, properties.lifecycle.shutdownTimeout, participantIndex = null)
+        } finally {
+            updateAfterStop(jointContainer)
+        }
+        if (result.timedOut) observeStopCompletion("joint", jointContainer, participantIndex = null)
+        result.throwIfIncomplete()
     }
 
     override fun stop(callback: Runnable) {
@@ -111,9 +125,8 @@ class CkcConsumersLifecycle internal constructor(
     override fun getPhase(): Int = properties.lifecycle.phase
 
     override fun destroy() {
-        if (dispatcherRegistryLazy.isInitialized()) {
-            dispatcherRegistry.close()
-        }
+        destroyRequested = true
+        closeDispatchersIfReleased()
     }
 
     override fun isRunning(name: String): Boolean =
@@ -124,22 +137,29 @@ class CkcConsumersLifecycle internal constructor(
 
     override fun start(name: String) {
         synchronized(this) {
+            check(!shutdownRequested) { "CKC consumers are stopping" }
             startRuntime(requireConsumerRuntime(name))
             running = true
         }
     }
 
     override fun stop(name: String) {
-        synchronized(this) {
+        val participantIndex = synchronized(this) {
             val runtime = requireConsumerRuntime(name)
             if (runtime.name !in runningConsumerNames) {
                 return
             }
-            val result = stopRuntimes(listOf(runtime), properties.lifecycle.shutdownTimeout)
-            runningConsumerNames.removeAll(result.completedConsumerNames)
-            running = runningConsumerNames.isNotEmpty()
-            result.throwIfIncomplete()
+            jointContainer.names.indexOf(name)
         }
+        val result = try {
+            stopContainer(jointContainer, properties.lifecycle.shutdownTimeout, participantIndex)
+        } finally {
+            updateAfterStop(jointContainer)
+        }
+        if (result.timedOut) {
+            observeStopCompletion("individual:$name", jointContainer, participantIndex)
+        }
+        result.throwIfIncomplete()
     }
 
     internal fun consumerStateSnapshots(): List<CkcConsumerStateSnapshot> =
@@ -198,76 +218,147 @@ class CkcConsumersLifecycle internal constructor(
         lifecycleObserverScope.launch {
             runtime.consumer.awaitShutdownCompletion()
             synchronized(this@CkcConsumersLifecycle) {
-                runningConsumerNames.remove(runtime.name)
-                running = runningConsumerNames.isNotEmpty()
-                if (!running && shutdownRequested) {
-                    lifecycleStarted = false
+                if (runtime.consumer.isStopComplete()) {
+                    runningConsumerNames.remove(runtime.name)
+                    refreshRunningStateLocked()
                 }
             }
         }
     }
 
-    private fun stopRuntimes(
-        runtimes: List<NamedConsumerRuntime>,
-        timeout: java.time.Duration
-    ): ConsumerShutdownResult {
-        if (runtimes.isEmpty()) {
-            return ConsumerShutdownResult.EMPTY
-        }
+    private fun stopContainer(
+        binding: ContainerBinding,
+        timeout: java.time.Duration,
+        participantIndex: Int?
+    ): ContainerShutdownResult {
         require(!timeout.isNegative && !timeout.isZero) {
             "ckc.lifecycle.shutdown-timeout must be > 0"
         }
         logger.info(
-            "Stopping ${runtimes.size} CKC consumer(s) with shutdown timeout ${timeout.toMillis()}ms"
+            "Stopping ${participantIndex?.let { 1 } ?: binding.names.size} CKC consumer(s) " +
+                "with shutdown timeout ${timeout.toMillis()}ms"
         )
-        val completedConsumerNames = ConcurrentHashMap.newKeySet<String>()
-        val failures = ConcurrentHashMap<String, Throwable>()
-        runBlocking {
-            withTimeoutOrNull(timeout.toMillis()) {
-                coroutineScope {
-                    runtimes.map { runtime ->
-                        async(Dispatchers.Default) {
-                            logger.info("Stopping CKC consumer '${runtime.name}'")
-                            var stopFailed = false
-                            try {
-                                runtime.consumer.stop()
-                            } catch (error: Throwable) {
-                                if (error is CancellationException && !currentCoroutineContext().isActive) {
-                                    throw error
-                                }
-                                stopFailed = true
-                                failures[runtime.name] = error
-                                logger.severe(
-                                    "Failed to stop CKC consumer '${runtime.name}': ${error.message}"
-                                )
-                            }
-                            runtime.consumer.awaitShutdownCompletion()
-                            completedConsumerNames += runtime.name
-                            if (stopFailed) {
-                                logger.info(
-                                    "Shutdown completed for CKC consumer '${runtime.name}' after stop failure"
-                                )
-                            } else {
-                                logger.info("Stopped CKC consumer '${runtime.name}'")
-                            }
-                        }
-                    }
-                        .awaitAll()
+        var containerFailure: ConsumerContainerException? = null
+        val timedOut = try {
+            runBlocking {
+                withTimeout(timeout.toMillis()) {
+                    if (participantIndex == null) binding.container.stop()
+                    else binding.container.stopParticipant(participantIndex)
                 }
             }
+            false
+        } catch (_: TimeoutCancellationException) {
+            true
+        } catch (error: ConsumerContainerException) {
+            containerFailure = error
+            false
         }
-        val unfinished = runtimes.mapTo(linkedSetOf()) { it.name } - completedConsumerNames
+        val status = binding.container.status()
+        val relevantStatuses = status.participants.filter { participant ->
+            participantIndex == null || participant.participantIndex == participantIndex
+        }
+        status.fatalFailure
+            ?.takeIf { fatal -> participantIndex == null || relevantStatuses.any { it.failure === fatal } }
+            ?.let { throw it }
+        val failures = linkedMapOf<String, CkcConsumerLifecycleFailure>()
+        containerFailure?.failures?.forEach { failure ->
+            val name = binding.names[failure.participantIndex]
+            failures[name] = CkcConsumerLifecycleFailure(name, failure.phase, failure.error)
+        }
+        relevantStatuses.forEach { participant ->
+            participant.failure?.let { error ->
+                val name = binding.names[participant.participantIndex]
+                failures.putIfAbsent(
+                    name,
+                    CkcConsumerLifecycleFailure(name, ConsumerContainerPhase.STOP, error)
+                )
+            }
+        }
+        val unfinished = relevantStatuses
+            .filterNot { it.stopComplete }
+            .mapTo(linkedSetOf()) { binding.names[it.participantIndex] }
         if (unfinished.isNotEmpty()) {
             logger.warning(
-                "Timed out after ${timeout.toMillis()}ms while stopping CKC consumer(s): " +
+                "Shutdown remains incomplete for CKC consumer(s): " +
                     unfinished.joinToString()
             )
         }
-        return ConsumerShutdownResult(
-            completedConsumerNames = completedConsumerNames.toSet(),
-            failures = failures.toMap(),
-            unfinishedConsumerNames = unfinished
+        return ContainerShutdownResult(
+            failures = failures.values.toList(),
+            unfinishedConsumerNames = unfinished,
+            timedOut = timedOut
         )
+    }
+
+    private fun containerBinding(runtimes: List<NamedConsumerRuntime>): ContainerBinding =
+        ContainerBinding(
+            names = runtimes.map(NamedConsumerRuntime::name),
+            container = consumerContainer(
+                runtimes.map { runtime ->
+                    object : ConsumerContainerParticipant {
+                        override fun start() = runtime.consumer.start()
+                        override suspend fun awaitReady() = Unit
+                        override suspend fun stop() = runtime.consumer.stop()
+                        override fun isStopComplete(): Boolean = runtime.consumer.isStopComplete()
+                    }
+                }
+            )
+        )
+
+    private fun observeStopCompletion(
+        key: String,
+        binding: ContainerBinding,
+        participantIndex: Int?
+    ) {
+        synchronized(this) {
+            if (stopObservers[key]?.isActive == true) return
+            stopObservers[key] = lifecycleObserverScope.launch {
+                try {
+                    if (participantIndex == null) binding.container.stop()
+                    else binding.container.stopParticipant(participantIndex)
+                } catch (error: Throwable) {
+                    // Core retains the indexed result for a later stop call; this observer refreshes state.
+                    binding.container.status().fatalFailure?.let { throw it }
+                    logger.severe("CKC consumer cleanup ended after the Spring deadline: ${error.message}")
+                } finally {
+                    updateAfterStop(binding)
+                    synchronized(this@CkcConsumersLifecycle) { stopObservers.remove(key) }
+                }
+            }
+        }
+    }
+
+    private fun updateAfterStop(binding: ContainerBinding) {
+        val status = binding.container.status()
+        val completedNames = status.participants
+            .filter { it.stopComplete }
+            .mapTo(linkedSetOf()) { binding.names[it.participantIndex] }
+        synchronized(this) {
+            runningConsumerNames.removeAll(completedNames)
+            refreshRunningStateLocked()
+        }
+        closeDispatchersIfReleased()
+    }
+
+    private fun refreshRunningStateLocked() {
+        val cleanupIncomplete = shutdownRequested && jointContainerLazy.isInitialized() &&
+            jointContainer.container.status().participants.any { !it.stopComplete }
+        running = runningConsumerNames.isNotEmpty() || cleanupIncomplete
+        if (!running && shutdownRequested) lifecycleStarted = false
+    }
+
+    private fun closeDispatchersIfReleased() {
+        val close = synchronized(this) {
+            if (!destroyRequested || dispatchersClosed || !dispatcherRegistryLazy.isInitialized()) {
+                false
+            } else {
+                val released = !jointContainerLazy.isInitialized() ||
+                    jointContainer.container.status().participants.all { it.stopComplete }
+                if (released) dispatchersClosed = true
+                released
+            }
+        }
+        if (close) dispatcherRegistry.close()
     }
 
     private fun requireConsumerRuntime(name: String): NamedConsumerRuntime =
@@ -276,37 +367,51 @@ class CkcConsumersLifecycle internal constructor(
 
 }
 
-/** Aggregates every completed failure and every consumer still stopping at the shared deadline. */
+/** One named Spring consumer failure translated from the core container's indexed result. */
+data class CkcConsumerLifecycleFailure(
+    val consumerName: String,
+    val phase: ConsumerContainerPhase,
+    val error: Throwable
+)
+
+/** Aggregates observed failures, incomplete cleanup, and an optional Spring wait timeout. */
 class CkcConsumersShutdownException internal constructor(
-    val failures: Map<String, Throwable>,
-    val unfinishedConsumerNames: Set<String>
+    val lifecycleFailures: List<CkcConsumerLifecycleFailure>,
+    val unfinishedConsumerNames: Set<String>,
+    val timedOut: Boolean
 ) : IllegalStateException(
     buildString {
         append("CKC consumer shutdown did not complete cleanly")
-        if (failures.isNotEmpty()) append("; failures=${failures.keys.joinToString()}")
+        if (lifecycleFailures.isNotEmpty()) {
+            append("; failures=${lifecycleFailures.joinToString { it.consumerName }}")
+        }
         if (unfinishedConsumerNames.isNotEmpty()) {
             append("; unfinished=${unfinishedConsumerNames.joinToString()}")
         }
+        if (timedOut) append("; Spring shutdown wait timed out")
     }
 ) {
+    val failures: Map<String, Throwable> = lifecycleFailures.associate { it.consumerName to it.error }
+
     init {
-        failures.values.forEach(::addSuppressed)
+        lifecycleFailures.forEach { addSuppressed(it.error) }
     }
 }
 
-private data class ConsumerShutdownResult(
-    val completedConsumerNames: Set<String>,
-    val failures: Map<String, Throwable>,
-    val unfinishedConsumerNames: Set<String>
+private data class ContainerBinding(
+    val names: List<String>,
+    val container: ConsumerContainer
+)
+
+private data class ContainerShutdownResult(
+    val failures: List<CkcConsumerLifecycleFailure>,
+    val unfinishedConsumerNames: Set<String>,
+    val timedOut: Boolean
 ) {
     fun throwIfIncomplete() {
-        if (failures.isNotEmpty() || unfinishedConsumerNames.isNotEmpty()) {
-            throw CkcConsumersShutdownException(failures, unfinishedConsumerNames)
+        if (failures.isNotEmpty() || unfinishedConsumerNames.isNotEmpty() || timedOut) {
+            throw CkcConsumersShutdownException(failures, unfinishedConsumerNames, timedOut)
         }
-    }
-
-    companion object {
-        val EMPTY = ConsumerShutdownResult(emptySet(), emptyMap(), emptySet())
     }
 }
 

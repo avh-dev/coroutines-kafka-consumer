@@ -41,12 +41,27 @@ class ConsumerContainerException internal constructor(
     }
 }
 
-internal interface ConsumerContainerParticipant {
+/** Payload-independent lifecycle seam used to include library adapters in a [ConsumerContainer]. */
+interface ConsumerContainerParticipant {
     fun start()
     suspend fun awaitReady()
     suspend fun stop()
     fun isStopComplete(): Boolean
 }
+
+/** Latest stop state of one fixed container participant. */
+data class ConsumerContainerParticipantStatus(
+    val participantIndex: Int,
+    val stopComplete: Boolean,
+    val stopInProgress: Boolean,
+    val failure: Throwable?
+)
+
+/** Read-only stop state that remains available while a container-owned attempt is still running. */
+data class ConsumerContainerStatus(
+    val participants: List<ConsumerContainerParticipantStatus>,
+    val fatalFailure: Throwable?
+)
 
 /**
  * Starts and stops a fixed set of heterogeneous consumers as one application lifecycle unit.
@@ -61,7 +76,8 @@ internal interface ConsumerContainerParticipant {
  * stopped or failed container is deliberately unsupported. Consumers retain their individual APIs.
  */
 class ConsumerContainer internal constructor(
-    participantLifecycles: List<ConsumerContainerParticipant>
+    participantLifecycles: List<ConsumerContainerParticipant>,
+    private val beforeIncompleteAttemptCleanup: () -> Unit = {}
 ) {
     private enum class State {
         NEW,
@@ -77,6 +93,8 @@ class ConsumerContainer internal constructor(
     ) {
         // Set only after the underlying lifecycle confirms that no participant resources remain owned.
         var stopComplete = false
+        var stopFailure: Throwable? = null
+        var stopAttempt: Deferred<StopOutcome>? = null
     }
 
     private data class StopOutcome(
@@ -163,6 +181,10 @@ class ConsumerContainer internal constructor(
                 attempt = it
                 return@synchronized
             }
+            if (participants.all(ParticipantState::stopComplete)) {
+                completeContainerLocked()
+                return
+            }
             if (state == State.NEW) {
                 readiness.completeExceptionally(
                     IllegalStateException("Consumer container stopped before start")
@@ -175,6 +197,57 @@ class ConsumerContainer internal constructor(
         }
         if (startAttempt) attempt.start()
         attempt.await()
+    }
+
+    /**
+     * Stops one participant through the same attempt used by collective [stop].
+     *
+     * A concurrent individual and collective call share cleanup. Later calls retry only an
+     * incomplete participant and never restart cleanup that has already released its resources.
+     */
+    suspend fun stopParticipant(participantIndex: Int) {
+        val participant = participants.getOrNull(participantIndex)
+            ?: throw IndexOutOfBoundsException("No consumer container participant at index $participantIndex")
+        val outcome = awaitParticipantStop(participant)
+        synchronized(lock) {
+            if (participants.all(ParticipantState::stopComplete)) completeContainerLocked()
+        }
+        outcome.error?.takeIf(Throwable::isFatalJvmError)?.let { throw it }
+        val error = outcome.error ?: if (!outcome.complete) {
+            IllegalStateException("Consumer container participant $participantIndex cleanup is incomplete")
+        } else {
+            null
+        }
+        if (error != null) {
+            throw ConsumerContainerException(
+                "Consumer container participant failed to stop",
+                listOf(participant.failure(ConsumerContainerPhase.STOP, error))
+            )
+        }
+    }
+
+    /** Returns per-participant progress without cancelling or waiting for an active stop attempt. */
+    fun status(): ConsumerContainerStatus {
+        val externallyCompleted = synchronized(lock) {
+            participants.filterNot(ParticipantState::stopComplete)
+        }.filter { it.lifecycle.isStopComplete() }
+        return synchronized(lock) {
+            externallyCompleted.forEach { it.stopComplete = true }
+            val statuses = participants.map { participant ->
+                ConsumerContainerParticipantStatus(
+                    participantIndex = participant.index,
+                    stopComplete = participant.stopComplete,
+                    stopInProgress = participant.stopAttempt?.isActive == true,
+                    failure = participant.stopFailure
+                )
+            }
+            ConsumerContainerStatus(
+                participants = statuses,
+                fatalFailure = statuses.firstNotNullOfOrNull { status ->
+                    status.failure?.takeIf(Throwable::isFatalJvmError)
+                }
+            )
+        }
     }
 
     private fun observeReadinessLocked() {
@@ -201,22 +274,11 @@ class ConsumerContainer internal constructor(
 
     private suspend fun runStopAttempt() {
         val pending = synchronized(lock) { participants.filterNot(ParticipantState::stopComplete) }
-        val outcomes = pending.map { participant ->
-            scope.async {
-                val error = try {
-                    participant.lifecycle.stop()
-                    null
-                } catch (error: Throwable) {
-                    error
-                }
-                StopOutcome(participant, error, participant.lifecycle.isStopComplete())
-            }
-        }.awaitAll()
+        val outcomes = pending.map { participant -> scope.async { awaitParticipantStop(participant) } }.awaitAll()
 
         val failures = mutableListOf<ConsumerContainerFailure>()
         val allComplete = synchronized(lock) {
             outcomes.forEach { outcome ->
-                if (outcome.complete) outcome.participant.stopComplete = true
                 val error = outcome.error ?: if (!outcome.complete) {
                     IllegalStateException(
                         "Consumer container participant ${outcome.participant.index} cleanup is incomplete"
@@ -230,8 +292,7 @@ class ConsumerContainer internal constructor(
             }
             val complete = participants.all(ParticipantState::stopComplete)
             if (complete) {
-                state = State.STOPPED
-                readinessJobs.forEach(Job::cancel)
+                completeContainerLocked()
             } else {
                 if (stopAttempt?.isActive == true) stopAttempt = null
                 state = State.STOPPING
@@ -254,6 +315,65 @@ class ConsumerContainer internal constructor(
         phase: ConsumerContainerPhase,
         error: Throwable
     ): ConsumerContainerFailure = ConsumerContainerFailure(index, phase, error)
+
+    private fun recordStopOutcome(outcome: StopOutcome) {
+        synchronized(lock) {
+            if (outcome.complete) outcome.participant.stopComplete = true
+            outcome.participant.stopFailure = outcome.error
+        }
+    }
+
+    private fun completeContainerLocked() {
+        state = State.STOPPED
+        readinessJobs.forEach(Job::cancel)
+        lifecycleJob.complete()
+    }
+
+    private suspend fun awaitParticipantStop(participant: ParticipantState): StopOutcome {
+        val attempt: Deferred<StopOutcome>
+        var startAttempt = false
+        synchronized(lock) {
+            if (participant.stopComplete) {
+                return StopOutcome(participant, null, complete = true)
+            }
+            participant.stopAttempt?.let {
+                if (!it.isCompleted) {
+                    attempt = it
+                    return@synchronized
+                }
+                // Completion callbacks may still be pending after Deferred reports completion.
+                // Replace a completed incomplete attempt without depending on callback scheduling.
+                participant.stopAttempt = null
+            }
+            participant.stopFailure = null
+            attempt = scope.async(start = CoroutineStart.LAZY) {
+                val error = try {
+                    participant.lifecycle.stop()
+                    null
+                } catch (error: Throwable) {
+                    error
+                }
+                StopOutcome(participant, error, participant.lifecycle.isStopComplete()).also(::recordStopOutcome)
+            }
+            participant.stopAttempt = attempt
+            attempt.invokeOnCompletion {
+                if (synchronized(lock) { !participant.stopComplete }) {
+                    try {
+                        beforeIncompleteAttemptCleanup()
+                    } finally {
+                        synchronized(lock) {
+                            if (!participant.stopComplete && participant.stopAttempt === attempt) {
+                                participant.stopAttempt = null
+                            }
+                        }
+                    }
+                }
+            }
+            startAttempt = true
+        }
+        if (startAttempt) attempt.start()
+        return attempt.await()
+    }
 }
 
 /** Creates a fixed lifecycle container without changing ownership of the supplied consumers. */
@@ -277,4 +397,20 @@ fun consumerContainer(
             }
         }
     )
+}
+
+/** Creates a fixed lifecycle container from payload-independent library or framework adapters. */
+fun consumerContainer(
+    participants: List<ConsumerContainerParticipant>
+): ConsumerContainer {
+    require(participants.isNotEmpty()) { "Consumer container must not be empty" }
+    val identities = Collections.newSetFromMap(
+        IdentityHashMap<ConsumerContainerParticipant, Boolean>()
+    )
+    participants.forEach { participant ->
+        require(identities.add(participant)) {
+            "The same consumer container participant cannot be included more than once"
+        }
+    }
+    return ConsumerContainer(participants.toList())
 }

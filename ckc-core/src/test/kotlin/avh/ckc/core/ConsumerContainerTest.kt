@@ -8,6 +8,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -178,6 +181,50 @@ class ConsumerContainerTest {
     }
 
     @Test
+    fun `individual and collective stop share the participant cleanup attempt`() = runBlocking {
+        val firstEntered = CompletableDeferred<Unit>()
+        val allowFirst = CompletableDeferred<Unit>()
+        val first = FakeParticipant(stopGate = allowFirst, stopEntered = firstEntered)
+        val second = FakeParticipant()
+        val container = container(first, second)
+        container.start()
+
+        val individual = async { container.stopParticipant(0) }
+        firstEntered.await()
+        val collective = async { container.stop() }
+        second.stopFinished.await()
+        allowFirst.complete(Unit)
+        individual.await()
+        collective.await()
+
+        assertEquals(listOf(1, 1), listOf(first.stops, second.stops))
+    }
+
+    @Test
+    fun `status exposes a completed failure while another participant is still stopping`() = runBlocking {
+        val failure = IllegalStateException("failed")
+        val failed = FakeParticipant(
+            stopActions = mutableListOf(StopAction(failure, complete = true))
+        )
+        val slowEntered = CompletableDeferred<Unit>()
+        val allowSlow = CompletableDeferred<Unit>()
+        val slow = FakeParticipant(stopGate = allowSlow, stopEntered = slowEntered)
+        val container = container(failed, slow)
+        container.start()
+
+        val stop = async { assertFailsWith<ConsumerContainerException> { container.stop() } }
+        slowEntered.await()
+        failed.stopFinished.await()
+        val status = container.status()
+
+        assertTrue(status.participants[0].stopComplete)
+        assertEquals(failure, status.participants[0].failure)
+        assertFalse(status.participants[1].stopComplete)
+        allowSlow.complete(Unit)
+        stop.await()
+    }
+
+    @Test
     fun `caller cancellation does not abandon an active stop attempt`() = runBlocking {
         val stopEntered = CompletableDeferred<Unit>()
         val allowStop = CompletableDeferred<Unit>()
@@ -192,6 +239,54 @@ class ConsumerContainerTest {
 
         withTimeout(1.seconds) { container.stop() }
         assertEquals(1, participant.stops)
+    }
+
+    @Test
+    fun `caller cancellation cannot retain an incomplete participant attempt`() = runBlocking {
+        val stopEntered = CompletableDeferred<Unit>()
+        val secondStopEntered = CompletableDeferred<Unit>()
+        val allowStop = CompletableDeferred<Unit>()
+        val callbackEntered = CompletableDeferred<Unit>()
+        val releaseCallback = CountDownLatch(1)
+        val callbackInvocations = AtomicInteger()
+        val participant = FakeParticipant(
+            stopActions = mutableListOf(
+                StopAction(IllegalStateException("incomplete"), complete = false),
+                StopAction(complete = true)
+            ),
+            stopGate = allowStop,
+            stopEntered = stopEntered,
+            onStop = { invocation ->
+                if (invocation == 2) secondStopEntered.complete(Unit)
+            }
+        )
+        val container = ConsumerContainer(
+            participantLifecycles = listOf(participant),
+            beforeIncompleteAttemptCleanup = {
+                if (callbackInvocations.incrementAndGet() == 1) {
+                    callbackEntered.complete(Unit)
+                    check(releaseCallback.await(1, TimeUnit.SECONDS))
+                }
+            }
+        )
+        container.start()
+
+        val cancelledCaller = async { container.stopParticipant(0) }
+        stopEntered.await()
+        cancelledCaller.cancelAndJoin()
+        allowStop.complete(Unit)
+        callbackEntered.await()
+
+        val retry = async { container.stopParticipant(0) }
+        try {
+            withTimeout(1.seconds) { secondStopEntered.await() }
+        } finally {
+            releaseCallback.countDown()
+        }
+        retry.await()
+
+        assertEquals(2, participant.stops)
+        assertTrue(container.status().participants.single().stopComplete)
     }
 
     @Test
@@ -333,8 +428,10 @@ class ConsumerContainerTest {
         val ready: CompletableDeferred<Unit> = CompletableDeferred(),
         private val stopActions: MutableList<StopAction> = mutableListOf(StopAction(complete = true)),
         private val stopGate: CompletableDeferred<Unit>? = null,
-        private val stopEntered: CompletableDeferred<Unit>? = null
+        private val stopEntered: CompletableDeferred<Unit>? = null,
+        private val onStop: (Int) -> Unit = {}
     ) : ConsumerContainerParticipant {
+        val stopFinished = CompletableDeferred<Unit>()
         var starts = 0
             private set
         var stops = 0
@@ -356,13 +453,21 @@ class ConsumerContainerTest {
 
         override suspend fun stop() {
             stops += 1
-            if (stopComplete) return
-            cleanupRuns += 1
-            stopEntered?.complete(Unit)
-            stopGate?.await()
-            val action = stopActions.removeFirstOrNull() ?: StopAction(complete = stopComplete)
-            stopComplete = action.complete
-            action.error?.let { throw it }
+            onStop(stops)
+            if (stopComplete) {
+                stopFinished.complete(Unit)
+                return
+            }
+            try {
+                cleanupRuns += 1
+                stopEntered?.complete(Unit)
+                stopGate?.await()
+                val action = stopActions.removeFirstOrNull() ?: StopAction(complete = stopComplete)
+                stopComplete = action.complete
+                action.error?.let { throw it }
+            } finally {
+                stopFinished.complete(Unit)
+            }
         }
 
         override fun isStopComplete(): Boolean = stopComplete
