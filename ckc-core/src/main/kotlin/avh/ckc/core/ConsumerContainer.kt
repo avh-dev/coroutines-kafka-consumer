@@ -55,9 +55,10 @@ internal interface ConsumerContainerParticipant {
  * scope, so cancellation of one waiting caller cannot abandon cleanup. Concurrent callers share the
  * same attempt; a later call retries only participants whose resources are still incomplete.
  *
- * [start] is single-use and still invokes every participant when an earlier participant fails to
- * start. Calling [stop] before [start] permanently stops the container; restarting a stopped or
- * failed container is deliberately unsupported. Consumers retain their individual lifecycle APIs.
+ * [start] is single-use and still invokes every participant when an earlier participant reports an
+ * ordinary failure. Fatal JVM errors stop the launch sequence immediately and are rethrown without
+ * container wrapping. Calling [stop] before [start] permanently stops the container; restarting a
+ * stopped or failed container is deliberately unsupported. Consumers retain their individual APIs.
  */
 class ConsumerContainer internal constructor(
     participantLifecycles: List<ConsumerContainerParticipant>
@@ -103,16 +104,24 @@ class ConsumerContainer internal constructor(
     /** Starts every participant without waiting for readiness between calls. */
     fun start() {
         val failures = mutableListOf<ConsumerContainerFailure>()
+        var fatalFailure: Throwable? = null
         synchronized(lock) {
             check(state == State.NEW) { "Consumer container cannot be started from state $state" }
-            participants.forEach { participant ->
+            for (participant in participants) {
                 try {
                     participant.lifecycle.start()
                 } catch (error: Throwable) {
+                    if (error.isFatalJvmError()) {
+                        fatalFailure = error
+                        break
+                    }
                     failures += participant.failure(ConsumerContainerPhase.START, error)
                 }
             }
-            if (failures.isEmpty()) {
+            if (fatalFailure != null) {
+                state = State.START_FAILED
+                readiness.completeExceptionally(fatalFailure!!)
+            } else if (failures.isEmpty()) {
                 state = State.STARTED
                 observeReadinessLocked()
             } else {
@@ -122,6 +131,7 @@ class ConsumerContainer internal constructor(
                 )
             }
         }
+        fatalFailure?.let { throw it }
         if (failures.isNotEmpty()) {
             throw ConsumerContainerException("Consumer container failed to start", failures)
         }
@@ -174,12 +184,16 @@ class ConsumerContainer internal constructor(
                     participant.lifecycle.awaitReady()
                     if (readyCount.incrementAndGet() == participants.size) readiness.complete(Unit)
                 } catch (error: Throwable) {
-                    readiness.completeExceptionally(
-                        ConsumerContainerException(
-                            "Consumer container readiness failed",
-                            listOf(participant.failure(ConsumerContainerPhase.READINESS, error))
+                    if (error.isFatalJvmError()) {
+                        readiness.completeExceptionally(error)
+                    } else {
+                        readiness.completeExceptionally(
+                            ConsumerContainerException(
+                                "Consumer container readiness failed",
+                                listOf(participant.failure(ConsumerContainerPhase.READINESS, error))
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -226,6 +240,7 @@ class ConsumerContainer internal constructor(
         }
         if (allComplete) lifecycleJob.complete()
 
+        outcomes.firstNotNullOfOrNull { it.error?.takeIf(Throwable::isFatalJvmError) }?.let { throw it }
         if (failures.isNotEmpty()) {
             throw ConsumerContainerException(
                 if (allComplete) "Consumer container stopped with participant failures"

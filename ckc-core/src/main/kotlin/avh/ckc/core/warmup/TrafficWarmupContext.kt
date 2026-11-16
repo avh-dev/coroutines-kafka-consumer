@@ -201,7 +201,7 @@ class TrafficWarmupContext internal constructor(
         } catch (error: Throwable) {
             recordFailure(error)
         }
-        if (synchronized(lock) { state.mainRuntimeOwned }) {
+        if (!state.participant.mainConsumer.isShutdownComplete()) {
             try {
                 state.participant.stopMain()
                 synchronized(lock) {
@@ -218,6 +218,11 @@ class TrafficWarmupContext internal constructor(
                 }
                 recordFailure(error, incomplete = !runtimeReleased)
             }
+        } else {
+            synchronized(lock) {
+                state.mainRuntimeOwned = false
+                state.mainReady = false
+            }
         }
         try {
             closeSharedResourcesIfAllStopped()
@@ -225,7 +230,7 @@ class TrafficWarmupContext internal constructor(
             recordFailure(error)
         }
 
-        val complete = !cleanupIncomplete && synchronized(lock) { !state.mainRuntimeOwned }
+        val complete = !cleanupIncomplete && state.participant.mainConsumer.isShutdownComplete()
         synchronized(lock) {
             state.stopCompleted = complete
             if (!complete && state.stopAttempt === attempt) state.stopAttempt = null
@@ -598,7 +603,7 @@ class TrafficWarmupContext internal constructor(
 
     private suspend fun closeSharedResourcesIfAllStopped() {
         val close = synchronized(lock) {
-            if (!registrationFrozen || sharedClosed || participants.values.any { !it.stopRequested }) false
+            if (sharedClosed || participants.values.any { !it.stopRequested }) false
             else {
                 sharedClosed = true
                 true

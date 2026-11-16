@@ -51,6 +51,20 @@ class ConsumerContainerTest {
     }
 
     @Test
+    fun `fatal start failure is rethrown without starting later participants`() = runBlocking {
+        val fatal = TestFatalError("fatal start")
+        val first = FakeParticipant(startFailure = fatal)
+        val second = FakeParticipant()
+        val container = container(first, second)
+
+        val error = assertFailsWith<TestFatalError> { container.start() }
+
+        assertTrue(error === fatal)
+        assertEquals(listOf(1, 0), listOf(first.starts, second.starts))
+        container.stop()
+    }
+
+    @Test
     fun `readiness fails promptly without waiting for another participant`() = runBlocking {
         val first = FakeParticipant()
         val second = FakeParticipant()
@@ -66,6 +80,20 @@ class ConsumerContainerTest {
         assertEquals(ConsumerContainerPhase.READINESS, error.failures.single().phase)
         assertIs<IllegalArgumentException>(error.failures.single().error)
         assertEquals(failure.message, error.failures.single().error.message)
+        assertFalse(second.ready.isCompleted)
+        container.stop()
+    }
+
+    @Test
+    fun `fatal readiness failure is not wrapped as a participant error`() = runBlocking {
+        val first = FakeParticipant()
+        val second = FakeParticipant()
+        val container = container(first, second)
+        container.start()
+
+        first.ready.completeExceptionally(TestFatalError("fatal readiness"))
+
+        assertFailsWith<TestFatalError> { withTimeout(1.seconds) { container.awaitReady() } }
         assertFalse(second.ready.isCompleted)
         container.stop()
     }
@@ -94,6 +122,20 @@ class ConsumerContainerTest {
         assertEquals(listOf(incompleteFailure, terminalFailure), error.failures.map(ConsumerContainerFailure::error))
         container.stop()
         assertEquals(listOf(2, 1, 1), listOf(first.stops, second.stops, third.stops))
+    }
+
+    @Test
+    fun `fatal stop failure is rethrown after stopping every participant`() = runBlocking {
+        val first = FakeParticipant(
+            stopActions = mutableListOf(StopAction(TestFatalError("fatal stop"), complete = true))
+        )
+        val second = FakeParticipant()
+        val container = container(first, second)
+        container.start()
+
+        assertFailsWith<TestFatalError> { container.stop() }
+
+        assertEquals(listOf(1, 1), listOf(first.stops, second.stops))
     }
 
     @Test
@@ -281,6 +323,8 @@ class ConsumerContainerTest {
         val error: Throwable? = null,
         val complete: Boolean
     )
+
+    private class TestFatalError(message: String) : VirtualMachineError(message)
 
     private class FakeParticipant(
         private val startFailure: Throwable? = null,
