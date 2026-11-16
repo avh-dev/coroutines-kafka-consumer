@@ -278,8 +278,11 @@ class ConsumerContainerTest {
         callbackEntered.await()
 
         val retry = async { container.stopParticipant(0) }
-        withTimeout(1.seconds) { secondStopEntered.await() }
-        releaseCallback.countDown()
+        try {
+            withTimeout(1.seconds) { secondStopEntered.await() }
+        } finally {
+            releaseCallback.countDown()
+        }
         retry.await()
 
         assertEquals(2, participant.stops)
