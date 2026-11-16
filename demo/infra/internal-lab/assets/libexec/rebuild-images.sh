@@ -10,7 +10,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 image_tar="${LAB_ROOT}/state/images/ckc-lab-images.tar"
-all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"
+all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest ckc-perf/warmup-kafka:latest"
 mkdir -p "${LAB_ROOT}/state/images" "${LAB_ROOT}/state/fingerprints/images"
 
 for request in "$@"; do
@@ -19,7 +19,7 @@ for request in "$@"; do
   runtime_name="ckc-${service}"
 
   case "${service}" in
-    demo|demo-stubs|load-test|kafka-network-exporter)
+    demo|demo-stubs|load-test|kafka-network-exporter|warmup-kafka)
       ;;
     *)
       echo "Unknown image service: ${service}" >&2
@@ -38,7 +38,7 @@ for request in "$@"; do
     echo "Dockerfile is missing for ${service}." >&2
     exit 1
   fi
-  if [ "${service}" != "kafka-network-exporter" ] && [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/${runtime_name}" ]; then
+  if [ "${service}" != "kafka-network-exporter" ] && [ "${service}" != "warmup-kafka" ] && [ ! -d "${LAB_ROOT}/docker/build/${service}/build/install/${runtime_name}" ]; then
     echo "Runtime dist is missing for ${service}." >&2
     exit 1
   fi

@@ -18,6 +18,29 @@ SPEC.loader.exec_module(MODULE)
 
 
 class EnvironmentEvidenceTest(unittest.TestCase):
+    def test_warmup_kafka_evidence_records_image_topics_nodes_and_metadata(self) -> None:
+        deployment = {
+            "spec": {"template": {"spec": {"containers": [{
+                "name": "kafka",
+                "image": "ckc-perf/warmup-kafka:latest",
+                "resources": {"limits": {"memory": "1Gi"}},
+                "env": [
+                    {"name": "KAFKA_HEAP_OPTS", "value": "-Xms512m -Xmx512m"},
+                    {"name": "KAFKA_BOOTSTRAP_TOPICS", "value": "control,orders"},
+                ],
+            }]}}},
+            "status": {"readyReplicas": 1, "availableReplicas": 1},
+        }
+        with patch.object(MODULE, "command_text", return_value="Topic: control PartitionCount: 1"):
+            evidence = MODULE.warmup_kafka_evidence(deployment, {"warmup_kafka": ["worker-1"]})
+
+        self.assertTrue(evidence["enabled"])
+        self.assertEqual("ckc-perf/warmup-kafka:latest", evidence["image"])
+        self.assertEqual(["control", "orders"], evidence["topics"])
+        self.assertEqual(["worker-1"], evidence["nodes"])
+        self.assertEqual(["Topic: control PartitionCount: 1"], evidence["topic_metadata"])
+        self.assertEqual(1, evidence["ready_replicas"])
+
     def test_redis_capacity_keeps_runtime_headroom(self) -> None:
         redis = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["redis"]
         command = redis["command"]

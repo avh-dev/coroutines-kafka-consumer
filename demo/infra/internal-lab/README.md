@@ -147,6 +147,61 @@ Maven repository; if the agent is absent there, Gradle resolves it from the
 configured Maven repositories. Updating the lab never builds the neighboring
 Thread Stats checkout.
 
+### Optional warm-up Kafka transport
+
+An internal-lab experiment can request an experiment-scoped warm-up Kafka independently of the
+main Kafka cluster:
+
+```yaml
+environments:
+  internal-lab:
+    lab: {profile: installed}
+    warmup_kafka:
+      enabled: true
+      placement: application
+      topics:
+        - ckc.traffic-warmup.v6.control
+        - ckc.traffic-warmup.v6.order.events
+        - ckc.traffic-warmup.v6.batch.events
+        - ckc.traffic-warmup.v6.cauldron.events
+```
+
+The lab builds `ckc-perf/warmup-kafka:latest` locally and imports it into every k3s image store.
+The generated `ckc-warmup-kafka` Deployment contains one broker/reconciler container and one stable
+Service. Its data is intentionally ephemeral. Missing topics are continuously restored with one
+partition and replication factor one; incompatible existing partition counts keep the pod unready.
+Main, control, and destination Kafka settings remain separate, and the main Kafka is not modified.
+
+Preparation waits up to 120 seconds for the optional transport, then deploys applications even if
+it is still unavailable so they can cold-start. Application workloads stop before the transport;
+cleanup deletes the labeled Deployment, Service, and pods and independently verifies their absence.
+Environment evidence records the image, base version, placement, resources, configured topic list,
+current topic metadata, and ready/available replicas. Broker and reconciliation diagnostics are
+available in the normal pod log evidence.
+
+Before a lab qualification, validate the image locally:
+
+```bash
+docker build -t ckc-perf/warmup-kafka:latest demo/infra/shared/warmup-kafka
+demo/infra/shared/warmup-kafka/tests/container-lifecycle-test.sh \
+  ckc-perf/warmup-kafka:latest
+```
+
+Then update the installed lab and start the selected experiment explicitly:
+
+```bash
+lab up
+lab experiment start \
+  demo/infra/experiments/ckc-shared-partition-warmup-transport-qualification.yaml
+```
+
+The lifecycle script verifies initial topic preparation without relying on the external Service
+address, the external metadata path, restart with retained data, readiness rejection for an
+incompatible topic, automatic topic restoration after full data-volume loss, and container
+termination when the reconciler exits. The application-level donor/recipient recovery after full
+loss is additionally covered by CORE-83 real-Kafka integration tests; INFRA-324 supplies repeatable
+lab experiment scenarios and comparison analysis.
+
 The runtime user belongs to the Docker group and owns the lab files. Its only
 passwordless sudo permissions are three exact no-argument helpers: image import,
 CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,

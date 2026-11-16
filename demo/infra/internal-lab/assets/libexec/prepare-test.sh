@@ -387,6 +387,13 @@ for override in "${ENV_OVERRIDES[@]}"; do
   RENDER_ARGS+=(--env "${override}")
 done
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
+WARMUP_KAFKA_ENABLED="$(python3 -c 'import sys, yaml; plan = yaml.safe_load(open(sys.argv[1], encoding="utf-8")); print("true" if ((plan.get("environment") or {}).get("warmup_kafka") or {}).get("enabled") else "false")' "${DEPLOYMENT_PLAN_PATH}")"
+if [[ "${WARMUP_KAFKA_ENABLED}" == "true" ]]; then
+  kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka
+  if ! kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=120s; then
+    echo "Warm-up Kafka did not become ready within 120s; applications will start and use cold fallback." >&2
+  fi
+fi
 kubectl apply -f "${PROJECT_MANIFEST}"
 
 mapfile -t APPLICATION_DEPLOYMENTS < <(

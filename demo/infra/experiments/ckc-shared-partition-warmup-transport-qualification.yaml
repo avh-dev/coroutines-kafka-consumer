@@ -1,0 +1,97 @@
+schema_version: 2
+name: ckc-shared-partition-warmup-transport-qualification
+description: >-
+  Qualify the autonomous internal-lab warm-up Kafka by scaling one CKC donor to
+  two pods, deleting the ephemeral broker pod and data, then adding a new recipient
+  after topic reconciliation without restarting the surviving application pods.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    flavour: {percentiles: {p90: 20, p95: 40, p99: 80, p100: 120}}
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    workers: 20
+    base_tps: 1000
+    producer_capacity_tps: {order: 1000, batch: 1000, telemetry: 1000}
+    load_profile: 0 -> (30s, ramp) -> 100 -> (5m, transport-recovery) -> 100
+    cauldron_count: 128
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    consumer_drain_timeout_seconds: 120
+    consumer_drain_required: true
+  measurement_windows:
+    - {name: before-loss, start: 1m, duration: 45s}
+    - {name: after-recovery, start: 3m30s, duration: 90s}
+  chaos:
+    - at: 45s
+      type: deployment_scale
+      target: ckc-demo
+      params: {replicas: 2}
+    - at: 2m
+      type: pod_delete
+      target: ckc-warmup-kafka
+      params: {selector: ckc.dev/component=warmup-kafka}
+    - at: 3m
+      type: deployment_scale
+      target: ckc-demo
+      params: {replicas: 3}
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 35, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 1000}
+targets:
+  - name: ckc-warmup-transport
+    implementation: ckc
+    application:
+      replicas: 1
+      resources:
+        requests: {cpu: 1000m, memory: 768Mi}
+        limits: {memory: 1536Mi}
+      hpa: {enabled: false}
+    runtime:
+      env:
+        DEMO_CONSUMER_PROCESSING_ENABLED: true
+        AUDIT_LOG_ENABLED: true
+        METRICS_IMPLEMENTATION: MICROMETER
+        PROCESSING_DISPATCHER_TYPE: FIXED
+        WORKER_DISPATCHER_THREADS: 2
+        TRAFFIC_WARMUP_DURATION_SECONDS: 20
+        TRAFFIC_WARMUP_OFFER_WINDOW_MS: 3000
+        TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 20
+        TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS: 30
+        TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 400
+        TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 50
+        TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS: 10
+        TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 300
+        TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 50
+        TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS: 10
+        TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 500
+        TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 50
+        TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS: 10
+      planning_latency: {order_ms: 50, batch_ms: 50, telemetry_ms: 150}
+      topics:
+        order: {partitions: 6, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+        batch: {partitions: 6, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+        telemetry: {partitions: 6, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
+environments:
+  internal-lab:
+    lab: {profile: installed}
+    warmup_kafka:
+      enabled: true
+      placement: application
+      heap: 512Mi
+      resources:
+        requests: {cpu: 500m, memory: 768Mi}
+        limits: {cpu: 1, memory: 1Gi}
+      topics:
+        - ckc.traffic-warmup.v6.control
+        - ckc.traffic-warmup.v6.order.events
+        - ckc.traffic-warmup.v6.batch.events
+        - ckc.traffic-warmup.v6.cauldron.events

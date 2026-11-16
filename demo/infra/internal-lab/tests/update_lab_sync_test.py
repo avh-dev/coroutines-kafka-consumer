@@ -130,15 +130,17 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("LAB_APPLICATION_TARGET", rebuild)
         self.assertIn("import-k3s-images", rebuild)
         self.assertIn('load-test)', script)
-        self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter)', rebuild)
+        self.assertIn('demo|demo-stubs|load-test|kafka-network-exporter|warmup-kafka)', rebuild)
         self.assertIn(
             'all_image_names="ckc-perf/demo:latest ckc-perf/demo-stubs:latest '
-            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest"',
+            'ckc-perf/load-test:latest ckc-perf/kafka-network-exporter:latest '
+            'ckc-perf/warmup-kafka:latest"',
             rebuild,
         )
         self.assertIn("docker save ${all_image_names}", rebuild)
         self.assertIn('REBUILD_ARGS+=("load-test=${LOAD_TEST_FINGERPRINT}")', script)
         self.assertIn('REBUILD_ARGS+=("demo=${DEMO_FINGERPRINT}")', script)
+        self.assertIn('REBUILD_ARGS+=("warmup-kafka=${WARMUP_KAFKA_FINGERPRINT}")', script)
         self.assertIn('K3s image cache is incomplete after import.', script)
         self.assertIn('Usage: $0 [--check]', (SCRIPT.parents[1] / "scripts/bootstrap-host.sh").read_text(encoding="utf-8"))
 
