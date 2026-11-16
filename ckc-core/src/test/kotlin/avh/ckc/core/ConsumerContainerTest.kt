@@ -6,9 +6,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.yield
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -242,27 +244,43 @@ class ConsumerContainerTest {
     @Test
     fun `caller cancellation cannot retain an incomplete participant attempt`() = runBlocking {
         val stopEntered = CompletableDeferred<Unit>()
+        val secondStopEntered = CompletableDeferred<Unit>()
         val allowStop = CompletableDeferred<Unit>()
+        val callbackEntered = CompletableDeferred<Unit>()
+        val releaseCallback = CountDownLatch(1)
+        val callbackInvocations = AtomicInteger()
         val participant = FakeParticipant(
             stopActions = mutableListOf(
                 StopAction(IllegalStateException("incomplete"), complete = false),
                 StopAction(complete = true)
             ),
             stopGate = allowStop,
-            stopEntered = stopEntered
+            stopEntered = stopEntered,
+            onStop = { invocation ->
+                if (invocation == 2) secondStopEntered.complete(Unit)
+            }
         )
-        val container = container(participant)
+        val container = ConsumerContainer(
+            participantLifecycles = listOf(participant),
+            beforeIncompleteAttemptCleanup = {
+                if (callbackInvocations.incrementAndGet() == 1) {
+                    callbackEntered.complete(Unit)
+                    check(releaseCallback.await(1, TimeUnit.SECONDS))
+                }
+            }
+        )
         container.start()
 
         val cancelledCaller = async { container.stopParticipant(0) }
         stopEntered.await()
         cancelledCaller.cancelAndJoin()
         allowStop.complete(Unit)
-        withTimeout(1.seconds) {
-            while (container.status().participants.single().stopInProgress) yield()
-        }
+        callbackEntered.await()
 
-        container.stopParticipant(0)
+        val retry = async { container.stopParticipant(0) }
+        withTimeout(1.seconds) { secondStopEntered.await() }
+        releaseCallback.countDown()
+        retry.await()
 
         assertEquals(2, participant.stops)
         assertTrue(container.status().participants.single().stopComplete)
@@ -407,7 +425,8 @@ class ConsumerContainerTest {
         val ready: CompletableDeferred<Unit> = CompletableDeferred(),
         private val stopActions: MutableList<StopAction> = mutableListOf(StopAction(complete = true)),
         private val stopGate: CompletableDeferred<Unit>? = null,
-        private val stopEntered: CompletableDeferred<Unit>? = null
+        private val stopEntered: CompletableDeferred<Unit>? = null,
+        private val onStop: (Int) -> Unit = {}
     ) : ConsumerContainerParticipant {
         val stopFinished = CompletableDeferred<Unit>()
         var starts = 0
@@ -431,6 +450,7 @@ class ConsumerContainerTest {
 
         override suspend fun stop() {
             stops += 1
+            onStop(stops)
             if (stopComplete) {
                 stopFinished.complete(Unit)
                 return

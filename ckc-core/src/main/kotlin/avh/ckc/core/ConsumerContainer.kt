@@ -76,7 +76,8 @@ data class ConsumerContainerStatus(
  * stopped or failed container is deliberately unsupported. Consumers retain their individual APIs.
  */
 class ConsumerContainer internal constructor(
-    participantLifecycles: List<ConsumerContainerParticipant>
+    participantLifecycles: List<ConsumerContainerParticipant>,
+    private val beforeIncompleteAttemptCleanup: () -> Unit = {}
 ) {
     private enum class State {
         NEW,
@@ -336,8 +337,13 @@ class ConsumerContainer internal constructor(
                 return StopOutcome(participant, null, complete = true)
             }
             participant.stopAttempt?.let {
-                attempt = it
-                return@synchronized
+                if (!it.isCompleted) {
+                    attempt = it
+                    return@synchronized
+                }
+                // Completion callbacks may still be pending after Deferred reports completion.
+                // Replace a completed incomplete attempt without depending on callback scheduling.
+                participant.stopAttempt = null
             }
             participant.stopFailure = null
             attempt = scope.async(start = CoroutineStart.LAZY) {
@@ -351,9 +357,15 @@ class ConsumerContainer internal constructor(
             }
             participant.stopAttempt = attempt
             attempt.invokeOnCompletion {
-                synchronized(lock) {
-                    if (!participant.stopComplete && participant.stopAttempt === attempt) {
-                        participant.stopAttempt = null
+                if (synchronized(lock) { !participant.stopComplete }) {
+                    try {
+                        beforeIncompleteAttemptCleanup()
+                    } finally {
+                        synchronized(lock) {
+                            if (!participant.stopComplete && participant.stopAttempt === attempt) {
+                                participant.stopAttempt = null
+                            }
+                        }
                     }
                 }
             }
