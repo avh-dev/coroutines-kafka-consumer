@@ -178,36 +178,38 @@ class WarmupControlTransportTest {
 
     @Test
     fun `same topic recovery resumes after admitted history without redelivery`() = runBlocking {
-        val first = tailConsumer(emptyList(), end = 12, releaseRecords = AtomicBoolean(false))
-        val second = resumingConsumer(request(namespace, "old-history"), end = 12)
+        val admittedMessage = request(namespace, "admitted-before-outage")
+        val admitted = CountDownLatch(1)
+        val replacementPolled = CountDownLatch(1)
+        val first = consumerWithNewRecord(admittedMessage, initialEnd = 12)
+        val second = resumingConsumer(admittedMessage, end = 13, replacementPolled)
         val consumers = listOf(first, second)
         val consumerCreations = AtomicInteger()
-        val identityReads = AtomicInteger()
+        val failedIdentityReads = AtomicInteger()
         val handled = mutableListOf<String>()
         val transport = recoveringTransport(
             consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
             producerFactory = { mock() },
             topicIdentity = object : WarmupControlTopicIdentity {
-                override fun read(topic: String, timeout: kotlin.time.Duration): String? =
-                    when (identityReads.incrementAndGet()) {
-                        1 -> "same-topic-id"
-                        2, 3 -> null
-                        else -> "same-topic-id"
-                    }
+                override fun read(topic: String, timeout: kotlin.time.Duration): String? {
+                    if (admitted.count > 0) return "same-topic-id"
+                    return if (failedIdentityReads.incrementAndGet() <= 2) null else "same-topic-id"
+                }
             },
             recoveryFailureThreshold = 2
-        ) { handled += it.message.sessionId.value }
+        ) {
+            handled += it.message.sessionId.value
+            admitted.countDown()
+        }
 
         try {
             transport.start()
             transport.awaitReady()
-            withTimeout(1.seconds) {
-                while (consumerCreations.get() < 2) kotlinx.coroutines.delay(1)
-            }
-            kotlinx.coroutines.delay(25.milliseconds)
+            assertTrue(admitted.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(replacementPolled.await(1, java.util.concurrent.TimeUnit.SECONDS))
 
-            verify(second).seek(TopicPartition("control", 0), 12)
-            assertTrue(handled.isEmpty(), "Preserved control history was redelivered: $handled")
+            verify(second).seek(TopicPartition("control", 0), 13)
+            assertEquals(listOf("admitted-before-outage"), handled)
         } finally {
             transport.stop()
         }
@@ -423,7 +425,8 @@ class WarmupControlTransportTest {
 
     private fun resumingConsumer(
         oldMessage: WarmupControlMessage,
-        end: Long
+        end: Long,
+        pollObserved: CountDownLatch = CountDownLatch(0)
     ): Consumer<String, ByteArray> {
         val consumer = mock<Consumer<String, ByteArray>>()
         val listener = AtomicReference<ConsumerRebalanceListener>()
@@ -451,6 +454,7 @@ class WarmupControlTransportTest {
         doAnswer {
             if (assigned.compareAndSet(false, true)) {
                 listener.get().onPartitionsAssigned(listOf(partition))
+                pollObserved.countDown()
                 ConsumerRecords.empty<String, ByteArray>()
             } else if (position.get() == 0L && delivered.compareAndSet(false, true)) {
                 ConsumerRecords(
@@ -459,6 +463,58 @@ class WarmupControlTransportTest {
                             org.apache.kafka.clients.consumer.ConsumerRecord(
                                 "control", 0, 0, oldMessage.sessionId.value,
                                 WarmupControlCodec.encode(oldMessage)
+                            )
+                        )
+                    )
+                )
+            } else {
+                Thread.sleep(1)
+                ConsumerRecords.empty<String, ByteArray>()
+            }
+        }.whenever(consumer).poll(any<JavaDuration>())
+        return consumer
+    }
+
+    private fun consumerWithNewRecord(
+        message: WarmupControlMessage,
+        initialEnd: Long
+    ): Consumer<String, ByteArray> {
+        val consumer = mock<Consumer<String, ByteArray>>()
+        val listener = AtomicReference<ConsumerRebalanceListener>()
+        val assigned = AtomicBoolean(false)
+        val delivered = AtomicBoolean(false)
+        val position = AtomicLong(initialEnd)
+        val partition = TopicPartition("control", 0)
+        whenever(consumer.partitionsFor(any(), any<JavaDuration>())).thenReturn(
+            listOf(PartitionInfo("control", 0, null, emptyArray(), emptyArray()))
+        )
+        doAnswer {
+            listener.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
+        whenever(consumer.endOffsets(listOf(partition))).thenReturn(mapOf(partition to initialEnd))
+        doAnswer {
+            position.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).seek(org.mockito.kotlin.eq(partition), any<Long>())
+        whenever(consumer.position(partition)).thenAnswer { position.get() }
+        whenever(consumer.assignment()).thenReturn(setOf(partition))
+        whenever(consumer.position(org.mockito.kotlin.eq(partition), any<JavaDuration>()))
+            .thenAnswer { position.get() }
+        whenever(consumer.endOffsets(org.mockito.kotlin.eq(setOf(partition)), any<JavaDuration>()))
+            .thenAnswer { mapOf(partition to if (delivered.get()) initialEnd + 1 else initialEnd) }
+        doAnswer {
+            if (assigned.compareAndSet(false, true)) {
+                listener.get().onPartitionsAssigned(listOf(partition))
+                ConsumerRecords.empty<String, ByteArray>()
+            } else if (delivered.compareAndSet(false, true)) {
+                position.set(initialEnd + 1)
+                ConsumerRecords(
+                    mapOf(
+                        partition to listOf(
+                            org.apache.kafka.clients.consumer.ConsumerRecord(
+                                "control", 0, initialEnd, message.sessionId.value,
+                                WarmupControlCodec.encode(message)
                             )
                         )
                     )
