@@ -50,7 +50,7 @@ for application in ${deployments}; do
 done
 
 # Keep the optional transport available while applications drain, then remove
-# the broker and its reconciliation process as one labeled workload.
+# the broker/bootstrap container as one labeled workload.
 if ! kubectl -n "${NAMESPACE}" delete deployment,service \
   -l ckc.dev/component=warmup-kafka --ignore-not-found=true \
   --timeout="${TIMEOUT_SECONDS}s" >/dev/null; then

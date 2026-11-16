@@ -167,16 +167,18 @@ environments:
 ```
 
 The lab builds `ckc-perf/warmup-kafka:latest` locally and imports it into every k3s image store.
-The generated `ckc-warmup-kafka` Deployment contains one broker/reconciler container and one stable
-Service. Its data is intentionally ephemeral. Missing topics are continuously restored with one
+The generated `ckc-warmup-kafka` Deployment contains one broker/bootstrap container and one stable
+Service. Its data is intentionally ephemeral. Every container start creates missing topics with one
 partition and replication factor one; incompatible existing partition counts keep the pod unready.
 Main, control, and destination Kafka settings remain separate, and the main Kafka is not modified.
+Deleting a topic from a live broker requires a container restart; continuous repair is intentionally
+outside the internal-lab contract.
 
 Preparation waits up to 120 seconds for the optional transport, then deploys applications even if
 it is still unavailable so they can cold-start. Application workloads stop before the transport;
 cleanup deletes the labeled Deployment, Service, and pods and independently verifies their absence.
 Environment evidence records the image, base version, placement, resources, configured topic list,
-current topic metadata, and ready/available replicas. Broker and reconciliation diagnostics are
+current topic metadata, and ready/available replicas. Broker and bootstrap diagnostics are
 available in the normal pod log evidence.
 
 Before a lab qualification, validate the image locally:
@@ -198,7 +200,7 @@ lab experiment start \
 The lifecycle script verifies initial topic preparation without relying on the external Service
 address, the external metadata path, restart with retained data, readiness rejection for an
 incompatible topic, automatic topic restoration after full data-volume loss, and container
-termination when the reconciler exits. The application-level donor/recipient recovery after full
+termination when the broker exits after bootstrap. The application-level donor/recipient recovery after full
 loss is additionally covered by CORE-83 real-Kafka integration tests; INFRA-324 supplies repeatable
 lab experiment scenarios and comparison analysis.
 
