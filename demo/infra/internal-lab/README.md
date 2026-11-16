@@ -195,11 +195,12 @@ lab experiment start \
   demo/infra/experiments/ckc-shared-partition-warmup-transport-qualification.yaml
 ```
 
-The lifecycle script verifies restart with retained data, readiness rejection for an incompatible
-topic, automatic topic restoration after full data-volume loss, and container termination when the
-reconciler exits. The application-level donor/recipient recovery after full loss is additionally
-covered by CORE-83 real-Kafka integration tests; INFRA-324 supplies repeatable lab experiment
-scenarios and comparison analysis.
+The lifecycle script verifies initial topic preparation without relying on the external Service
+address, the external metadata path, restart with retained data, readiness rejection for an
+incompatible topic, automatic topic restoration after full data-volume loss, and container
+termination when the reconciler exits. The application-level donor/recipient recovery after full
+loss is additionally covered by CORE-83 real-Kafka integration tests; INFRA-324 supplies repeatable
+lab experiment scenarios and comparison analysis.
 
 The runtime user belongs to the Docker group and owns the lab files. Its only
 passwordless sudo permissions are three exact no-argument helpers: image import,

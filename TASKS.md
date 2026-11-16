@@ -6225,9 +6225,12 @@ application startup when the optional transport remains unavailable.
 Selectively adapt the broker, topic, deployment gate, cleanup, and lifecycle seams from archived
 GLOBAL-4 commits `088231fa`, `e3fba567`, `4d05e072`, `ebcd6513`, and `dae8a517`.
 Replace the archived sidecar-style provisioner with one autonomous image and continuous
-reconciliation. Seven script tests, all 82 shared orchestration tests, and 36 focused internal-lab
+reconciliation. Eight script tests, all 82 shared orchestration tests, and 36 focused internal-lab
 tests pass. The pinned Docker image builds and its real-container lifecycle passes retained-data
-restart, incompatible metadata, complete data loss, topic restoration, and reconciler failure.
+restart, incompatible metadata, complete data loss, topic restoration, reconciler failure, and
+separate internal/external listener routing. Topic lookup quotes the Kafka CLI regex and verifies
+the returned name exactly, so similarly named topics cannot satisfy reconciliation. The standalone
+Compose example also starts healthy and serves topic metadata through its published external port.
 The complete 195-test internal-lab suite retains the same two report/notification assertion
 failures and one helper-import error documented on the unchanged baseline. The exact internal-lab
 qualification definition is prepared but no smoke, load, chaos, or experiment run was started.

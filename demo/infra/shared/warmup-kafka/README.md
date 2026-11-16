@@ -6,16 +6,16 @@ warm-up; the application still owns no topic-creation privileges.
 
 ```bash
 docker build -t ckc-perf/warmup-kafka:latest demo/infra/shared/warmup-kafka
-docker run --rm --name ckc-warmup-kafka -p 19092:9092 \
+docker run --rm --name ckc-warmup-kafka -p 29092:9092 \
   -e KAFKA_BOOTSTRAP_TOPICS='ckc.traffic-warmup.v6.control, ckc.traffic-warmup.v6.order.events,ckc.traffic-warmup.v6.batch.events,ckc.traffic-warmup.v6.cauldron.events' \
-  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:19092 \
+  -e KAFKA_ADVERTISED_LISTENERS=INTERNAL://localhost:19092,EXTERNAL://localhost:29092 \
   -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
   -e KAFKA_NODE_ID=1 \
   -e KAFKA_PROCESS_ROLES=broker,controller \
   -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
-  -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
-  -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+  -e KAFKA_LISTENERS=INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093 \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL \
   -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
   ckc-perf/warmup-kafka:latest
 ```
@@ -25,6 +25,12 @@ duplicates, creates only missing topics with one partition and replication facto
 one, and never deletes topics or changes their partition count. A topic with any
 other partition count keeps readiness closed and is reported as
 `incompatible_metadata`.
+
+The broker has separate listener identities. The reconciler and inter-broker path
+use `INTERNAL://localhost:19092`, whose metadata never depends on a Docker port or
+Kubernetes Service endpoint. Applications use the `EXTERNAL` listener advertised
+at the stable environment address. Local Docker examples publish that listener as
+`localhost:29092`; Kubernetes advertises `ckc-warmup-kafka:9092`.
 
 Readiness is based on a fresh successful reconciliation, not a marker retained
 from an earlier broker lifetime. The following settings are optional:
@@ -74,7 +80,9 @@ demo/infra/shared/warmup-kafka/tests/container-lifecycle-test.sh \
   ckc-perf/warmup-kafka:latest
 ```
 
-It verifies record-preserving restart, incompatible partition metadata, automatic
-topic restoration after deleting the broker data volume, and supervisor response
-to an unexpected reconciliation-process exit. Its trap removes the temporary
-container and volume on success, failure, or interruption.
+It verifies initial reconciliation through the internal listener before the stable
+external address is used, the external metadata path, record-preserving restart,
+incompatible partition metadata, automatic topic restoration after deleting the
+broker data volume, and supervisor response to an unexpected reconciliation-process
+exit. Its trap removes the temporary container, network, and volume on success,
+failure, or interruption.

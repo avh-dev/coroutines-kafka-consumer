@@ -3,7 +3,7 @@
 set -uo pipefail
 
 KAFKA_BIN_DIR="${KAFKA_BIN_DIR:-/opt/kafka/bin}"
-KAFKA_BOOTSTRAP_SERVER="${KAFKA_BOOTSTRAP_SERVER:-localhost:9092}"
+KAFKA_BOOTSTRAP_SERVER="${KAFKA_BOOTSTRAP_SERVER:-localhost:19092}"
 KAFKA_BOOTSTRAP_TOPICS="${KAFKA_BOOTSTRAP_TOPICS:-}"
 KAFKA_RECONCILE_INTERVAL_SECONDS="${KAFKA_RECONCILE_INTERVAL_SECONDS:-5}"
 KAFKA_RECONCILE_BACKOFF_SECONDS="${KAFKA_RECONCILE_BACKOFF_SECONDS:-2}"
@@ -71,14 +71,30 @@ broker_available() {
     --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" >/dev/null 2>&1
 }
 
-topic_description() {
-  run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
-    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --describe --topic "$1" 2>&1
+topic_partition_count() {
+  local topic="$1" description partitions pattern
+  pattern="\\Q${topic}\\E"
+  if ! description="$(run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
+    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --describe --topic "${pattern}" 2>&1)"; then
+    return 1
+  fi
+  partitions="$(printf '%s\n' "${description}" | awk -v expected="${topic}" '
+    $1 == "Topic:" && $2 == expected {
+      for (field = 3; field <= NF; field++) {
+        if ($field == "PartitionCount:") {
+          print $(field + 1)
+          exit
+        }
+      }
+    }
+  ')"
+  [[ "${partitions}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${partitions}"
 }
 
 reconcile_topic() {
-  local topic="$1" description partitions
-  if ! description="$(topic_description "${topic}")"; then
+  local topic="$1" partitions
+  if ! partitions="$(topic_partition_count "${topic}")"; then
     log info topic_creation "topic=${topic}"
     if ! run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
       --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --create --if-not-exists \
@@ -86,15 +102,10 @@ reconcile_topic() {
       log warn topic_creation_failed "topic=${topic}"
       return 1
     fi
-    if ! description="$(topic_description "${topic}")"; then
+    if ! partitions="$(topic_partition_count "${topic}")"; then
       log warn metadata_unavailable "topic=${topic}"
       return 1
     fi
-  fi
-  partitions="$(printf '%s\n' "${description}" | sed -n 's/.*PartitionCount:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-  if [[ -z "${partitions}" ]]; then
-    log warn metadata_unparseable "topic=${topic}"
-    return 1
   fi
   if [[ "${partitions}" != "1" ]]; then
     rm -f -- "${KAFKA_READY_FILE}"

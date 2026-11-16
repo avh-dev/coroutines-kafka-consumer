@@ -792,6 +792,7 @@ def _warmup_kafka_manifests(
         "imagePullPolicy": bindings.image_pull_policy,
         "ports": [
             {"name": "kafka", "containerPort": WARMUP_KAFKA_PORT},
+            {"name": "internal", "containerPort": 19092},
             {"name": "controller", "containerPort": 9093},
         ],
         "env": _environment_entries({
@@ -799,10 +800,14 @@ def _warmup_kafka_manifests(
             "KAFKA_NODE_ID": 1,
             "KAFKA_PROCESS_ROLES": "broker,controller",
             "KAFKA_CONTROLLER_QUORUM_VOTERS": "1@localhost:9093",
-            "KAFKA_LISTENERS": "PLAINTEXT://:9092,CONTROLLER://:9093",
-            "KAFKA_ADVERTISED_LISTENERS": f"PLAINTEXT://{WARMUP_KAFKA_SERVICE}:9092",
-            "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT",
-            "KAFKA_INTER_BROKER_LISTENER_NAME": "PLAINTEXT",
+            "KAFKA_LISTENERS": "INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093",
+            "KAFKA_ADVERTISED_LISTENERS": (
+                f"INTERNAL://localhost:19092,EXTERNAL://{WARMUP_KAFKA_SERVICE}:9092"
+            ),
+            "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": (
+                "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            ),
+            "KAFKA_INTER_BROKER_LISTENER_NAME": "INTERNAL",
             "KAFKA_CONTROLLER_LISTENER_NAMES": "CONTROLLER",
             "KAFKA_AUTO_CREATE_TOPICS_ENABLE": "false",
             "KAFKA_NUM_PARTITIONS": 1,

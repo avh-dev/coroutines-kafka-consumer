@@ -22,7 +22,7 @@ class WarmupKafkaScriptsTest(unittest.TestCase):
         self.bin.mkdir()
         fake = self.bin / "kafka-tool"
         fake.write_text(
-            """#!/usr/bin/env bash
+            r"""#!/usr/bin/env bash
 set -eu
 state="${FAKE_KAFKA_STATE}"
 tool="$(basename "$0")"
@@ -41,9 +41,25 @@ while [ "$#" -gt 0 ]; do
 done
 case "$operation" in
   --describe)
-    [ -f "${state}/topic-${topic}" ] || exit 1
-    partitions="$(cat "${state}/topic-${topic}")"
-    printf 'Topic: %s PartitionCount: %s ReplicationFactor: 1\n' "$topic" "$partitions"
+    printf '%s\n' "$topic" >> "${state}/described"
+    if [[ "$topic" == \\Q*\\E ]]; then
+      actual="${topic#\\Q}"
+      actual="${actual%\\E}"
+      [ -f "${state}/topic-${actual}" ] || exit 1
+    else
+      actual=""
+      for candidate in "${state}"/topic-*; do
+        [ -f "$candidate" ] || continue
+        candidate="${candidate##*/topic-}"
+        if [[ "$candidate" =~ ^${topic}$ ]]; then
+          actual="$candidate"
+          break
+        fi
+      done
+      [ -n "$actual" ] || exit 1
+    fi
+    partitions="$(cat "${state}/topic-${actual}")"
+    printf 'Topic: %s PartitionCount: %s ReplicationFactor: 1\n' "$actual" "$partitions"
     ;;
   --create)
     printf '1\n' > "${state}/topic-${topic}"
@@ -103,6 +119,25 @@ esac
         restored = subprocess.run([RECONCILE], env=environment, text=True, capture_output=True, timeout=10)
         self.assertEqual(0, restored.returncode, restored.stderr)
         self.assertEqual(["alpha", "beta"], (self.root / "created").read_text().splitlines())
+
+    def test_reconcile_matches_topic_names_literally(self) -> None:
+        (self.root / "topic-warmup-orders").write_text("1\n", encoding="utf-8")
+
+        result = subprocess.run(
+            [RECONCILE],
+            env=self.environment("warmup.orders"),
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["warmup.orders"], (self.root / "created").read_text().splitlines())
+        self.assertTrue((self.root / "topic-warmup.orders").is_file())
+        self.assertEqual(
+            [r"\Qwarmup.orders\E", r"\Qwarmup.orders\E"],
+            (self.root / "described").read_text(encoding="utf-8").splitlines(),
+        )
 
     def test_broker_unavailability_removes_readiness_with_distinct_diagnostic(self) -> None:
         environment = self.environment("alpha")

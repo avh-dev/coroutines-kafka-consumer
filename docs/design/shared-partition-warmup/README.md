@@ -508,7 +508,12 @@ the reconciler: either process exiting terminates the container, while shutdown 
 both under a bounded grace period. `KAFKA_BOOTSTRAP_TOPICS` supplies the complete comma-separated
 v6 control/destination list. Reconciliation trims and deduplicates names, creates only missing topics
 with one partition and replication factor one, rejects incompatible partition counts, and never
-deletes topics or changes existing metadata.
+deletes topics or changes existing metadata. Topic lookup uses a quoted literal Kafka pattern and
+also verifies the topic name returned by metadata, so punctuation cannot match a different topic.
+
+The broker exposes an internal listener advertised as `localhost` for reconciliation and broker
+traffic, plus a separately advertised external listener for applications. Initial topic preparation
+therefore never depends on a readiness-gated Kubernetes Service or a host-published Docker port.
 
 Readiness requires live supervised processes plus a fresh complete metadata reconciliation; a stale
 marker from an earlier broker lifetime is insufficient. Detection of broker or metadata loss removes

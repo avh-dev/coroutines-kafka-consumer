@@ -121,6 +121,15 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(",".join(topics), environment["KAFKA_BOOTSTRAP_TOPICS"])
         self.assertEqual("false", environment["KAFKA_AUTO_CREATE_TOPICS_ENABLE"])
         self.assertEqual(
+            "INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093",
+            environment["KAFKA_LISTENERS"],
+        )
+        self.assertEqual(
+            "INTERNAL://localhost:19092,EXTERNAL://ckc-warmup-kafka:9092",
+            environment["KAFKA_ADVERTISED_LISTENERS"],
+        )
+        self.assertEqual("INTERNAL", environment["KAFKA_INTER_BROKER_LISTENER_NAME"])
+        self.assertEqual(
             ["/opt/ckc-warmup-kafka/bin/readiness.sh"],
             containers[0]["readinessProbe"]["exec"]["command"],
         )
