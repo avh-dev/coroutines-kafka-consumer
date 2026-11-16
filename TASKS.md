@@ -83,6 +83,7 @@
 | [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
 | [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
 | [CORE-80](#core-80) | Expose a public protocol-v6 warm-up context and consumer DSL that owns discovery, activation, fallback, completion, and shutdown. | DONE |
+| [CORE-81](#core-81) | Add a public container for reliable joint lifecycle management of heterogeneous consumers. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6113,3 +6114,23 @@ start. Public Kafka coverage exercises three payload types, two simultaneous rec
 registration freeze, stop rollback, and one-mapping metadata failure. All 264 core unit tests, 27
 Micrometer tests, the full 43-test Kafka suite, and the final six-test public-DSL Kafka suite pass.
 No smoke, load, chaos, or experiment run was started.
+
+<a id="core-81"></a>
+### CORE-81 - Add a joint consumer lifecycle container
+
+_Date: 2026-11-16_
+
+Added optional public `consumerContainer(...)` lifecycle composition for heterogeneous typed
+consumers. Start invokes every fixed participant without readiness serialization, collective
+readiness fails promptly, and concurrent stop callers share a container-owned attempt that survives
+caller cancellation. `ConsumerContainerException` retains indexed causes for start, readiness, and
+stop phases.
+Per-participant completion is tracked independently from reported errors. Stop requests run
+concurrently, completed cleanup is not repeated, and only incomplete participants are retried by a
+later call. Stop-before-start is terminal, restart is unsupported, duplicate instances are rejected,
+and an individually stopped consumer remains compatible with later container cleanup.
+The managed lifecycle seam now distinguishes a terminal main-consumer error after released resources
+from genuinely incomplete warm-up cleanup. Real-Kafka coverage runs three typed participants from one
+shared context through the container and cold-starts participants from independent contexts. All 286
+core unit tests and 46 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was
+started.

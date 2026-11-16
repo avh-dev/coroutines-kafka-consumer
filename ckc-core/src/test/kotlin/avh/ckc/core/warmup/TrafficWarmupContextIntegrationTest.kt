@@ -1,7 +1,9 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.CoroutinesKafkaConsumer
+import avh.ckc.core.ConsumerContainer
 import avh.ckc.core.RecordingMetrics
+import avh.ckc.core.consumerContainer
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
@@ -42,6 +44,54 @@ import kotlin.time.Duration.Companion.seconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class TrafficWarmupContextIntegrationTest {
+    @Test
+    fun `one container cold starts participants from independent warmup contexts`() = runBlocking {
+        val firstSource = unique("container-source-first")
+        val firstWarmup = unique("container-warmup-first")
+        val firstControl = unique("container-control-first")
+        val secondSource = unique("container-source-second")
+        val secondWarmup = unique("container-warmup-second")
+        val secondControl = unique("container-control-second")
+        createTopics(
+            firstSource,
+            firstWarmup,
+            firstControl,
+            secondSource,
+            secondWarmup,
+            secondControl
+        )
+        val firstHandled = CopyOnWriteArrayList<String>()
+        val secondHandled = CopyOnWriteArrayList<String>()
+        val first = stringConsumer(
+            context(unique("container-first"), firstControl),
+            "first",
+            firstSource,
+            firstWarmup,
+            unique("container-first-group"),
+            firstHandled
+        )
+        val second = stringConsumer(
+            context(unique("container-second"), secondControl),
+            "second",
+            secondSource,
+            secondWarmup,
+            unique("container-second-group"),
+            secondHandled
+        )
+        val container = consumerContainer(first, second)
+        try {
+            container.start()
+            withTimeout(15.seconds) { container.awaitReady() }
+            produce(firstSource, "first", "first-value", StringSerializer())
+            produce(secondSource, "second", "second-value", StringSerializer())
+            awaitFor {
+                firstHandled.contains("first-value") && secondHandled.contains("second-value")
+            }
+        } finally {
+            container.stop()
+        }
+    }
+
     @Test
     fun `public context warms three typed participants through one logical session`() = runBlocking {
         val topics = TypedTopics.create()
@@ -513,30 +563,17 @@ class TrafficWarmupContextIntegrationTest {
         val batchMetrics: RecordingMetrics<String, ByteArray>,
         val telemetryMetrics: RecordingMetrics<String, Long>
     ) {
+        private val consumers: ConsumerContainer = consumerContainer(order, batch, telemetry)
+
         fun startAll() {
-            order.start()
-            batch.start()
-            telemetry.start()
+            consumers.start()
         }
 
         suspend fun awaitAllReady() {
-            withTimeout(15.seconds) {
-                order.awaitReady()
-                batch.awaitReady()
-                telemetry.awaitReady()
-            }
+            withTimeout(15.seconds) { consumers.awaitReady() }
         }
 
-        suspend fun stopAll() {
-            val failures = listOf(telemetry, batch, order).mapNotNull { consumer ->
-                runCatching { consumer.stop() }.exceptionOrNull()
-            }
-            if (failures.isNotEmpty()) {
-                throw IllegalStateException("Typed application cleanup had ${failures.size} failure(s)").apply {
-                    failures.forEach(::addSuppressed)
-                }
-            }
-        }
+        suspend fun stopAll() = consumers.stop()
     }
 
     private data class TypedTopics(
