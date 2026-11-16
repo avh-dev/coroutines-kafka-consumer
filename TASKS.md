@@ -6242,7 +6242,7 @@ qualification definition is prepared but no smoke, load, chaos, or experiment ru
 _Date: 2026-11-16_
 
 Port the GLOBAL-4 local 16k warm-up versus cold scale-up experiment without changing its workload,
-resource, processing-profile, HPA, quota, or one-pod-at-a-time scaling settings. Replace only the
+resource, processing-profile, HPA, steady quota, or one-pod-at-a-time scaling settings. Replace the
 archived protocol-v1 configuration and transport provisioning with the GLOBAL-5 public DSL wiring,
 protocol-v6 topics, and the autonomous INFRA-323 warm-up Kafka. Preserve audit, metrics, evidence,
 and report collection, validate the materialized experiment, and install it into the internal lab.
@@ -6250,8 +6250,10 @@ Prepare the exact operator command but do not start the experiment as part of th
 
 The port is based on GLOBAL-4 commit `fa8fa0a1`. It retains the two-target 16k workload, forty-minute
 linear ramp, five-minute steady interval, tuned Serial GC profiles, resource requests, twelve main
-topic partitions, mapping quota/ramp values, and HPA limit of one added pod per 180 seconds. Only
-protocol wiring changes: v6 topics, per-mapping quota properties, independent control/destination
-connections, and the INFRA-323 autonomous transport. An explicit target-level disable keeps the
-cold baseline cold even though the experiment provisions the optional transport. All 83 shared
-orchestration tests and 23 focused internal-lab tests pass; the experiment itself was not started.
+topic partitions, steady mapping quota/ramp values, and HPA limit of one added pod per 180 seconds.
+The archived zero initial quota is minimally adapted to `1`, the lowest value accepted by protocol
+v6. Other protocol wiring changes are v6 topics, per-mapping quota properties, independent
+control/destination connections, and the INFRA-323 autonomous transport. An explicit target-level
+disable keeps the cold baseline cold even though the experiment provisions the optional transport.
+The first operator run exposed the incompatible zero value and was cancelled during application
+startup; no load target ran. The corrected experiment is validated and installed for a fresh run.

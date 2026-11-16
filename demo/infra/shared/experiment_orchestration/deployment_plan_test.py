@@ -247,7 +247,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("false", cold["TRAFFIC_WARMUP_ENABLED"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertEqual("100", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
-            self.assertEqual("0", warm[f"TRAFFIC_WARMUP_{topic}_INITIAL_QUOTA_PER_INTERVAL"])
+            self.assertEqual("1", warm[f"TRAFFIC_WARMUP_{topic}_INITIAL_QUOTA_PER_INTERVAL"])
             self.assertEqual("120", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_SECONDS"])
         self.assertEqual("120", warm["TRAFFIC_WARMUP_DURATION_SECONDS"])
         self.assertEqual("15", warm["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
