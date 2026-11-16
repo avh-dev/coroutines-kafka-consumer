@@ -1,6 +1,5 @@
 package avh.ckc.demo.consumer.ckc
 
-import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.ConsumerContainer
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
@@ -124,9 +123,6 @@ private class CkcConsumerRuntime(
     private val processingDispatcher: CoroutineDispatcher
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
-    private lateinit var orderConsumer: CoroutinesKafkaConsumer<String, OrderLifecycleEvent>
-    private lateinit var batchConsumer: CoroutinesKafkaConsumer<String, BatchLifecycleEvent>
-    private lateinit var telemetryConsumer: CoroutinesKafkaConsumer<String, CauldronTelemetryEvent>
     private var lifecycle: CkcConsumersLifecycle? = null
 
     override fun start() {
@@ -137,7 +133,7 @@ private class CkcConsumerRuntime(
         )
         val trafficWarmup = createTrafficWarmup()
 
-        orderConsumer = DemoConsumers.orderConsumer(
+        val orderConsumer = DemoConsumers.orderConsumer(
             commonProperties + properties.kafkaConsumerProperties(properties.consumers.order) +
                 mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             orderConsumerMetrics,
@@ -149,7 +145,7 @@ private class CkcConsumerRuntime(
             trafficWarmup
         ) { key, event -> orderHandler(key, event) }
 
-        batchConsumer = DemoConsumers.batchConsumer(
+        val batchConsumer = DemoConsumers.batchConsumer(
             commonProperties + properties.kafkaConsumerProperties(properties.consumers.batch) +
                 mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             batchConsumerMetrics,
@@ -161,7 +157,7 @@ private class CkcConsumerRuntime(
             trafficWarmup
         ) { key, event -> batchHandler(key, event) }
 
-        telemetryConsumer = DemoConsumers.telemetryConsumer(
+        val telemetryConsumer = DemoConsumers.telemetryConsumer(
             commonProperties + properties.kafkaConsumerProperties(properties.consumers.telemetry) +
                 mapOf(ConsumerConfig.GROUP_ID_CONFIG to properties.kafka.groupId),
             consumerMetrics,
