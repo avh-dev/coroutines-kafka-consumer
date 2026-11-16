@@ -91,13 +91,16 @@ side resumes an old session or reconstructs control history.
 
 The long-lived donor control transport distinguishes ordinary reconnects from a recreated control
 topic by its Kafka topic identity and by validating that its position still belongs to the current
-log. Short metadata failures leave the existing clients and positions unchanged. A confirmed new
-topic identity replaces the stale control clients after a bounded retry delay. The replacement
-consumer reads the fresh log from its beginning so requests published after topic recreation are
-not skipped; only the very first context start seeks to the then-current tail. Shutdown cancels a
-pending recovery delay. Once infrastructure recreates the one-partition control and destination
-topics at the configured addresses, new recipient sessions can be admitted without restarting an
-otherwise healthy donor context.
+log. Short metadata failures leave the existing clients and positions unchanged. If a longer outage
+requires replacing a consumer while the topic identity is unchanged, the replacement explicitly
+seeks to the last offset already admitted to the local dispatch queue; it never relies on
+`auto.offset.reset` or replays preserved history. A confirmed new topic identity replaces the stale
+control clients after a bounded retry delay. The replacement consumer reads the fresh log from its
+beginning so requests published after topic recreation are not skipped; only the very first context
+start seeks to the then-current tail. Identity requests and Admin shutdown are bounded, and shutdown
+interrupts an in-progress identity wait or recovery delay. Once infrastructure recreates the
+one-partition control and destination topics at the configured addresses, new recipient sessions can
+be admitted without restarting an otherwise healthy donor context.
 
 ## Domain model
 

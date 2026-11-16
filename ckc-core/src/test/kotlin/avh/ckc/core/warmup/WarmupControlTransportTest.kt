@@ -24,7 +24,9 @@ import org.mockito.kotlin.whenever
 import java.time.Duration as JavaDuration
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CountDownLatch
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -175,6 +177,43 @@ class WarmupControlTransportTest {
     }
 
     @Test
+    fun `same topic recovery resumes after admitted history without redelivery`() = runBlocking {
+        val first = tailConsumer(emptyList(), end = 12, releaseRecords = AtomicBoolean(false))
+        val second = resumingConsumer(request(namespace, "old-history"), end = 12)
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val identityReads = AtomicInteger()
+        val handled = mutableListOf<String>()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = { mock() },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String? =
+                    when (identityReads.incrementAndGet()) {
+                        1 -> "same-topic-id"
+                        2, 3 -> null
+                        else -> "same-topic-id"
+                    }
+            },
+            recoveryFailureThreshold = 2
+        ) { handled += it.message.sessionId.value }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (consumerCreations.get() < 2) kotlinx.coroutines.delay(1)
+            }
+            kotlinx.coroutines.delay(25.milliseconds)
+
+            verify(second).seek(TopicPartition("control", 0), 12)
+            assertTrue(handled.isEmpty(), "Preserved control history was redelivered: $handled")
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
     fun `recreated control topic replaces clients and consumes the fresh log from its beginning`() = runBlocking {
         val first = tailConsumer(emptyList(), end = 12, releaseRecords = AtomicBoolean(false))
         val second = tailConsumer(
@@ -247,6 +286,41 @@ class WarmupControlTransportTest {
         }
         withTimeout(1.seconds) { transport.stop() }
         assertEquals(1, consumerCreations.get())
+    }
+
+    @Test
+    fun `shutdown interrupts an unfinished identity lookup`() = runBlocking {
+        val lookupStarted = CountDownLatch(1)
+        val releaseLookup = CountDownLatch(1)
+        val closed = AtomicBoolean(false)
+        val reads = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = { tailConsumer(emptyList(), 0, AtomicBoolean(false)) },
+            producerFactory = { mock() },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String {
+                    if (reads.incrementAndGet() == 1) return "control-topic-id"
+                    lookupStarted.countDown()
+                    releaseLookup.await()
+                    return "control-topic-id"
+                }
+
+                override fun close() {
+                    closed.set(true)
+                }
+            }
+        ) { }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            assertTrue(lookupStarted.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            withTimeout(1.seconds) { transport.stop() }
+            assertTrue(closed.get())
+        } finally {
+            releaseLookup.countDown()
+            transport.stop()
+        }
     }
 
     private fun transport(
@@ -342,6 +416,56 @@ class WarmupControlTransportTest {
                     Thread.sleep(1)
                     ConsumerRecords.empty<String, ByteArray>()
                 }
+            }
+        }.whenever(consumer).poll(any<JavaDuration>())
+        return consumer
+    }
+
+    private fun resumingConsumer(
+        oldMessage: WarmupControlMessage,
+        end: Long
+    ): Consumer<String, ByteArray> {
+        val consumer = mock<Consumer<String, ByteArray>>()
+        val listener = AtomicReference<ConsumerRebalanceListener>()
+        val assigned = AtomicBoolean(false)
+        val delivered = AtomicBoolean(false)
+        val position = AtomicLong(0)
+        val partition = TopicPartition("control", 0)
+        whenever(consumer.partitionsFor(any(), any<JavaDuration>())).thenReturn(
+            listOf(PartitionInfo("control", 0, null, emptyArray(), emptyArray()))
+        )
+        doAnswer {
+            listener.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
+        doAnswer {
+            position.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).seek(org.mockito.kotlin.eq(partition), any<Long>())
+        whenever(consumer.position(partition)).thenAnswer { position.get() }
+        whenever(consumer.assignment()).thenReturn(setOf(partition))
+        whenever(consumer.position(org.mockito.kotlin.eq(partition), any<JavaDuration>()))
+            .thenAnswer { position.get() }
+        whenever(consumer.endOffsets(org.mockito.kotlin.eq(setOf(partition)), any<JavaDuration>()))
+            .thenReturn(mapOf(partition to end))
+        doAnswer {
+            if (assigned.compareAndSet(false, true)) {
+                listener.get().onPartitionsAssigned(listOf(partition))
+                ConsumerRecords.empty<String, ByteArray>()
+            } else if (position.get() == 0L && delivered.compareAndSet(false, true)) {
+                ConsumerRecords(
+                    mapOf(
+                        partition to listOf(
+                            org.apache.kafka.clients.consumer.ConsumerRecord(
+                                "control", 0, 0, oldMessage.sessionId.value,
+                                WarmupControlCodec.encode(oldMessage)
+                            )
+                        )
+                    )
+                )
+            } else {
+                Thread.sleep(1)
+                ConsumerRecords.empty<String, ByteArray>()
             }
         }.whenever(consumer).poll(any<JavaDuration>())
         return consumer

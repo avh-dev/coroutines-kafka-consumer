@@ -21,6 +21,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.admin.Admin
+import org.apache.kafka.clients.admin.DescribeTopicsOptions
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
@@ -126,7 +127,8 @@ internal class WarmupControlTransport(
     private val producerFactory: (Map<String, Any?>) -> Producer<String, ByteArray> = { KafkaProducer(it) },
     private val consumerFactory: (Map<String, Any?>) -> Consumer<String, ByteArray> = { KafkaConsumer(it) },
     private val topicIdentity: WarmupControlTopicIdentity = KafkaWarmupControlTopicIdentity(
-        configuration.consumerProperties
+        configuration.consumerProperties,
+        configuration.metadataTimeout
     ),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : WarmupControlChannel {
@@ -237,14 +239,22 @@ internal class WarmupControlTransport(
 
     private suspend fun pollLoop() {
         var activeConsumer = requireNotNull(consumer)
+        val cursor = WarmupControlCursor()
         while (currentCoroutineContext().isActive && !stopping.get()) {
             try {
-                pollControlTopic(activeConsumer)
+                pollControlTopic(activeConsumer, cursor)
                 return
             } catch (_: WarmupControlTopicRecreatedException) {
                 if (stopping.get()) return
+                cursor.nextOffset = null
                 consumer = null
                 replaceProducerAfterTopicRecreation()
+                delay(configuration.recoveryRetryBackoff)
+                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
+            } catch (reset: WarmupControlLogTruncatedException) {
+                if (stopping.get()) return
+                cursor.nextOffset = reset.endOffset
+                consumer = null
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
             } catch (_: WarmupControlRecoveryRequiredException) {
@@ -261,7 +271,10 @@ internal class WarmupControlTransport(
         }
     }
 
-    private suspend fun pollControlTopic(activeConsumer: Consumer<String, ByteArray>) {
+    private suspend fun pollControlTopic(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ) {
         try {
             val metadata = activeConsumer.partitionsFor(
                 configuration.topic,
@@ -271,10 +284,8 @@ internal class WarmupControlTransport(
                 "Warm-up control topic must expose exactly partition 0"
             }
             if (expectedTopicIdentity == null) {
-                expectedTopicIdentity = topicIdentity.read(
-                    configuration.topic,
-                    configuration.metadataTimeout
-                ) ?: error("Warm-up control topic identity is unavailable")
+                expectedTopicIdentity = readTopicIdentity(configuration.metadataTimeout)
+                    ?: error("Warm-up control topic identity is unavailable")
             }
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
@@ -289,8 +300,14 @@ internal class WarmupControlTransport(
                         val end = activeConsumer.endOffsets(partitions).getValue(partition)
                         activeConsumer.seek(partition, end)
                         activeConsumer.position(partition)
+                        cursor.nextOffset = end
                         initialBoundary = end - 1
                         readiness.complete(Unit)
+                    } else {
+                        cursor.nextOffset?.let { nextOffset ->
+                            activeConsumer.seek(partition, nextOffset)
+                            activeConsumer.position(partition)
+                        }
                     }
                 }
             })
@@ -303,6 +320,7 @@ internal class WarmupControlTransport(
                     if (stopping.get()) break else throw wakeup
                 }
                 records.forEach { record ->
+                    cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, record.offset() + 1)
                     val message = try {
                         WarmupControlCodec.decode(record.value()).also { decoded ->
                             require(record.key() == decoded.sessionId.value) {
@@ -318,7 +336,7 @@ internal class WarmupControlTransport(
                     }
                 }
                 if (System.nanoTime() >= nextRecoveryCheckNanos) {
-                    if (verifyPositionWithinCurrentLog(activeConsumer)) {
+                    if (verifyCurrentControlLog(activeConsumer, cursor)) {
                         consecutiveRecoveryFailures = 0
                     } else if (++consecutiveRecoveryFailures >= configuration.recoveryFailureThreshold) {
                         throw WarmupControlRecoveryRequiredException(
@@ -337,17 +355,31 @@ internal class WarmupControlTransport(
         }
     }
 
-    /** A smaller recreated log is distinct from a temporary network outage and requires a new client. */
-    private fun verifyPositionWithinCurrentLog(activeConsumer: Consumer<String, ByteArray>): Boolean {
-        val currentIdentity = topicIdentity.read(
-            configuration.topic,
+    private suspend fun verifyCurrentControlLog(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ): Boolean {
+        val currentIdentity = readTopicIdentity(
             minOf(configuration.metadataTimeout, configuration.recoveryCheckInterval)
         ) ?: return false
+        verifyTopicIdentity(currentIdentity)
+        return verifyConsumerPosition(activeConsumer, cursor)
+    }
+
+    /** Topic identity, rather than a transient metadata failure, defines a fresh control log. */
+    private fun verifyTopicIdentity(currentIdentity: String) {
         val expectedIdentity = expectedTopicIdentity
         if (expectedIdentity != null && currentIdentity != expectedIdentity) {
             expectedTopicIdentity = currentIdentity
             throw WarmupControlTopicRecreatedException(expectedIdentity, currentIdentity)
         }
+    }
+
+    /** A replacement client for the same log must resume after every record already admitted locally. */
+    private fun verifyConsumerPosition(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ): Boolean {
         val assignment = activeConsumer.assignment()
         if (assignment.size != 1) return false
         val partition = assignment.single()
@@ -361,6 +393,7 @@ internal class WarmupControlTransport(
             val position = activeConsumer.position(partition, timeout)
             val end = activeConsumer.endOffsets(setOf(partition), timeout).getValue(partition)
             if (position > end) throw WarmupControlLogTruncatedException(position, end)
+            cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, position)
             true
         } catch (truncated: WarmupControlLogTruncatedException) {
             throw truncated
@@ -368,6 +401,10 @@ internal class WarmupControlTransport(
             // Kafka reconnect remains authoritative for ordinary transient metadata failures.
             false
         }
+    }
+
+    private suspend fun readTopicIdentity(timeout: Duration): String? = runInterruptible(dispatcher) {
+        topicIdentity.read(configuration.topic, timeout)
     }
 
     private suspend fun dispatchLoop() {
@@ -446,12 +483,19 @@ internal interface WarmupControlTopicIdentity : AutoCloseable {
     override fun close() = Unit
 }
 
-private class KafkaWarmupControlTopicIdentity(properties: Map<String, Any?>) : WarmupControlTopicIdentity {
+private class WarmupControlCursor(var nextOffset: Long? = null)
+
+internal class KafkaWarmupControlTopicIdentity(
+    properties: Map<String, Any?>,
+    private val closeTimeout: Duration
+) : WarmupControlTopicIdentity {
     private val admin = Admin.create(properties)
 
     override fun read(topic: String, timeout: Duration): String? = try {
-        admin.describeTopics(listOf(topic)).allTopicNames()
-            .get(timeout.inWholeMilliseconds.coerceAtLeast(1), java.util.concurrent.TimeUnit.MILLISECONDS)
+        val timeoutMillis = timeout.inWholeMilliseconds.coerceIn(1, Int.MAX_VALUE.toLong())
+        admin.describeTopics(listOf(topic), DescribeTopicsOptions().timeoutMs(timeoutMillis.toInt()))
+            .allTopicNames()
+            .get(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
             .getValue(topic)
             .topicId()
             .toString()
@@ -459,7 +503,9 @@ private class KafkaWarmupControlTopicIdentity(properties: Map<String, Any?>) : W
         null
     }
 
-    override fun close() = admin.close()
+    override fun close() = admin.close(
+        JavaDuration.ofMillis(closeTimeout.inWholeMilliseconds.coerceAtLeast(1))
+    )
 }
 
 private class WarmupControlTopicRecreatedException(previous: String, current: String) :
@@ -467,8 +513,10 @@ private class WarmupControlTopicRecreatedException(previous: String, current: St
         "Warm-up control topic was recreated with identity $current instead of $previous"
     )
 
-private class WarmupControlLogTruncatedException(position: Long, end: Long) :
-    WarmupControlRecoveryRequiredException("Warm-up control position $position exceeds recreated log end $end")
+private class WarmupControlLogTruncatedException(position: Long, val endOffset: Long) :
+    WarmupControlRecoveryRequiredException(
+        "Warm-up control position $position exceeds current log end $endOffset"
+    )
 
 private fun immutableProperties(properties: Map<String, Any?>): Map<String, Any?> =
     Collections.unmodifiableMap(LinkedHashMap(properties))

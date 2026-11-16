@@ -6200,5 +6200,8 @@ current tail; a replacement consumer reads the fresh control log from its beginn
 Real-Kafka coverage destroys the broker and all data with two active recipient sessions and nonempty
 inflight, recreates one-partition topics at the same address, and proves cold fallback, donor
 continuity, capacity release, metrics isolation, and successful warming of a new recipient without a
-donor restart. Focused recovery checks, all 297 core unit tests, and all 47 real-Kafka integration
-tests pass. No smoke, load, chaos, or experiment run was started.
+donor restart. Review fixes preserve the last locally admitted control offset when a longer outage
+recreates a consumer for the same topic identity, while confirmed topic replacement alone resets the
+cursor. Kafka-side identity timeouts, interruptible lookup, and bounded Admin shutdown keep context
+stop finite. Focused recovery checks, all 299 core unit tests, and all 47 real-Kafka integration tests
+pass. No smoke, load, chaos, or experiment run was started.
