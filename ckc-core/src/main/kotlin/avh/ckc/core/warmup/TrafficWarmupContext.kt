@@ -90,6 +90,8 @@ class TrafficWarmupContext internal constructor(
     }
 
     internal fun delegationTimeoutMillis(): Long = configuration.delegationTimeout.inWholeMilliseconds
+    internal fun recipientShutdownTimeoutMillis(): Long =
+        (configuration.completionTimeout.inWholeMilliseconds / 2).coerceAtLeast(1)
 
     internal fun register(participant: RegisteredTrafficWarmupParticipant): ManagedConsumerLifecycle {
         val state = synchronized(lock) {
@@ -455,7 +457,8 @@ class TrafficWarmupContext internal constructor(
                         }
                         completeRecipientPhaseAndLaunchMains(reasonCode)
                     }
-                    is WarmupCompletionResult.CleanupIncomplete -> failRecipientCleanup(completion.reasonCode)
+                    is WarmupCompletionResult.CleanupIncomplete ->
+                        failRecipientCleanup(completion.reasonCode, completion.cleanup)
                 }
             }
             is WarmupDiscoveryResult.ColdFallback -> {
@@ -466,7 +469,7 @@ class TrafficWarmupContext internal constructor(
                 outbox.stop()
                 completeRecipientPhaseAndLaunchMains(result.reasonCode)
             }
-            is WarmupDiscoveryResult.CleanupIncomplete -> failRecipientCleanup(result.reasonCode)
+            is WarmupDiscoveryResult.CleanupIncomplete -> failRecipientCleanup(result.reasonCode, result.cleanup)
         }
     }
 
@@ -480,7 +483,7 @@ class TrafficWarmupContext internal constructor(
             }
         }
         if (rollback is WarmupDiscoveryResult.CleanupIncomplete) {
-            failRecipientCleanup(rollback.reasonCode)
+            failRecipientCleanup(rollback.reasonCode, rollback.cleanup)
         } else {
             completeRecipientPhaseAndLaunchMains(reasonCode)
         }
@@ -507,8 +510,13 @@ class TrafficWarmupContext internal constructor(
         requested.forEach { state -> scope.launch { startMain(state) } }
     }
 
-    private fun failRecipientCleanup(reasonCode: String) {
-        val failure = IllegalStateException("Warm-up cleanup incomplete: $reasonCode")
+    private fun failRecipientCleanup(
+        reasonCode: String,
+        cleanup: WarmupRecipientCleanupResult.Incomplete
+    ) {
+        val failure = IllegalStateException(
+            "Warm-up cleanup incomplete: $reasonCode; " + cleanup.diagnostics.joinToString()
+        )
         synchronized(lock) {
             recipientFinished = true
             recipientCleanupFailure = failure

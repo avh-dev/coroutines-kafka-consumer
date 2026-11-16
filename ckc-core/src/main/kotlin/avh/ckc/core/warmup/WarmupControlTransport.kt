@@ -14,11 +14,14 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.apache.kafka.clients.admin.Admin
+import org.apache.kafka.clients.admin.DescribeTopicsOptions
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
@@ -29,6 +32,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.apache.kafka.common.errors.WakeupException
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.apache.kafka.common.serialization.ByteArraySerializer
@@ -53,6 +57,9 @@ internal class WarmupControlTransportConfiguration(
     val pollTimeout: Duration = 100.milliseconds,
     val sendTimeout: Duration = 30.seconds,
     val metadataTimeout: Duration = 30.seconds,
+    val recoveryCheckInterval: Duration = 1.seconds,
+    val recoveryRetryBackoff: Duration = 500.milliseconds,
+    val recoveryFailureThreshold: Int = 3,
     val commandBufferCapacity: Int = 1_024
 ) {
     val producerProperties: Map<String, Any?> = immutableProperties(producerProperties)
@@ -73,6 +80,9 @@ internal class WarmupControlTransportConfiguration(
         require(metadataTimeout.isPositive() && metadataTimeout.inWholeMilliseconds > 0) {
             "Control metadata timeout must be at least one millisecond"
         }
+        require(recoveryCheckInterval.isPositive()) { "Control recovery check interval must be positive" }
+        require(recoveryRetryBackoff.isPositive()) { "Control recovery retry backoff must be positive" }
+        require(recoveryFailureThreshold > 0) { "Control recovery failure threshold must be positive" }
         require(commandBufferCapacity > 0) { "Control command buffer capacity must be positive" }
         require(this.producerProperties.containsKey(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG)) {
             "Control producer bootstrap servers are required"
@@ -116,6 +126,10 @@ internal class WarmupControlTransport(
     parentContext: CoroutineContext = Dispatchers.IO,
     private val producerFactory: (Map<String, Any?>) -> Producer<String, ByteArray> = { KafkaProducer(it) },
     private val consumerFactory: (Map<String, Any?>) -> Consumer<String, ByteArray> = { KafkaConsumer(it) },
+    private val topicIdentity: WarmupControlTopicIdentity = KafkaWarmupControlTopicIdentity(
+        configuration.consumerProperties,
+        configuration.metadataTimeout
+    ),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : WarmupControlChannel {
     private sealed interface DispatchItem {
@@ -133,11 +147,12 @@ internal class WarmupControlTransport(
     private val started = AtomicBoolean(false)
     private val stopping = AtomicBoolean(false)
     private val shutdownJob = AtomicReference<Job?>()
-    private var producer: Producer<String, ByteArray>? = null
-    private var consumer: Consumer<String, ByteArray>? = null
+    @Volatile private var producer: Producer<String, ByteArray>? = null
+    @Volatile private var consumer: Consumer<String, ByteArray>? = null
     private var pollJob: Job? = null
     private var dispatchJob: Job? = null
     @Volatile private var initialBoundary: Long? = null
+    @Volatile private var expectedTopicIdentity: String? = null
 
     override fun initialOffsetBoundary(): Long? = initialBoundary
 
@@ -147,7 +162,7 @@ internal class WarmupControlTransport(
             producer = producerFactory(producerProperties())
             consumer = consumerFactory(consumerProperties())
             dispatchJob = scope.launch { dispatchLoop() }.also(::observe)
-            pollJob = scope.launch { pollLoop(requireNotNull(consumer)) }.also(::observe)
+            pollJob = scope.launch { pollLoop() }.also(::observe)
         } catch (error: Throwable) {
             fail(error)
             closeClients()
@@ -222,7 +237,44 @@ internal class WarmupControlTransport(
         scope.cancel()
     }
 
-    private suspend fun pollLoop(activeConsumer: Consumer<String, ByteArray>) {
+    private suspend fun pollLoop() {
+        var activeConsumer = requireNotNull(consumer)
+        val cursor = WarmupControlCursor()
+        while (currentCoroutineContext().isActive && !stopping.get()) {
+            try {
+                pollControlTopic(activeConsumer, cursor)
+                return
+            } catch (_: WarmupControlTopicRecreatedException) {
+                if (stopping.get()) return
+                cursor.nextOffset = null
+                consumer = null
+                replaceProducerAfterTopicRecreation()
+                delay(configuration.recoveryRetryBackoff)
+                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
+            } catch (reset: WarmupControlLogTruncatedException) {
+                if (stopping.get()) return
+                cursor.nextOffset = reset.endOffset
+                consumer = null
+                delay(configuration.recoveryRetryBackoff)
+                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
+            } catch (_: WarmupControlRecoveryRequiredException) {
+                if (stopping.get()) return
+                consumer = null
+                delay(configuration.recoveryRetryBackoff)
+                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
+            } catch (timeout: KafkaTimeoutException) {
+                if (!readiness.isCompleted || stopping.get()) throw timeout
+                consumer = null
+                delay(configuration.recoveryRetryBackoff)
+                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
+            }
+        }
+    }
+
+    private suspend fun pollControlTopic(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ) {
         try {
             val metadata = activeConsumer.partitionsFor(
                 configuration.topic,
@@ -230,6 +282,10 @@ internal class WarmupControlTransport(
             )
             check(metadata.size == 1 && metadata.single().partition() == 0) {
                 "Warm-up control topic must expose exactly partition 0"
+            }
+            if (expectedTopicIdentity == null) {
+                expectedTopicIdentity = readTopicIdentity(configuration.metadataTimeout)
+                    ?: error("Warm-up control topic identity is unavailable")
             }
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
@@ -244,11 +300,19 @@ internal class WarmupControlTransport(
                         val end = activeConsumer.endOffsets(partitions).getValue(partition)
                         activeConsumer.seek(partition, end)
                         activeConsumer.position(partition)
+                        cursor.nextOffset = end
                         initialBoundary = end - 1
                         readiness.complete(Unit)
+                    } else {
+                        cursor.nextOffset?.let { nextOffset ->
+                            activeConsumer.seek(partition, nextOffset)
+                            activeConsumer.position(partition)
+                        }
                     }
                 }
             })
+            var nextRecoveryCheckNanos = System.nanoTime() + configuration.recoveryCheckInterval.inWholeNanoseconds
+            var consecutiveRecoveryFailures = 0
             while (currentCoroutineContext().isActive && !stopping.get()) {
                 val records = try {
                     activeConsumer.poll(JavaDuration.ofMillis(configuration.pollTimeout.inWholeMilliseconds))
@@ -256,6 +320,7 @@ internal class WarmupControlTransport(
                     if (stopping.get()) break else throw wakeup
                 }
                 records.forEach { record ->
+                    cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, record.offset() + 1)
                     val message = try {
                         WarmupControlCodec.decode(record.value()).also { decoded ->
                             require(record.key() == decoded.sessionId.value) {
@@ -270,12 +335,76 @@ internal class WarmupControlTransport(
                         enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
                     }
                 }
+                if (System.nanoTime() >= nextRecoveryCheckNanos) {
+                    if (verifyCurrentControlLog(activeConsumer, cursor)) {
+                        consecutiveRecoveryFailures = 0
+                    } else if (++consecutiveRecoveryFailures >= configuration.recoveryFailureThreshold) {
+                        throw WarmupControlRecoveryRequiredException(
+                            "Warm-up control consumer could not validate its position after " +
+                                "$consecutiveRecoveryFailures attempts"
+                        )
+                    }
+                    nextRecoveryCheckNanos = System.nanoTime() +
+                        configuration.recoveryCheckInterval.inWholeNanoseconds
+                }
             }
         } finally {
             withContext(NonCancellable + dispatcher) {
                 runCatching { activeConsumer.close(closeDuration()) }
             }
         }
+    }
+
+    private suspend fun verifyCurrentControlLog(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ): Boolean {
+        val currentIdentity = readTopicIdentity(
+            minOf(configuration.metadataTimeout, configuration.recoveryCheckInterval)
+        ) ?: return false
+        verifyTopicIdentity(currentIdentity)
+        return verifyConsumerPosition(activeConsumer, cursor)
+    }
+
+    /** Topic identity, rather than a transient metadata failure, defines a fresh control log. */
+    private fun verifyTopicIdentity(currentIdentity: String) {
+        val expectedIdentity = expectedTopicIdentity
+        if (expectedIdentity != null && currentIdentity != expectedIdentity) {
+            expectedTopicIdentity = currentIdentity
+            throw WarmupControlTopicRecreatedException(expectedIdentity, currentIdentity)
+        }
+    }
+
+    /** A replacement client for the same log must resume after every record already admitted locally. */
+    private fun verifyConsumerPosition(
+        activeConsumer: Consumer<String, ByteArray>,
+        cursor: WarmupControlCursor
+    ): Boolean {
+        val assignment = activeConsumer.assignment()
+        if (assignment.size != 1) return false
+        val partition = assignment.single()
+        return try {
+            val timeout = JavaDuration.ofMillis(
+                minOf(
+                    configuration.metadataTimeout.inWholeMilliseconds,
+                    configuration.recoveryCheckInterval.inWholeMilliseconds
+                ).coerceAtLeast(1)
+            )
+            val position = activeConsumer.position(partition, timeout)
+            val end = activeConsumer.endOffsets(setOf(partition), timeout).getValue(partition)
+            if (position > end) throw WarmupControlLogTruncatedException(position, end)
+            cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, position)
+            true
+        } catch (truncated: WarmupControlLogTruncatedException) {
+            throw truncated
+        } catch (_: Exception) {
+            // Kafka reconnect remains authoritative for ordinary transient metadata failures.
+            false
+        }
+    }
+
+    private suspend fun readTopicIdentity(timeout: Duration): String? = runInterruptible(dispatcher) {
+        topicIdentity.read(configuration.topic, timeout)
     }
 
     private suspend fun dispatchLoop() {
@@ -311,6 +440,14 @@ internal class WarmupControlTransport(
     private fun closeClients() {
         runCatching { producer?.close(closeDuration()) }
         runCatching { consumer?.close(closeDuration()) }
+        runCatching { topicIdentity.close() }
+    }
+
+    private fun replaceProducerAfterTopicRecreation() {
+        val replacement = producerFactory(producerProperties())
+        val previous = producer
+        producer = replacement
+        runCatching { previous?.close(closeDuration()) }
     }
 
     private fun closeDuration() = JavaDuration.ofMillis(configuration.sendTimeout.inWholeMilliseconds)
@@ -338,6 +475,48 @@ internal class WarmupControlTransport(
         )
     )
 }
+
+private open class WarmupControlRecoveryRequiredException(message: String) : IllegalStateException(message)
+
+internal interface WarmupControlTopicIdentity : AutoCloseable {
+    fun read(topic: String, timeout: Duration): String?
+    override fun close() = Unit
+}
+
+private class WarmupControlCursor(var nextOffset: Long? = null)
+
+internal class KafkaWarmupControlTopicIdentity(
+    properties: Map<String, Any?>,
+    private val closeTimeout: Duration
+) : WarmupControlTopicIdentity {
+    private val admin = Admin.create(properties)
+
+    override fun read(topic: String, timeout: Duration): String? = try {
+        val timeoutMillis = timeout.inWholeMilliseconds.coerceIn(1, Int.MAX_VALUE.toLong())
+        admin.describeTopics(listOf(topic), DescribeTopicsOptions().timeoutMs(timeoutMillis.toInt()))
+            .allTopicNames()
+            .get(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .getValue(topic)
+            .topicId()
+            .toString()
+    } catch (_: Exception) {
+        null
+    }
+
+    override fun close() = admin.close(
+        JavaDuration.ofMillis(closeTimeout.inWholeMilliseconds.coerceAtLeast(1))
+    )
+}
+
+private class WarmupControlTopicRecreatedException(previous: String, current: String) :
+    WarmupControlRecoveryRequiredException(
+        "Warm-up control topic was recreated with identity $current instead of $previous"
+    )
+
+private class WarmupControlLogTruncatedException(position: Long, val endOffset: Long) :
+    WarmupControlRecoveryRequiredException(
+        "Warm-up control position $position exceeds current log end $endOffset"
+    )
 
 private fun immutableProperties(properties: Map<String, Any?>): Map<String, Any?> =
     Collections.unmodifiableMap(LinkedHashMap(properties))

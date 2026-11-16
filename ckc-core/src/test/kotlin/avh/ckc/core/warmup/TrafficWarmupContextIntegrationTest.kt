@@ -35,6 +35,7 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.KafkaContainer
 import org.testcontainers.utility.DockerImageName
+import java.net.ServerSocket
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -44,6 +45,192 @@ import kotlin.time.Duration.Companion.seconds
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
 class TrafficWarmupContextIntegrationTest {
+    @Test
+    fun `new recipient warms after complete warmup kafka data loss without restarting donor`() = runBlocking {
+        val source = unique("transport-loss-source")
+        val warmup = unique("transport-loss-warmup")
+        val control = unique("transport-loss-control")
+        createTopics(source)
+        val warmupKafka = ReplaceableWarmupKafka()
+        warmupKafka.start()
+        createTopicsAt(warmupKafka.connection(), warmup, control)
+        val namespace = unique("transport-loss")
+        val group = unique("transport-loss-group")
+        val donorHandled = CopyOnWriteArrayList<String>()
+        val forwarded = CopyOnWriteArrayList<TrafficWarmupForwardedEvent>()
+        val donorMetrics = RecordingMetrics<String, String>()
+        val firstHandled = CopyOnWriteArrayList<String>()
+        val secondHandled = CopyOnWriteArrayList<String>()
+        val replacementHandled = CopyOnWriteArrayList<String>()
+        val firstWarming = CompletableDeferred<Unit>()
+        val secondWarming = CompletableDeferred<Unit>()
+        val replacementWarming = CompletableDeferred<Unit>()
+        val replacementEvents = CopyOnWriteArrayList<TrafficWarmupLifecycleEvent>()
+        val firstFallback = CompletableDeferred<Unit>()
+        val secondFallback = CompletableDeferred<Unit>()
+        val releaseRemoteHandlers = CompletableDeferred<Unit>()
+        val remoteHandlersStarted = CopyOnWriteArrayList<String>()
+        val controlConnection = warmupKafka.connection()
+        val donorContext = recoveryContext(namespace, control, controlConnection)
+        val donor = stringConsumer(
+            donorContext,
+            "records",
+            source,
+            warmup,
+            group,
+            donorHandled,
+            warmupProperties = controlConnection,
+            forwarded = forwarded,
+            consumerMetrics = donorMetrics
+        )
+        val first = stringConsumer(
+            recoveryContext(namespace, control, controlConnection) { event ->
+                when (event.phase) {
+                    TrafficWarmupLifecyclePhase.WARMING -> firstWarming.complete(Unit)
+                    TrafficWarmupLifecyclePhase.COLD_FALLBACK -> firstFallback.complete(Unit)
+                    else -> Unit
+                }
+            },
+            "records",
+            source,
+            warmup,
+            group,
+            firstHandled,
+            warmupProperties = controlConnection,
+            beforeHandle = { value ->
+                remoteHandlersStarted += value
+                releaseRemoteHandlers.await()
+            }
+        )
+        val second = stringConsumer(
+            recoveryContext(namespace, control, controlConnection) { event ->
+                when (event.phase) {
+                    TrafficWarmupLifecyclePhase.WARMING -> secondWarming.complete(Unit)
+                    TrafficWarmupLifecyclePhase.COLD_FALLBACK -> secondFallback.complete(Unit)
+                    else -> Unit
+                }
+            },
+            "records",
+            source,
+            warmup,
+            group,
+            secondHandled,
+            warmupProperties = controlConnection,
+            beforeHandle = { value ->
+                remoteHandlersStarted += value
+                releaseRemoteHandlers.await()
+            }
+        )
+        var replacement: CoroutinesKafkaConsumer<String, String>? = null
+        val replacementMetrics = RecordingMetrics<String, String>()
+        try {
+            donor.start()
+            withTimeout(10.seconds) { donor.awaitReady() }
+            first.start()
+            second.start()
+            withTimeout(10.seconds) {
+                firstWarming.await()
+                secondWarming.await()
+            }
+            repeat(2) { index -> produce(source, "lost-$index", "lost-$index", StringSerializer()) }
+            awaitFor { remoteHandlersStarted.size == 2 }
+
+            warmupKafka.destroyData()
+            releaseRemoteHandlers.complete(Unit)
+            withTimeout(15.seconds) {
+                first.awaitReady()
+                second.awaitReady()
+                firstFallback.await()
+                secondFallback.await()
+            }
+            awaitFor { donorHandled.containsAll(listOf("lost-0", "lost-1")) }
+            first.stop()
+            second.stop()
+            awaitFor { donor.currentWarmupSourceOwnership(source) != null }
+
+            warmupKafka.startEmptyReplacement()
+            createTopicsAt(warmupKafka.connection(), warmup, control)
+            // The donor transport confirms the new topic identity before replacing stale control
+            // clients; a new recipient starts after that bounded recovery window.
+            kotlinx.coroutines.delay(5.seconds)
+            val recoveredConnection = warmupKafka.connection()
+            replacement = stringConsumer(
+                recoveryContext(namespace, control, recoveredConnection) { event ->
+                    replacementEvents += event
+                    if (event.phase == TrafficWarmupLifecyclePhase.WARMING) replacementWarming.complete(Unit)
+                },
+                "records",
+                source,
+                warmup,
+                group,
+                replacementHandled,
+                warmupProperties = recoveredConnection,
+                consumerMetrics = replacementMetrics
+            )
+            replacement.start()
+            val replacementReadiness = async { runCatching { replacement.awaitReady() } }
+            withTimeout(20.seconds) {
+                while (!replacementWarming.isCompleted && !replacementReadiness.isCompleted) {
+                    kotlinx.coroutines.delay(20)
+                }
+            }
+            assertTrue(
+                replacementWarming.isCompleted,
+                "Recovered recipient cold-started instead of warming: " +
+                    "events=$replacementEvents, readinessCompleted=${replacementReadiness.isCompleted}"
+            )
+            val recoveredSession = requireNotNull(
+                replacementEvents.last { it.phase == TrafficWarmupLifecyclePhase.WARMING }.sessionId
+            )
+            // WARMING means RecipientReady is durably published, while donor activation follows
+            // asynchronously in its poll loop. Continue real traffic until the public forwarding
+            // callback proves that this exact recovered session became active.
+            KafkaProducer(kafkaConnection(), StringSerializer(), StringSerializer()).use { producer ->
+                withTimeout(3.seconds) {
+                    var index = 0
+                    while (forwarded.none { it.sessionId == recoveredSession }) {
+                        val value = "recovered-${index++}"
+                        producer.send(ProducerRecord(source, value, value)).get(2, TimeUnit.SECONDS)
+                        kotlinx.coroutines.delay(50.milliseconds)
+                    }
+                }
+            }
+            withTimeout(10.seconds) {
+                while (replacementHandled.isEmpty()) kotlinx.coroutines.delay(20)
+            }
+            assertTrue(
+                replacementHandled.isNotEmpty(),
+                "Recovered session never delegated to the new recipient; events=$replacementEvents, " +
+                    "forwarded=$forwarded, donor=$donorHandled"
+            )
+            withTimeout(15.seconds) { replacementReadiness.await().getOrThrow() }
+
+            assertFalse(donor.stateSnapshot().failed)
+            assertTrue(replacementHandled.all { it.startsWith("recovered-") })
+            assertTrue(
+                donorMetrics.processed.any { it.processedRemotely && it.value in replacementHandled },
+                "Donor did not report the recovered remote success"
+            )
+            assertTrue(replacementMetrics.processed.all { !it.processedRemotely })
+            assertTrue(
+                forwarded.filter { it.sourceOffset >= 2 }.all { it.sessionId == recoveredSession },
+                "An old session resumed after transport recreation: $forwarded"
+            )
+            assertEquals(0, donorMetrics.warmupPending.lastOrNull())
+        } finally {
+            releaseRemoteHandlers.complete(Unit)
+            val cleanupFailures = listOfNotNull(replacement, second, first, donor).mapNotNull { consumer ->
+                runCatching { withTimeout(10.seconds) { consumer.stop() } }.exceptionOrNull()
+            }.toMutableList()
+            runCatching { warmupKafka.stop() }.exceptionOrNull()?.let(cleanupFailures::add)
+            if (cleanupFailures.isNotEmpty()) {
+                throw IllegalStateException("Transport-recovery cleanup failed").apply {
+                    cleanupFailures.forEach(::addSuppressed)
+                }
+            }
+        }
+    }
+
     @Test
     fun `one container cold starts participants from independent warmup contexts`() = runBlocking {
         val firstSource = unique("container-source-first")
@@ -482,20 +669,53 @@ class TrafficWarmupContextIntegrationTest {
         groupId: String,
         handled: MutableList<String>,
         mainProperties: Map<String, Any?> = consumerProperties(groupId, StringDeserializer::class.java),
-        mainRecoveryTimeout: kotlin.time.Duration? = null
+        mainRecoveryTimeout: kotlin.time.Duration? = null,
+        warmupProperties: Map<String, Any?> = warmupConsumerConnection(),
+        beforeHandle: suspend (String) -> Unit = {},
+        forwarded: MutableList<TrafficWarmupForwardedEvent>? = null,
+        consumerMetrics: ConsumerMetrics<String, String> = object : ConsumerMetrics<String, String> {}
     ): CoroutinesKafkaConsumer<String, String> = coroutinesKafkaConsumer(
         mainProperties
     ) {
         topics(sourceTopic)
         commitIntervalMs = 50
         commitRecordsThreshold = 1
+        metrics = consumerMetrics
         mainRecoveryTimeout?.let { recoveryTimeout = it }
-        handle { handled += it.value() }
+        handle {
+            beforeHandle(it.value())
+            handled += it.value()
+        }
         trafficWarmup(context, participantId) {
             mapTopic(sourceTopic, warmupTopic)
-            warmupConsumerProperties = warmupConsumerConnection()
-            forwardingProducerProperties = forwardingConnection(StringSerializer::class.java)
+            warmupConsumerProperties = warmupProperties
+            forwardingProducerProperties = warmupProperties + mapOf(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
+            )
+            forwarded?.let { events -> onForwarded(events::add) }
         }
+    }
+
+    private fun recoveryContext(
+        namespace: String,
+        controlTopic: String,
+        connection: Map<String, Any?>,
+        lifecycleObserver: (TrafficWarmupLifecycleEvent) -> Unit = {}
+    ) = trafficWarmupContext {
+        this.namespace = namespace
+        this.controlTopic = controlTopic
+        controlProducerProperties = connection
+        controlConsumerProperties = connection
+        warmupDuration = 5.seconds
+        offerWindow = 250.milliseconds
+        participantStartTimeout = 1.seconds
+        preparationTimeout = 1.seconds
+        completionTimeout = 2.seconds
+        delegationTimeout = 500.milliseconds
+        maxDonorSessions = 2
+        maxAggregateQuotaPerSecond = 1_000
+        onLifecycleEvent(lifecycleObserver)
     }
 
     private fun multiTopicStringConsumer(
@@ -659,5 +879,42 @@ class TrafficWarmupContextIntegrationTest {
                 }).all().get(10, TimeUnit.SECONDS)
             }
         }
+
+        private fun createTopicsAt(connection: Map<String, Any?>, vararg topics: String) {
+            AdminClient.create(connection).use { admin ->
+                admin.createTopics(topics.map { topic ->
+                    NewTopic(topic, 1, 1.toShort())
+                }).all().get(10, TimeUnit.SECONDS)
+            }
+        }
     }
+}
+
+private class ReplaceableWarmupKafka {
+    private val port = ServerSocket(0).use { it.localPort }
+    private var kafka = newContainer()
+
+    fun start() = kafka.start()
+
+    fun connection(): Map<String, Any?> = mapOf("bootstrap.servers" to kafka.bootstrapServers)
+
+    fun destroyData() {
+        kafka.stop()
+        kafka = newContainer()
+    }
+
+    fun startEmptyReplacement() {
+        kafka.start()
+    }
+
+    fun stop() = kafka.stop()
+
+    private fun newContainer(): KafkaContainer = FixedPortKafkaContainer(
+        DockerImageName.parse("apache/kafka-native:3.8.0")
+    ).withFixedKafkaPort(port)
+}
+
+private class FixedPortKafkaContainer(imageName: DockerImageName) : KafkaContainer(imageName) {
+    fun withFixedKafkaPort(hostPort: Int): KafkaContainer =
+        apply { addFixedExposedPort(hostPort, 9092) }
 }

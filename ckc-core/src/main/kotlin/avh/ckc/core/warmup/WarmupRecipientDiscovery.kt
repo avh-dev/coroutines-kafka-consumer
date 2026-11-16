@@ -4,6 +4,7 @@ import avh.ckc.core.isFatalJvmError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.supervisorScope
@@ -36,7 +37,9 @@ internal interface PreparedWarmupRecipientConsumer {
     val startOffset: Long
     fun start()
     suspend fun awaitReady()
+    suspend fun awaitTermination(): Unit = awaitCancellation()
     suspend fun stop()
+    suspend fun abort(): Boolean = false
 }
 
 internal fun interface WarmupRecipientConsumerPreparation {
@@ -356,6 +359,33 @@ internal class WarmupRecipientDiscovery(
         true
     }
 
+    /** Any recipient runtime termination while READY invalidates the whole recipient session. */
+    suspend fun awaitPreparedConsumerTermination() = supervisorScope {
+        val resources = synchronized(lock) {
+            check(state == State.READY) { "Recipient consumers can be monitored only while ready" }
+            prepared.toList()
+        }
+        require(resources.isNotEmpty()) { "Ready recipient session has no prepared consumers" }
+        val waiters = resources.map { resource ->
+            async {
+                try {
+                    resource.awaitTermination()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    if (error.isFatalJvmError()) throw error
+                }
+            }
+        }
+        try {
+            kotlinx.coroutines.selects.select<Unit> {
+                waiters.forEach { waiter -> waiter.onAwait { } }
+            }
+        } finally {
+            waiters.forEach { it.cancel() }
+        }
+    }
+
     /**
      * Terminates this recipient session from any non-terminal stage, including prepared readiness.
      * An incomplete result retains the unresolved consumers; another call waits for them again.
@@ -458,9 +488,47 @@ internal class WarmupRecipientDiscovery(
                 true
             }
         }
-        val completed = results.filter(StopResult::completed).map(StopResult::resource)
         val diagnostics = results.mapNotNull(StopResult::diagnostic).toMutableList()
-        if (finished != true) diagnostics += "recipient_consumer_cleanup_timeout"
+        if (finished != true) {
+            diagnostics += "recipient_consumer_cleanup_timeout"
+            val forced = withTimeoutOrNull(cleanupTimeout.inWholeMilliseconds.coerceAtLeast(1)) {
+                supervisorScope {
+                    resources.asReversed().map { resource ->
+                        async {
+                            try {
+                                StopResult(
+                                    resource,
+                                    completed = resource.abort(),
+                                    diagnostic = "${resource.assignment.destination}: forced_after_cleanup_timeout"
+                                )
+                            } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
+                                StopResult(
+                                    resource,
+                                    completed = true,
+                                    diagnostic = "${resource.assignment.destination}: " +
+                                        "${error.cause?.javaClass?.name}: ${error.cause?.message}"
+                                )
+                            } catch (error: Throwable) {
+                                if (error.isFatalJvmError()) throw error
+                                StopResult(
+                                    resource,
+                                    completed = false,
+                                    diagnostic = "${resource.assignment.destination}: " +
+                                        "${error.javaClass.name}: ${error.message}"
+                                )
+                            }
+                        }
+                    }.awaitAll()
+                }
+            }
+            if (forced == null) {
+                diagnostics += "recipient_consumer_forced_cleanup_timeout"
+            } else {
+                results = forced
+                diagnostics += forced.mapNotNull(StopResult::diagnostic)
+            }
+        }
+        val completed = results.filter(StopResult::completed).map(StopResult::resource)
         val pending = synchronized(lock) {
             prepared.removeAll(completed.toSet())
             prepared.map(PreparedWarmupRecipientConsumer::assignment)

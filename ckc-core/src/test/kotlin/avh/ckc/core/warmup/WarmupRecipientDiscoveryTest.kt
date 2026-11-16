@@ -2,6 +2,7 @@ package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -257,6 +258,40 @@ class WarmupRecipientDiscoveryTest {
 
         releaseStop.complete(Unit)
         assertEquals(WarmupRecipientCleanupResult.Complete, discovery.terminate())
+    }
+
+    @Test
+    fun `cleanup deadline force closes every prepared recipient consumer`() = runBlocking {
+        val aborts = AtomicInteger()
+        val discovery = discovery(
+            preparation = WarmupRecipientConsumerPreparation { _, start ->
+                object : PreparedWarmupRecipientConsumer {
+                    override val assignment = start.assignment
+                    override val startOffset = start.offset
+                    override fun start() = Unit
+                    override suspend fun awaitReady() = Unit
+                    override suspend fun stop(): Unit = awaitCancellation()
+                    override suspend fun abort(): Boolean {
+                        aborts.incrementAndGet()
+                        return true
+                    }
+                }
+            },
+            preparationTimeout = 20.milliseconds
+        )
+        discovery.onOffer(offer(mappings))
+        val selection = assertInstanceOf(WarmupRecipientSelection.Accepted::class.java, discovery.selectDonors())
+        discovery.onDonorAccepted(accepted(selection.messages.single()))
+        assertInstanceOf(WarmupRecipientPreparationResult.Ready::class.java, discovery.prepareConsumers())
+
+        val cleanup = assertInstanceOf(
+            WarmupRecipientCleanupResult.CompleteWithDiagnostics::class.java,
+            discovery.terminate()
+        )
+
+        assertEquals(mappings.size, aborts.get())
+        assertTrue("recipient_consumer_cleanup_timeout" in cleanup.diagnostics)
+        assertTrue(cleanup.diagnostics.count { "forced_after_cleanup_timeout" in it } == mappings.size)
     }
 
     @Test

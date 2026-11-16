@@ -78,6 +78,8 @@ private class CoroutinesPreparedWarmupRecipientConsumer(
 
     override fun start() = runtime.start()
     override suspend fun awaitReady() = runtime.awaitReady()
+    override suspend fun awaitTermination() = runtime.awaitTermination()
+    override suspend fun abort(): Boolean = abortWarmupRecipientRuntime(runtime)
     override suspend fun stop() {
         try {
             runtime.stop()
@@ -91,6 +93,23 @@ private class CoroutinesPreparedWarmupRecipientConsumer(
         }
     }
 }
+
+internal suspend fun abortWarmupRecipientRuntime(runtime: CoroutinesKafkaConsumer<*, *>): Boolean {
+    if (runtime.isShutdownComplete()) return true
+    try {
+        runtime.abortRuntime(WarmupRecipientCleanupTimeoutException())
+    } catch (error: CancellationException) {
+        if (!runtime.isShutdownComplete()) throw error
+        throw WarmupRecipientConsumerStoppedWithFailureException(error)
+    } catch (error: Throwable) {
+        if (error.isFatalJvmError() || !runtime.isShutdownComplete()) throw error
+        throw WarmupRecipientConsumerStoppedWithFailureException(error)
+    }
+    return runtime.isShutdownComplete()
+}
+
+internal class WarmupRecipientCleanupTimeoutException :
+    IllegalStateException("Warm-up recipient consumer cleanup deadline expired")
 
 internal class WarmupRecipientConsumerStoppedWithFailureException(cause: Throwable) :
     IllegalStateException("Warm-up recipient consumer stopped with a terminal failure", cause)

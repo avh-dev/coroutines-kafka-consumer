@@ -41,6 +41,7 @@ internal class TrafficWarmupParticipant<K, V>(
     private val dataPlane: WarmupParticipantDataPlane<K, V>,
     private val metrics: ConsumerMetrics<K, V>,
     private val delegationTimeoutMillis: Long,
+    private val recipientShutdownTimeoutMillis: Long,
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
 ) : RegisteredTrafficWarmupParticipant {
     private val metricsObserver = WarmupMetricsObserver(metrics)
@@ -119,13 +120,16 @@ internal class TrafficWarmupParticipant<K, V>(
             warmupRecipientRuntimeMetrics(
                 metrics,
                 "warmup-${start.assignment.mapping.mappingFingerprint}"
-            )
+            ),
+            recipientShutdownTimeoutMillis.milliseconds
         )
         return object : PreparedWarmupRecipientConsumer {
             override val assignment = start.assignment
             override val startOffset = start.offset
             override fun start() = runtime.start()
             override suspend fun awaitReady() = runtime.awaitReady()
+            override suspend fun awaitTermination() = runtime.awaitTermination()
+            override suspend fun abort(): Boolean = abortWarmupRecipientRuntime(runtime)
             override suspend fun stop() {
                 try {
                     runtime.stop()

@@ -85,6 +85,7 @@
 | [CORE-80](#core-80) | Expose a public protocol-v6 warm-up context and consumer DSL that owns discovery, activation, fallback, completion, and shutdown. | DONE |
 | [CORE-81](#core-81) | Add a public container for reliable joint lifecycle management of heterogeneous consumers. | DONE |
 | [CORE-82](#core-82) | Reuse the core consumer container for joint shutdown coordination in the Spring Boot starter. | DONE |
+| [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6176,3 +6177,31 @@ the compact audit format while forwarding `processedRemotely` to prevent duplica
 The selective port adapts archived GLOBAL-4 commits `75d0d4ec`, `2259bf71`, `7b201c41`, `09ea7cf6`,
 and `7483b708` to the v6 shared-partition contract without coordinator or reservation settings. All
 110 demo tests pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-83"></a>
+### CORE-83 - Recover warm-up transport after complete data loss
+
+_Date: 2026-11-16_
+
+Exercise complete warm-up Kafka broker and data loss through the public protocol-v6 DSL, followed by
+topic recreation at the same address. Bound and terminate affected recipient and donor sessions,
+preserve main-consumer processing and ownership-safe fallback, and restore control transport service
+for new recipients without replaying or reviving old sessions. Keep ordinary client reconnection for
+brief outages and introduce bounded transport recreation only where the real-Kafka scenario proves it
+necessary.
+
+Recipient runtimes now surface terminal warm-up consumer loss to the context. Graceful cleanup has a
+bounded forced-close path, while donor inflight records retain their existing ownership-safe local
+fallback. The control transport periodically validates the topic identity and current log position,
+keeps clients across brief metadata outages, and replaces stale producer/consumer clients only after
+confirmed recreation or bounded repeated validation failure. Initial startup still seeks to the
+current tail; a replacement consumer reads the fresh control log from its beginning.
+
+Real-Kafka coverage destroys the broker and all data with two active recipient sessions and nonempty
+inflight, recreates one-partition topics at the same address, and proves cold fallback, donor
+continuity, capacity release, metrics isolation, and successful warming of a new recipient without a
+donor restart. Review fixes preserve the last locally admitted control offset when a longer outage
+recreates a consumer for the same topic identity, while confirmed topic replacement alone resets the
+cursor. Kafka-side identity timeouts, interruptible lookup, and bounded Admin shutdown keep context
+stop finite. Focused recovery checks, all 299 core unit tests, and all 47 real-Kafka integration tests
+pass. No smoke, load, chaos, or experiment run was started.
