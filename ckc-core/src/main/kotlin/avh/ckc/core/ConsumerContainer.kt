@@ -53,6 +53,7 @@ interface ConsumerContainerParticipant {
 data class ConsumerContainerParticipantStatus(
     val participantIndex: Int,
     val stopComplete: Boolean,
+    val stopInProgress: Boolean,
     val failure: Throwable?
 )
 
@@ -235,6 +236,7 @@ class ConsumerContainer internal constructor(
                 ConsumerContainerParticipantStatus(
                     participantIndex = participant.index,
                     stopComplete = participant.stopComplete,
+                    stopInProgress = participant.stopAttempt?.isActive == true,
                     failure = participant.stopFailure
                 )
             }
@@ -348,16 +350,17 @@ class ConsumerContainer internal constructor(
                 StopOutcome(participant, error, participant.lifecycle.isStopComplete()).also(::recordStopOutcome)
             }
             participant.stopAttempt = attempt
+            attempt.invokeOnCompletion {
+                synchronized(lock) {
+                    if (!participant.stopComplete && participant.stopAttempt === attempt) {
+                        participant.stopAttempt = null
+                    }
+                }
+            }
             startAttempt = true
         }
         if (startAttempt) attempt.start()
-        return attempt.await().also { outcome ->
-            if (!outcome.complete) {
-                synchronized(lock) {
-                    if (participant.stopAttempt === attempt) participant.stopAttempt = null
-                }
-            }
-        }
+        return attempt.await()
     }
 }
 

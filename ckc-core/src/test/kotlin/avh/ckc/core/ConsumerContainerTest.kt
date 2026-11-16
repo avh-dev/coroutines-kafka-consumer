@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import kotlin.test.assertEquals
@@ -236,6 +237,35 @@ class ConsumerContainerTest {
 
         withTimeout(1.seconds) { container.stop() }
         assertEquals(1, participant.stops)
+    }
+
+    @Test
+    fun `caller cancellation cannot retain an incomplete participant attempt`() = runBlocking {
+        val stopEntered = CompletableDeferred<Unit>()
+        val allowStop = CompletableDeferred<Unit>()
+        val participant = FakeParticipant(
+            stopActions = mutableListOf(
+                StopAction(IllegalStateException("incomplete"), complete = false),
+                StopAction(complete = true)
+            ),
+            stopGate = allowStop,
+            stopEntered = stopEntered
+        )
+        val container = container(participant)
+        container.start()
+
+        val cancelledCaller = async { container.stopParticipant(0) }
+        stopEntered.await()
+        cancelledCaller.cancelAndJoin()
+        allowStop.complete(Unit)
+        withTimeout(1.seconds) {
+            while (container.status().participants.single().stopInProgress) yield()
+        }
+
+        container.stopParticipant(0)
+
+        assertEquals(2, participant.stops)
+        assertTrue(container.status().participants.single().stopComplete)
     }
 
     @Test

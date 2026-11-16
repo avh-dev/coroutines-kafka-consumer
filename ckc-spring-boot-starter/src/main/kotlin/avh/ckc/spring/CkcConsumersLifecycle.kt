@@ -93,6 +93,14 @@ class CkcConsumersLifecycle internal constructor(
         synchronized(this) {
             shutdownRequested = true
         }
+        if (consumerRuntimes.isEmpty()) {
+            synchronized(this) {
+                running = false
+                lifecycleStarted = false
+            }
+            closeDispatchersIfReleased()
+            return
+        }
         val result = try {
             stopContainer(jointContainer, properties.lifecycle.shutdownTimeout, participantIndex = null)
         } finally {
