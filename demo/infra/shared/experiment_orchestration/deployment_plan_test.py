@@ -242,7 +242,7 @@ class DeploymentPlanTest(unittest.TestCase):
             )
             self.assertEqual(3, plan["application"]["configuration"]["replicas"])
             self.assertEqual(
-                "950m",
+                "775m",
                 plan["application"]["configuration"]["resources"]["requests"]["cpu"],
             )
             self.assertEqual(3, plan["application"]["configuration"]["hpa"]["min_replicas"])

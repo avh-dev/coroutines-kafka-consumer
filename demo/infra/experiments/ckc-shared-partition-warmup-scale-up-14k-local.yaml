@@ -82,7 +82,7 @@ targets:
     placement: worker
     replicas: 3
     resources:
-      requests: {cpu: 950m, memory: 512Mi}
+      requests: {cpu: 775m, memory: 512Mi}
       limits: {memory: 1280Mi}
     java_options: >-
       -Xms768m -Xmx768m -Xss256k -XX:+UseSerialGC

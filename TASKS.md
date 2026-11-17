@@ -6342,12 +6342,14 @@ settings. The materialization regression verifies all four resolved quota profil
 The first short run showed that the one-minute initial ramp left the three donors with startup/JIT
 tail, while an `800m` request made the fourth-pod threshold only 2.04 effective CPU and scaled during
 the 12k plateau. The tuned definition uses a three-minute ramp to 12k, five minutes of stabilization,
-a ten-minute ramp to 14k, a two-minute maximum plateau, and one-minute cooldown. A `950m` application
-request moves the three-pod scale-up threshold to 2.4225 non-JIT CPU: above the stabilized 12k signal
-observed in the run, but reachable during the final ramp. The expected scale-up window is roughly
-three minutes before the 14k plateau after the scaler's one-minute observation window. Packet capture
-now brackets that window from minute 13 through minute 18. The experiment file and identifier use
-`14k` so installed and collected evidence cannot be confused with the earlier 16k definition.
+a ten-minute ramp to 14k, a two-minute maximum plateau, and one-minute cooldown. The first two runs
+of that profile measured a stable 1.96–2.02 non-JIT CPU at 12k and 2.32–2.34 at 14k. The initial
+`950m` request could not scale because its effective three-pod threshold, including 10% scale-up
+tolerance, was 2.664 CPU. A `775m` request lowers it to 2.174 CPU: the measured series crossed it
+3.5–4.25 minutes before the 14k plateau while retaining about 8% headroom over the stabilized 12k
+signal. Packet capture brackets the expected scale-up and warm-up from minute 13 through minute 18.
+The experiment file and identifier use `14k` so installed and collected evidence cannot be confused
+with the earlier 16k definition.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
