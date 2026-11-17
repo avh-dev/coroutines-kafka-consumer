@@ -196,15 +196,15 @@ class DiagnosticStepsTest(unittest.TestCase):
         self.assertEqual("auto", result["configured_interface"])
         self.assertEqual("eth0", result["command"][result["command"].index("-i") + 1])
 
-    def test_host_tcpdump_uses_interruptible_duration_with_shutdown_grace(self) -> None:
-        command = diagnostic_runner.tcpdump_command("any", 0, 10, "/captures/test.pcap", "tcp port 9092")
+    def test_host_tcpdump_uses_one_rotation_with_a_later_idle_watchdog(self) -> None:
+        command = diagnostic_runner.tcpdump_command("any", 0, 10, "/captures/test-%s.pcap", "tcp port 9092")
         self.assertIn("--foreground", command)
-        self.assertNotIn("-G", command)
-        self.assertNotIn("-W", command)
+        self.assertEqual("10", command[command.index("-G") + 1])
+        self.assertEqual("1", command[command.index("-W") + 1])
         self.assertEqual("30s", command[command.index("--kill-after") + 1])
-        self.assertEqual("10s", command[command.index("--kill-after") + 2])
+        self.assertEqual("70s", command[command.index("--kill-after") + 2])
         self.assertNotIn("-Z", command)
-        self.assertEqual("/captures/test.pcap", command[command.index("-w") + 1])
+        self.assertEqual("/captures/test-%s.pcap", command[command.index("-w") + 1])
 
     def test_tcpdump_timeout_allows_capture_to_close_after_interrupt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -224,7 +224,8 @@ class DiagnosticStepsTest(unittest.TestCase):
             )
             executable.chmod(0o755)
             capture = root / "capture.pcap"
-            command = diagnostic_runner.tcpdump_command("any", 0, 1, str(capture), "tcp port 9092")
+            with patch.object(diagnostic_runner, "TCPDUMP_ROTATION_WATCHDOG_GRACE_SECONDS", 0):
+                command = diagnostic_runner.tcpdump_command("any", 0, 1, str(capture), "tcp port 9092")
             environment = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}"}
 
             result = subprocess.run(command, check=False, env=environment, capture_output=True, text=True)

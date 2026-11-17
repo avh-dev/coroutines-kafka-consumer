@@ -6325,7 +6325,10 @@ flush, and uses one deterministic capture path. Fifteen diagnostic tests include
 regression proving that an interrupt-aware capture closes successfully at its deadline. A second
 run reproduced status 137 and isolated it to GNU timeout signalling its managed process group inside
 the demo image. Foreground timeout mode now signals tcpdump alone; the exact image command completes
-with status zero, a closed PCAP, and tcpdump's terminal packet statistics.
+with status zero, a closed PCAP, and tcpdump's terminal packet statistics. The final capture lifecycle
+uses tcpdump's own `-G`/`-W 1` timed rotation as the normal completion path. A foreground timeout at
+duration plus sixty seconds remains only as a bounded watchdog for an idle filter, because tcpdump
+checks its rotation deadline when a matching packet arrives.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
