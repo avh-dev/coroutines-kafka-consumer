@@ -291,6 +291,7 @@ object DemoConsumers {
                 quota.initialQuotaPerInterval?.let { initialQuotaPerInterval = it }
                 quotaInterval = quota.quotaIntervalMs.milliseconds
                 quotaRampDuration = quota.quotaRampSeconds.seconds
+                quotaRampCurve = quota.quotaRampCurve
             }
             warmupConsumerProperties = warmup.consumerProperties
             forwardingProducerProperties = warmup.producerProperties + mapOf(

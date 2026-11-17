@@ -1,6 +1,7 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.ProcessingMode
+import avh.ckc.core.warmup.QuotaRampCurve
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import org.springframework.boot.context.properties.bind.Binder
@@ -55,6 +56,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(10, properties.trafficWarmup.mappings.orderEvents.quotaPerInterval)
         assertEquals(null, properties.trafficWarmup.mappings.batchEvents.initialQuotaPerInterval)
         assertEquals(1_000, properties.trafficWarmup.mappings.cauldronEvents.quotaIntervalMs)
+        assertEquals(QuotaRampCurve.QUADRATIC, properties.trafficWarmup.mappings.orderEvents.quotaRampCurve)
         assertEquals(90, properties.trafficWarmup.durationSeconds)
         assertEquals(4, properties.trafficWarmup.maxDonorSessions)
         assertEquals(5, properties.trafficWarmup.producerLingerMs)
@@ -119,14 +121,17 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.mappings.order-events.initial-quota-per-interval" to "2",
                 "demo.traffic-warmup.mappings.order-events.quota-interval-ms" to "2000",
                 "demo.traffic-warmup.mappings.order-events.quota-ramp-seconds" to "45",
+                "demo.traffic-warmup.mappings.order-events.quota-ramp-curve" to "linear",
                 "demo.traffic-warmup.mappings.batch-events.quota-per-interval" to "23",
                 "demo.traffic-warmup.mappings.batch-events.initial-quota-per-interval" to "3",
                 "demo.traffic-warmup.mappings.batch-events.quota-interval-ms" to "3000",
                 "demo.traffic-warmup.mappings.batch-events.quota-ramp-seconds" to "46",
+                "demo.traffic-warmup.mappings.batch-events.quota-ramp-curve" to "quadratic",
                 "demo.traffic-warmup.mappings.cauldron-events.quota-per-interval" to "34",
                 "demo.traffic-warmup.mappings.cauldron-events.initial-quota-per-interval" to "4",
                 "demo.traffic-warmup.mappings.cauldron-events.quota-interval-ms" to "4000",
                 "demo.traffic-warmup.mappings.cauldron-events.quota-ramp-seconds" to "47",
+                "demo.traffic-warmup.mappings.cauldron-events.quota-ramp-curve" to "linear",
                 "demo.traffic-warmup.duration-seconds" to "80",
                 "demo.traffic-warmup.offer-window-ms" to "1500",
                 "demo.traffic-warmup.participant-start-timeout-seconds" to "11",
@@ -197,18 +202,21 @@ class DemoApplicationPropertiesTest {
             assertEquals(2, initialQuotaPerInterval)
             assertEquals(2_000, quotaIntervalMs)
             assertEquals(45, quotaRampSeconds)
+            assertEquals(QuotaRampCurve.LINEAR, quotaRampCurve)
         }
         with(properties.trafficWarmup.mappings.batchEvents) {
             assertEquals(23, quotaPerInterval)
             assertEquals(3, initialQuotaPerInterval)
             assertEquals(3_000, quotaIntervalMs)
             assertEquals(46, quotaRampSeconds)
+            assertEquals(QuotaRampCurve.QUADRATIC, quotaRampCurve)
         }
         with(properties.trafficWarmup.mappings.cauldronEvents) {
             assertEquals(34, quotaPerInterval)
             assertEquals(4, initialQuotaPerInterval)
             assertEquals(4_000, quotaIntervalMs)
             assertEquals(47, quotaRampSeconds)
+            assertEquals(QuotaRampCurve.LINEAR, quotaRampCurve)
         }
         assertEquals(80, properties.trafficWarmup.durationSeconds)
         assertEquals(1_500, properties.trafficWarmup.offerWindowMs)

@@ -202,16 +202,19 @@ demo:
         initial-quota-per-interval: ${TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL:}
         quota-interval-ms: ${TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS:1000}
         quota-ramp-seconds: ${TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS:0}
+        quota-ramp-curve: ${TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_CURVE:QUADRATIC}
       batch-events:
         quota-per-interval: ${TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL:10}
         initial-quota-per-interval: ${TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL:}
         quota-interval-ms: ${TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS:1000}
         quota-ramp-seconds: ${TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS:0}
+        quota-ramp-curve: ${TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_CURVE:QUADRATIC}
       cauldron-events:
         quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL:10}
         initial-quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL:}
         quota-interval-ms: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS:1000}
         quota-ramp-seconds: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS:0}
+        quota-ramp-curve: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_CURVE:QUADRATIC}
     duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:90}
     offer-window-ms: ${TRAFFIC_WARMUP_OFFER_WINDOW_MS:2000}
     participant-start-timeout-seconds: ${TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS:15}
