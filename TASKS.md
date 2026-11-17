@@ -195,6 +195,7 @@
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
+| [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota ramp curve configurable. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6418,3 +6419,16 @@ The focused experiment contains exactly two targets: the CORE-86 default quadrat
 capture. A materialization regression verifies both rendered deployments and also updates the stale
 INFRA-324 single-target expectations. Canonical validation, the two focused materialization tests,
 and all 84 shared experiment-orchestration tests pass. No experiment run was started.
+
+<a id="demo-107"></a>
+### DEMO-107 - Configure warm-up quota ramp curves
+
+_Date: 2026-11-17_
+
+Expose the CORE quota-ramp curve on every demo warm-up mapping while retaining `QUADRATIC` as the
+default. Pass the immutable configured value into the public warm-up DSL so experiments can compare
+linear and quadratic ramps without changing application code.
+
+Add one environment setting per mapping, bind case-insensitive Spring values to `QuotaRampCurve`,
+and verify explicit linear and quadratic values together with the quadratic default. The focused
+demo configuration test passes.
