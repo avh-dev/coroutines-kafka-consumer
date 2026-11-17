@@ -1,8 +1,8 @@
 schema_version: 2
-name: ckc-quadratic-warmup-vs-cold-scale-up-14k-local
+name: ckc-warmup-curves-300-vs-cold-scale-up-14k-local
 description: >-
-  Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold
-  fourth-pod start after three CKC pods stabilize during a gradual 12k-to-14k scale-up.
+  Compare three-minute quadratic and linear shared-partition warm-up ramps to 300 records per
+  second per mapping with an otherwise identical cold fourth-pod start.
 workload:
   stubs:
     error_rate_percent: 0
@@ -71,8 +71,8 @@ workload:
       filter: tcp port 9092
       max_file_size: 128Mi
 targets:
-- name: ckc.quadratic-warmup-1-to-150-180s
-  annotation_label: CKC · quadratic warm-up 1→150/s over 180s · 3→4 pod · local 14k
+- name: ckc.quadratic-warmup-1-to-300-180s
+  annotation_label: CKC · quadratic warm-up 1→300/s over 180s · 3→4 pod · local 14k
   implementation: ckc
   placement: &worker_placement
     application: worker
@@ -123,18 +123,21 @@ targets:
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
       TRAFFIC_WARMUP_ENABLED: true
       TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
-      TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 150
+      TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 300
       TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 1
       TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
       TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS: 180
-      TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 150
+      TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_CURVE: QUADRATIC
+      TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 300
       TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 1
       TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
       TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS: 180
-      TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 150
+      TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_CURVE: QUADRATIC
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 300
       TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 1
       TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
       TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS: 180
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_CURVE: QUADRATIC
       TRAFFIC_WARMUP_DURATION_SECONDS: 180
       TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 30
@@ -147,6 +150,18 @@ targets:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+- name: ckc.linear-warmup-1-to-300-180s
+  annotation_label: CKC · linear warm-up 1→300/s over 180s · 3→4 pod · local 14k
+  implementation: ckc
+  placement: *worker_placement
+  application: *four_pod_application
+  runtime:
+    <<: *common_runtime
+    env:
+      <<: *warm_env
+      TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_CURVE: LINEAR
+      TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_CURVE: LINEAR
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_CURVE: LINEAR
 - name: ckc.cold
   annotation_label: CKC · cold start · 3→4 pod · local 14k
   implementation: ckc
