@@ -515,6 +515,7 @@
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
 | [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
+| [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6397,3 +6398,23 @@ tests, nine focused internal-lab tests, experiment validation, and the real Dock
 The lifecycle covers retained records, an empty replacement volume, incompatible metadata, finished
 bootstrap, independent listeners, and container termination after broker exit. No experiment run was
 started by this task.
+
+<a id="infra-326"></a>
+### INFRA-326 - Compare quadratic warm-up with cold scale-up
+
+_Date: 2026-11-17_
+
+Add a focused two-target internal-lab experiment using the tuned 14k three-to-four-pod scale-up.
+Compare the CORE-86 default quadratic ramp from 1 to 150 records per second for each mapping over
+three minutes with an otherwise identical target where traffic warm-up is disabled. Retain the same
+load profile, four-minute upper plateau, HPA, resources, processing profile, Kafka topology, JIT
+logging, packet capture, audit, metrics, and evidence so the warm and cold transitions are directly
+comparable. Validate and install the experiment without starting it automatically.
+
+The focused experiment contains exactly two targets: the CORE-86 default quadratic ramp from 1 to
+150 records per second on each of three mappings over 180 seconds, and a cold target with
+`TRAFFIC_WARMUP_ENABLED=false`. Both retain the tuned 14k load, three-to-four-pod HPA transition,
+`775m` application request, four-minute upper plateau, JIT logging, and five-minute port-9092 packet
+capture. A materialization regression verifies both rendered deployments and also updates the stale
+INFRA-324 single-target expectations. Canonical validation, the two focused materialization tests,
+and all 84 shared experiment-orchestration tests pass. No experiment run was started.
