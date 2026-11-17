@@ -1,8 +1,8 @@
 schema_version: 2
 name: ckc-shared-partition-warmup-scale-up-16k-local
 description: >-
-  Exercise the shared-partition protocol-v6 real-traffic warm-up using the proven
-  GLOBAL-3 tuned-Serial 16k ramp and unordered processing.
+  Compare shared-partition protocol-v6 warm-up quota profiles while a fourth unordered
+  CKC pod joins three loaded donors during the proven GLOBAL-4 short 12k-to-16k scenario.
 workload:
   stubs:
     error_rate_percent: 0
@@ -22,8 +22,9 @@ workload:
     base_tps: 16000
     producer_capacity_tps: {order: 16000, batch: 16000, telemetry: 16000}
     load_profile: >-
-      0 -> (40m, linear-ramp-up) -> 100 -> (5m, steady) -> 100 ->
-      (2m, cool-down) -> 0
+      0 -> (1m, ramp-to-12k) -> 75 -> (3m, hold-12k) -> 75 ->
+      (1s, step-to-16k) -> 100 -> (8m, hold-16k) -> 100 ->
+      (1m, cool-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
     max_orders_per_batch: 6
@@ -45,55 +46,52 @@ workload:
     memory_request: 768Mi
     memory_limit: 1280Mi
     java_options: -Xms256m -Xmx768m -XX:+UseSerialGC
-    consumer_drain_timeout_seconds: 300
+    consumer_drain_timeout_seconds: 120
     consumer_drain_required: false
-    telemetry_settle_seconds: 300
+    telemetry_settle_seconds: 60
     maximum_first_sample_delay_seconds: 90
   measurement_windows:
-  - {name: ramp-0-10m, start: 0m, duration: 10m}
-  - {name: ramp-10-20m, start: 10m, duration: 10m}
-  - {name: ramp-20-30m, start: 20m, duration: 10m}
-  - {name: ramp-30-40m, start: 30m, duration: 10m}
-  - {name: steady-16k, start: 40m, duration: 5m}
+  - {name: initial-three-pods, start: 0m, duration: 4m}
+  - {name: fourth-pod-scale-up, start: 4m, duration: 5m}
+  - {name: post-scale-up, start: 9m, duration: 3m}
   topics:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+  diagnostics:
+  - at: 3m
+    type: tcpdump
+    name: fourth-pod-warmup-kafka
+    targets: [application]
+    duration: 5m
+    required: true
+    params:
+      interface: auto
+      snaplen: 0
+      filter: tcp port 9092
+      max_file_size: 128Mi
 targets:
-- name: ckc.shared-partition-warmup-serial-tuned-16k
-  annotation_label: CKC · shared-partition real-traffic warm-up · tuned Serial · local 16k
+- name: ckc.shared-partition-warmup-1-to-50-120s
+  annotation_label: CKC · warm-up 1→50/s over 120s · 3→4 pod · local 16k
   implementation: ckc
-  workload:
-    diagnostics:
-    - at: 11m
-      type: tcpdump
-      name: first-warmup-kafka
-      targets: [application]
-      duration: 5m
-      required: true
-      params:
-        interface: auto
-        snaplen: 0
-        filter: tcp port 9092
-        max_file_size: 128Mi
-  placement:
+  placement: &worker_placement
     application: worker
     stubs: worker
     generator: controller
-  application:
+  application: &four_pod_application
     placement: worker
-    replicas: 1
+    replicas: 3
     resources:
       requests: {cpu: 800m, memory: 512Mi}
       limits: {memory: 1280Mi}
     java_options: >-
       -Xms768m -Xmx768m -Xss256k -XX:+UseSerialGC
       -XX:TargetSurvivorRatio=90 -XX:MaxTenuringThreshold=15
-      -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info:stdout:time,uptime,level,tags
+      -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info,jit+compilation=debug:stdout:time,uptime,level,tags
     hpa:
       enabled: true
-      min_replicas: 1
-      max_replicas: 12
+      min_replicas: 3
+      max_replicas: 4
       hot_pod_cpu:
         enabled: true
         source: thread_stats_excluding_jit
@@ -107,8 +105,8 @@ targets:
         polling_interval_seconds: 15
         scale_up: {max_pods: 1, period_seconds: 180, tolerance: 0.1}
         scale_down: {max_pods: 1, period_seconds: 60, stabilization_window_seconds: 600}
-  runtime:
-    env:
+  runtime: &warm_runtime
+    env: &warm_1_to_50_env
       DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
@@ -149,6 +147,43 @@ targets:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+- name: ckc.shared-partition-warmup-flat-50-120s
+  annotation_label: CKC · warm-up flat 50/s for 120s · 3→4 pod · local 16k
+  implementation: ckc
+  placement: *worker_placement
+  application: *four_pod_application
+  runtime:
+    <<: *warm_runtime
+    env:
+      <<: *warm_1_to_50_env
+      TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 50
+      TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 50
+      TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 50
+- name: ckc.shared-partition-warmup-10-to-100-120s
+  annotation_label: CKC · warm-up 10→100/s over 120s · 3→4 pod · local 16k
+  implementation: ckc
+  placement: *worker_placement
+  application: *four_pod_application
+  runtime:
+    <<: *warm_runtime
+    env:
+      <<: *warm_1_to_50_env
+      TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 100
+      TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 10
+      TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 100
+      TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 10
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 100
+      TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 10
+- name: ckc.shared-partition-warmup-1-to-50-180s
+  annotation_label: CKC · warm-up 1→50/s over 120s for 180s · 3→4 pod · local 16k
+  implementation: ckc
+  placement: *worker_placement
+  application: *four_pod_application
+  runtime:
+    <<: *warm_runtime
+    env:
+      <<: *warm_1_to_50_env
+      TRAFFIC_WARMUP_DURATION_SECONDS: 180
 environments:
   internal-lab:
     lab:

@@ -6330,6 +6330,15 @@ uses tcpdump's own `-G`/`-W 1` timed rotation as the normal completion path. A f
 duration plus sixty seconds remains only as a bounded watchdog for an idle filter, because tcpdump
 checks its rotation deadline when a matching packet arrives.
 
+Run `20261117T113344Z` then completed the full long target, including audit analysis, evidence
+collection, and one successful 11.3 MiB packet capture. For faster quota tuning, the experiment now
+uses the short GLOBAL-4 fourth-pod diagnostic from commit `fa8fa0a1`: three pods ramp to and hold
+12k, a one-second step to 16k triggers the fourth pod, and the run holds 16k for eight minutes.
+Four comparable targets exercise per-mapping profiles `1→50/120s`, flat `50/120s`, `10→100/120s`,
+and `1→50/180s`. Every target logs JDK 21 `jit+compilation=debug`, captures warm-up Kafka traffic
+from minute three through minute eight, and retains identical workload, HPA, processing, and Kafka
+settings. The materialization regression verifies all four resolved quota profiles and JIT flags.
+
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
 
