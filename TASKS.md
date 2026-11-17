@@ -86,6 +86,7 @@
 | [CORE-81](#core-81) | Add a public container for reliable joint lifecycle management of heterogeneous consumers. | DONE |
 | [CORE-82](#core-82) | Reuse the core consumer container for joint shutdown coordination in the Spring Boot starter. | DONE |
 | [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
+| [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6206,6 +6207,27 @@ recreates a consumer for the same topic identity, while confirmed topic replacem
 cursor. Kafka-side identity timeouts, interruptible lookup, and bounded Admin shutdown keep context
 stop finite. Focused recovery checks, all 299 core unit tests, and all 47 real-Kafka integration tests
 pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-84"></a>
+### CORE-84 - Bound control-consumer assignment waits
+
+_Date: 2026-11-17_
+
+Separate control-consumer assignment waiting from active transport validation. Continue polling
+during initial group join and after revoke under an explicit assignment deadline; enable topic
+identity and position recovery checks only after assignment and cursor positioning complete.
+Preserve the cursor when recovering the same topic and retain the CORE-83 fresh-log behavior for a
+confirmed topic replacement. Cover delayed initial and replacement assignments, bounded retry, and
+shutdown while waiting without premature consumer recreation or repeated join/leave cycles.
+
+The transport now enters an explicit assignment-wait state before initial join and after every
+revoke. Recovery identity and position checks start only after the assigned partition has been
+positioned. A 15-second assignment deadline produces a diagnosed, backoff-delayed replacement while
+same-topic replacements retain their local cursor and confirmed topic recreation retains fresh-log
+semantics. Deterministic tests cover initial assignment, revoke/reassignment, delayed replacement,
+deadline retry, and shutdown. A real Kafka broker with a three-second initial rebalance delay proves
+that readiness completes with exactly one consumer creation. All 304 core unit tests and all 48
+real-Kafka integration tests pass; no experiment run was started by this task.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image

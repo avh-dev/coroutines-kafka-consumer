@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.time.Duration as JavaDuration
@@ -171,6 +172,178 @@ class WarmupControlTransportTest {
             }
             assertEquals(1, consumerCreations.get())
             assertEquals(1, producerCreations.get())
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `delayed initial assignment does not recreate the consumer before its deadline`() = runBlocking {
+        val clock = AtomicLong()
+        val consumer = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 100.milliseconds.inWholeNanoseconds
+        )
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = {
+                consumerCreations.incrementAndGet()
+                consumer
+            },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 200.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            withTimeout(1.seconds) { transport.awaitReady() }
+
+            assertEquals(1, consumerCreations.get())
+            verify(consumer, times(1)).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `revoke waits for replacement assignment without running active recovery checks`() = runBlocking {
+        val clock = AtomicLong()
+        val partition = TopicPartition("control", 0)
+        val consumer = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 1.milliseconds.inWholeNanoseconds,
+            revokeAtNanos = 20.milliseconds.inWholeNanoseconds,
+            replacementAssignmentAtNanos = 100.milliseconds.inWholeNanoseconds
+        )
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = {
+                consumerCreations.incrementAndGet()
+                consumer
+            },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 200.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (clock.get() < 110.milliseconds.inWholeNanoseconds) kotlinx.coroutines.yield()
+            }
+
+            assertEquals(1, consumerCreations.get())
+            verify(consumer, times(2)).seek(partition, 12)
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `replacement consumer may wait for assignment without another recreation`() = runBlocking {
+        val clock = AtomicLong()
+        val first = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 1.milliseconds.inWholeNanoseconds
+        )
+        val second = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 100.milliseconds.inWholeNanoseconds
+        )
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val identityReads = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = { mock() },
+            topicIdentity = object : WarmupControlTopicIdentity {
+                override fun read(topic: String, timeout: kotlin.time.Duration): String? =
+                    when (identityReads.incrementAndGet()) {
+                        1 -> "control-topic-id"
+                        2, 3 -> null
+                        else -> "control-topic-id"
+                    }
+            },
+            recoveryFailureThreshold = 2,
+            assignmentTimeout = 200.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (clock.get() < 110.milliseconds.inWholeNanoseconds) kotlinx.coroutines.yield()
+            }
+
+            assertEquals(2, consumerCreations.get())
+            verify(second).seek(TopicPartition("control", 0), 12)
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `shutdown completes while the control consumer awaits assignment`() = runBlocking {
+        val clock = AtomicLong()
+        val consumer = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = Long.MAX_VALUE,
+            pollAdvanceNanos = 0
+        )
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = {
+                consumerCreations.incrementAndGet()
+                consumer
+            },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 5.seconds,
+            nanoTime = clock::get
+        ) { }
+
+        transport.start()
+        withTimeout(1.seconds) {
+            while (consumerCreations.get() == 0) kotlinx.coroutines.yield()
+        }
+        withTimeout(1.seconds) { transport.stop() }
+
+        assertEquals(1, consumerCreations.get())
+    }
+
+    @Test
+    fun `assignment deadline performs one delayed replacement attempt`() = runBlocking {
+        val clock = AtomicLong()
+        val first = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = Long.MAX_VALUE,
+            pollAdvanceNanos = 10.milliseconds.inWholeNanoseconds
+        )
+        val second = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 60.milliseconds.inWholeNanoseconds,
+            pollAdvanceNanos = 10.milliseconds.inWholeNanoseconds
+        )
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 50.milliseconds,
+            recoveryRetryBackoff = 1.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            withTimeout(1.seconds) { transport.awaitReady() }
+            assertEquals(2, consumerCreations.get())
         } finally {
             transport.stop()
         }
@@ -354,6 +527,8 @@ class WarmupControlTransportTest {
         topicIdentity: WarmupControlTopicIdentity,
         recoveryFailureThreshold: Int = 3,
         recoveryRetryBackoff: kotlin.time.Duration = 1.milliseconds,
+        assignmentTimeout: kotlin.time.Duration = 15.seconds,
+        nanoTime: () -> Long = System::nanoTime,
         handler: WarmupControlMessageHandler
     ) = WarmupControlTransport(
         configuration = WarmupControlTransportConfiguration(
@@ -363,6 +538,7 @@ class WarmupControlTransportTest {
             producerProperties = mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
             consumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092"),
             pollTimeout = 1.milliseconds,
+            assignmentTimeout = assignmentTimeout,
             recoveryCheckInterval = 5.milliseconds,
             recoveryRetryBackoff = recoveryRetryBackoff,
             recoveryFailureThreshold = recoveryFailureThreshold
@@ -371,8 +547,72 @@ class WarmupControlTransportTest {
         parentContext = Dispatchers.Default,
         producerFactory = { producerFactory() },
         consumerFactory = { consumerFactory() },
-        topicIdentity = topicIdentity
+        topicIdentity = topicIdentity,
+        nanoTime = nanoTime
     )
+
+    private fun fixedTopicIdentity() = object : WarmupControlTopicIdentity {
+        override fun read(topic: String, timeout: kotlin.time.Duration): String = "control-topic-id"
+    }
+
+    private fun assignmentLifecycleConsumer(
+        clock: AtomicLong,
+        initialAssignmentAtNanos: Long,
+        revokeAtNanos: Long? = null,
+        replacementAssignmentAtNanos: Long? = null,
+        pollAdvanceNanos: Long = 1.milliseconds.inWholeNanoseconds
+    ): Consumer<String, ByteArray> {
+        val consumer = mock<Consumer<String, ByteArray>>()
+        val listener = AtomicReference<ConsumerRebalanceListener>()
+        val assignmentActive = AtomicBoolean(false)
+        val phase = AtomicInteger()
+        val position = AtomicLong(12)
+        val partition = TopicPartition("control", 0)
+        whenever(consumer.partitionsFor(any(), any<JavaDuration>())).thenReturn(
+            listOf(PartitionInfo("control", 0, null, emptyArray(), emptyArray()))
+        )
+        doAnswer {
+            listener.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).subscribe(any<Collection<String>>(), any<ConsumerRebalanceListener>())
+        whenever(consumer.endOffsets(listOf(partition))).thenReturn(mapOf(partition to 12L))
+        doAnswer {
+            position.set(it.getArgument(1))
+            Unit
+        }.whenever(consumer).seek(org.mockito.kotlin.eq(partition), any<Long>())
+        whenever(consumer.position(partition)).thenAnswer { position.get() }
+        whenever(consumer.assignment()).thenAnswer {
+            if (assignmentActive.get()) setOf(partition) else emptySet<TopicPartition>()
+        }
+        whenever(consumer.position(org.mockito.kotlin.eq(partition), any<JavaDuration>()))
+            .thenAnswer { position.get() }
+        whenever(consumer.endOffsets(org.mockito.kotlin.eq(setOf(partition)), any<JavaDuration>()))
+            .thenReturn(mapOf(partition to 12L))
+        doAnswer {
+            val now = clock.addAndGet(pollAdvanceNanos)
+            when {
+                phase.get() == 0 && now >= initialAssignmentAtNanos -> {
+                    assignmentActive.set(true)
+                    listener.get().onPartitionsAssigned(listOf(partition))
+                    phase.set(1)
+                }
+                phase.get() == 1 && revokeAtNanos != null && now >= revokeAtNanos -> {
+                    assignmentActive.set(false)
+                    listener.get().onPartitionsRevoked(listOf(partition))
+                    phase.set(2)
+                }
+                phase.get() == 2 && replacementAssignmentAtNanos != null &&
+                    now >= replacementAssignmentAtNanos -> {
+                    assignmentActive.set(true)
+                    listener.get().onPartitionsAssigned(listOf(partition))
+                    phase.set(3)
+                }
+            }
+            if (pollAdvanceNanos == 0L) Thread.sleep(1)
+            ConsumerRecords.empty<String, ByteArray>()
+        }.whenever(consumer).poll(any<JavaDuration>())
+        return consumer
+    }
 
     private fun tailConsumer(
         messages: List<WarmupControlMessage>,
