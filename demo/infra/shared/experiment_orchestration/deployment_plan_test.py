@@ -211,8 +211,11 @@ class DeploymentPlanTest(unittest.TestCase):
             [target.target.name for target in targets],
         )
         application_environments = []
+        diagnostic_steps = []
         for target in targets:
             plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+            definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+            diagnostic_steps.append(definition.get("diagnostic_steps", []))
             manifests = render_project_manifests(plan, DeploymentBindings(
                 run_id=target.target.id,
                 application_image="registry/demo@sha256:application",
@@ -251,7 +254,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("true", warm["TRAFFIC_WARMUP_ENABLED"])
         self.assertEqual("false", cold["TRAFFIC_WARMUP_ENABLED"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
-            self.assertEqual("100", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
+            self.assertEqual("50", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
             self.assertEqual("1", warm[f"TRAFFIC_WARMUP_{topic}_INITIAL_QUOTA_PER_INTERVAL"])
             self.assertEqual("120", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_SECONDS"])
         self.assertEqual("120", warm["TRAFFIC_WARMUP_DURATION_SECONDS"])
@@ -259,6 +262,24 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual(
             "ckc-warmup-kafka:9092",
             warm["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"],
+        )
+        self.assertEqual([], diagnostic_steps[1])
+        self.assertEqual(
+            {
+                "at": "11m",
+                "type": "tcpdump",
+                "name": "first-warmup-kafka",
+                "targets": ["application"],
+                "duration": "5m",
+                "required": True,
+                "params": {
+                    "interface": "auto",
+                    "snaplen": 0,
+                    "filter": "tcp port 9092",
+                    "max_file_size": "128Mi",
+                },
+            },
+            diagnostic_steps[0][0],
         )
 
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:

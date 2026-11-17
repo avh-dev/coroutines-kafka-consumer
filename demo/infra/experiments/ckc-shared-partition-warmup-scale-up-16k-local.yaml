@@ -64,6 +64,19 @@ targets:
 - name: ckc.shared-partition-warmup-serial-tuned-16k
   annotation_label: CKC · shared-partition real-traffic warm-up · tuned Serial · local 16k
   implementation: ckc
+  workload:
+    diagnostics:
+    - at: 11m
+      type: tcpdump
+      name: first-warmup-kafka
+      targets: [application]
+      duration: 5m
+      required: true
+      params:
+        interface: auto
+        snaplen: 0
+        filter: tcp port 9092
+        max_file_size: 128Mi
   placement: &worker_placement
     application: worker
     stubs: worker
@@ -114,15 +127,15 @@ targets:
         TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
         TRAFFIC_WARMUP_ENABLED: false
         TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
-        TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 100
+        TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 50
         TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 1
         TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
         TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS: 120
-        TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 100
+        TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 50
         TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 1
         TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
         TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS: 120
-        TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 100
+        TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 50
         TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 1
         TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
         TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS: 120

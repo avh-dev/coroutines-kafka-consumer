@@ -6291,7 +6291,7 @@ qualification definition is prepared but no smoke, load, chaos, or experiment ru
 _Date: 2026-11-16_
 
 Port the GLOBAL-4 local 16k warm-up versus cold scale-up experiment without changing its workload,
-resource, processing-profile, HPA, steady quota, or one-pod-at-a-time scaling settings. Replace the
+resource, processing-profile, HPA, or one-pod-at-a-time scaling settings. Replace the
 archived protocol-v1 configuration and transport provisioning with the GLOBAL-5 public DSL wiring,
 protocol-v6 topics, and the autonomous INFRA-323 warm-up Kafka. Preserve audit, metrics, evidence,
 and report collection, validate the materialized experiment, and install it into the internal lab.
@@ -6306,6 +6306,15 @@ control/destination connections, and the INFRA-323 autonomous transport. An expl
 disable keeps the cold baseline cold even though the experiment provisions the optional transport.
 The first operator run exposed the incompatible zero value and was cancelled during application
 startup; no load target ran. The corrected experiment is validated and installed for a fresh run.
+
+The follow-up diagnostic run caps every mapping at 50 forwarded records per second while preserving
+the initial quota, interval, and two-minute ramp. Only the warm-up target captures application-pod
+traffic from minute 11 through minute 16 with `tcp port 9092`, bracketing the first recipient warm-up
+observed near minute 12 in prior runs. Main Kafka uses TLS port 19092, so it is excluded from this
+capture. The warm-up broker remains a separate pod placed with the application workload on the
+application node; the cold baseline receives neither packet-capture capability nor a diagnostic step.
+The focused materialization regression and all 70 contract, definition, deployment-plan,
+materialization, and planner tests pass. No experiment was started.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
