@@ -6307,12 +6307,13 @@ disable keeps the cold baseline cold even though the experiment provisions the o
 The first operator run exposed the incompatible zero value and was cancelled during application
 startup; no load target ran. The corrected experiment is validated and installed for a fresh run.
 
-The follow-up diagnostic run caps every mapping at 50 forwarded records per second while preserving
-the initial quota, interval, and two-minute ramp. Only the warm-up target captures application-pod
+The follow-up diagnostic run temporarily omits the cold baseline and caps every mapping at 50
+forwarded records per second while preserving the initial quota, interval, and two-minute ramp.
+The warm-up target captures application-pod
 traffic from minute 11 through minute 16 with `tcp port 9092`, bracketing the first recipient warm-up
 observed near minute 12 in prior runs. Main Kafka uses TLS port 19092, so it is excluded from this
 capture. The warm-up broker remains a separate pod placed with the application workload on the
-application node; the cold baseline receives neither packet-capture capability nor a diagnostic step.
+application node. The earlier definition and branch history retain the cold target for later comparison.
 The focused materialization regression and all 70 contract, definition, deployment-plan,
 materialization, and planner tests pass. No experiment was started.
 

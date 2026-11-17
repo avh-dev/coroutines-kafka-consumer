@@ -1,9 +1,8 @@
 schema_version: 2
 name: ckc-shared-partition-warmup-scale-up-16k-local
 description: >-
-  Compare ordinary CKC cold scale-up with the shared-partition protocol-v6 real-traffic
-  warm-up using the proven GLOBAL-3 tuned-Serial 16k ramp. Both targets use unordered
-  processing and identical application and broker infrastructure.
+  Exercise the shared-partition protocol-v6 real-traffic warm-up using the proven
+  GLOBAL-3 tuned-Serial 16k ramp and unordered processing.
 workload:
   stubs:
     error_rate_percent: 0
@@ -77,11 +76,11 @@ targets:
         snaplen: 0
         filter: tcp port 9092
         max_file_size: 128Mi
-  placement: &worker_placement
+  placement:
     application: worker
     stubs: worker
     generator: controller
-  application: &scale_application
+  application:
     placement: worker
     replicas: 1
     resources:
@@ -91,7 +90,7 @@ targets:
       -Xms768m -Xmx768m -Xss256k -XX:+UseSerialGC
       -XX:TargetSurvivorRatio=90 -XX:MaxTenuringThreshold=15
       -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info:stdout:time,uptime,level,tags
-    hpa: &scale_hpa
+    hpa:
       enabled: true
       min_replicas: 1
       max_replicas: 12
@@ -108,59 +107,48 @@ targets:
         polling_interval_seconds: 15
         scale_up: {max_pods: 1, period_seconds: 180, tolerance: 0.1}
         scale_down: {max_pods: 1, period_seconds: 60, stabilization_window_seconds: 600}
-  runtime: &warm_runtime
+  runtime:
     env:
-      <<: &common_env
-        DEMO_CONSUMER_PROCESSING_ENABLED: true
-        AUDIT_LOG_ENABLED: true
-        METRICS_IMPLEMENTATION: MICROMETER
-        KAFKA_CLIENT_METRICS_ENABLED: false
-        SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
-        PROCESSING_DISPATCHER_TYPE: FIXED
-        WORKER_DISPATCHER_THREADS: 1
-        KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
-        KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
-        KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
-        KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
-        KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
-        TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
-        TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
-        TRAFFIC_WARMUP_ENABLED: false
-        TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
-        TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 50
-        TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 1
-        TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
-        TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS: 120
-        TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 50
-        TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 1
-        TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
-        TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS: 120
-        TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 50
-        TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 1
-        TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
-        TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS: 120
-        TRAFFIC_WARMUP_DURATION_SECONDS: 120
-        TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS: 30
-        TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 30
-        TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS: 30
-        TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS: 30
-        TRAFFIC_WARMUP_PRODUCER_LINGER_MS: 15
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
       TRAFFIC_WARMUP_ENABLED: true
+      TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
+      TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL: 50
+      TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL: 1
+      TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS: 120
+      TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL: 50
+      TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL: 1
+      TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS: 120
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL: 50
+      TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL: 1
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS: 120
+      TRAFFIC_WARMUP_DURATION_SECONDS: 120
+      TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_PRODUCER_LINGER_MS: 15
     planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
     parallelism: [workers]
-    topics: &unordered_topics
+    topics:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-- name: ckc.cold-scale-up-serial-tuned-16k
-  annotation_label: CKC · ordinary cold scale-up · tuned Serial · local 16k baseline
-  implementation: ckc
-  placement: *worker_placement
-  application: *scale_application
-  runtime:
-    <<: *warm_runtime
-    env: *common_env
-    topics: *unordered_topics
 environments:
   internal-lab:
     lab:
