@@ -512,6 +512,8 @@
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
+| [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
+| [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6282,3 +6284,94 @@ Compose example also starts healthy and serves topic metadata through its publis
 The complete 195-test internal-lab suite retains the same two report/notification assertion
 failures and one helper-import error documented on the unchanged baseline. The exact internal-lab
 qualification definition is prepared but no smoke, load, chaos, or experiment run was started.
+
+<a id="infra-324"></a>
+### INFRA-324 - Port and tune the GLOBAL-4 sequential scale-up warm-up experiment
+
+_Date: 2026-11-16_
+
+Port the GLOBAL-4 local 16k warm-up versus cold scale-up experiment without changing its workload,
+resource, processing-profile, HPA, or one-pod-at-a-time scaling settings. Replace the
+archived protocol-v1 configuration and transport provisioning with the GLOBAL-5 public DSL wiring,
+protocol-v6 topics, and the autonomous INFRA-323 warm-up Kafka. Preserve audit, metrics, evidence,
+and report collection, validate the materialized experiment, and install it into the internal lab.
+Prepare the exact operator command but do not start the experiment as part of this task.
+
+The port is based on GLOBAL-4 commit `fa8fa0a1`. It retains the two-target 16k workload, forty-minute
+linear ramp, five-minute steady interval, tuned Serial GC profiles, resource requests, twelve main
+topic partitions, steady mapping quota/ramp values, and HPA limit of one added pod per 180 seconds.
+The archived zero initial quota is minimally adapted to `1`, the lowest value accepted by protocol
+v6. Other protocol wiring changes are v6 topics, per-mapping quota properties, independent
+control/destination connections, and the INFRA-323 autonomous transport. An explicit target-level
+disable keeps the cold baseline cold even though the experiment provisions the optional transport.
+The first operator run exposed the incompatible zero value and was cancelled during application
+startup; no load target ran. The corrected experiment is validated and installed for a fresh run.
+
+The follow-up diagnostic run temporarily omits the cold baseline and caps every mapping at 50
+forwarded records per second while preserving the initial quota, interval, and two-minute ramp.
+The warm-up target captures application-pod
+traffic from minute 11 through minute 16 with `tcp port 9092`, bracketing the first recipient warm-up
+observed near minute 12 in prior runs. Main Kafka uses TLS port 19092, so it is excluded from this
+capture. The warm-up broker remains a separate pod placed with the application workload on the
+application node. The earlier definition and branch history retain the cold target for later comparison.
+The focused materialization regression and all 70 contract, definition, deployment-plan,
+materialization, and planner tests pass.
+
+Run `20261117T100534Z` exposed a packet-capture shutdown race: tcpdump's rotation deadline and an
+outer timeout expired together, leaving only two seconds to close the capture before SIGKILL. The
+required diagnostic therefore stopped an otherwise running experiment with status 137. The runner
+now uses one duration owner, sends SIGINT at the requested end, allows a bounded 30-second savefile
+flush, and uses one deterministic capture path. Fifteen diagnostic tests include a real subprocess
+regression proving that an interrupt-aware capture closes successfully at its deadline. A second
+run reproduced status 137 and isolated it to GNU timeout signalling its managed process group inside
+the demo image. Foreground timeout mode now signals tcpdump alone; the exact image command completes
+with status zero, a closed PCAP, and tcpdump's terminal packet statistics. The final capture lifecycle
+uses tcpdump's own `-G`/`-W 1` timed rotation as the normal completion path. A foreground timeout at
+duration plus sixty seconds remains only as a bounded watchdog for an idle filter, because tcpdump
+checks its rotation deadline when a matching packet arrives.
+
+Run `20261117T113344Z` then completed the full long target, including audit analysis, evidence
+collection, and one successful 11.3 MiB packet capture. For faster quota tuning, the experiment now
+uses the short GLOBAL-4 fourth-pod diagnostic from commit `fa8fa0a1`: three pods ramp to and hold
+12k, a one-second step to 16k triggers the fourth pod, and the run holds 16k for eight minutes.
+Four comparable targets exercise per-mapping profiles `1→50/120s`, flat `50/120s`, `10→100/120s`,
+and `1→50/180s`. Every target logs JDK 21 `jit+compilation=debug`, captures warm-up Kafka traffic
+from minute three through minute eight, and retains identical workload, HPA, processing, and Kafka
+settings. The materialization regression verifies all four resolved quota profiles and JIT flags.
+
+The first short run showed that the one-minute initial ramp left the three donors with startup/JIT
+tail, while an `800m` request made the fourth-pod threshold only 2.04 effective CPU and scaled during
+the 12k plateau. The tuned definition uses a three-minute ramp to 12k, five minutes of stabilization,
+a ten-minute ramp to 14k, a two-minute maximum plateau, and one-minute cooldown. The first two runs
+of that profile measured a stable 1.96–2.02 non-JIT CPU at 12k and 2.32–2.34 at 14k. The initial
+`950m` request could not scale because its effective three-pod threshold, including 10% scale-up
+tolerance, was 2.664 CPU. A `775m` request lowers it to 2.174 CPU: the measured series crossed it
+3.5–4.25 minutes before the 14k plateau while retaining about 8% headroom over the stabilized 12k
+signal. Packet capture brackets the expected scale-up and warm-up from minute 13 through minute 18.
+The experiment file and identifier use `14k` so installed and collected evidence cannot be confused
+with the earlier 16k definition.
+
+<a id="infra-325"></a>
+### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
+
+_Date: 2026-11-16_
+
+Run topic preparation once after each warm-up Kafka broker start instead of continuously launching
+Kafka CLI processes beside the broker. Fetch topic metadata in one bounded operation, create only
+missing one-partition topics, verify the final configuration, and then leave only the broker
+running. Base readiness on successful bootstrap for the current container start plus a lightweight
+broker liveness check that does not start a JVM. Clear bootstrap state on every start and shutdown.
+
+Document that manual topic deletion while the broker remains alive is not repaired automatically;
+an operator restarts the container to repeat bootstrap. Preserve automatic recovery for the required
+case of broker and data loss followed by container recreation, together with bounded startup,
+signal-safe shutdown, retained-data restart, incompatible-metadata diagnostics, and cold fallback.
+
+Bootstrap now reads all topic metadata with one Kafka CLI invocation, creates only missing topics,
+and performs one final metadata read when creation occurred. Its successful exit leaves the broker
+as the only supervised child. Readiness uses the current-start marker, broker PID, and a bounded TCP
+check of the internal listener without starting a JVM. Nine script tests, all 82 shared orchestration
+tests, nine focused internal-lab tests, experiment validation, and the real Docker lifecycle pass.
+The lifecycle covers retained records, an empty replacement volume, incompatible metadata, finished
+bootstrap, independent listeners, and container termination after broker exit. No experiment run was
+started by this task.

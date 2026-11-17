@@ -71,11 +71,11 @@ if [[ "$(grep -c 'PartitionCount: 1' <<< "${descriptions}")" -ne 4 ]]; then
 fi
 
 # Verify that the external listener returns the stable Service-like address after
-# the reconciler has prepared the topics through the independent internal listener.
+# bootstrap has prepared the topics through the independent internal listener.
 external_descriptions="$(docker exec "${container}" /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server ckc-warmup-kafka:9092 --describe)"
 if [[ "$(grep -c 'PartitionCount: 1' <<< "${external_descriptions}")" -ne 4 ]]; then
-  echo "External listener did not expose the reconciled warm-up topics." >&2
+  echo "External listener did not expose the bootstrapped warm-up topics." >&2
   exit 1
 fi
 
@@ -109,11 +109,20 @@ if [[ "$(grep -c 'PartitionCount: 1' <<< "${restored}")" -ne 4 ]]; then
   exit 1
 fi
 
-docker exec "${container}" sh -c 'kill "$(cat /var/run/ckc-warmup-kafka/reconciler.pid)"'
+if docker exec "${container}" test -e /var/run/ckc-warmup-kafka/bootstrap.pid; then
+  echo "Bootstrap process remained after successful topic preparation." >&2
+  exit 1
+fi
+if ! docker exec "${container}" sh -c 'kill -0 "$(cat /var/run/ckc-warmup-kafka/broker.pid)"'; then
+  echo "Broker stopped after successful topic preparation." >&2
+  exit 1
+fi
+
+docker exec "${container}" sh -c 'kill "$(cat /var/run/ckc-warmup-kafka/broker.pid)"'
 deadline=$((SECONDS + 15))
 while [[ "$(docker inspect -f '{{.State.Running}}' "${container}")" == "true" ]]; do
   if (( SECONDS >= deadline )); then
-    echo "Container stayed alive after reconciliation stopped." >&2
+    echo "Container stayed alive after broker stopped." >&2
     exit 1
   fi
   sleep 1

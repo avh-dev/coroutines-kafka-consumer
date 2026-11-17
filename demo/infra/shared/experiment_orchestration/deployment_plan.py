@@ -783,7 +783,8 @@ def _warmup_kafka_manifests(
     )
     heap = str(configuration.get("heap") or "512Mi")
     jvm_heap = heap.removesuffix("Mi") + "m" if heap.endswith("Mi") else heap.removesuffix("Gi") + "g"
-    reconcile_interval = int(configuration.get("reconcile_interval_seconds") or 5)
+    bootstrap_timeout = int(configuration.get("bootstrap_timeout_seconds") or 120)
+    bootstrap_backoff = int(configuration.get("bootstrap_backoff_seconds") or 2)
     operation_timeout = int(configuration.get("operation_timeout_seconds") or 10)
     topics = ",".join(str(topic) for topic in (configuration.get("topics") or []))
     container = {
@@ -822,15 +823,16 @@ def _warmup_kafka_manifests(
             "KAFKA_LOG_DIRS": "/var/lib/kafka/data",
             "KAFKA_HEAP_OPTS": f"-Xms{jvm_heap} -Xmx{jvm_heap}",
             "KAFKA_BOOTSTRAP_TOPICS": topics,
-            "KAFKA_RECONCILE_INTERVAL_SECONDS": reconcile_interval,
+            "KAFKA_BOOTSTRAP_TIMEOUT_SECONDS": bootstrap_timeout,
+            "KAFKA_BOOTSTRAP_BACKOFF_SECONDS": bootstrap_backoff,
             "KAFKA_OPERATION_TIMEOUT_SECONDS": operation_timeout,
-            "KAFKA_READY_MAX_AGE_SECONDS": max(15, reconcile_interval * 3),
+            "KAFKA_READINESS_TIMEOUT_SECONDS": 1,
         }),
         "resources": copy.deepcopy(configuration.get("resources") or {}),
         "readinessProbe": {
             "exec": {"command": ["/opt/ckc-warmup-kafka/bin/readiness.sh"]},
             "periodSeconds": 2,
-            "timeoutSeconds": 1,
+            "timeoutSeconds": 2,
             "failureThreshold": 2,
         },
         "volumeMounts": [{"name": "data", "mountPath": "/var/lib/kafka/data"}],
@@ -912,8 +914,10 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
     warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
     if warmup_kafka.get("enabled"):
         warmup_bootstrap = f"{WARMUP_KAFKA_SERVICE}:{WARMUP_KAFKA_PORT}"
+        # A dedicated transport enables warm-up by default, while an explicit
+        # target override remains authoritative for cold A/B baselines.
+        computed_env.setdefault("TRAFFIC_WARMUP_ENABLED", "true")
         computed_env.update({
-            "TRAFFIC_WARMUP_ENABLED": "true",
             "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
             "TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
             "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,

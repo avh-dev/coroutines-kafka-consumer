@@ -223,7 +223,7 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
     warmup = require_mapping(value, context)
     allowed = {
         "enabled", "placement", "heap", "resources", "topics", "retention_ms",
-        "reconcile_interval_seconds", "operation_timeout_seconds",
+        "bootstrap_timeout_seconds", "bootstrap_backoff_seconds", "operation_timeout_seconds",
     }
     unknown = sorted(set(warmup) - allowed)
     if unknown:
@@ -291,7 +291,8 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
 
     bounded_defaults = {
         "retention_ms": 600_000,
-        "reconcile_interval_seconds": 5,
+        "bootstrap_timeout_seconds": 120,
+        "bootstrap_backoff_seconds": 2,
         "operation_timeout_seconds": 10,
     }
     bounded: dict[str, int] = {}

@@ -24,6 +24,8 @@ from experiment_events import append_event
 
 
 STOP = threading.Event()
+TCPDUMP_SHUTDOWN_GRACE_SECONDS = 30
+TCPDUMP_ROTATION_WATCHDOG_GRACE_SECONDS = 60
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,8 +135,12 @@ def tcpdump_command(
     *,
     drop_user: str | None = None,
 ) -> list[str]:
+    # tcpdump normally exits after its first timed rotation. The foreground timeout is a later
+    # watchdog for an idle filter because tcpdump checks rotation deadlines only when packets arrive.
     command = [
-        "timeout", "--preserve-status", "--signal", "INT", "--kill-after", "2s", f"{duration + 1}s",
+        "timeout", "--foreground", "--preserve-status", "--signal", "INT",
+        "--kill-after", f"{TCPDUMP_SHUTDOWN_GRACE_SECONDS}s",
+        f"{duration + TCPDUMP_ROTATION_WATCHDOG_GRACE_SECONDS}s",
         "tcpdump", "-i", interface, "-nn", "-s", str(snaplen),
         "-G", str(duration), "-W", "1", "-w", destination,
     ]
