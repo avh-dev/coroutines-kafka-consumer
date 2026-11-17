@@ -215,14 +215,14 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("14m", definition["diagnostic_steps"][0]["at"])
         self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
 
-    def test_materializes_quadratic_warmup_and_cold_comparison(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-quadratic-warmup-vs-cold-scale-up-14k-local.yaml"
+    def test_materializes_warmup_curve_and_cold_comparison(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-warmup-curves-300-vs-cold-scale-up-14k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
-        root = Path(self.temp.name) / "quadratic-warmup-vs-cold"
+        root = Path(self.temp.name) / "warmup-curves-vs-cold"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
 
         self.assertEqual(
-            ["ckc.quadratic-warmup-1-to-150-180s", "ckc.cold"],
+            ["ckc.quadratic-warmup-1-to-300-180s", "ckc.linear-warmup-1-to-300-180s", "ckc.cold"],
             [target.target.name for target in targets],
         )
         materialized = [self._materialized_application(target) for target in targets]
@@ -231,15 +231,21 @@ class DeploymentPlanTest(unittest.TestCase):
             self.assertEqual("14m", definition["diagnostic_steps"][0]["at"])
             self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
 
-        warm = materialized[0][2]
-        cold = materialized[1][2]
-        self.assertEqual("true", warm["TRAFFIC_WARMUP_ENABLED"])
+        quadratic = materialized[0][2]
+        linear = materialized[1][2]
+        cold = materialized[2][2]
+        self.assertEqual("true", quadratic["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("true", linear["TRAFFIC_WARMUP_ENABLED"])
         self.assertEqual("false", cold["TRAFFIC_WARMUP_ENABLED"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
-            self.assertEqual("150", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
-            self.assertEqual("1", warm[f"TRAFFIC_WARMUP_{topic}_INITIAL_QUOTA_PER_INTERVAL"])
-            self.assertEqual("180", warm[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_SECONDS"])
-        self.assertEqual("180", warm["TRAFFIC_WARMUP_DURATION_SECONDS"])
+            self.assertEqual("300", quadratic[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
+            self.assertEqual("1", quadratic[f"TRAFFIC_WARMUP_{topic}_INITIAL_QUOTA_PER_INTERVAL"])
+            self.assertEqual("180", quadratic[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_SECONDS"])
+            self.assertEqual("QUADRATIC", quadratic[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_CURVE"])
+            self.assertEqual("300", linear[f"TRAFFIC_WARMUP_{topic}_QUOTA_PER_INTERVAL"])
+            self.assertEqual("LINEAR", linear[f"TRAFFIC_WARMUP_{topic}_QUOTA_RAMP_CURVE"])
+        self.assertEqual("180", quadratic["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("180", linear["TRAFFIC_WARMUP_DURATION_SECONDS"])
 
     def _materialized_application(self, target):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
