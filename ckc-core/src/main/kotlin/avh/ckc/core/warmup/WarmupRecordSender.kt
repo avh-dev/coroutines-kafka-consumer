@@ -1,6 +1,7 @@
 package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -31,7 +32,7 @@ internal fun interface WarmupRecordSender<K, V> {
 /** Copies an admitted source record and adds exactly one current warm-up session header. */
 internal class KafkaWarmupRecordSender<K, V>(
     producerProperties: Map<String, Any?>,
-    private val blockingDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val submissionDispatcher: CoroutineDispatcher = warmupProducerSubmissionDispatcher,
     private val closeTimeout: Duration = 5.seconds,
     producerFactory: (Map<String, Any?>) -> Producer<K, V> = { KafkaProducer(it) }
 ) : WarmupRecordSender<K, V>, AutoCloseable {
@@ -53,13 +54,26 @@ internal class KafkaWarmupRecordSender<K, V>(
         record: ConsumerRecord<K, V>,
         destination: WarmupDestination,
         sessionId: WarmupSessionId
-    ): WarmupSendAcknowledgement = runInterruptible(blockingDispatcher) {
-        val metadata = producer.send(record.copyTo(destination, sessionId)).get()
-        val actual = TopicPartition(metadata.topic(), metadata.partition())
-        check(actual == TopicPartition(destination.topic, destination.partition) && metadata.offset() >= 0) {
-            "Unexpected warm-up producer acknowledgement: $metadata"
+    ): WarmupSendAcknowledgement {
+        val acknowledgement = CompletableDeferred<WarmupSendAcknowledgement>()
+        val forwarded = record.copyTo(destination, sessionId)
+        runInterruptible(submissionDispatcher) {
+            producer.send(forwarded) { metadata, error ->
+                when {
+                    error != null -> acknowledgement.completeExceptionally(error)
+                    metadata == null -> acknowledgement.completeExceptionally(
+                        IllegalStateException("Warm-up producer acknowledgement did not contain metadata")
+                    )
+                    else -> runCatching {
+                        metadata.toAcknowledgement(destination)
+                    }.fold(
+                        onSuccess = acknowledgement::complete,
+                        onFailure = acknowledgement::completeExceptionally
+                    )
+                }
+            }
         }
-        WarmupSendAcknowledgement(actual, metadata.offset())
+        return acknowledgement.await()
     }
 
     override fun close() {
@@ -83,6 +97,22 @@ internal class KafkaWarmupRecordSender<K, V>(
             headers
         )
     }
+
+    private fun org.apache.kafka.clients.producer.RecordMetadata.toAcknowledgement(
+        destination: WarmupDestination
+    ): WarmupSendAcknowledgement {
+        val actual = TopicPartition(topic(), partition())
+        check(actual == TopicPartition(destination.topic, destination.partition) && offset() >= 0) {
+            "Unexpected warm-up producer acknowledgement: $this"
+        }
+        return WarmupSendAcknowledgement(actual, offset())
+    }
 }
+
+/** Bounds only KafkaProducer.send submission; acknowledgement waiting never occupies an IO worker. */
+private val warmupProducerSubmissionDispatcher = Dispatchers.IO.limitedParallelism(
+    parallelism = 4,
+    name = "WarmupProducerSubmission"
+)
 
 internal const val WARMUP_SESSION_HEADER = "ckc-warmup-session"
