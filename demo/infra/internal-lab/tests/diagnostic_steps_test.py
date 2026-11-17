@@ -198,6 +198,7 @@ class DiagnosticStepsTest(unittest.TestCase):
 
     def test_host_tcpdump_uses_interruptible_duration_with_shutdown_grace(self) -> None:
         command = diagnostic_runner.tcpdump_command("any", 0, 10, "/captures/test.pcap", "tcp port 9092")
+        self.assertIn("--foreground", command)
         self.assertNotIn("-G", command)
         self.assertNotIn("-W", command)
         self.assertEqual("30s", command[command.index("--kill-after") + 1])

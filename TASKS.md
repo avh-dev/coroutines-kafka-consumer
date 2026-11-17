@@ -6322,7 +6322,10 @@ outer timeout expired together, leaving only two seconds to close the capture be
 required diagnostic therefore stopped an otherwise running experiment with status 137. The runner
 now uses one duration owner, sends SIGINT at the requested end, allows a bounded 30-second savefile
 flush, and uses one deterministic capture path. Fifteen diagnostic tests include a real subprocess
-regression proving that an interrupt-aware capture closes successfully at its deadline.
+regression proving that an interrupt-aware capture closes successfully at its deadline. A second
+run reproduced status 137 and isolated it to GNU timeout signalling its managed process group inside
+the demo image. Foreground timeout mode now signals tcpdump alone; the exact image command completes
+with status zero, a closed PCAP, and tcpdump's terminal packet statistics.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap

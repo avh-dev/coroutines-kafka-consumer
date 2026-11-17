@@ -134,10 +134,10 @@ def tcpdump_command(
     *,
     drop_user: str | None = None,
 ) -> list[str]:
-    # timeout owns the capture duration and asks tcpdump to close the savefile with SIGINT.
-    # The grace period covers savefile flushing before timeout resorts to SIGKILL.
+    # timeout owns the capture duration and asks only tcpdump to close the savefile with SIGINT.
+    # Foreground mode avoids signalling timeout's process group; the grace period covers flushing.
     command = [
-        "timeout", "--preserve-status", "--signal", "INT",
+        "timeout", "--foreground", "--preserve-status", "--signal", "INT",
         "--kill-after", f"{TCPDUMP_SHUTDOWN_GRACE_SECONDS}s", f"{duration}s",
         "tcpdump", "-i", interface, "-nn", "-s", str(snaplen),
         "-w", destination,
