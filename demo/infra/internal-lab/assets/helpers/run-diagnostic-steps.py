@@ -24,6 +24,7 @@ from experiment_events import append_event
 
 
 STOP = threading.Event()
+TCPDUMP_SHUTDOWN_GRACE_SECONDS = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,10 +134,13 @@ def tcpdump_command(
     *,
     drop_user: str | None = None,
 ) -> list[str]:
+    # timeout owns the capture duration and asks tcpdump to close the savefile with SIGINT.
+    # The grace period covers savefile flushing before timeout resorts to SIGKILL.
     command = [
-        "timeout", "--preserve-status", "--signal", "INT", "--kill-after", "2s", f"{duration + 1}s",
+        "timeout", "--preserve-status", "--signal", "INT",
+        "--kill-after", f"{TCPDUMP_SHUTDOWN_GRACE_SECONDS}s", f"{duration}s",
         "tcpdump", "-i", interface, "-nn", "-s", str(snaplen),
-        "-G", str(duration), "-W", "1", "-w", destination,
+        "-w", destination,
     ]
     if drop_user:
         command.extend(["-Z", drop_user])
@@ -156,7 +160,6 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
     started = utc_now()
     base_name = timestamp(started)
     raw_path = directory / f"{base_name}.pcap"
-    capture_pattern = directory / f"{base_name}-%s.pcap"
     params = step["params"]
     interface = args.host_interface if params["interface"] == "auto" else params["interface"]
     capture_filter = params["filter"]
@@ -166,7 +169,7 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
     if args.host_exclude_network:
         ipaddress.ip_network(args.host_exclude_network, strict=False)
         capture_filter = f"( {capture_filter} ) and not net {args.host_exclude_network}"
-    command = tcpdump_command(interface, params["snaplen"], step["durationSeconds"], str(capture_pattern), capture_filter)
+    command = tcpdump_command(interface, params["snaplen"], step["durationSeconds"], str(raw_path), capture_filter)
     metadata: dict[str, Any] = {
         "step": step["name"], "target": target, "backend": "host", "identity": identity,
         "required": step["required"], "requested_at_seconds": step["atSeconds"],
@@ -187,14 +190,8 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
         stderr = result.stderr
         if result.returncode != 0:
             raise RuntimeError(f"tcpdump exited with status {result.returncode}")
-        candidates = list(directory.glob(f"{base_name}-*.pcap"))
-        if not candidates:
+        if not raw_path.is_file():
             raise RuntimeError("tcpdump did not create a capture file")
-        selected = max(candidates, key=lambda path: path.stat().st_size)
-        selected.replace(raw_path)
-        for candidate in candidates:
-            if candidate.exists():
-                candidate.unlink()
         raw_size = raw_path.stat().st_size
         if raw_size > params["maxFileSizeBytes"]:
             raise RuntimeError(f"capture size {raw_size} exceeds limit {params['maxFileSizeBytes']}")
@@ -206,8 +203,6 @@ def capture_host(step: dict[str, Any], target: str, args: argparse.Namespace) ->
         )
     except Exception as error:
         raw_path.unlink(missing_ok=True)
-        for candidate in directory.glob(f"{base_name}-*.pcap"):
-            candidate.unlink(missing_ok=True)
         metadata.update(status="failed", finished_at=iso(), error=str(error))
     write_metadata(directory, base_name, metadata, stderr)
     return metadata
@@ -222,14 +217,14 @@ def capture_pod(
     base_name = timestamp(started)
     raw_path = directory / f"{base_name}.pcap"
     remote_prefix = f"ckc-{step['name']}-{base_name}"
-    remote_pattern = f"/captures/{remote_prefix}-%s.pcap"
+    remote_path = f"/captures/{remote_prefix}.pcap"
     params = step["params"]
     interface = args.pod_interface if params["interface"] == "auto" else params["interface"]
     capture = tcpdump_command(
         interface,
         params["snaplen"],
         step["durationSeconds"],
-        remote_pattern,
+        remote_path,
         params["filter"],
         drop_user="root",
     )
@@ -240,7 +235,7 @@ def capture_pod(
         "requested_at_seconds": step["atSeconds"], "requested_duration_seconds": step["durationSeconds"],
         "started_at": iso(started), "interface": interface, "configured_interface": params["interface"],
         "snaplen": params["snaplen"],
-        "filter": params["filter"], "max_file_size_bytes": params["maxFileSizeBytes"], "remote_pattern": remote_pattern,
+        "filter": params["filter"], "max_file_size_bytes": params["maxFileSizeBytes"], "remote_path": remote_path,
         "command": command,
     }
     stderr = ""
@@ -253,32 +248,13 @@ def capture_pod(
         stderr = result.stderr
         if result.returncode != 0:
             raise RuntimeError(f"tcpdump exited with status {result.returncode}")
-        discovered = run(
-            [
-                "kubectl", "-n", namespace, "exec", pod, "-c", container, "--",
-                "find", "/captures", "-maxdepth", "1", "-type", "f", "-name", f"{remote_prefix}-*.pcap", "-print",
-            ],
-            capture_output=True,
-        )
-        remote_files = [line.strip() for line in discovered.stdout.splitlines() if line.strip().startswith(f"/captures/{remote_prefix}-")]
-        if discovered.returncode != 0 or not remote_files:
-            raise RuntimeError(discovered.stderr.strip() or "Could not discover the completed capture file")
-        local_candidates: list[Path] = []
-        for candidate_index, remote_file in enumerate(remote_files):
-            local_candidate = directory / f"{base_name}.candidate-{candidate_index}.pcap"
-            with local_candidate.open("wb") as destination:
-                copy = subprocess.run(
-                    ["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "cat", remote_file],
-                    check=False, stdout=destination, stderr=subprocess.PIPE,
-                )
-            if copy.returncode != 0:
-                raise RuntimeError(copy.stderr.decode("utf-8", errors="replace").strip() or "Could not retrieve capture")
-            local_candidates.append(local_candidate)
-        selected = max(local_candidates, key=lambda path: path.stat().st_size)
-        selected.replace(raw_path)
-        for candidate in local_candidates:
-            if candidate.exists():
-                candidate.unlink()
+        with raw_path.open("wb") as destination:
+            copy = subprocess.run(
+                ["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "cat", remote_path],
+                check=False, stdout=destination, stderr=subprocess.PIPE,
+            )
+        if copy.returncode != 0:
+            raise RuntimeError(copy.stderr.decode("utf-8", errors="replace").strip() or "Could not retrieve capture")
         raw_size = raw_path.stat().st_size
         if raw_size > params["maxFileSizeBytes"]:
             raise RuntimeError(f"capture size {raw_size} exceeds limit {params['maxFileSizeBytes']}")
@@ -290,22 +266,10 @@ def capture_pod(
         )
     except Exception as error:
         raw_path.unlink(missing_ok=True)
-        for candidate in directory.glob(f"{base_name}.candidate-*.pcap"):
-            candidate.unlink(missing_ok=True)
         metadata.update(status="failed", finished_at=iso(), error=str(error))
     finally:
         if not args.dry_run:
-            discovered = run(
-                [
-                    "kubectl", "-n", namespace, "exec", pod, "-c", container, "--",
-                    "find", "/captures", "-maxdepth", "1", "-type", "f", "-name", f"{remote_prefix}-*.pcap", "-print",
-                ],
-                capture_output=True,
-            )
-            for remote_file in discovered.stdout.splitlines():
-                remote_file = remote_file.strip()
-                if remote_file.startswith(f"/captures/{remote_prefix}-"):
-                    run(["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "rm", "-f", "--", remote_file])
+            run(["kubectl", "-n", namespace, "exec", pod, "-c", container, "--", "rm", "-f", "--", remote_path])
     write_metadata(directory, base_name, metadata, stderr)
     return metadata
 

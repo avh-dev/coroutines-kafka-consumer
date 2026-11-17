@@ -6315,7 +6315,14 @@ observed near minute 12 in prior runs. Main Kafka uses TLS port 19092, so it is 
 capture. The warm-up broker remains a separate pod placed with the application workload on the
 application node. The earlier definition and branch history retain the cold target for later comparison.
 The focused materialization regression and all 70 contract, definition, deployment-plan,
-materialization, and planner tests pass. No experiment was started.
+materialization, and planner tests pass.
+
+Run `20261117T100534Z` exposed a packet-capture shutdown race: tcpdump's rotation deadline and an
+outer timeout expired together, leaving only two seconds to close the capture before SIGKILL. The
+required diagnostic therefore stopped an otherwise running experiment with status 137. The runner
+now uses one duration owner, sends SIGINT at the requested end, allows a bounded 30-second savefile
+flush, and uses one deterministic capture path. Fifteen diagnostic tests include a real subprocess
+regression proving that an interrupt-aware capture closes successfully at its deadline.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
