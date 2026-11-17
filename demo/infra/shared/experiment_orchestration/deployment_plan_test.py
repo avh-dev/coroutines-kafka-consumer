@@ -198,7 +198,7 @@ class DeploymentPlanTest(unittest.TestCase):
         )
 
     def test_materializes_shared_partition_fourth_pod_warmup_matrix(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-shared-partition-warmup-scale-up-16k-local.yaml"
+        source = REPO_ROOT / "demo/infra/experiments/ckc-shared-partition-warmup-scale-up-14k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
         root = Path(self.temp.name) / "warmup-ab"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
@@ -234,9 +234,17 @@ class DeploymentPlanTest(unittest.TestCase):
                 item["name"]: item["value"]
                 for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
             }
-            self.assertEqual(16_000, plan["workload"]["load"]["base_tps"])
-            self.assertIn("(1m, ramp-to-12k)", plan["workload"]["load"]["load_profile"])
+            self.assertEqual(14_000, plan["workload"]["load"]["base_tps"])
+            self.assertEqual(
+                "0 -> (3m, ramp-to-12k) -> 86 -> (5m, stabilize-at-12k) -> 86 -> "
+                "(10m, ramp-to-14k) -> 100 -> (2m, hold-14k) -> 100 -> (1m, cool-down) -> 0",
+                plan["workload"]["load"]["load_profile"],
+            )
             self.assertEqual(3, plan["application"]["configuration"]["replicas"])
+            self.assertEqual(
+                "950m",
+                plan["application"]["configuration"]["resources"]["requests"]["cpu"],
+            )
             self.assertEqual(3, plan["application"]["configuration"]["hpa"]["min_replicas"])
             self.assertEqual(4, plan["application"]["configuration"]["hpa"]["max_replicas"])
             self.assertEqual(
@@ -271,7 +279,7 @@ class DeploymentPlanTest(unittest.TestCase):
                 warm["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"],
             )
             self.assertEqual("fourth-pod-warmup-kafka", definition["diagnostic_steps"][0]["name"])
-            self.assertEqual("3m", definition["diagnostic_steps"][0]["at"])
+            self.assertEqual("13m", definition["diagnostic_steps"][0]["at"])
             self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
 
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:

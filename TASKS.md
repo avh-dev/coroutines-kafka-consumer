@@ -512,7 +512,7 @@
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
-| [INFRA-324](#infra-324) | Port the GLOBAL-4 sequential scale-up warm-up experiment to protocol v6. | DONE |
+| [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
@@ -6286,7 +6286,7 @@ failures and one helper-import error documented on the unchanged baseline. The e
 qualification definition is prepared but no smoke, load, chaos, or experiment run was started.
 
 <a id="infra-324"></a>
-### INFRA-324 - Port the GLOBAL-4 sequential scale-up warm-up experiment
+### INFRA-324 - Port and tune the GLOBAL-4 sequential scale-up warm-up experiment
 
 _Date: 2026-11-16_
 
@@ -6338,6 +6338,16 @@ Four comparable targets exercise per-mapping profiles `1→50/120s`, flat `50/12
 and `1→50/180s`. Every target logs JDK 21 `jit+compilation=debug`, captures warm-up Kafka traffic
 from minute three through minute eight, and retains identical workload, HPA, processing, and Kafka
 settings. The materialization regression verifies all four resolved quota profiles and JIT flags.
+
+The first short run showed that the one-minute initial ramp left the three donors with startup/JIT
+tail, while an `800m` request made the fourth-pod threshold only 2.04 effective CPU and scaled during
+the 12k plateau. The tuned definition uses a three-minute ramp to 12k, five minutes of stabilization,
+a ten-minute ramp to 14k, a two-minute maximum plateau, and one-minute cooldown. A `950m` application
+request moves the three-pod scale-up threshold to 2.4225 non-JIT CPU: above the stabilized 12k signal
+observed in the run, but reachable during the final ramp. The expected scale-up window is roughly
+three minutes before the 14k plateau after the scaler's one-minute observation window. Packet capture
+now brackets that window from minute 13 through minute 18. The experiment file and identifier use
+`14k` so installed and collected evidence cannot be confused with the earlier 16k definition.
 
 <a id="infra-325"></a>
 ### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
