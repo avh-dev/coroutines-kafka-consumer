@@ -38,6 +38,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
+import org.slf4j.LoggerFactory
 import java.time.Duration as JavaDuration
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
@@ -57,6 +58,7 @@ internal class WarmupControlTransportConfiguration(
     val pollTimeout: Duration = 100.milliseconds,
     val sendTimeout: Duration = 30.seconds,
     val metadataTimeout: Duration = 30.seconds,
+    val assignmentTimeout: Duration = 15.seconds,
     val recoveryCheckInterval: Duration = 1.seconds,
     val recoveryRetryBackoff: Duration = 500.milliseconds,
     val recoveryFailureThreshold: Int = 3,
@@ -79,6 +81,9 @@ internal class WarmupControlTransportConfiguration(
         }
         require(metadataTimeout.isPositive() && metadataTimeout.inWholeMilliseconds > 0) {
             "Control metadata timeout must be at least one millisecond"
+        }
+        require(assignmentTimeout.isPositive() && assignmentTimeout.inWholeMilliseconds > 0) {
+            "Control assignment timeout must be at least one millisecond"
         }
         require(recoveryCheckInterval.isPositive()) { "Control recovery check interval must be positive" }
         require(recoveryRetryBackoff.isPositive()) { "Control recovery retry backoff must be positive" }
@@ -130,7 +135,8 @@ internal class WarmupControlTransport(
         configuration.consumerProperties,
         configuration.metadataTimeout
     ),
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val nanoTime: () -> Long = System::nanoTime
 ) : WarmupControlChannel {
     private sealed interface DispatchItem {
         data class Record(val record: WarmupControlRecord) : DispatchItem
@@ -138,6 +144,7 @@ internal class WarmupControlTransport(
     }
 
     private val lifecycleJob = SupervisorJob(parentContext[Job])
+    private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(parentContext.minusKey(Job) + lifecycleJob + CoroutineName("WarmupControl"))
     private val shutdownScope = CoroutineScope(dispatcher + SupervisorJob())
     private val commands = Channel<DispatchItem>(configuration.commandBufferCapacity)
@@ -257,8 +264,9 @@ internal class WarmupControlTransport(
                 consumer = null
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
-            } catch (_: WarmupControlRecoveryRequiredException) {
+            } catch (recovery: WarmupControlRecoveryRequiredException) {
                 if (stopping.get()) return
+                log.warn("Warm-up control consumer requires a bounded replacement", recovery)
                 consumer = null
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
@@ -287,8 +295,11 @@ internal class WarmupControlTransport(
                 expectedTopicIdentity = readTopicIdentity(configuration.metadataTimeout)
                     ?: error("Warm-up control topic identity is unavailable")
             }
+            var assignmentState: WarmupControlAssignmentState = awaitingAssignment()
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
-                override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) = Unit
+                override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) {
+                    assignmentState = awaitingAssignment()
+                }
 
                 override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
                     check(partitions.size == 1) { "Warm-up control topic must have exactly one partition" }
@@ -296,23 +307,32 @@ internal class WarmupControlTransport(
                     check(partition.topic() == configuration.topic && partition.partition() == 0) {
                         "Warm-up control topic must use partition 0"
                     }
+                    val awaiting = assignmentState as? WarmupControlAssignmentState.Awaiting
+                        ?: awaitingAssignment()
                     if (!readiness.isCompleted) {
-                        val end = activeConsumer.endOffsets(partitions).getValue(partition)
+                        val end = withinAssignmentDeadline(awaiting, "reading the initial log end") { timeout ->
+                            activeConsumer.endOffsets(partitions.toSet(), timeout).getValue(partition)
+                        }
                         activeConsumer.seek(partition, end)
-                        activeConsumer.position(partition)
+                        withinAssignmentDeadline(awaiting, "initializing the initial position") { timeout ->
+                            activeConsumer.position(partition, timeout)
+                        }
                         cursor.nextOffset = end
                         initialBoundary = end - 1
                         readiness.complete(Unit)
                     } else {
                         cursor.nextOffset?.let { nextOffset ->
                             activeConsumer.seek(partition, nextOffset)
-                            activeConsumer.position(partition)
+                        }
+                        // Position initialization also applies to a confirmed fresh topic, where
+                        // the cursor is intentionally empty and Kafka's earliest reset is retained.
+                        withinAssignmentDeadline(awaiting, "initializing the replacement position") { timeout ->
+                            activeConsumer.position(partition, timeout)
                         }
                     }
+                    assignmentState = activeAssignment()
                 }
             })
-            var nextRecoveryCheckNanos = System.nanoTime() + configuration.recoveryCheckInterval.inWholeNanoseconds
-            var consecutiveRecoveryFailures = 0
             while (currentCoroutineContext().isActive && !stopping.get()) {
                 val records = try {
                     activeConsumer.poll(JavaDuration.ofMillis(configuration.pollTimeout.inWholeMilliseconds))
@@ -335,23 +355,67 @@ internal class WarmupControlTransport(
                         enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
                     }
                 }
-                if (System.nanoTime() >= nextRecoveryCheckNanos) {
-                    if (verifyCurrentControlLog(activeConsumer, cursor)) {
-                        consecutiveRecoveryFailures = 0
-                    } else if (++consecutiveRecoveryFailures >= configuration.recoveryFailureThreshold) {
-                        throw WarmupControlRecoveryRequiredException(
-                            "Warm-up control consumer could not validate its position after " +
-                                "$consecutiveRecoveryFailures attempts"
-                        )
+                val now = nanoTime()
+                when (val state = assignmentState) {
+                    is WarmupControlAssignmentState.Awaiting -> {
+                        if (now >= state.deadlineNanos) {
+                            throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout)
+                        }
                     }
-                    nextRecoveryCheckNanos = System.nanoTime() +
-                        configuration.recoveryCheckInterval.inWholeNanoseconds
+                    is WarmupControlAssignmentState.Active -> {
+                        if (now >= state.nextRecoveryCheckNanos) {
+                            if (verifyCurrentControlLog(activeConsumer, cursor)) {
+                                state.consecutiveRecoveryFailures = 0
+                            } else if (++state.consecutiveRecoveryFailures >=
+                                configuration.recoveryFailureThreshold
+                            ) {
+                                throw WarmupControlRecoveryRequiredException(
+                                    "Warm-up control consumer could not validate its position after " +
+                                        "${state.consecutiveRecoveryFailures} attempts"
+                                )
+                            }
+                            state.nextRecoveryCheckNanos = now +
+                                configuration.recoveryCheckInterval.inWholeNanoseconds
+                        }
+                    }
                 }
             }
         } finally {
             withContext(NonCancellable + dispatcher) {
                 runCatching { activeConsumer.close(closeDuration()) }
             }
+        }
+    }
+
+    private fun awaitingAssignment() = WarmupControlAssignmentState.Awaiting(
+        nanoTime() + configuration.assignmentTimeout.inWholeNanoseconds
+    )
+
+    private fun activeAssignment() = WarmupControlAssignmentState.Active(
+        nanoTime() + configuration.recoveryCheckInterval.inWholeNanoseconds
+    )
+
+    private fun <T> withinAssignmentDeadline(
+        awaiting: WarmupControlAssignmentState.Awaiting,
+        operation: String,
+        block: (JavaDuration) -> T
+    ): T {
+        val remainingNanos = awaiting.deadlineNanos - nanoTime()
+        if (remainingNanos <= 0) {
+            throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout, operation)
+        }
+        return try {
+            val result = block(JavaDuration.ofNanos(remainingNanos))
+            if (nanoTime() >= awaiting.deadlineNanos) {
+                throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout, operation)
+            }
+            result
+        } catch (timeout: KafkaTimeoutException) {
+            throw WarmupControlAssignmentTimeoutException(
+                configuration.assignmentTimeout,
+                operation,
+                timeout
+            )
         }
     }
 
@@ -478,12 +542,35 @@ internal class WarmupControlTransport(
 
 private open class WarmupControlRecoveryRequiredException(message: String) : IllegalStateException(message)
 
+private class WarmupControlAssignmentTimeoutException(
+    timeout: Duration,
+    operation: String = "waiting for assignment",
+    cause: Throwable? = null
+) :
+    WarmupControlRecoveryRequiredException(
+        "Warm-up control consumer exceeded the $timeout assignment deadline while $operation"
+    ) {
+    init {
+        if (cause != null) initCause(cause)
+    }
+}
+
 internal interface WarmupControlTopicIdentity : AutoCloseable {
     fun read(topic: String, timeout: Duration): String?
     override fun close() = Unit
 }
 
 private class WarmupControlCursor(var nextOffset: Long? = null)
+
+/** Recovery checks are valid only after the current assignment has been positioned. */
+private sealed interface WarmupControlAssignmentState {
+    data class Awaiting(val deadlineNanos: Long) : WarmupControlAssignmentState
+
+    data class Active(
+        var nextRecoveryCheckNanos: Long,
+        var consecutiveRecoveryFailures: Int = 0
+    ) : WarmupControlAssignmentState
+}
 
 internal class KafkaWarmupControlTopicIdentity(
     properties: Map<String, Any?>,
