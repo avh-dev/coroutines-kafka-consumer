@@ -12,6 +12,7 @@ import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.PartitionInfo
+import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -344,6 +345,94 @@ class WarmupControlTransportTest {
             transport.start()
             withTimeout(1.seconds) { transport.awaitReady() }
             assertEquals(2, consumerCreations.get())
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun `initial end offset lookup is bounded by the assignment deadline`() = runBlocking {
+        val clock = AtomicLong()
+        val partition = TopicPartition("control", 0)
+        val first = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 1.milliseconds.inWholeNanoseconds
+        )
+        whenever(first.endOffsets(org.mockito.kotlin.eq(setOf(partition)), any<JavaDuration>()))
+            .thenAnswer {
+                clock.addAndGet(100.milliseconds.inWholeNanoseconds)
+                mapOf(partition to 12L)
+            }
+        val second = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 102.milliseconds.inWholeNanoseconds
+        )
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 50.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            withTimeout(1.seconds) { transport.awaitReady() }
+            assertEquals(2, consumerCreations.get())
+            verify(first, org.mockito.kotlin.never()).endOffsets(listOf(partition))
+        } finally {
+            transport.stop()
+        }
+        Unit
+    }
+
+    @Test
+    fun `replacement position initialization is bounded by the reassignment deadline`() = runBlocking {
+        val clock = AtomicLong()
+        val partition = TopicPartition("control", 0)
+        val positionCalls = AtomicInteger()
+        val first = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 1.milliseconds.inWholeNanoseconds,
+            revokeAtNanos = 2.milliseconds.inWholeNanoseconds,
+            replacementAssignmentAtNanos = 3.milliseconds.inWholeNanoseconds
+        )
+        whenever(first.position(org.mockito.kotlin.eq(partition), any<JavaDuration>()))
+            .thenAnswer {
+                if (positionCalls.incrementAndGet() == 2) {
+                    clock.addAndGet(100.milliseconds.inWholeNanoseconds)
+                    throw KafkaTimeoutException("replacement position initialization timed out")
+                }
+                12L
+            }
+        val second = assignmentLifecycleConsumer(
+            clock = clock,
+            initialAssignmentAtNanos = 104.milliseconds.inWholeNanoseconds
+        )
+        val consumers = listOf(first, second)
+        val consumerCreations = AtomicInteger()
+        val transport = recoveringTransport(
+            consumerFactory = { consumers[consumerCreations.getAndIncrement()] },
+            producerFactory = { mock() },
+            topicIdentity = fixedTopicIdentity(),
+            assignmentTimeout = 50.milliseconds,
+            nanoTime = clock::get
+        ) { }
+
+        try {
+            transport.start()
+            transport.awaitReady()
+            withTimeout(1.seconds) {
+                while (consumerCreations.get() < 2) kotlinx.coroutines.yield()
+            }
+            withTimeout(1.seconds) {
+                while (clock.get() < 110.milliseconds.inWholeNanoseconds) kotlinx.coroutines.yield()
+            }
+
+            assertEquals(2, consumerCreations.get())
+            verify(second).seek(partition, 12)
         } finally {
             transport.stop()
         }

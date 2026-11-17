@@ -6226,8 +6226,11 @@ positioned. A 15-second assignment deadline produces a diagnosed, backoff-delaye
 same-topic replacements retain their local cursor and confirmed topic recreation retains fresh-log
 semantics. Deterministic tests cover initial assignment, revoke/reassignment, delayed replacement,
 deadline retry, and shutdown. A real Kafka broker with a three-second initial rebalance delay proves
-that readiness completes with exactly one consumer creation. All 304 core unit tests and all 48
-real-Kafka integration tests pass; no experiment run was started by this task.
+that readiness completes with exactly one consumer creation. Assignment positioning passes the
+remaining deadline to Kafka `endOffsets` and `position` calls and rejects operations that return
+after it. Deterministic regressions cover blocked initial log-end lookup and replacement position
+initialization. All 306 core unit tests and all 48 real-Kafka integration tests pass; no experiment
+run was started by this task.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image

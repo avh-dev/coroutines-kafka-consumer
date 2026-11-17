@@ -307,10 +307,16 @@ internal class WarmupControlTransport(
                     check(partition.topic() == configuration.topic && partition.partition() == 0) {
                         "Warm-up control topic must use partition 0"
                     }
+                    val awaiting = assignmentState as? WarmupControlAssignmentState.Awaiting
+                        ?: awaitingAssignment()
                     if (!readiness.isCompleted) {
-                        val end = activeConsumer.endOffsets(partitions).getValue(partition)
+                        val end = withinAssignmentDeadline(awaiting, "reading the initial log end") { timeout ->
+                            activeConsumer.endOffsets(partitions.toSet(), timeout).getValue(partition)
+                        }
                         activeConsumer.seek(partition, end)
-                        activeConsumer.position(partition)
+                        withinAssignmentDeadline(awaiting, "initializing the initial position") { timeout ->
+                            activeConsumer.position(partition, timeout)
+                        }
                         cursor.nextOffset = end
                         initialBoundary = end - 1
                         readiness.complete(Unit)
@@ -320,7 +326,9 @@ internal class WarmupControlTransport(
                         }
                         // Position initialization also applies to a confirmed fresh topic, where
                         // the cursor is intentionally empty and Kafka's earliest reset is retained.
-                        activeConsumer.position(partition)
+                        withinAssignmentDeadline(awaiting, "initializing the replacement position") { timeout ->
+                            activeConsumer.position(partition, timeout)
+                        }
                     }
                     assignmentState = activeAssignment()
                 }
@@ -386,6 +394,30 @@ internal class WarmupControlTransport(
     private fun activeAssignment() = WarmupControlAssignmentState.Active(
         nanoTime() + configuration.recoveryCheckInterval.inWholeNanoseconds
     )
+
+    private fun <T> withinAssignmentDeadline(
+        awaiting: WarmupControlAssignmentState.Awaiting,
+        operation: String,
+        block: (JavaDuration) -> T
+    ): T {
+        val remainingNanos = awaiting.deadlineNanos - nanoTime()
+        if (remainingNanos <= 0) {
+            throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout, operation)
+        }
+        return try {
+            val result = block(JavaDuration.ofNanos(remainingNanos))
+            if (nanoTime() >= awaiting.deadlineNanos) {
+                throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout, operation)
+            }
+            result
+        } catch (timeout: KafkaTimeoutException) {
+            throw WarmupControlAssignmentTimeoutException(
+                configuration.assignmentTimeout,
+                operation,
+                timeout
+            )
+        }
+    }
 
     private suspend fun verifyCurrentControlLog(
         activeConsumer: Consumer<String, ByteArray>,
@@ -510,10 +542,18 @@ internal class WarmupControlTransport(
 
 private open class WarmupControlRecoveryRequiredException(message: String) : IllegalStateException(message)
 
-private class WarmupControlAssignmentTimeoutException(timeout: Duration) :
+private class WarmupControlAssignmentTimeoutException(
+    timeout: Duration,
+    operation: String = "waiting for assignment",
+    cause: Throwable? = null
+) :
     WarmupControlRecoveryRequiredException(
-        "Warm-up control consumer did not receive an assignment within $timeout"
-    )
+        "Warm-up control consumer exceeded the $timeout assignment deadline while $operation"
+    ) {
+    init {
+        if (cause != null) initCause(cause)
+    }
+}
 
 internal interface WarmupControlTopicIdentity : AutoCloseable {
     fun read(topic: String, timeout: Duration): String?
