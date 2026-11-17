@@ -6,6 +6,17 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
+/** Shape used to grow a mapping quota from its initial to maximum value. */
+enum class QuotaRampCurve(internal val protocolId: Int) {
+    LINEAR(0),
+    QUADRATIC(1);
+
+    internal companion object {
+        fun fromProtocolId(id: Int): QuotaRampCurve = entries.firstOrNull { it.protocolId == id }
+            ?: throw IllegalArgumentException("Unknown warm-up quota ramp curve: $id")
+    }
+}
+
 /** Public protocol settings shared by every participant in one local context. */
 class TrafficWarmupContextConfiguration {
     var instanceId: String = UUID.randomUUID().toString()
@@ -50,13 +61,19 @@ class TrafficWarmupMappingConfiguration internal constructor() {
             initialQuota = value
         }
     var quotaInterval: Duration = 1.seconds
+
+    /** Curve used to grow the quota. Quadratic growth protects cold recipients by default. */
+    var quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC
+
+    /** Duration of the ramp from the initial to maximum quota. */
     var quotaRampDuration: Duration = Duration.ZERO
 
     internal fun toProtocolQuota(): WarmupMappingQuota = WarmupMappingQuota(
         quotaPerInterval = quotaPerInterval,
         initialQuotaPerInterval = initialQuotaPerInterval,
         quotaIntervalMillis = quotaInterval.inWholeMilliseconds,
-        quotaRampDurationMillis = quotaRampDuration.inWholeMilliseconds
+        quotaRampDurationMillis = quotaRampDuration.inWholeMilliseconds,
+        quotaRampCurve = quotaRampCurve
     )
 }
 

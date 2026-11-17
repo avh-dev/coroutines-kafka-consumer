@@ -88,6 +88,7 @@
 | [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
 | [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
 | [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
+| [CORE-86](#core-86) | Ramp mapping quotas quadratically to protect cold recipients and donors while retaining a simple duration-based DSL. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6256,6 +6257,27 @@ already used asynchronous callbacks and required no equivalent change. Determini
 simultaneous pending sends on one submission thread, cancellation, synchronous submission failure,
 asynchronous callback failure, acknowledgement validation, and session-header replacement. All 310
 core unit tests and all 48 real-Kafka integration tests pass; no experiment run was started.
+
+<a id="core-86"></a>
+### CORE-86 - Ramp warm-up mapping quotas quadratically
+
+_Date: 2026-11-17_
+
+Add a quadratic mapping-quota ramp as the default while retaining an explicit linear alternative.
+Keep the public DSL limited to initial quota, maximum quota, interval, duration, and a small curve
+enum: users do not tune coefficients or coordinate mapping schedules. Preserve lazy ramp start,
+non-carrying interval budgets, exact initial and terminal limits, and independent quotas for every
+mapping and donor session. Carry the selected curve in the immutable control contract and mapping
+fingerprint, document both curves, and cover their intermediate limits and boundary behavior.
+
+Mapping quotas default to `initial + floor((maximum - initial) * progress²)` while retaining the
+existing lazy start, interval reset, and exact terminal maximum. The public DSL also offers the
+coefficient-free `LINEAR` alternative. The selected curve travels with every mapping and contributes
+to its fingerprint, so a donor cannot silently apply a different ramp. KDoc and the GLOBAL-5
+architecture describe both curves; focused regressions verify their intermediate and terminal
+budgets without carry-over, the public default and selection, codec round-trip, and fingerprint
+isolation. All 313 core unit tests pass; no Kafka integration, smoke, load, chaos, or experiment run
+was started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image

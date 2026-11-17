@@ -183,6 +183,7 @@ internal object WarmupControlCodec {
         writeInt(mapping.quota.initialQuotaPerInterval)
         writeLong(mapping.quota.quotaIntervalMillis)
         writeLong(mapping.quota.quotaRampDurationMillis)
+        writeByte(mapping.quota.quotaRampCurve.protocolId)
     }
 
     private fun DataInputStream.readMapping() = WarmupTopicMapping(
@@ -190,7 +191,13 @@ internal object WarmupControlCodec {
         readString(),
         readString(),
         readString(),
-        WarmupMappingQuota(readInt(), readInt(), readLong(), readLong())
+        WarmupMappingQuota(
+            readInt(),
+            readInt(),
+            readLong(),
+            readLong(),
+            QuotaRampCurve.fromProtocolId(readUnsignedByte())
+        )
     )
 
     private fun DataOutputStream.writeDonorMapping(mapping: WarmupDonorMapping) {

@@ -28,7 +28,8 @@ internal data class WarmupMappingQuota(
     val quotaPerInterval: Int,
     val initialQuotaPerInterval: Int = quotaPerInterval,
     val quotaIntervalMillis: Long = 1_000,
-    val quotaRampDurationMillis: Long = 0
+    val quotaRampDurationMillis: Long = 0,
+    val quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC
 ) {
     init {
         require(quotaPerInterval > 0) { "Mapping quota must be positive" }

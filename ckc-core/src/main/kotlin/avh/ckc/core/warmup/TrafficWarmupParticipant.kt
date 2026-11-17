@@ -70,6 +70,7 @@ internal class TrafficWarmupParticipant<K, V>(
                     initialQuota = quota.initialQuotaPerInterval,
                     quotaInterval = quota.quotaIntervalMillis.milliseconds,
                     quotaRampDuration = quota.quotaRampDurationMillis.milliseconds,
+                    quotaRampCurve = quota.quotaRampCurve,
                     delegationTimeout = delegationTimeoutMillis.milliseconds,
                     destinationResolver = WarmupDestinationResolver { record ->
                         if (record.topic() == mapping.sourceTopic) WarmupDestination(mapping.warmupTopic) else null
@@ -205,7 +206,8 @@ internal fun mappingFingerprint(
         mapping.quota.quotaPerInterval,
         mapping.quota.initialQuotaPerInterval,
         mapping.quota.quotaIntervalMillis,
-        mapping.quota.quotaRampDurationMillis
+        mapping.quota.quotaRampDurationMillis,
+        mapping.quota.quotaRampCurve.name
     ).joinToString("\u0000").toByteArray(Charsets.UTF_8)
 ).toString()
 
