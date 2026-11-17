@@ -87,6 +87,7 @@
 | [CORE-82](#core-82) | Reuse the core consumer container for joint shutdown coordination in the Spring Boot starter. | DONE |
 | [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
 | [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
+| [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6231,6 +6232,28 @@ remaining deadline to Kafka `endOffsets` and `position` calls and rejects operat
 after it. Deterministic regressions cover blocked initial log-end lookup and replacement position
 initialization. All 306 core unit tests and all 48 real-Kafka integration tests pass; no experiment
 run was started by this task.
+
+<a id="core-85"></a>
+### CORE-85 - Await warm-up producer acknowledgements without blocking IO workers
+
+_Date: 2026-11-17_
+
+Replace forwarding `KafkaProducer.send(...).get()` with callback-based suspension so each inflight
+delegation does not occupy an elastic `Dispatchers.IO` worker while Kafka completes the request.
+Bound only the potentially blocking producer submission stage, preserve delegation cancellation,
+acknowledgement validation, session isolation, and bounded producer close, and document the contrast
+with the already asynchronous load-test generator. Verify high concurrent inflight does not create
+one blocked dispatcher task per record and that synchronous send failures, asynchronous failures,
+cancellation, and successful acknowledgements retain the existing data-plane contract.
+
+Forwarding now submits `KafkaProducer.send` through one shared four-way limited IO view and suspends
+on its callback instead of blocking on `Future.get()`. Thus Kafka's potentially blocking submission
+remains interruptible under the existing delegation deadline, while arbitrarily many acknowledged
+or pending records do not each retain an IO worker. The control producer and load-test generator
+already used asynchronous callbacks and required no equivalent change. Deterministic tests cover 64
+simultaneous pending sends on one submission thread, cancellation, synchronous submission failure,
+asynchronous callback failure, acknowledgement validation, and session-header replacement. All 310
+core unit tests and all 48 real-Kafka integration tests pass; no experiment run was started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image
