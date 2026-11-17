@@ -12,7 +12,11 @@ class WarmupControlCodecTest {
     private val donor = WarmupInstanceId("donor")
     private val session = WarmupSessionId("session")
     private val mapping = WarmupTopicMapping(
-        WarmupParticipantId("orders"), "orders", "warmup-orders", "mapping-fingerprint"
+        WarmupParticipantId("orders"),
+        "orders",
+        "warmup-orders",
+        "mapping-fingerprint",
+        WarmupMappingQuota(10, 1, 1_000, 30_000, QuotaRampCurve.LINEAR)
     )
     private val donorMapping = WarmupDonorMapping(mapping, setOf(WarmupSourcePartition(0, 7)))
     private val fingerprint = "context-fingerprint"

@@ -10,12 +10,16 @@ import kotlin.time.Duration.Companion.ZERO
  * The first acquisition attempt starts both the first quota window and the optional ramp. Each
  * later window starts lazily on the first attempt after [interval] elapsed. Ramp progress is thus
  * measured from the first [tryAcquire], not from object construction or donor-session activation.
+ * The selected curve has no user-defined coefficients. Quadratic growth keeps early cold-start
+ * work small and concentrates capacity near the end of the ramp; linear growth remains available
+ * for workloads that need a constant increase.
  */
 internal class IntervalQuota(
     private val limit: Int,
     private val interval: Duration,
     private val initialLimit: Int = limit,
     private val rampDuration: Duration = ZERO,
+    private val rampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC,
     private val nanoTime: () -> Long = System::nanoTime
 ) {
     private val intervalNanos = interval.inWholeNanoseconds
@@ -49,6 +53,10 @@ internal class IntervalQuota(
         val elapsed = now - rampStartedAt
         if (elapsed >= rampNanos) return limit
         val progress = elapsed.toDouble() / rampNanos.toDouble()
-        return initialLimit + floor((limit - initialLimit) * progress).toInt()
+        val curvedProgress = when (rampCurve) {
+            QuotaRampCurve.LINEAR -> progress
+            QuotaRampCurve.QUADRATIC -> progress * progress
+        }
+        return initialLimit + floor((limit - initialLimit) * curvedProgress).toInt()
     }
 }

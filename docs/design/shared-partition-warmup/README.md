@@ -284,6 +284,13 @@ and failure state. Global participant limits cap session count and the sum of co
 budgets. Failure or closure of one session detaches only that session. It does not stop other donor
 sessions, the main consumer, or locally handled records.
 
+The ramp starts on the first delegation attempt, reaches the exact maximum at
+`quotaRampDuration`, and does not carry unused capacity between intervals. `quotaRampCurve` selects
+`QUADRATIC` (the default) or `LINEAR`; neither curve exposes coefficients. At normalized time `p`,
+quadratic quota is `initial + floor((maximum - initial) * p²)` and linear quota replaces `p²` with
+`p`. The selected curve is part of the immutable mapping fingerprint and control contract. Mappings
+retain independent limits, intervals, durations, and curves.
+
 ## Recipient early filtering and offsets
 
 Warm-up consumers install an internal `PolledRecordSink` wrapper at this boundary:

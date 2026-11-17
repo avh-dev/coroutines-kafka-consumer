@@ -36,6 +36,7 @@ internal class WarmupDonorSession<K, V>(
     quotaInterval: Duration,
     initialQuota: Int = intervalBudget,
     quotaRampDuration: Duration = Duration.ZERO,
+    quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC,
     private val delegationTimeout: Duration,
     private val destinationResolver: WarmupDestinationResolver<K, V>,
     private val sender: WarmupRecordSender<K, V>,
@@ -55,6 +56,7 @@ internal class WarmupDonorSession<K, V>(
         interval = quotaInterval,
         initialLimit = initialQuota,
         rampDuration = quotaRampDuration,
+        rampCurve = quotaRampCurve,
         nanoTime = nanoTime
     )
     private val sessionLock = Any()
