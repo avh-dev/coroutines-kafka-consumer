@@ -3,6 +3,7 @@ package avh.ckc.core.warmup
 import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -343,6 +344,52 @@ class WarmupRecipientOutcomeMetricsTest {
             scope.cancel()
         }
         Unit
+    }
+
+    @Test
+    fun `handoff releases reservation without publishing a remote outcome`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val sent = mutableListOf<WarmupRecordCompleted>()
+        val outbox = WarmupCompletionOutbox(scope, laneCapacity = 1) { sent += it }
+        val lane = outbox.lane("orders")
+        val delegate = RecordingMetrics<String, String>()
+        val metrics = WarmupRecipientOutcomeMetrics(WarmupSessionId("session"), lane, delegate)
+        try {
+            RecordHandoffReason.entries.forEachIndexed { index, reason ->
+                val record = record(offset = index.toLong())
+                assertTrue(lane.tryAcquire(record))
+                metrics.onRecordHandedOff(record, reason)
+                assertEquals(0, outbox.snapshot().outstanding)
+            }
+
+            assertTrue(sent.isEmpty())
+            assertEquals(RecordHandoffReason.entries, delegate.handedOff.map { it.reason })
+            outbox.stop(2.seconds)
+        } finally {
+            outbox.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `delivery metrics discard a delayed stale lane snapshot`() {
+        val published = mutableListOf<Int>()
+        val metrics = object : ConsumerMetrics<String, String> {
+            override fun onWarmupResultDeliveryChanged(
+                outstanding: Int,
+                queued: Int,
+                awaitingAcknowledgement: Int,
+                admissionLimitedMappings: Int
+            ) {
+                published += outstanding
+            }
+        }
+        val lane = WarmupResultDeliveryMetricsObserver(metrics).lane("orders")
+
+        lane.onStateChanged(2, outstanding = 0, queued = 0, awaitingAcknowledgement = 0, limited = false)
+        lane.onStateChanged(1, outstanding = 1, queued = 0, awaitingAcknowledgement = 1, limited = false)
+
+        assertEquals(listOf(0), published)
     }
 
     private fun completed(offset: Long) = completed("warmup-orders", offset)
