@@ -16,7 +16,10 @@ class WarmupControlCodecTest {
         "orders",
         "warmup-orders",
         "mapping-fingerprint",
-        WarmupMappingQuota(10, 1, 1_000, 30_000, QuotaRampCurve.LINEAR)
+        WarmupMappingQuota(
+            WarmupQuotaProfileParser.parse("1 -> (30s, ramp) -> 10"),
+            quotaIntervalMillis = 1_000
+        )
     )
     private val donorMapping = WarmupDonorMapping(mapping, setOf(WarmupSourcePartition(0, 7)))
     private val fingerprint = "context-fingerprint"

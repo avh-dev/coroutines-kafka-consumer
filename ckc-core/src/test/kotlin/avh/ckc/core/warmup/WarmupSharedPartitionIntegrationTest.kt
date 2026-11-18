@@ -701,9 +701,8 @@ class WarmupSharedPartitionIntegrationTest {
             }
             return WarmupDonorSession(
                 sessionId = acceptance.sessionId,
-                intervalBudget = acceptance.mappings.single().mapping.quota.quotaPerInterval,
+                quotaProfile = acceptance.mappings.single().mapping.quota.profile,
                 quotaInterval = acceptance.mappings.single().mapping.quota.quotaIntervalMillis.milliseconds,
-                initialQuota = acceptance.mappings.single().mapping.quota.initialQuotaPerInterval,
                 delegationTimeout = 5.seconds,
                 destinationResolver = WarmupDestinationResolver { record -> destinations[record.topic()] },
                 sender = KafkaWarmupRecordSender(producerProperties()),
@@ -815,9 +814,8 @@ class WarmupSharedPartitionIntegrationTest {
             }
             val session = WarmupDonorSession(
                 sessionId = sessionId,
-                intervalBudget = 1_000,
+                quotaProfile = WarmupQuotaProfile.constant(1_000),
                 quotaInterval = 1.seconds,
-                initialQuota = 1_000,
                 delegationTimeout = delegationTimeout,
                 destinationResolver = WarmupDestinationResolver { record ->
                     WarmupDestination(warmupTopic).takeIf { record.topic() == sourceTopic }

@@ -144,7 +144,7 @@ class MultiSessionWarmupDataPlaneTest {
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val first = WarmupDonorSession(
             sessionId = WarmupSessionId("first-pending"),
-            intervalBudget = 10,
+            quotaProfile = WarmupQuotaProfile.constant(10),
             quotaInterval = 1.seconds,
             delegationTimeout = 5.seconds,
             destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
@@ -155,7 +155,7 @@ class MultiSessionWarmupDataPlaneTest {
         )
         val second = WarmupDonorSession(
             sessionId = WarmupSessionId("second-ready"),
-            intervalBudget = 10,
+            quotaProfile = WarmupQuotaProfile.constant(10),
             quotaInterval = 1.seconds,
             delegationTimeout = 5.seconds,
             destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
@@ -227,7 +227,7 @@ class MultiSessionWarmupDataPlaneTest {
         val sends = AtomicInteger()
         val session = WarmupDonorSession(
             sessionId = WarmupSessionId("ordered"),
-            intervalBudget = 10,
+            quotaProfile = WarmupQuotaProfile.constant(10),
             quotaInterval = 1.seconds,
             delegationTimeout = 5.seconds,
             destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
@@ -426,7 +426,7 @@ class MultiSessionWarmupDataPlaneTest {
         }
     ): WarmupDonorSession<String, String> = WarmupDonorSession(
         sessionId = WarmupSessionId(id),
-        intervalBudget = intervalBudget,
+        quotaProfile = WarmupQuotaProfile.constant(intervalBudget),
         quotaInterval = 1.seconds,
         delegationTimeout = 5.seconds,
         destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
@@ -439,7 +439,7 @@ class MultiSessionWarmupDataPlaneTest {
         forwarded: CompletableDeferred<WarmupForwardedEvent>
     ): WarmupDonorSession<String, String> = WarmupDonorSession(
         sessionId = WarmupSessionId(id),
-        intervalBudget = 10,
+        quotaProfile = WarmupQuotaProfile.constant(10),
         quotaInterval = 1.seconds,
         delegationTimeout = 5.seconds,
         destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },

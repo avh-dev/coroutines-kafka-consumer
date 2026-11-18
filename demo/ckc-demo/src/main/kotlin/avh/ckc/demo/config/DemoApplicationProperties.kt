@@ -1,7 +1,6 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.ProcessingMode
-import avh.ckc.core.warmup.QuotaRampCurve
 import avh.ckc.demo.DemoTopics
 import org.springframework.boot.context.properties.ConfigurationProperties
 
@@ -89,7 +88,8 @@ data class DemoApplicationProperties(
         var delegationTimeoutSeconds: Long = 10,
         var maxDonorSessions: Int = 4,
         var maxAggregateQuotaPerSecond: Int = Int.MAX_VALUE,
-        var producerLingerMs: Int = 5
+        var producerLingerMs: Int = 5,
+        var producerBatchSize: Int = 16_384
     )
 
     data class TrafficWarmupMappings(
@@ -99,11 +99,8 @@ data class DemoApplicationProperties(
     )
 
     data class TrafficWarmupMapping(
-        var quotaPerInterval: Int = 10,
-        var initialQuotaPerInterval: Int? = null,
-        var quotaIntervalMs: Long = 1_000,
-        var quotaRampSeconds: Long = 0,
-        var quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC
+        var quotaProfile: String = "10",
+        var quotaIntervalMs: Long = 1_000
     )
 
     data class KafkaConnection(

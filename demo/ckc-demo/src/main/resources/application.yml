@@ -198,23 +198,14 @@ demo:
       ssl-endpoint-identification-algorithm: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
     mappings:
       order-events:
-        quota-per-interval: ${TRAFFIC_WARMUP_ORDER_QUOTA_PER_INTERVAL:10}
-        initial-quota-per-interval: ${TRAFFIC_WARMUP_ORDER_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-profile: ${TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE:10}
         quota-interval-ms: ${TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS:1000}
-        quota-ramp-seconds: ${TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_SECONDS:0}
-        quota-ramp-curve: ${TRAFFIC_WARMUP_ORDER_QUOTA_RAMP_CURVE:QUADRATIC}
       batch-events:
-        quota-per-interval: ${TRAFFIC_WARMUP_BATCH_QUOTA_PER_INTERVAL:10}
-        initial-quota-per-interval: ${TRAFFIC_WARMUP_BATCH_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-profile: ${TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE:10}
         quota-interval-ms: ${TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS:1000}
-        quota-ramp-seconds: ${TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_SECONDS:0}
-        quota-ramp-curve: ${TRAFFIC_WARMUP_BATCH_QUOTA_RAMP_CURVE:QUADRATIC}
       cauldron-events:
-        quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PER_INTERVAL:10}
-        initial-quota-per-interval: ${TRAFFIC_WARMUP_CAULDRON_INITIAL_QUOTA_PER_INTERVAL:}
+        quota-profile: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE:10}
         quota-interval-ms: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS:1000}
-        quota-ramp-seconds: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_SECONDS:0}
-        quota-ramp-curve: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_RAMP_CURVE:QUADRATIC}
     duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:90}
     offer-window-ms: ${TRAFFIC_WARMUP_OFFER_WINDOW_MS:2000}
     participant-start-timeout-seconds: ${TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS:15}
@@ -224,6 +215,7 @@ demo:
     max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
     max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
     producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+    producer-batch-size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}
