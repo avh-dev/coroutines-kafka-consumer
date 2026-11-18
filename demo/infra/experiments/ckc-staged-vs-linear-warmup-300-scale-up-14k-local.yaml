@@ -2,7 +2,8 @@ schema_version: 2
 name: ckc-staged-vs-linear-warmup-300-scale-up-14k-local
 description: >-
   Compare a two-minute staged shared-partition warm-up profile with a direct-linear rise to 300
-  records per second per mapping during an otherwise identical fourth-pod start.
+  records per second per mapping and the previously successful three-minute linear rise to 100
+  during otherwise identical fourth-pod starts.
 workload:
   stubs:
     error_rate_percent: 0
@@ -141,6 +142,19 @@ targets:
       TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
       TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
       TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
+- name: ckc.linear-control-warmup-1-to-100-180s
+  annotation_label: CKC · linear control warm-up 1→100/s over 180s · 3→4 pod · local 14k
+  implementation: ckc
+  placement: *worker_placement
+  application: *four_pod_application
+  runtime:
+    <<: *common_runtime
+    env:
+      <<: *warm_env
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (180s, direct linear control) -> 100
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (180s, direct linear control) -> 100
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (180s, direct linear control) -> 100
+      TRAFFIC_WARMUP_DURATION_SECONDS: 180
 environments:
   internal-lab:
     lab:

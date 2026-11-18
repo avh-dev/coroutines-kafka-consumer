@@ -223,7 +223,11 @@ class DeploymentPlanTest(unittest.TestCase):
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
 
         self.assertEqual(
-            ["ckc.staged-step-warmup-1-to-300-120s", "ckc.linear-warmup-1-to-300-120s"],
+            [
+                "ckc.staged-step-warmup-1-to-300-120s",
+                "ckc.linear-warmup-1-to-300-120s",
+                "ckc.linear-control-warmup-1-to-100-180s",
+            ],
             [target.target.name for target in targets],
         )
         materialized = [self._materialized_application(target) for target in targets]
@@ -240,8 +244,10 @@ class DeploymentPlanTest(unittest.TestCase):
 
         staged = materialized[0][2]
         linear = materialized[1][2]
+        linear_control = materialized[2][2]
         self.assertEqual("true", staged["TRAFFIC_WARMUP_ENABLED"])
         self.assertEqual("true", linear["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("true", linear_control["TRAFFIC_WARMUP_ENABLED"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertEqual(
                 "1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> "
@@ -252,8 +258,14 @@ class DeploymentPlanTest(unittest.TestCase):
                 "1 -> (120s, direct linear) -> 300",
                 linear[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
             )
+            self.assertEqual(
+                "1 -> (180s, direct linear control) -> 100",
+                linear_control[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
         for environment in (staged, linear):
             self.assertEqual("120", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("180", linear_control["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        for environment in (staged, linear, linear_control):
             self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
             self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 

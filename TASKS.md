@@ -519,6 +519,7 @@
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
 | [INFRA-327](#infra-327) | Compare staged-step and direct-linear two-minute warm-up profiles to 300/s. | DONE |
+| [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6455,3 +6456,16 @@ minute 21 through 22; omit the uninteresting initial-three-pod window and packet
 Materialization verifies both exact profiles, the two normalized measurement windows, the absence
 of diagnostics, and the forwarding producer settings. All 84 shared experiment-orchestration tests
 pass; no experiment was started automatically.
+
+<a id="infra-328"></a>
+### INFRA-328 - Add a previously successful linear warm-up control
+
+_Date: 2026-11-18_
+
+Add the earlier linear `1→100` over 180 seconds profile as a third target beside the staged-step and
+direct-linear `1→300` profiles. Keep workload, HPA, measurement windows, forwarding producer, and
+all other settings identical so the rerun can distinguish profile effects from run-to-run scale-up
+timing. Record that the first staged run cold-fell back after its recipient completion outbox filled;
+that result measures an implementation limit rather than the intended quota profile alone.
+The focused three-target materialization regression and all 84 shared experiment-orchestration tests
+pass. No experiment was started automatically.
