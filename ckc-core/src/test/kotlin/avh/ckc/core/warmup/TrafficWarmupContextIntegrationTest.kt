@@ -283,9 +283,9 @@ class TrafficWarmupContextIntegrationTest {
     fun `public context warms three typed participants through one logical session`() = runBlocking {
         val topics = TypedTopics.create()
         val namespace = unique("public-v6")
-        val donor = typedApplication(topics, namespace)
+        val donor = typedApplication(topics, namespace, warmupDuration = 3.seconds)
         val warming = CompletableDeferred<Unit>()
-        val recipient = typedApplication(topics, namespace) { event ->
+        val recipient = typedApplication(topics, namespace, warmupDuration = 3.seconds) { event ->
             if (event.phase == TrafficWarmupLifecyclePhase.WARMING) warming.complete(Unit)
         }
         try {
@@ -294,23 +294,23 @@ class TrafficWarmupContextIntegrationTest {
 
             recipient.startAll()
             withTimeout(10.seconds) { warming.await() }
-            produce(topics.orders, "order", "one", StringSerializer())
-            produce(topics.batches, "batch", byteArrayOf(1, 2, 3), ByteArraySerializer())
-            produce(topics.telemetry, "telemetry", 42L, LongSerializer())
+            produceMany(topics.orders, 300, StringSerializer()) { "order-$it" }
+            produceMany(topics.batches, 300, ByteArraySerializer()) { byteArrayOf((it % 127).toByte()) }
+            produceMany(topics.telemetry, 300, LongSerializer()) { it.toLong() }
 
             recipient.awaitAllReady()
             awaitFor {
-                recipient.ordersHandled.contains("one") &&
-                    recipient.batchesHandled.any { it.contentEquals(byteArrayOf(1, 2, 3)) } &&
-                    recipient.telemetryHandled.contains(42L)
+                recipient.ordersHandled.size == 300 &&
+                    recipient.batchesHandled.size == 300 &&
+                    recipient.telemetryHandled.size == 300
             }
 
             assertTrue(donor.ordersHandled.isEmpty())
             assertTrue(donor.batchesHandled.isEmpty())
             assertTrue(donor.telemetryHandled.isEmpty())
-            assertEquals(1, donor.orderMetrics.processed.count { it.processedRemotely })
-            assertEquals(1, donor.batchMetrics.processed.count { it.processedRemotely })
-            assertEquals(1, donor.telemetryMetrics.processed.count { it.processedRemotely })
+            assertEquals(300, donor.orderMetrics.processed.count { it.processedRemotely })
+            assertEquals(300, donor.batchMetrics.processed.count { it.processedRemotely })
+            assertEquals(300, donor.telemetryMetrics.processed.count { it.processedRemotely })
         } finally {
             stopApplications(recipient, donor)
         }
@@ -603,9 +603,15 @@ class TrafficWarmupContextIntegrationTest {
     private fun typedApplication(
         topics: TypedTopics,
         namespace: String,
+        warmupDuration: kotlin.time.Duration = 750.milliseconds,
         lifecycleObserver: (TrafficWarmupLifecycleEvent) -> Unit = {}
     ): TypedApplication {
-        val context = context(namespace, topics.control, lifecycleObserver = lifecycleObserver)
+        val context = context(
+            namespace,
+            topics.control,
+            warmupDuration = warmupDuration,
+            lifecycleObserver = lifecycleObserver
+        )
         val orderMetrics = RecordingMetrics<String, String>()
         val batchMetrics = RecordingMetrics<String, ByteArray>()
         val telemetryMetrics = RecordingMetrics<String, Long>()
@@ -621,7 +627,9 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { ordersHandled += it.value() }
             trafficWarmup(context, "orders") {
-                mapTopic(topics.orders, topics.warmupOrders) { quotaProfile = "100" }
+                mapTopic(topics.orders, topics.warmupOrders) {
+                    quotaProfile = "1 -> (0s, step) -> 300"
+                }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(StringSerializer::class.java)
             }
@@ -635,7 +643,9 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { batchesHandled += it.value() }
             trafficWarmup(context, "batches") {
-                mapTopic(topics.batches, topics.warmupBatches) { quotaProfile = "100" }
+                mapTopic(topics.batches, topics.warmupBatches) {
+                    quotaProfile = "1 -> (0s, step) -> 300"
+                }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(ByteArraySerializer::class.java)
             }
@@ -649,7 +659,9 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { telemetryHandled += it.value() }
             trafficWarmup(context, "telemetry") {
-                mapTopic(topics.telemetry, topics.warmupTelemetry) { quotaProfile = "100" }
+                mapTopic(topics.telemetry, topics.warmupTelemetry) {
+                    quotaProfile = "1 -> (0s, step) -> 300"
+                }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(LongSerializer::class.java)
             }
@@ -755,13 +767,14 @@ class TrafficWarmupContextIntegrationTest {
         namespace: String,
         controlTopic: String,
         participantStartTimeout: kotlin.time.Duration = 2.seconds,
+        warmupDuration: kotlin.time.Duration = 750.milliseconds,
         lifecycleObserver: (TrafficWarmupLifecycleEvent) -> Unit = {}
     ) = trafficWarmupContext {
         this.namespace = namespace
         this.controlTopic = controlTopic
         controlProducerProperties = kafkaConnection()
         controlConsumerProperties = kafkaConnection()
-        warmupDuration = 750.milliseconds
+        this.warmupDuration = warmupDuration
         offerWindow = 250.milliseconds
         this.participantStartTimeout = participantStartTimeout
         preparationTimeout = 3.seconds
@@ -853,6 +866,20 @@ class TrafficWarmupContextIntegrationTest {
             StringSerializer(),
             serializer
         ).use { producer -> producer.send(ProducerRecord(topic, key, value)).get(10, TimeUnit.SECONDS) }
+    }
+
+    private fun <V> produceMany(
+        topic: String,
+        count: Int,
+        serializer: org.apache.kafka.common.serialization.Serializer<V>,
+        value: (Int) -> V
+    ) {
+        KafkaProducer(kafkaConnection(), StringSerializer(), serializer).use { producer ->
+            val futures = List(count) { index ->
+                producer.send(ProducerRecord(topic, "key-$index", value(index)))
+            }
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+        }
     }
 
     private suspend fun awaitFor(assertion: () -> Boolean) {

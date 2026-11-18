@@ -10,10 +10,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.common.TopicPartition
@@ -431,7 +436,7 @@ class TrafficWarmupContext internal constructor(
             activeOutbox = outbox
             activeRecipientCleanup = RetriableWarmupRecipientCleanup(
                 terminate = discovery::terminate,
-                afterComplete = outbox::stop
+                afterComplete = { outbox.stop(configuration.completionTimeout) }
             )
         }
         observe(TrafficWarmupLifecyclePhase.DISCOVERING, sessionId = sessionId.value)
@@ -439,9 +444,17 @@ class TrafficWarmupContext internal constructor(
             is WarmupDiscoveryResult.Ready -> {
                 observe(TrafficWarmupLifecyclePhase.READY, sessionId = sessionId.value)
                 observe(TrafficWarmupLifecyclePhase.WARMING, sessionId = sessionId.value)
-                if (runtime.awaitWarmupInterruption(discovery, configuration.warmupDuration)) {
-                    rollbackRecipientAndStartCold("donor_session_ended")
-                    return
+                when (val outcome = awaitWarmupOutcome(discovery, outbox)) {
+                    WarmupRunOutcome.DurationElapsed -> Unit
+                    WarmupRunOutcome.DonorSessionEnded -> {
+                        rollbackRecipientAndStartCold("donor_session_ended")
+                        return
+                    }
+                    is WarmupRunOutcome.ResultDeliveryFailed -> {
+                        log.warn("Warm-up result delivery failed; ending recipient session", outcome.error)
+                        rollbackRecipientAndStartCold("result_delivery_failed")
+                        return
+                    }
                 }
                 observe(TrafficWarmupLifecyclePhase.COMPLETING, sessionId = sessionId.value)
                 when (val completion = runtime.completeWarmup(discovery)) {
@@ -449,7 +462,7 @@ class TrafficWarmupContext internal constructor(
                     is WarmupCompletionResult.CompletedWithDiagnostics,
                     is WarmupCompletionResult.ColdFallback,
                     is WarmupCompletionResult.ColdFallbackWithDiagnostics -> {
-                        outbox.stop()
+                        outbox.stop(configuration.completionTimeout)
                         val reasonCode = when (completion) {
                             is WarmupCompletionResult.ColdFallback -> completion.reasonCode
                             is WarmupCompletionResult.ColdFallbackWithDiagnostics -> completion.reasonCode
@@ -462,22 +475,62 @@ class TrafficWarmupContext internal constructor(
                 }
             }
             is WarmupDiscoveryResult.ColdFallback -> {
-                outbox.stop()
+                outbox.stop(configuration.completionTimeout)
                 completeRecipientPhaseAndLaunchMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.ColdFallbackWithDiagnostics -> {
-                outbox.stop()
+                outbox.stop(configuration.completionTimeout)
                 completeRecipientPhaseAndLaunchMains(result.reasonCode)
             }
             is WarmupDiscoveryResult.CleanupIncomplete -> failRecipientCleanup(result.reasonCode, result.cleanup)
         }
     }
 
+    private suspend fun awaitWarmupOutcome(
+        discovery: WarmupRecipientDiscovery,
+        outbox: WarmupCompletionOutbox
+    ): WarmupRunOutcome = coroutineScope {
+        val protocol = async {
+            if (runtime.awaitWarmupInterruption(discovery, configuration.warmupDuration)) {
+                WarmupRunOutcome.DonorSessionEnded
+            } else {
+                WarmupRunOutcome.DurationElapsed
+            }
+        }
+        val delivery = async {
+            WarmupRunOutcome.ResultDeliveryFailed(outbox.awaitFailure())
+        }
+        try {
+            select {
+                protocol.onAwait { it }
+                delivery.onAwait { it }
+            }
+        } finally {
+            protocol.cancelAndJoin()
+            delivery.cancelAndJoin()
+        }
+    }
+
+    private sealed interface WarmupRunOutcome {
+        data object DurationElapsed : WarmupRunOutcome
+        data object DonorSessionEnded : WarmupRunOutcome
+        data class ResultDeliveryFailed(val error: Throwable) : WarmupRunOutcome
+    }
+
     private suspend fun rollbackRecipientAndStartCold(reasonCode: String) {
         val rollback = activeRecipient?.let { runtime.abortWarmup(it, reasonCode) }
         activeOutbox?.let { outbox ->
             try {
-                outbox.stop()
+                outbox.stop(configuration.completionTimeout)
+            } catch (error: TimeoutCancellationException) {
+                failRecipientCleanup(
+                    reasonCode,
+                    WarmupRecipientCleanupResult.Incomplete(
+                        pendingAssignments = emptyList(),
+                        diagnostics = listOf("result delivery cleanup timed out")
+                    )
+                )
+                return
             } catch (error: Exception) {
                 log.warn("Warm-up completion outbox failed during recipient rollback", error)
             }

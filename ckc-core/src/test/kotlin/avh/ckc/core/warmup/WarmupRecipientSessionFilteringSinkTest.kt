@@ -35,6 +35,37 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class WarmupRecipientSessionFilteringSinkTest {
     @Test
+    fun `result capacity is reserved before delegation and released when runtime rejects the record`() {
+        val sessionId = WarmupSessionId("recipient")
+        val tracker = PartitionProcessedRecordTracker(assignedRegistry())
+        val events = mutableListOf<String>()
+        val admission = object : WarmupResultAdmission {
+            override fun tryAcquire(record: ConsumerRecord<*, *>): Boolean {
+                events += "acquire"
+                return true
+            }
+
+            override fun release(record: ConsumerRecord<*, *>) {
+                events += "release"
+            }
+        }
+        val sink = WarmupRecipientSessionFilteringSink(
+            sessionId,
+            object : PolledRecordSink<String, String> {
+                override fun tryEmit(record: ConsumerRecord<String, String>): Boolean {
+                    events += "delegate"
+                    return false
+                }
+            },
+            tracker,
+            admission
+        )
+
+        assertFalse(sink.tryEmit(record(0, sessionId.value)))
+        assertEquals(listOf("acquire", "delegate", "release"), events)
+    }
+
+    @Test
     fun `foreign record is not passed to a backpressured delegate`() {
         val sessionId = WarmupSessionId("recipient")
         val registry = assignedRegistry()

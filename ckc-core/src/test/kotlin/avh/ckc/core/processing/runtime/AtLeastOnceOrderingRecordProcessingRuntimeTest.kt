@@ -14,12 +14,18 @@ import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.typedTestRecord
+import avh.ckc.core.warmup.WarmupCompletionOutbox
+import avh.ckc.core.warmup.WarmupRecipientOutcomeMetrics
+import avh.ckc.core.warmup.WarmupRecordCompleted
+import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -27,6 +33,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -40,6 +48,80 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.seconds
 
 class AtLeastOnceOrderingRecordProcessingRuntimeTest {
+    @Test
+    fun `abort hands off a record suspended between ordered scheduler and worker`() = runBlocking {
+        val testScheduler = TestCoroutineScheduler()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val runtimeScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val outboxScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val sent = CopyOnWriteArrayList<WarmupRecordCompleted>()
+        val outbox = WarmupCompletionOutbox(outboxScope, laneCapacity = 2) { sent += it }
+        val lane = outbox.lane("orders")
+        val recorded = RecordingMetrics<String, String>()
+        val metrics = WarmupRecipientOutcomeMetrics(WarmupSessionId("recipient"), lane, recorded)
+        val topicPartition = TopicPartition("topic", 0)
+        val registry = PartitionRegistry().also { partitionRegistry ->
+            partitionRegistry.onPartitionsAssigned(listOf(topicPartition)).single().init(0L)
+        }
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val runtime = orderedRuntime(
+            ordering = AtLeastOnceOrderingRecordProcessingRuntime.Ordering.BY_KEY,
+            workerConcurrency = 1,
+            workChannelCapacity = 2,
+            metrics = metrics,
+            processedRecordTracker = PartitionProcessedRecordTracker(registry),
+            processingDispatcher = dispatcher,
+            scope = runtimeScope,
+            handler = KafkaRecordHandler { record ->
+                if (record.offset() == 1L) {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                }
+            }
+        )
+        val first = typedTestRecord(topic = topicPartition.topic(), offset = 1L, key = "first-key")
+        val waitingForWorker = typedTestRecord(
+            topic = topicPartition.topic(),
+            offset = 2L,
+            key = "second-key"
+        )
+        try {
+            runtime.start { throw it }
+            registry.observe(first)
+            assertTrue(lane.tryAcquire(first))
+            assertTrue(runtime.tryEmit(first))
+            registry.observe(waitingForWorker)
+            assertTrue(lane.tryAcquire(waitingForWorker))
+            assertTrue(runtime.tryEmit(waitingForWorker))
+
+            // The first record occupies the only worker. The deterministic scheduler then suspends
+            // while handing the second key to the rendezvous worker channel.
+            testScheduler.runCurrent()
+            assertTrue(firstStarted.isCompleted)
+
+            registry.cancelAllActive()
+            runtime.close(IOException("forced abort"))
+            runtimeScope.cancel(CancellationException("forced abort"))
+            testScheduler.runCurrent()
+
+            assertEquals(0, outbox.snapshot().outstanding)
+            assertEquals(setOf(1L, 2L), recorded.handedOff.map { it.record.offset() }.toSet())
+            assertTrue(sent.isEmpty())
+
+            runtime.stop()
+            outbox.stop(2.seconds)
+
+            assertEquals(0, outbox.snapshot().outstanding)
+            assertTrue(sent.isEmpty())
+        } finally {
+            releaseFirst.complete(Unit)
+            outbox.close()
+            runtimeScope.cancel()
+            outboxScope.cancel()
+        }
+    }
+
     @Test
     fun `when revoke follows failed attempt then next retry is not started or marked processed`() = runBlocking {
         val registry = PartitionRegistry()
@@ -431,14 +513,16 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         processedRecordTracker: ProcessedRecordTracker = NoopProcessedRecordTracker,
         retryPolicy: RetryPolicy = RetryPolicy.none(),
         processingFailureHandler: ProcessingFailureHandler<String, String> = ProcessingFailureHandler.skip(),
+        processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+        scope: CoroutineScope = CoroutineScope(SupervisorJob() + processingDispatcher),
         handler: KafkaRecordHandler<String, String>
     ): AtLeastOnceOrderingRecordProcessingRuntime<String, String> {
         return AtLeastOnceOrderingRecordProcessingRuntime(
             workerConcurrency = workerConcurrency,
             workChannelCapacity = workChannelCapacity,
             ordering = ordering,
-            processingDispatcher = Dispatchers.Default,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            processingDispatcher = processingDispatcher,
+            scope = scope,
             metrics = metrics,
             handler = handler,
             retryPolicy = retryPolicy,

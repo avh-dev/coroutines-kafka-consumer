@@ -10,6 +10,7 @@ import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.metrics.WarmupFallbackReason
 import avh.ckc.core.metrics.WarmupResultMetricOutcome
+import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -77,6 +78,10 @@ class MicrometerConsumerMetricsSchemaTest {
         metrics.onWarmupResult(record, WarmupResultMetricOutcome.SUCCEEDED, 20)
         metrics.onWarmupFallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
         metrics.onWarmupPendingChanged(4)
+        metrics.onWarmupResultDeliveryChanged(9, 4, 5, 1)
+        metrics.onWarmupResultAdmissionLimited()
+        metrics.onWarmupResultDeliveryFailure(WarmupResultDeliveryFailureReason.TIMEOUT)
+        metrics.onWarmupResultDrain(30, LifecycleOutcome.SUCCESS)
 
         assertEquals(1.0, registry.get("test.ckc.warmup.delegated").counter().count())
         assertEquals(1L, registry.get("test.ckc.warmup.send.duration").timer().count())
@@ -87,6 +92,19 @@ class MicrometerConsumerMetricsSchemaTest {
             registry.get("test.ckc.warmup.fallback").tag("reason", "result_timeout").counter().count()
         )
         assertEquals(4.0, registry.get("test.ckc.warmup.pending").gauge().value())
+        assertEquals(9.0, registry.get("test.ckc.warmup.result.delivery.outstanding").gauge().value())
+        assertEquals(4.0, registry.get("test.ckc.warmup.result.delivery.queued").gauge().value())
+        assertEquals(5.0, registry.get("test.ckc.warmup.result.delivery.awaiting.ack").gauge().value())
+        assertEquals(1.0, registry.get("test.ckc.warmup.result.delivery.limited.mappings").gauge().value())
+        assertEquals(1.0, registry.get("test.ckc.warmup.result.admission.limited").counter().count())
+        assertEquals(
+            1.0,
+            registry.get("test.ckc.warmup.result.delivery.failure").tag("reason", "timeout").counter().count()
+        )
+        assertEquals(
+            1L,
+            registry.get("test.ckc.warmup.result.drain.duration").tag("outcome", "success").timer().count()
+        )
     }
 
     private data class TestLifecycleEvent(

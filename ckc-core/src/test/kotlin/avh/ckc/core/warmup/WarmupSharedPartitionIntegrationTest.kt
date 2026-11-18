@@ -494,6 +494,7 @@ class WarmupSharedPartitionIntegrationTest {
         private lateinit var request: WarmupRequested
         private lateinit var recipientDiscovery: WarmupRecipientDiscovery
         val outbox: WarmupCompletionOutbox
+        private val resultLane: WarmupResultLane
         private var donorControlStartAttempted = false
         private var recipientControlStartAttempted = false
         private var completed = false
@@ -566,6 +567,7 @@ class WarmupSharedPartitionIntegrationTest {
                     )
                 )
             }
+            resultLane = outbox.lane(mapping.mappingFingerprint)
         }
 
         suspend fun start() {
@@ -594,7 +596,8 @@ class WarmupSharedPartitionIntegrationTest {
                 mapOf(
                     participant to warmupRecipientParticipantRuntime<String, String>(
                         consumerProperties(unique("protocol-recipient-group")),
-                        completionPublisher = { outbox }
+                        completionPublisher = { resultLane },
+                        resultAdmission = { resultLane }
                     ) {
                         processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
                         workerConcurrency = 2
@@ -673,7 +676,7 @@ class WarmupSharedPartitionIntegrationTest {
                     }
                 }
             }
-            cleanup("completion outbox") { outbox.stop() }
+            cleanup("completion outbox") { outbox.stop(5.seconds) }
             if (recipientControlStartAttempted) {
                 cleanup("recipient control transport") { recipientRuntime.stop() }
             }

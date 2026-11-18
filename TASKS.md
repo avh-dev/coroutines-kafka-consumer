@@ -89,6 +89,7 @@
 | [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
 | [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
 | [CORE-86](#core-86) | Configure each warm-up mapping quota with a normalized generator-style string profile. | DONE |
+| [CORE-87](#core-87) | Bound warm-up outstanding work and deliver recipient results with parallel Kafka acknowledgements. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6283,6 +6284,29 @@ demo to one profile string per mapping and convert dependent experiments to expl
 or staged profiles. All 320 core unit tests, 48 real-Kafka integration tests, 110 demo unit tests,
 and 84 shared experiment-orchestration tests pass. No smoke, load, chaos, or experiment run was
 started.
+
+<a id="core-87"></a>
+### CORE-87 - Bound and parallelize warm-up result delivery
+
+_Date: 2026-11-18_
+
+Replace the recipient session's single sequential completion sender with bounded concurrent result
+delivery through the existing control transport. Define one outstanding-work budget covering
+processing, queued terminal results, and sends awaiting Kafka acknowledgement; apply backpressure
+before accepting delegated work instead of throwing from terminal callbacks after handlers finish.
+
+Preserve all terminal outcomes, bounded memory and task counts, fair independent mappings, delivery
+failure diagnostics, and recipient-driven drain. A barrier waits for every result accepted before
+it while shutdown separately closes admission of new work. Delivery failures terminate only the
+affected session through the existing bounded fallback and cleanup path; the public DSL does not
+expose internal queue sizing.
+
+Cover bursts above the former 1024-result limit, concurrent and out-of-order acknowledgements,
+slow or failed transport, cancellation, concurrent flush/publication, freshness drops, and a
+three-mapping real-Kafka profile stepping to 300 records per second.
+
+Verified with the complete repository unit suite and a real-Kafka public-DSL scenario delivering
+300 results for each of three typed mappings. No smoke, load, chaos, or experiment run was started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image

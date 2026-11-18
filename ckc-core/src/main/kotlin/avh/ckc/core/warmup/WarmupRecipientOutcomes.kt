@@ -4,22 +4,20 @@ import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
 import avh.ckc.core.metrics.RecordDropReason
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
-import kotlinx.coroutines.withTimeout
+import avh.ckc.core.metrics.RecordHandoffReason
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.Duration
 
 internal fun interface WarmupCompletionPublisher {
     /** Enqueues a terminal recipient result without blocking the processing worker. */
     fun publish(completed: WarmupRecordCompleted)
+
+    /** A shutdown-tail discard may not have passed through recipient admission. */
+    fun publishLifecycleDiscard(completed: WarmupRecordCompleted) = publish(completed)
+
+    /** Releases admitted work handed back to Kafka without manufacturing a remote outcome. */
+    fun releaseHandedOff(record: ConsumerRecord<*, *>) = Unit
 }
 
 /** Keeps user processing callbacks while isolating runtime-owned gauge and Kafka-client bindings. */
@@ -84,91 +82,30 @@ internal class WarmupRecipientOutcomeMetrics<K, V>(
 
     override fun onRecordDropped(record: ConsumerRecord<K, V>, reason: RecordDropReason) {
         delegate.onRecordDropped(record, reason)
-        publish(record, WarmupRemoteOutcome.Discarded(reason))
+        val completed = completed(record, WarmupRemoteOutcome.Discarded(reason))
+        if (reason == RecordDropReason.LIFECYCLE_DISCARD) {
+            publisher.publishLifecycleDiscard(completed)
+        } else {
+            publisher.publish(completed)
+        }
+    }
+
+    override fun onRecordHandedOff(record: ConsumerRecord<K, V>, reason: RecordHandoffReason) {
+        delegate.onRecordHandedOff(record, reason)
+        publisher.releaseHandedOff(record)
     }
 
     private fun publish(record: ConsumerRecord<K, V>, outcome: WarmupRemoteOutcome) {
-        publisher.publish(
-            WarmupRecordCompleted(
-                WarmupRecordId(
-                    sessionId,
-                    TopicPartition(record.topic(), record.partition()),
-                    record.offset()
-                ),
-                outcome
-            )
+        publisher.publish(completed(record, outcome))
+    }
+
+    private fun completed(record: ConsumerRecord<K, V>, outcome: WarmupRemoteOutcome) =
+        WarmupRecordCompleted(
+            WarmupRecordId(
+                sessionId,
+                TopicPartition(record.topic(), record.partition()),
+                record.offset()
+            ),
+            outcome
         )
-    }
 }
-
-/** Serializes recipient results and provides a transport-acknowledged drain barrier. */
-internal class WarmupCompletionOutbox(
-    scope: CoroutineScope,
-    capacity: Int,
-    private val send: suspend (WarmupRecordCompleted) -> Unit
-) : WarmupCompletionPublisher, AutoCloseable {
-    private sealed interface Item {
-        data class Result(val completed: WarmupRecordCompleted) : Item
-        data class Flush(val completion: CompletableDeferred<Unit>) : Item
-    }
-
-    private val channel = Channel<Item>(capacity.also {
-        require(it > 0) { "Warm-up completion outbox capacity must be positive" }
-    })
-    private val failure = AtomicReference<Throwable?>()
-    private val failureSignal = CompletableDeferred<Throwable>()
-    private val job = scope.launch {
-        for (item in channel) {
-            when (item) {
-                is Item.Result -> send(item.completed)
-                is Item.Flush -> item.completion.complete(Unit)
-            }
-        }
-    }.also { job ->
-        job.invokeOnCompletion { error ->
-            val terminalError = when (error) {
-                null -> null
-                is CancellationException -> WarmupCompletionOutboxCancelledException(error)
-                else -> error
-            }
-            if (terminalError != null && failure.compareAndSet(null, terminalError)) {
-                failureSignal.complete(terminalError)
-            }
-            channel.close(terminalError)
-        }
-    }
-
-    override fun publish(completed: WarmupRecordCompleted) {
-        failure.get()?.let { throw it }
-        check(channel.trySend(Item.Result(completed)).isSuccess) {
-            "Warm-up completion outbox is full or closed"
-        }
-    }
-
-    suspend fun flush(timeout: Duration) {
-        require(timeout.isPositive()) { "Warm-up completion flush timeout must be positive" }
-        failure.get()?.let { throw it }
-        val completion = CompletableDeferred<Unit>()
-        withTimeout(timeout) {
-            channel.send(Item.Flush(completion))
-            select {
-                completion.onAwait { }
-                failureSignal.onAwait { throw it }
-            }
-        }
-    }
-
-    suspend fun stop() {
-        channel.close()
-        job.join()
-        failure.get()?.let { throw it }
-    }
-
-    override fun close() {
-        channel.close()
-        job.cancel()
-    }
-}
-
-internal class WarmupCompletionOutboxCancelledException(cause: CancellationException) :
-    IllegalStateException("Warm-up completion outbox worker was cancelled before drain", cause)

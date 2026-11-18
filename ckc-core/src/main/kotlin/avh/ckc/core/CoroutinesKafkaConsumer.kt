@@ -19,6 +19,7 @@ import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRunt
 import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
 import avh.ckc.core.warmup.WarmupRecipientSessionFilteringSink
+import avh.ckc.core.warmup.WarmupResultAdmission
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.core.warmup.WarmupSourcePartition
 import kotlinx.coroutines.CancellationException
@@ -148,6 +149,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topicsPattern: Pattern? = null,
     private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
     private val warmupRecipientSessionId: WarmupSessionId? = null,
+    private val warmupResultAdmission: WarmupResultAdmission? = null,
     private val fixedAssignment: Map<TopicPartition, Long>? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
@@ -194,7 +196,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
     private val recordSink: PolledRecordSink<K, V> = warmupRecipientSessionId?.let { sessionId ->
-        WarmupRecipientSessionFilteringSink(sessionId, processingRuntime, processedRecordTracker)
+        WarmupRecipientSessionFilteringSink(
+            sessionId,
+            processingRuntime,
+            processedRecordTracker,
+            warmupResultAdmission
+        )
     } ?: processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
         pollLoopFactory(
@@ -310,6 +317,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topicsPattern: Pattern? = null,
         admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
         warmupRecipientSessionId: WarmupSessionId? = null,
+        warmupResultAdmission: WarmupResultAdmission? = null,
         fixedAssignment: Map<TopicPartition, Long>? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
@@ -338,6 +346,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topicsPattern = topicsPattern,
         admittedRecordInterceptor = admittedRecordInterceptor,
         warmupRecipientSessionId = warmupRecipientSessionId,
+        warmupResultAdmission = warmupResultAdmission,
         fixedAssignment = fixedAssignment,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime

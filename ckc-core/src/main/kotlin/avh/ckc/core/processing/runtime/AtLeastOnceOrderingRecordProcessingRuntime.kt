@@ -189,6 +189,7 @@ internal class AtLeastOnceOrderingRecordProcessingRuntime<K, V>(
         } catch (error: Throwable) {
             releaseDispatchedRecord(workItem.key)
             admissionBudget.release()
+            reportAssignmentEnd(workItem.record)
             processedRecordTracker.discard(workItem.record)
             throw error
         }

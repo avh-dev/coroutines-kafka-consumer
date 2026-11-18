@@ -10,6 +10,7 @@ import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.metrics.WarmupFallbackReason
 import avh.ckc.core.metrics.WarmupResultMetricOutcome
+import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge
@@ -34,6 +35,10 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val partitionMeters = mutableMapOf<Pair<String, Int>, PartitionMeterBinding>()
     private val recoveringPollLoops = AtomicInteger(0)
     private val pendingWarmupResults = AtomicInteger(0)
+    private val warmupResultOutstanding = AtomicInteger(0)
+    private val warmupResultQueued = AtomicInteger(0)
+    private val warmupResultAwaitingAck = AtomicInteger(0)
+    private val warmupResultLimitedMappings = AtomicInteger(0)
     private val recoveryActiveGauge: Gauge = Gauge.builder(
         schema.metricName(RECOVERY_ACTIVE),
         recoveringPollLoops
@@ -47,6 +52,13 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     ) { it.get().toDouble() }
         .tags(consumerTags)
         .register(schema.meterRegistry)
+    @Suppress("unused")
+    private val warmupResultDeliveryGauges = listOf(
+        gauge(WARMUP_RESULT_DELIVERY_OUTSTANDING, warmupResultOutstanding),
+        gauge(WARMUP_RESULT_DELIVERY_QUEUED, warmupResultQueued),
+        gauge(WARMUP_RESULT_DELIVERY_AWAITING_ACK, warmupResultAwaitingAck),
+        gauge(WARMUP_RESULT_DELIVERY_LIMITED_MAPPINGS, warmupResultLimitedMappings)
+    )
 
     override fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> {
         require(bindingId.isNotBlank()) { "Metrics runtime binding id must not be blank" }
@@ -217,6 +229,31 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         pendingWarmupResults.set(pending.coerceAtLeast(0))
     }
 
+    override fun onWarmupResultDeliveryChanged(
+        outstanding: Int,
+        queued: Int,
+        awaitingAcknowledgement: Int,
+        admissionLimitedMappings: Int
+    ) {
+        warmupResultOutstanding.set(outstanding.coerceAtLeast(0))
+        warmupResultQueued.set(queued.coerceAtLeast(0))
+        warmupResultAwaitingAck.set(awaitingAcknowledgement.coerceAtLeast(0))
+        warmupResultLimitedMappings.set(admissionLimitedMappings.coerceAtLeast(0))
+    }
+
+    override fun onWarmupResultAdmissionLimited() {
+        counter(WARMUP_RESULT_ADMISSION_LIMITED).increment()
+    }
+
+    override fun onWarmupResultDeliveryFailure(reason: WarmupResultDeliveryFailureReason) {
+        counter(WARMUP_RESULT_DELIVERY_FAILURE, tags("reason" to reason.name.lowercase())).increment()
+    }
+
+    override fun onWarmupResultDrain(durationNanos: Long, outcome: LifecycleOutcome) {
+        timer(WARMUP_RESULT_DRAIN_DURATION, lifecycleTags(outcome))
+            .record(durationNanos, TimeUnit.NANOSECONDS)
+    }
+
     override fun onRetry(
         key: K?,
         value: V?,
@@ -305,6 +342,11 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         valueFunction: (ConsumerRuntimeStats) -> Double
     ): Gauge =
         Gauge.builder(schema.metricName(suffix), stats, valueFunction)
+            .tags(consumerTags)
+            .register(schema.meterRegistry)
+
+    private fun gauge(suffix: String, value: AtomicInteger): Gauge =
+        Gauge.builder(schema.metricName(suffix), value) { it.get().toDouble() }
             .tags(consumerTags)
             .register(schema.meterRegistry)
 
