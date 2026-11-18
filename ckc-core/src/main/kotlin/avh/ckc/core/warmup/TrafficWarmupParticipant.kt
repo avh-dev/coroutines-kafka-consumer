@@ -22,7 +22,7 @@ internal interface RegisteredTrafficWarmupParticipant {
     suspend fun prepareRecipient(
         sessionId: WarmupSessionId,
         start: WarmupDestinationStart,
-        completionPublisher: WarmupCompletionPublisher
+        completionOutbox: WarmupCompletionOutbox
     ): PreparedWarmupRecipientConsumer
     fun startMainRuntime()
     suspend fun awaitMainReady()
@@ -45,6 +45,7 @@ internal class TrafficWarmupParticipant<K, V>(
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
 ) : RegisteredTrafficWarmupParticipant {
     private val metricsObserver = WarmupMetricsObserver(metrics)
+    private val resultDeliveryMetricsObserver = WarmupResultDeliveryMetricsObserver(metrics)
     private val observer = object : WarmupDataPlaneObserver<K, V> by metricsObserver {
         override fun onForwarded(
             record: ConsumerRecord<K, V>,
@@ -94,7 +95,7 @@ internal class TrafficWarmupParticipant<K, V>(
     override suspend fun prepareRecipient(
         sessionId: WarmupSessionId,
         start: WarmupDestinationStart,
-        completionPublisher: WarmupCompletionPublisher
+        completionOutbox: WarmupCompletionOutbox
     ): PreparedWarmupRecipientConsumer {
         require(start.assignment.mapping.participantId == participantId) {
             "Warm-up assignment belongs to another participant"
@@ -109,17 +110,20 @@ internal class TrafficWarmupParticipant<K, V>(
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "none"
             )
         )
+        val laneId = start.assignment.mapping.mappingFingerprint
+        val resultLane = completionOutbox.lane(laneId, resultDeliveryMetricsObserver.lane(laneId))
         val runtime = recipientBuilder.buildWarmupRecipient(
             effectiveProperties,
             sessionId,
             start.assignment.destination,
             start.offset,
-            completionPublisher,
-            warmupRecipientRuntimeMetrics(
+            completionPublisher = resultLane,
+            resultAdmission = resultLane,
+            runtimeMetrics = warmupRecipientRuntimeMetrics(
                 metrics,
                 "warmup-${start.assignment.mapping.mappingFingerprint}"
             ),
-            recipientShutdownTimeoutMillis.milliseconds
+            runtimeShutdownTimeout = recipientShutdownTimeoutMillis.milliseconds
         )
         return object : PreparedWarmupRecipientConsumer {
             override val assignment = start.assignment

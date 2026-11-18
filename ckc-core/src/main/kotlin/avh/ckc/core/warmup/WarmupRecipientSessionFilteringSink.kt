@@ -16,13 +16,23 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 internal class WarmupRecipientSessionFilteringSink<K, V>(
     sessionId: WarmupSessionId,
     private val delegate: PolledRecordSink<K, V>,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    private val resultAdmission: WarmupResultAdmission? = null
 ) : PolledRecordSink<K, V> {
     private val expectedSessionHeader = sessionId.value.toByteArray(Charsets.UTF_8)
 
     override fun tryEmit(record: ConsumerRecord<K, V>): Boolean {
         if (discardIfFiltered(record)) return true
-        return delegate.tryEmit(record)
+        val admission = resultAdmission
+        if (admission != null && !admission.tryAcquire(record)) return false
+        return try {
+            delegate.tryEmit(record).also { accepted ->
+                if (!accepted) admission?.release(record)
+            }
+        } catch (error: Throwable) {
+            admission?.release(record)
+            throw error
+        }
     }
 
     override fun discardIfFiltered(record: ConsumerRecord<K, V>): Boolean {

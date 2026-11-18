@@ -15,6 +15,7 @@ internal fun interface WarmupRecipientParticipantRuntime {
 internal fun <K, V> warmupRecipientParticipantRuntime(
     consumerProperties: Map<String, Any?>,
     completionPublisher: ((WarmupSessionId) -> WarmupCompletionPublisher)? = null,
+    resultAdmission: ((WarmupSessionId) -> WarmupResultAdmission)? = null,
     configure: CoroutinesKafkaConsumerBuilder<K, V>.() -> Unit
 ): WarmupRecipientParticipantRuntime = WarmupRecipientParticipantRuntime { sessionId, start ->
     val clientId = warmupRecipientClientId(sessionId, start)
@@ -34,7 +35,8 @@ internal fun <K, V> warmupRecipientParticipantRuntime(
             sessionId,
             start.assignment.destination,
             start.offset,
-            completionPublisher?.invoke(sessionId)
+            completionPublisher?.invoke(sessionId),
+            resultAdmission?.invoke(sessionId)
         )
 }
 

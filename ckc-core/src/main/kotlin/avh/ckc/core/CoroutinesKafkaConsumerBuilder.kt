@@ -10,6 +10,7 @@ import avh.ckc.core.warmup.TrafficWarmupParticipant
 import avh.ckc.core.warmup.WarmupParticipantDataPlane
 import avh.ckc.core.warmup.WarmupParticipantId
 import avh.ckc.core.warmup.WarmupRecipientOutcomeMetrics
+import avh.ckc.core.warmup.WarmupResultAdmission
 import avh.ckc.core.warmup.WarmupSessionId
 import avh.ckc.core.warmup.WarmupTopicMapping
 import avh.ckc.core.warmup.mappingFingerprint
@@ -315,6 +316,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         topicPartition: TopicPartition,
         startOffset: Long,
         completionPublisher: WarmupCompletionPublisher? = null,
+        resultAdmission: WarmupResultAdmission? = null,
         runtimeMetrics: ConsumerMetrics<K, V> = metrics,
         runtimeShutdownTimeout: Duration = shutdownDrainTimeout
     ): CoroutinesKafkaConsumer<K, V> {
@@ -345,6 +347,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             parentContext = parentContext,
             topics = listOf(topicPartition.topic()),
             warmupRecipientSessionId = sessionId,
+            warmupResultAdmission = resultAdmission,
             fixedAssignment = mapOf(topicPartition to startOffset),
             handler = configuredHandler
         )

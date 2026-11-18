@@ -139,6 +139,23 @@ interface ConsumerMetrics<K, V> {
     /** Reports aggregate pending remote results across this donor's independent sessions. */
     fun onWarmupPendingChanged(pending: Int) = Unit
 
+    /** Reports the bounded recipient result-delivery pipeline across this consumer's mappings. */
+    fun onWarmupResultDeliveryChanged(
+        outstanding: Int,
+        queued: Int,
+        awaitingAcknowledgement: Int,
+        admissionLimitedMappings: Int
+    ) = Unit
+
+    /** Records the start of one capacity-limited admission episode for a recipient mapping. */
+    fun onWarmupResultAdmissionLimited() = Unit
+
+    /** Records a terminal result-delivery failure without changing the handler's business outcome. */
+    fun onWarmupResultDeliveryFailure(reason: WarmupResultDeliveryFailureReason) = Unit
+
+    /** Records one result-delivery drain attempt. */
+    fun onWarmupResultDrain(durationNanos: Long, outcome: LifecycleOutcome) = Unit
+
     /**
      * Records a retry of the user handler.
      *
@@ -240,4 +257,11 @@ enum class WarmupFallbackReason {
     RESULT_TIMEOUT,
     SESSION_FAILURE,
     REMOTE_TERMINAL_FAILURE
+}
+
+enum class WarmupResultDeliveryFailureReason {
+    SEND_FAILURE,
+    TIMEOUT,
+    CANCELLED,
+    INTERNAL
 }

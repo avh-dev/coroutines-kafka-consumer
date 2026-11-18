@@ -170,7 +170,7 @@ class TrafficWarmupContextLifecycleTest {
         override suspend fun prepareRecipient(
             sessionId: WarmupSessionId,
             start: WarmupDestinationStart,
-            completionPublisher: WarmupCompletionPublisher
+            completionOutbox: WarmupCompletionOutbox
         ): PreparedWarmupRecipientConsumer = error("Protocol initialization must fail before recipient preparation")
 
         override fun startMainRuntime() {
