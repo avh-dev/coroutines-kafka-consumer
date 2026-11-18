@@ -522,6 +522,7 @@
 | [INFRA-327](#infra-327) | Compare staged-step and direct-linear two-minute warm-up profiles to 300/s. | DONE |
 | [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
 | [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
+| [INFRA-330](#infra-330) | Rerun the staged 1-to-5-to-50-to-300 warm-up with stubs placed on the controller. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6508,3 +6509,17 @@ capture; add additional quota profiles only after this reference run is understo
 The focused materialization regression and all 85 shared orchestration tests pass. The installed
 internal lab contains the new experiment and rebuilt CORE-87 demo image; the experiment itself was
 not started automatically.
+
+<a id="infra-330"></a>
+### INFRA-330 - Rerun staged warm-up with controller-hosted stubs
+
+_Date: 2026-11-18_
+
+Prepare a focused rerun of the staged `1→5→50→300` two-minute quota profile after CORE-87.
+Keep the reference workload, HPA, measurement windows, and forwarding-producer settings, but move
+the HTTP stubs from the worker to the controller now that Redis traffic uses the second network
+interface. Run only the staged target so its CPU and latency behavior can be evaluated before the
+next profile is selected.
+The focused materialization regression and all 86 shared orchestration tests pass. The experiment
+is installed in the internal lab with controller placement asserted explicitly; it was not started
+automatically.
