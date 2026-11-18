@@ -195,6 +195,7 @@
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
+| [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota ramp curve configurable. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -515,6 +516,8 @@
 | [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
 | [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
+| [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
+| [INFRA-327](#infra-327) | Compare quadratic and linear three-minute warm-up ramps to 300/s with a cold scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6397,3 +6400,49 @@ tests, nine focused internal-lab tests, experiment validation, and the real Dock
 The lifecycle covers retained records, an empty replacement volume, incompatible metadata, finished
 bootstrap, independent listeners, and container termination after broker exit. No experiment run was
 started by this task.
+
+<a id="infra-326"></a>
+### INFRA-326 - Compare quadratic warm-up with cold scale-up
+
+_Date: 2026-11-17_
+
+Add a focused two-target internal-lab experiment using the tuned 14k three-to-four-pod scale-up.
+Compare the CORE-86 default quadratic ramp from 1 to 150 records per second for each mapping over
+three minutes with an otherwise identical target where traffic warm-up is disabled. Retain the same
+load profile, four-minute upper plateau, HPA, resources, processing profile, Kafka topology, JIT
+logging, packet capture, audit, metrics, and evidence so the warm and cold transitions are directly
+comparable. Validate and install the experiment without starting it automatically.
+
+The focused experiment contains exactly two targets: the CORE-86 default quadratic ramp from 1 to
+150 records per second on each of three mappings over 180 seconds, and a cold target with
+`TRAFFIC_WARMUP_ENABLED=false`. Both retain the tuned 14k load, three-to-four-pod HPA transition,
+`775m` application request, four-minute upper plateau, JIT logging, and five-minute port-9092 packet
+capture. A materialization regression verifies both rendered deployments and also updates the stale
+INFRA-324 single-target expectations. Canonical validation, the two focused materialization tests,
+and all 84 shared experiment-orchestration tests pass. No experiment run was started.
+
+<a id="demo-107"></a>
+### DEMO-107 - Configure warm-up quota ramp curves
+
+_Date: 2026-11-17_
+
+Expose the CORE quota-ramp curve on every demo warm-up mapping while retaining `QUADRATIC` as the
+default. Pass the immutable configured value into the public warm-up DSL so experiments can compare
+linear and quadratic ramps without changing application code.
+
+Add one environment setting per mapping, bind case-insensitive Spring values to `QuotaRampCurve`,
+and verify explicit linear and quadratic values together with the quadratic default. The focused
+demo configuration test passes.
+
+<a id="infra-327"></a>
+### INFRA-327 - Compare 300/s quadratic and linear warm-up ramps
+
+_Date: 2026-11-17_
+
+Raise the three-minute warm-up ceiling from 150 to 300 records per second for every mapping and add
+an otherwise identical linear-ramp target. Retain the cold target, load profile, HPA timing,
+resources, diagnostics, and evidence so the two curves and cold transition remain comparable.
+
+Replace the completed 150/s comparison definition with a focused three-target definition containing
+quadratic 1-to-300/s, linear 1-to-300/s, and cold starts. Materialization verifies all three mapping
+curves and quotas; all 84 shared experiment-orchestration tests pass. No experiment was started.
