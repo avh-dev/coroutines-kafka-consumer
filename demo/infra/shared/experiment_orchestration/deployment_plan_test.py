@@ -269,6 +269,36 @@ class DeploymentPlanTest(unittest.TestCase):
             self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
             self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
+    def test_materializes_linear_warmup_reference_after_parallel_result_delivery(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-linear-warmup-reference-scale-up-14k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "linear-warmup-reference"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            ["ckc.linear-warmup-reference-1-to-100-180s"],
+            [target.target.name for target in targets],
+        )
+        plan, definition, environment = self._materialized_application(targets[0])
+        self._assert_fourth_pod_scale_up(plan)
+        self.assertNotIn("diagnostic_steps", definition)
+        self.assertEqual(
+            [
+                {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+            ],
+            definition["load_test"]["measurement_windows"],
+        )
+        self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (180s, linear reference) -> 100",
+                environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        self.assertEqual("180", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+        self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
     def _materialized_application(self, target):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
         definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
