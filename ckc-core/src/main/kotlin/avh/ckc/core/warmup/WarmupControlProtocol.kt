@@ -25,24 +25,19 @@ internal sealed interface WarmupControlMessage {
 
 /** Immutable per-mapping quota carried by every offer and acceptance. */
 internal data class WarmupMappingQuota(
-    val quotaPerInterval: Int,
-    val initialQuotaPerInterval: Int = quotaPerInterval,
-    val quotaIntervalMillis: Long = 1_000,
-    val quotaRampDurationMillis: Long = 0,
-    val quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC
+    val profile: WarmupQuotaProfile,
+    val quotaIntervalMillis: Long = 1_000
 ) {
+    constructor(quota: Int, quotaIntervalMillis: Long = 1_000) :
+        this(WarmupQuotaProfile.constant(quota), quotaIntervalMillis)
+
     init {
-        require(quotaPerInterval > 0) { "Mapping quota must be positive" }
-        require(initialQuotaPerInterval in 1..quotaPerInterval) {
-            "Initial mapping quota must be between 1 and the steady quota"
-        }
         require(quotaIntervalMillis > 0) { "Mapping quota interval must be positive" }
-        require(quotaRampDurationMillis >= 0) { "Mapping quota ramp duration must not be negative" }
     }
 
     /** Admission units are records per second, rounded up so capacity is never under-accounted. */
     fun admissionBudgetPerSecond(): Int {
-        val numerator = Math.multiplyExact(quotaPerInterval.toLong(), 1_000L)
+        val numerator = Math.multiplyExact(profile.maximumQuota.toLong(), 1_000L)
         return Math.ceilDiv(numerator, quotaIntervalMillis).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 }

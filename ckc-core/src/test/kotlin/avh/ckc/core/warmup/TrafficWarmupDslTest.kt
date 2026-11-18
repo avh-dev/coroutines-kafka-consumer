@@ -3,20 +3,25 @@ package avh.ckc.core.warmup
 import org.apache.kafka.clients.CommonClientConfigs
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class TrafficWarmupDslTest {
     @Test
-    fun `mapping quota defaults to quadratic ramp and accepts linear selection`() {
+    fun `mapping quota profile is parsed while the DSL configuration is built`() {
         val configuration = TrafficWarmupConsumerConfiguration().apply {
-            mapTopic("orders", "warmup-orders")
-            mapTopic("batch", "warmup-batch") {
-                quotaRampCurve = QuotaRampCurve.LINEAR
+            mapTopic("orders", "warmup-orders") {
+                quotaProfile = "5 -> (0s, step) -> 50"
             }
         }
 
-        assertEquals(QuotaRampCurve.QUADRATIC, configuration.mappings.getValue("orders").quota.quotaRampCurve)
-        assertEquals(QuotaRampCurve.LINEAR, configuration.mappings.getValue("batch").quota.quotaRampCurve)
+        assertEquals(
+            WarmupQuotaProfile(5, listOf(WarmupQuotaPhase(0, 50))),
+            configuration.mappings.getValue("orders").quota.profile
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            configuration.mapTopic("batch", "warmup-batch") { quotaProfile = "invalid" }
+        }
     }
 
     @Test
@@ -49,21 +54,26 @@ class TrafficWarmupDslTest {
     }
 
     @Test
-    fun `mapping fingerprint includes the selected quota ramp curve`() {
+    fun `mapping fingerprint uses normalized behavior rather than formatting or labels`() {
         val participant = WarmupParticipantId("orders")
         val connection = mapOf(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG to "broker:9092")
-        val quadratic = TrafficWarmupConsumerConfiguration.Mapping(
+        fun mapping(profile: String) = TrafficWarmupConsumerConfiguration.Mapping(
             "orders",
             "warmup-orders",
-            WarmupMappingQuota(100)
-        )
-        val linear = quadratic.copy(
-            quota = quadratic.quota.copy(quotaRampCurve = QuotaRampCurve.LINEAR)
+            WarmupMappingQuota(WarmupQuotaProfileParser.parse(profile))
         )
 
+        val first = mapping("5 -> (10s, first) -> 100")
+        val equivalent = mapping(" 5->(10S, ignored)->100 ")
+        val different = mapping("5 -> (9s, first) -> 100")
+
+        assertEquals(
+            mappingFingerprint(participant, first, connection),
+            mappingFingerprint(participant, equivalent, connection)
+        )
         assertNotEquals(
-            mappingFingerprint(participant, quadratic, connection),
-            mappingFingerprint(participant, linear, connection)
+            mappingFingerprint(participant, first, connection),
+            mappingFingerprint(participant, different, connection)
         )
     }
 }

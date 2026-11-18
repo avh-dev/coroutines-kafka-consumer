@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -50,6 +49,16 @@ class LogicalWarmupDonorSessionTest {
         assertNull(lane.tryBeginDelegation(record("busy", 2)))
     }
 
+    @Test
+    fun `admission budget uses the maximum quota anywhere in the profile`() {
+        val quota = WarmupMappingQuota(
+            WarmupQuotaProfileParser.parse("5 -> (10s) -> 100 -> (10s) -> 20"),
+            quotaIntervalMillis = 2_000
+        )
+
+        assertEquals(50, quota.admissionBudgetPerSecond())
+    }
+
     private fun mapping(topic: String, quota: WarmupMappingQuota) = WarmupTopicMapping(
         WarmupParticipantId("participant"),
         topic,
@@ -63,10 +72,8 @@ class LogicalWarmupDonorSessionTest {
         mapping: WarmupTopicMapping
     ) = WarmupDonorSession(
         sessionId = sessionId,
-        intervalBudget = mapping.quota.quotaPerInterval,
+        quotaProfile = mapping.quota.profile,
         quotaInterval = mapping.quota.quotaIntervalMillis.milliseconds,
-        initialQuota = mapping.quota.initialQuotaPerInterval,
-        quotaRampDuration = Duration.ZERO,
         delegationTimeout = 1.seconds,
         destinationResolver = WarmupDestinationResolver { WarmupDestination(mapping.warmupTopic) },
         sender = object : WarmupRecordSender<String, String> {

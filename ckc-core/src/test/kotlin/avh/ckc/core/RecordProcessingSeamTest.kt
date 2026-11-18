@@ -14,6 +14,7 @@ import avh.ckc.core.warmup.WarmupDestinationResolver
 import avh.ckc.core.warmup.WarmupDonorSession
 import avh.ckc.core.warmup.WarmupForwardedEvent
 import avh.ckc.core.warmup.WarmupRecordSender
+import avh.ckc.core.warmup.WarmupQuotaProfile
 import avh.ckc.core.warmup.WarmupSendAcknowledgement
 import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
@@ -42,7 +43,7 @@ class RecordProcessingSeamTest {
         val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val session = WarmupDonorSession(
             sessionId = WarmupSessionId("revoked"),
-            intervalBudget = 10,
+            quotaProfile = WarmupQuotaProfile.constant(10),
             quotaInterval = 1.seconds,
             delegationTimeout = 100.milliseconds,
             destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },

@@ -88,7 +88,7 @@
 | [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
 | [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
 | [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
-| [CORE-86](#core-86) | Ramp mapping quotas quadratically to protect cold recipients and donors while retaining a simple duration-based DSL. | DONE |
+| [CORE-86](#core-86) | Configure each warm-up mapping quota with a normalized generator-style string profile. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -195,7 +195,7 @@
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
-| [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota ramp curve configurable. | DONE |
+| [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota profile configurable. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -517,7 +517,7 @@
 | [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
-| [INFRA-327](#infra-327) | Compare quadratic and linear three-minute warm-up ramps to 300/s with a cold scale-up. | DONE |
+| [INFRA-327](#infra-327) | Compare staged and direct-linear three-minute warm-up profiles to 300/s with a cold scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6262,25 +6262,25 @@ asynchronous callback failure, acknowledgement validation, and session-header re
 core unit tests and all 48 real-Kafka integration tests pass; no experiment run was started.
 
 <a id="core-86"></a>
-### CORE-86 - Ramp warm-up mapping quotas quadratically
+### CORE-86 - Configure warm-up quota with a flexible string profile
 
-_Date: 2026-11-17_
+_Date: 2026-11-18_
 
-Add a quadratic mapping-quota ramp as the default while retaining an explicit linear alternative.
-Keep the public DSL limited to initial quota, maximum quota, interval, duration, and a small curve
-enum: users do not tune coefficients or coordinate mapping schedules. Preserve lazy ramp start,
-non-carrying interval budgets, exact initial and terminal limits, and independent quotas for every
-mapping and donor session. Carry the selected curve in the immutable control contract and mapping
-fingerprint, document both curves, and cover their intermediate limits and boundary behavior.
+Replace the interim linear/quadratic ramp selector with one generator-style `quotaProfile` string
+per mapping. Profiles combine absolute quotas, labelled holds, linear transitions, and zero-duration
+jumps; they may increase or decrease and hold their final value until the donor session ends.
 
-Mapping quotas default to `initial + floor((maximum - initial) * progress²)` while retaining the
-existing lazy start, interval reset, and exact terminal maximum. The public DSL also offers the
-coefficient-free `LINEAR` alternative. The selected curve travels with every mapping and contributes
-to its fingerprint, so a donor cannot silently apply a different ramp. KDoc and the GLOBAL-5
-architecture describe both curves; focused regressions verify their intermediate and terminal
-budgets without carry-over, the public default and selection, codec round-trip, and fingerprint
-isolation. All 313 core unit tests pass; no Kafka integration, smoke, load, chaos, or experiment run
-was started.
+Parse and validate the profile once while building the participant configuration. Carry only its
+normalized numeric initial quota and phases in mapping fingerprints and protocol-v6 control
+messages, ignoring labels and formatting. Start each mapping/session profile lazily on its first
+delegation attempt, preserve the current quota window across phase changes, discard unused budget
+between windows, and charge admission against the profile peak.
+
+Remove the interim `QuotaRampCurve`, initial quota, ramp duration, and quadratic formula. Adapt the
+demo to one profile string per mapping and convert dependent experiments to explicit direct-linear
+or staged profiles. All 320 core unit tests, 48 real-Kafka integration tests, 110 demo unit tests,
+and 84 shared experiment-orchestration tests pass. No smoke, load, chaos, or experiment run was
+started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image
@@ -6422,27 +6422,22 @@ INFRA-324 single-target expectations. Canonical validation, the two focused mate
 and all 84 shared experiment-orchestration tests pass. No experiment run was started.
 
 <a id="demo-107"></a>
-### DEMO-107 - Configure warm-up quota ramp curves
+### DEMO-107 - Configure warm-up quota profiles
 
 _Date: 2026-11-17_
 
-Expose the CORE quota-ramp curve on every demo warm-up mapping while retaining `QUADRATIC` as the
-default. Pass the immutable configured value into the public warm-up DSL so experiments can compare
-linear and quadratic ramps without changing application code.
-
-Add one environment setting per mapping, bind case-insensitive Spring values to `QuotaRampCurve`,
-and verify explicit linear and quadratic values together with the quadratic default. The focused
-demo configuration test passes.
+Expose one CORE `quotaProfile` string for every demo warm-up mapping and pass it unchanged into the
+public warm-up DSL. Keep the constant profile `10` as the demo default and allow experiments to
+define holds, linear transitions, and instantaneous changes without changing application code. The
+focused demo configuration test covers defaults and independent mapping profiles.
 
 <a id="infra-327"></a>
-### INFRA-327 - Compare 300/s quadratic and linear warm-up ramps
+### INFRA-327 - Compare 300/s staged and direct-linear warm-up profiles
 
 _Date: 2026-11-17_
 
-Raise the three-minute warm-up ceiling from 150 to 300 records per second for every mapping and add
-an otherwise identical linear-ramp target. Retain the cold target, load profile, HPA timing,
-resources, diagnostics, and evidence so the two curves and cold transition remain comparable.
-
-Replace the completed 150/s comparison definition with a focused three-target definition containing
-quadratic 1-to-300/s, linear 1-to-300/s, and cold starts. Materialization verifies all three mapping
-curves and quotas; all 84 shared experiment-orchestration tests pass. No experiment was started.
+Raise the three-minute warm-up ceiling to 300 records per second for every mapping. Compare a staged
+piecewise-linear approximation of the earlier slow-start behavior with a direct 1-to-300 linear
+profile and an otherwise identical cold target. Retain the load profile, HPA timing, resources,
+diagnostics, and evidence. Materialization verifies the normalized profile strings for both warm
+targets; no experiment was started.

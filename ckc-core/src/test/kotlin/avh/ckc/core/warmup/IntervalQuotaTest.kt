@@ -7,51 +7,57 @@ import kotlin.time.Duration.Companion.seconds
 
 class IntervalQuotaTest {
     @Test
-    fun `quota ramps quadratically from the initial limit without carrying unused capacity`() {
-        var now = 0L
+    fun `profile starts lazily and unused budget does not carry between windows`() {
+        var now = 100.seconds.inWholeNanoseconds
         val quota = IntervalQuota(
-            limit = 10,
+            profile = WarmupQuotaProfileParser.parse("2 -> (10s, ramp) -> 10"),
             interval = 1.seconds,
-            initialLimit = 2,
-            rampDuration = 10.seconds,
             nanoTime = { now }
         )
 
-        assertTrue(quota.tryAcquire())
-        assertTrue(quota.tryAcquire())
+        repeat(2) { assertTrue(quota.tryAcquire()) }
         assertFalse(quota.tryAcquire())
 
-        now = 5.seconds.inWholeNanoseconds
-        repeat(4) { assertTrue(quota.tryAcquire()) }
-        assertFalse(quota.tryAcquire())
-
-        now = 7_500_000_000L
+        now += 5.seconds.inWholeNanoseconds
         repeat(6) { assertTrue(quota.tryAcquire()) }
         assertFalse(quota.tryAcquire())
 
-        now = 10.seconds.inWholeNanoseconds
+        now += 5.seconds.inWholeNanoseconds
         repeat(10) { assertTrue(quota.tryAcquire()) }
         assertFalse(quota.tryAcquire())
     }
 
     @Test
-    fun `linear curve retains a constant increase`() {
+    fun `profile transition does not reset the current quota window`() {
         var now = 0L
         val quota = IntervalQuota(
-            limit = 10,
-            interval = 1.seconds,
-            initialLimit = 2,
-            rampDuration = 10.seconds,
-            rampCurve = QuotaRampCurve.LINEAR,
+            profile = WarmupQuotaProfileParser.parse("2 -> (5s) -> 6"),
+            interval = 10.seconds,
             nanoTime = { now }
         )
 
-        assertTrue(quota.tryAcquire())
-        assertTrue(quota.tryAcquire())
+        repeat(2) { assertTrue(quota.tryAcquire()) }
         assertFalse(quota.tryAcquire())
 
         now = 5.seconds.inWholeNanoseconds
-        repeat(6) { assertTrue(quota.tryAcquire()) }
+        repeat(4) { assertTrue(quota.tryAcquire()) }
         assertFalse(quota.tryAcquire())
+    }
+
+    @Test
+    fun `mapping and session quota instances keep independent lazy profile clocks`() {
+        var firstNow = 0L
+        var secondNow = 0L
+        val profile = WarmupQuotaProfileParser.parse("0 -> (10s) -> 10")
+        val first = IntervalQuota(profile, 1.seconds) { firstNow }
+        val second = IntervalQuota(profile, 1.seconds) { secondNow }
+
+        assertFalse(first.tryAcquire())
+        assertFalse(second.tryAcquire())
+
+        firstNow = 5.seconds.inWholeNanoseconds
+        repeat(5) { assertTrue(first.tryAcquire()) }
+        assertFalse(first.tryAcquire())
+        assertFalse(second.tryAcquire())
     }
 }
