@@ -216,39 +216,46 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("14m", definition["diagnostic_steps"][0]["at"])
         self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
 
-    def test_materializes_warmup_profile_and_cold_comparison(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-warmup-profiles-300-vs-cold-scale-up-14k-local.yaml"
+    def test_materializes_staged_and_linear_warmup_profile_comparison(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-staged-vs-linear-warmup-300-scale-up-14k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
-        root = Path(self.temp.name) / "warmup-profiles-vs-cold"
+        root = Path(self.temp.name) / "staged-vs-linear-warmup"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
 
         self.assertEqual(
-            ["ckc.staged-warmup-1-to-300-180s", "ckc.linear-warmup-1-to-300-180s", "ckc.cold"],
+            ["ckc.staged-step-warmup-1-to-300-120s", "ckc.linear-warmup-1-to-300-120s"],
             [target.target.name for target in targets],
         )
         materialized = [self._materialized_application(target) for target in targets]
         for plan, definition, _ in materialized:
             self._assert_fourth_pod_scale_up(plan)
-            self.assertEqual("14m", definition["diagnostic_steps"][0]["at"])
-            self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
+            self.assertNotIn("diagnostic_steps", definition)
+            self.assertEqual(
+                [
+                    {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                    {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+                ],
+                definition["load_test"]["measurement_windows"],
+            )
 
         staged = materialized[0][2]
         linear = materialized[1][2]
-        cold = materialized[2][2]
         self.assertEqual("true", staged["TRAFFIC_WARMUP_ENABLED"])
         self.assertEqual("true", linear["TRAFFIC_WARMUP_ENABLED"])
-        self.assertEqual("false", cold["TRAFFIC_WARMUP_ENABLED"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertEqual(
-                "1 -> (60s, slow start) -> 34 -> (60s, middle) -> 133 -> (60s, final) -> 300",
+                "1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> "
+                "(0s, step) -> 300 -> (60s, hold) -> 300",
                 staged[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
             )
             self.assertEqual(
-                "1 -> (180s, direct linear) -> 300",
+                "1 -> (120s, direct linear) -> 300",
                 linear[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
             )
-        self.assertEqual("180", staged["TRAFFIC_WARMUP_DURATION_SECONDS"])
-        self.assertEqual("180", linear["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        for environment in (staged, linear):
+            self.assertEqual("120", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+            self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+            self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
     def _materialized_application(self, target):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
