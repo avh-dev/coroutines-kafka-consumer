@@ -57,6 +57,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(90, properties.trafficWarmup.durationSeconds)
         assertEquals(4, properties.trafficWarmup.maxDonorSessions)
         assertEquals(5, properties.trafficWarmup.producerLingerMs)
+        assertEquals(16_384, properties.trafficWarmup.producerBatchSize)
         assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)
         assertEquals("", properties.model.etaBaseUrl)
         assertEquals("", properties.model.flavourBaseUrl)
@@ -129,6 +130,7 @@ class DemoApplicationPropertiesTest {
                 "demo.traffic-warmup.max-donor-sessions" to "3",
                 "demo.traffic-warmup.max-aggregate-quota-per-second" to "250",
                 "demo.traffic-warmup.producer-linger-ms" to "9",
+                "demo.traffic-warmup.producer-batch-size" to "32768",
                 "demo.model.base-url" to "http://models.example",
                 "demo.model.eta-base-url" to "http://eta.example",
                 "demo.model.flavour-base-url" to "http://flavour.example",
@@ -206,6 +208,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(3, properties.trafficWarmup.maxDonorSessions)
         assertEquals(250, properties.trafficWarmup.maxAggregateQuotaPerSecond)
         assertEquals(9, properties.trafficWarmup.producerLingerMs)
+        assertEquals(32_768, properties.trafficWarmup.producerBatchSize)
         assertEquals("http://models.example", properties.model.baseUrl)
         assertEquals("http://eta.example", properties.model.etaBaseUrl)
         assertEquals("http://flavour.example", properties.model.flavourBaseUrl)
