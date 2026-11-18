@@ -179,26 +179,32 @@ internal object WarmupControlCodec {
         writeString(mapping.sourceTopic)
         writeString(mapping.warmupTopic)
         writeString(mapping.mappingFingerprint)
-        writeInt(mapping.quota.quotaPerInterval)
-        writeInt(mapping.quota.initialQuotaPerInterval)
         writeLong(mapping.quota.quotaIntervalMillis)
-        writeLong(mapping.quota.quotaRampDurationMillis)
-        writeByte(mapping.quota.quotaRampCurve.protocolId)
+        writeInt(mapping.quota.profile.initialQuota)
+        writeCollection(mapping.quota.profile.phases) {
+            writeLong(it.durationMillis)
+            writeInt(it.targetQuota)
+        }
     }
 
-    private fun DataInputStream.readMapping() = WarmupTopicMapping(
-        WarmupParticipantId(readString()),
-        readString(),
-        readString(),
-        readString(),
-        WarmupMappingQuota(
-            readInt(),
-            readInt(),
-            readLong(),
-            readLong(),
-            QuotaRampCurve.fromProtocolId(readUnsignedByte())
+    private fun DataInputStream.readMapping(): WarmupTopicMapping {
+        val participantId = WarmupParticipantId(readString())
+        val sourceTopic = readString()
+        val warmupTopic = readString()
+        val fingerprint = readString()
+        val intervalMillis = readLong()
+        val profile = WarmupQuotaProfile(
+            initialQuota = readInt(),
+            phases = readCollection { WarmupQuotaPhase(readLong(), readInt()) }
         )
-    )
+        return WarmupTopicMapping(
+            participantId,
+            sourceTopic,
+            warmupTopic,
+            fingerprint,
+            WarmupMappingQuota(profile, intervalMillis)
+        )
+    }
 
     private fun DataOutputStream.writeDonorMapping(mapping: WarmupDonorMapping) {
         writeMapping(mapping.mapping)

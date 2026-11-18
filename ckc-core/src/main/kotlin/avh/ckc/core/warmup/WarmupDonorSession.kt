@@ -32,11 +32,8 @@ internal fun interface WarmupDestinationResolver<K, V> {
  */
 internal class WarmupDonorSession<K, V>(
     override val sessionId: WarmupSessionId,
-    val intervalBudget: Int,
+    quotaProfile: WarmupQuotaProfile,
     quotaInterval: Duration,
-    initialQuota: Int = intervalBudget,
-    quotaRampDuration: Duration = Duration.ZERO,
-    quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC,
     private val delegationTimeout: Duration,
     private val destinationResolver: WarmupDestinationResolver<K, V>,
     private val sender: WarmupRecordSender<K, V>,
@@ -47,16 +44,13 @@ internal class WarmupDonorSession<K, V>(
     earlyResultTtl: Duration = delegationTimeout,
     nanoTime: () -> Long = System::nanoTime
 ) : WarmupDonorSessionLifecycle {
-    override val admissionBudgetPerSecond: Int = normalizedSessionBudget(intervalBudget, quotaInterval)
+    override val admissionBudgetPerSecond: Int = normalizedSessionBudget(quotaProfile.maximumQuota, quotaInterval)
     private enum class State { ADMITTED, ACTIVE, DRAINING, FAILED, CLOSED }
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val quota = IntervalQuota(
-        limit = intervalBudget,
+        profile = quotaProfile,
         interval = quotaInterval,
-        initialLimit = initialQuota,
-        rampDuration = quotaRampDuration,
-        rampCurve = quotaRampCurve,
         nanoTime = nanoTime
     )
     private val sessionLock = Any()

@@ -836,7 +836,7 @@ class WarmupDonorActivationTest {
         }
         return WarmupDonorSession(
             sessionId = sessionId,
-            intervalBudget = 10,
+            quotaProfile = WarmupQuotaProfile.constant(10),
             quotaInterval = 1.seconds,
             delegationTimeout = 1.seconds,
             destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup-orders") },

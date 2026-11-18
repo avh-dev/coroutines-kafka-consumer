@@ -66,11 +66,8 @@ internal class TrafficWarmupParticipant<K, V>(
                 val quota = mapping.quota
                 sessions[mapping] = WarmupDonorSession(
                     sessionId = acceptance.sessionId,
-                    intervalBudget = quota.quotaPerInterval,
-                    initialQuota = quota.initialQuotaPerInterval,
+                    quotaProfile = quota.profile,
                     quotaInterval = quota.quotaIntervalMillis.milliseconds,
-                    quotaRampDuration = quota.quotaRampDurationMillis.milliseconds,
-                    quotaRampCurve = quota.quotaRampCurve,
                     delegationTimeout = delegationTimeoutMillis.milliseconds,
                     destinationResolver = WarmupDestinationResolver { record ->
                         if (record.topic() == mapping.sourceTopic) WarmupDestination(mapping.warmupTopic) else null
@@ -203,11 +200,9 @@ internal fun mappingFingerprint(
         mapping.sourceTopic,
         mapping.warmupTopic,
         bootstrapIdentity(warmupConsumerProperties[CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG]),
-        mapping.quota.quotaPerInterval,
-        mapping.quota.initialQuotaPerInterval,
         mapping.quota.quotaIntervalMillis,
-        mapping.quota.quotaRampDurationMillis,
-        mapping.quota.quotaRampCurve.name
+        mapping.quota.profile.initialQuota,
+        mapping.quota.profile.phases.joinToString(";") { "${it.durationMillis}:${it.targetQuota}" }
     ).joinToString("\u0000").toByteArray(Charsets.UTF_8)
 ).toString()
 

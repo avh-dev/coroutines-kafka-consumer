@@ -279,17 +279,22 @@ For each admitted source record:
    terminal failure or infrastructure failure to the defined local fallback while ownership is
    still valid.
 
-Each session owns its quota ramp, pending-result tracker, inflight drain, deadline, destinations,
+Each session owns its mapping quota profiles, pending-result tracker, inflight drain, deadline, destinations,
 and failure state. Global participant limits cap session count and the sum of configured interval
 budgets. Failure or closure of one session detaches only that session. It does not stop other donor
 sessions, the main consumer, or locally handled records.
 
-The ramp starts on the first delegation attempt, reaches the exact maximum at
-`quotaRampDuration`, and does not carry unused capacity between intervals. `quotaRampCurve` selects
-`QUADRATIC` (the default) or `LINEAR`; neither curve exposes coefficients. At normalized time `p`,
-quadratic quota is `initial + floor((maximum - initial) * p²)` and linear quota replaces `p²` with
-`p`. The selected curve is part of the immutable mapping fingerprint and control contract. Mappings
-retain independent limits, intervals, durations, and curves.
+`quotaProfile` uses the generator-style form `quota -> (duration, optional label) -> quota`.
+Equal endpoints form a hold, unequal endpoints with a non-zero duration form a linear transition,
+and `0s` performs an instantaneous change. Quotas are absolute budgets for one `quotaInterval`, may
+be zero, may increase or decrease, and hold the last value after the profile ends. The profile starts
+on the first delegation attempt and phase changes do not reset the current quota window; unused
+capacity never carries into a later window.
+
+Configuration building parses and validates the string once. Fingerprints and control messages use
+only the normalized numeric initial quota and `(durationMillis, targetQuota)` phases, so whitespace
+and labels do not affect compatibility. Admission uses the largest quota anywhere in the profile.
+Every mapping in every donor session has an independent clock and quota state.
 
 ## Recipient early filtering and offsets
 

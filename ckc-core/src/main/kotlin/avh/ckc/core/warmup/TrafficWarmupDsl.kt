@@ -6,17 +6,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-/** Shape used to grow a mapping quota from its initial to maximum value. */
-enum class QuotaRampCurve(internal val protocolId: Int) {
-    LINEAR(0),
-    QUADRATIC(1);
-
-    internal companion object {
-        fun fromProtocolId(id: Int): QuotaRampCurve = entries.firstOrNull { it.protocolId == id }
-            ?: throw IllegalArgumentException("Unknown warm-up quota ramp curve: $id")
-    }
-}
-
 /** Public protocol settings shared by every participant in one local context. */
 class TrafficWarmupContextConfiguration {
     var instanceId: String = UUID.randomUUID().toString()
@@ -47,33 +36,18 @@ class TrafficWarmupContextConfiguration {
 
 /** Per-mapping quota; unused capacity is never transferred to another mapping. */
 class TrafficWarmupMappingConfiguration internal constructor() {
-    private var initialQuotaExplicit = false
-    var quotaPerInterval: Int = 10
-        set(value) {
-            field = value
-            if (!initialQuotaExplicit) initialQuota = value
-        }
-    private var initialQuota: Int = quotaPerInterval
-    var initialQuotaPerInterval: Int
-        get() = initialQuota
-        set(value) {
-            initialQuotaExplicit = true
-            initialQuota = value
-        }
+    /**
+     * Absolute per-[quotaInterval] budget over time, using generator-style phase syntax.
+     *
+     * Equal endpoints hold a quota, unequal endpoints transition linearly, and a `0s` phase changes
+     * it immediately. The last value is held until the donor session ends.
+     */
+    var quotaProfile: String = "10"
     var quotaInterval: Duration = 1.seconds
 
-    /** Curve used to grow the quota. Quadratic growth protects cold recipients by default. */
-    var quotaRampCurve: QuotaRampCurve = QuotaRampCurve.QUADRATIC
-
-    /** Duration of the ramp from the initial to maximum quota. */
-    var quotaRampDuration: Duration = Duration.ZERO
-
     internal fun toProtocolQuota(): WarmupMappingQuota = WarmupMappingQuota(
-        quotaPerInterval = quotaPerInterval,
-        initialQuotaPerInterval = initialQuotaPerInterval,
-        quotaIntervalMillis = quotaInterval.inWholeMilliseconds,
-        quotaRampDurationMillis = quotaRampDuration.inWholeMilliseconds,
-        quotaRampCurve = quotaRampCurve
+        profile = WarmupQuotaProfileParser.parse(quotaProfile),
+        quotaIntervalMillis = quotaInterval.inWholeMilliseconds
     )
 }
 

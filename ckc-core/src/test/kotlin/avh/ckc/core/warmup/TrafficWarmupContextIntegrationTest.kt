@@ -621,7 +621,7 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { ordersHandled += it.value() }
             trafficWarmup(context, "orders") {
-                mapTopic(topics.orders, topics.warmupOrders) { quotaPerInterval = 100 }
+                mapTopic(topics.orders, topics.warmupOrders) { quotaProfile = "100" }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(StringSerializer::class.java)
             }
@@ -635,7 +635,7 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { batchesHandled += it.value() }
             trafficWarmup(context, "batches") {
-                mapTopic(topics.batches, topics.warmupBatches) { quotaPerInterval = 100 }
+                mapTopic(topics.batches, topics.warmupBatches) { quotaProfile = "100" }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(ByteArraySerializer::class.java)
             }
@@ -649,7 +649,7 @@ class TrafficWarmupContextIntegrationTest {
             commitRecordsThreshold = 1
             handle { telemetryHandled += it.value() }
             trafficWarmup(context, "telemetry") {
-                mapTopic(topics.telemetry, topics.warmupTelemetry) { quotaPerInterval = 100 }
+                mapTopic(topics.telemetry, topics.warmupTelemetry) { quotaProfile = "100" }
                 warmupConsumerProperties = warmupConsumerConnection()
                 forwardingProducerProperties = forwardingConnection(LongSerializer::class.java)
             }

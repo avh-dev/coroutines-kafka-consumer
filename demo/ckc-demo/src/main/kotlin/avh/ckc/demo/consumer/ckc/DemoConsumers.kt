@@ -287,11 +287,8 @@ object DemoConsumers {
         requireNotNull(quota) { "Warm-up quota is required for participant '$participantId'" }
         trafficWarmup(warmup.context, participantId) {
             mapTopic(sourceTopic, warmupTopic) {
-                quotaPerInterval = quota.quotaPerInterval
-                quota.initialQuotaPerInterval?.let { initialQuotaPerInterval = it }
+                quotaProfile = quota.quotaProfile
                 quotaInterval = quota.quotaIntervalMs.milliseconds
-                quotaRampDuration = quota.quotaRampSeconds.seconds
-                quotaRampCurve = quota.quotaRampCurve
             }
             warmupConsumerProperties = warmup.consumerProperties
             forwardingProducerProperties = warmup.producerProperties + mapOf(
