@@ -215,6 +215,7 @@ demo:
     max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
     max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
     producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+    producer-batch-size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}

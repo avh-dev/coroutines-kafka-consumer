@@ -196,6 +196,7 @@
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
 | [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
 | [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota profile configurable. | DONE |
+| [DEMO-108](#demo-108) | Make the demo warm-up forwarding producer batch size configurable. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6430,6 +6431,16 @@ Expose one CORE `quotaProfile` string for every demo warm-up mapping and pass it
 public warm-up DSL. Keep the constant profile `10` as the demo default and allow experiments to
 define holds, linear transitions, and instantaneous changes without changing application code. The
 focused demo configuration test covers defaults and independent mapping profiles.
+
+<a id="demo-108"></a>
+### DEMO-108 - Configure warm-up forwarding producer batch size
+
+_Date: 2026-11-18_
+
+Expose the forwarding producer `batch.size` independently from the main load-generator producers.
+Keep the Kafka default-compatible 16 KiB demo value and allow experiments to raise it without
+changing application code. Preserve the independently configurable forwarding `linger.ms`.
+The focused binding test covers both the default and an explicit 32 KiB override.
 
 <a id="infra-327"></a>
 ### INFRA-327 - Compare 300/s staged and direct-linear warm-up profiles

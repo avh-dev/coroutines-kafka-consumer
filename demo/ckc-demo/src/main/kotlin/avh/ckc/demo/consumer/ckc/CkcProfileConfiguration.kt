@@ -219,7 +219,8 @@ private class CkcConsumerRuntime(
             consumerProperties = destinationProperties,
             producerProperties = destinationProperties + mapOf(
                 ProducerConfig.ACKS_CONFIG to "all",
-                ProducerConfig.LINGER_MS_CONFIG to warmup.producerLingerMs
+                ProducerConfig.LINGER_MS_CONFIG to warmup.producerLingerMs,
+                ProducerConfig.BATCH_SIZE_CONFIG to warmup.producerBatchSize
             ),
             configuration = warmup
         )
