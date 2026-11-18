@@ -518,7 +518,7 @@
 | [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
 | [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
 | [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
-| [INFRA-327](#infra-327) | Compare staged and direct-linear three-minute warm-up profiles to 300/s with a cold scale-up. | DONE |
+| [INFRA-327](#infra-327) | Compare staged-step and direct-linear two-minute warm-up profiles to 300/s. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6447,8 +6447,11 @@ The focused binding test covers both the default and an explicit 32 KiB override
 
 _Date: 2026-11-17_
 
-Raise the three-minute warm-up ceiling to 300 records per second for every mapping. Compare a staged
-piecewise-linear approximation of the earlier slow-start behavior with a direct 1-to-300 linear
-profile and an otherwise identical cold target. Retain the load profile, HPA timing, resources,
-diagnostics, and evidence. Materialization verifies the normalized profile strings for both warm
-targets; no experiment was started.
+Compare two two-minute profiles ending at 300 records per second for every mapping: a gentle
+`1→5` ramp followed by explicit `50` and `300` steps and holds, and a direct `1→300` linear ramp.
+Measure only the fourth-pod transition from minute 14 through 20 and the final settled plateau from
+minute 21 through 22; omit the uninteresting initial-three-pod window and packet capture. Use a
+32 KiB forwarding producer batch with the existing 15 ms linger for both targets.
+Materialization verifies both exact profiles, the two normalized measurement windows, the absence
+of diagnostics, and the forwarding producer settings. All 84 shared experiment-orchestration tests
+pass; no experiment was started automatically.

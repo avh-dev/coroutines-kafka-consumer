@@ -1,8 +1,8 @@
 schema_version: 2
-name: ckc-warmup-profiles-300-vs-cold-scale-up-14k-local
+name: ckc-staged-vs-linear-warmup-300-scale-up-14k-local
 description: >-
-  Compare three-minute staged and direct-linear shared-partition warm-up profiles to 300 records
-  per second per mapping with an otherwise identical cold fourth-pod start.
+  Compare a two-minute staged shared-partition warm-up profile with a direct-linear rise to 300
+  records per second per mapping during an otherwise identical fourth-pod start.
 workload:
   stubs:
     error_rate_percent: 0
@@ -51,28 +51,15 @@ workload:
     telemetry_settle_seconds: 60
     maximum_first_sample_delay_seconds: 90
   measurement_windows:
-  - {name: initial-three-pods, start: 0m, duration: 8m}
-  - {name: fourth-pod-scale-up, start: 8m, duration: 10m}
-  - {name: post-scale-up, start: 18m, duration: 4m}
+  - {name: fourth-pod-transition, start: 14m, duration: 6m}
+  - {name: settled-four-pod-plateau, start: 21m, duration: 1m}
   topics:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
-  diagnostics:
-  - at: 14m
-    type: tcpdump
-    name: fourth-pod-warmup-kafka
-    targets: [application]
-    duration: 5m
-    required: true
-    params:
-      interface: auto
-      snaplen: 0
-      filter: tcp port 9092
-      max_file_size: 128Mi
 targets:
-- name: ckc.staged-warmup-1-to-300-180s
-  annotation_label: CKC · staged warm-up 1→34→133→300/s over 180s · 3→4 pod · local 14k
+- name: ckc.staged-step-warmup-1-to-300-120s
+  annotation_label: CKC · staged warm-up 1→5→50→300/s over 120s · 3→4 pod · local 14k
   implementation: ckc
   placement: &worker_placement
     application: worker
@@ -123,26 +110,27 @@ targets:
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
       TRAFFIC_WARMUP_ENABLED: true
       TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
-      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (60s, slow start) -> 34 -> (60s, middle) -> 133 -> (60s, final) -> 300
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> (0s, step) -> 300 -> (60s, hold) -> 300
       TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
-      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (60s, slow start) -> 34 -> (60s, middle) -> 133 -> (60s, final) -> 300
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> (0s, step) -> 300 -> (60s, hold) -> 300
       TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
-      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (60s, slow start) -> 34 -> (60s, middle) -> 133 -> (60s, final) -> 300
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> (0s, step) -> 300 -> (60s, hold) -> 300
       TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
-      TRAFFIC_WARMUP_DURATION_SECONDS: 180
+      TRAFFIC_WARMUP_DURATION_SECONDS: 120
       TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_PRODUCER_LINGER_MS: 15
+      TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE: 32768
     planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
     parallelism: [workers]
     topics:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-- name: ckc.linear-warmup-1-to-300-180s
-  annotation_label: CKC · linear warm-up 1→300/s over 180s · 3→4 pod · local 14k
+- name: ckc.linear-warmup-1-to-300-120s
+  annotation_label: CKC · linear warm-up 1→300/s over 120s · 3→4 pod · local 14k
   implementation: ckc
   placement: *worker_placement
   application: *four_pod_application
@@ -150,19 +138,9 @@ targets:
     <<: *common_runtime
     env:
       <<: *warm_env
-      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (180s, direct linear) -> 300
-      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (180s, direct linear) -> 300
-      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (180s, direct linear) -> 300
-- name: ckc.cold
-  annotation_label: CKC · cold start · 3→4 pod · local 14k
-  implementation: ckc
-  placement: *worker_placement
-  application: *four_pod_application
-  runtime:
-    <<: *common_runtime
-    env:
-      <<: *warm_env
-      TRAFFIC_WARMUP_ENABLED: false
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (120s, direct linear) -> 300
 environments:
   internal-lab:
     lab:
