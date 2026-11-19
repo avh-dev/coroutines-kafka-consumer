@@ -10,6 +10,18 @@ KAFKA_BOOTSTRAP_BACKOFF_SECONDS="${KAFKA_BOOTSTRAP_BACKOFF_SECONDS:-2}"
 KAFKA_OPERATION_TIMEOUT_SECONDS="${KAFKA_OPERATION_TIMEOUT_SECONDS:-10}"
 KAFKA_CLIENT_CONFIG="${KAFKA_CLIENT_CONFIG:-/var/run/ckc-warmup-kafka/client.properties}"
 KAFKA_READY_FILE="${KAFKA_READY_FILE:-/var/run/ckc-warmup-kafka/ready}"
+KAFKA_PREWARM_ENABLED="${KAFKA_PREWARM_ENABLED:-true}"
+KAFKA_PREWARM_COMMAND="${KAFKA_PREWARM_COMMAND:-/opt/ckc-warmup-kafka/bin/prewarm-broker.sh}"
+prewarm_pid=""
+
+terminate_prewarm() {
+  if [[ -n "${prewarm_pid}" ]] && kill -0 "${prewarm_pid}" 2>/dev/null; then
+    kill -TERM "${prewarm_pid}" 2>/dev/null || true
+    wait "${prewarm_pid}" 2>/dev/null || true
+  fi
+  exit 130
+}
+trap terminate_prewarm TERM INT HUP
 
 log() {
   printf '%s warmup-kafka-bootstrap level=%s event=%s %s\n' \
@@ -26,6 +38,10 @@ positive_integer() {
 positive_integer KAFKA_BOOTSTRAP_TIMEOUT_SECONDS "${KAFKA_BOOTSTRAP_TIMEOUT_SECONDS}"
 positive_integer KAFKA_BOOTSTRAP_BACKOFF_SECONDS "${KAFKA_BOOTSTRAP_BACKOFF_SECONDS}"
 positive_integer KAFKA_OPERATION_TIMEOUT_SECONDS "${KAFKA_OPERATION_TIMEOUT_SECONDS}"
+if [[ "${KAFKA_PREWARM_ENABLED}" != "true" && "${KAFKA_PREWARM_ENABLED}" != "false" ]]; then
+  log error invalid_configuration "KAFKA_PREWARM_ENABLED must be true or false: ${KAFKA_PREWARM_ENABLED}"
+  exit 2
+fi
 
 declare -a topics=()
 declare -A seen_topics=()
@@ -129,6 +145,19 @@ for topic in "${topics[@]}"; do
     exit 1
   fi
 done
+
+if [[ "${KAFKA_PREWARM_ENABLED}" == "true" ]]; then
+  log info broker_prewarm_started "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+  "${KAFKA_PREWARM_COMMAND}" &
+  prewarm_pid=$!
+  if ! wait "${prewarm_pid}"; then
+    prewarm_pid=""
+    log error broker_prewarm_failed "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+    exit 1
+  fi
+  prewarm_pid=""
+  log info broker_prewarm_completed "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"
+fi
 
 printf '%s\n' "$(date +%s)" > "${KAFKA_READY_FILE}"
 log info topics_ready "count=${#topics[@]}"

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = ROOT / "scripts/bootstrap-topics.sh"
 READINESS = ROOT / "scripts/readiness.sh"
 SUPERVISOR = ROOT / "scripts/run.sh"
+PREWARM = ROOT / "scripts/prewarm-broker.sh"
 
 
 class WarmupKafkaScriptsTest(unittest.TestCase):
@@ -72,6 +73,7 @@ esac
             "KAFKA_BOOTSTRAP_TIMEOUT_SECONDS": "2",
             "KAFKA_BOOTSTRAP_BACKOFF_SECONDS": "1",
             "KAFKA_OPERATION_TIMEOUT_SECONDS": "2",
+            "KAFKA_PREWARM_ENABLED": "false",
             "KAFKA_READY_FILE": str(runtime / "ready"),
             "KAFKA_CLIENT_CONFIG": str(runtime / "client.properties"),
             "FAKE_KAFKA_STATE": str(self.root),
@@ -156,6 +158,79 @@ esac
         self.assertIn("incompatible_metadata", result.stderr)
         self.assertFalse(ready.exists())
 
+    def test_readiness_is_written_only_after_successful_prewarm(self) -> None:
+        prewarm = self.root / "prewarm.sh"
+        prewarm.write_text(
+            "#!/usr/bin/env bash\nprintf 'called\\n' > \"${FAKE_KAFKA_STATE}/prewarmed\"\n",
+            encoding="utf-8",
+        )
+        prewarm.chmod(0o755)
+        environment = self.environment("alpha")
+        environment.update({
+            "KAFKA_PREWARM_ENABLED": "true",
+            "KAFKA_PREWARM_COMMAND": str(prewarm),
+        })
+
+        result = subprocess.run(
+            [BOOTSTRAP], env=environment, text=True, capture_output=True, timeout=10
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue((self.root / "prewarmed").is_file())
+        self.assertTrue((self.root / "runtime/ready").is_file())
+        self.assertIn("broker_prewarm_completed", result.stderr)
+
+    def test_failed_prewarm_keeps_readiness_closed(self) -> None:
+        prewarm = self.root / "failed-prewarm.sh"
+        prewarm.write_text("#!/usr/bin/env bash\nexit 9\n", encoding="utf-8")
+        prewarm.chmod(0o755)
+        environment = self.environment("alpha")
+        environment.update({
+            "KAFKA_PREWARM_ENABLED": "true",
+            "KAFKA_PREWARM_COMMAND": str(prewarm),
+        })
+
+        result = subprocess.run(
+            [BOOTSTRAP], env=environment, text=True, capture_output=True, timeout=10
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("broker_prewarm_failed", result.stderr)
+        self.assertFalse((self.root / "runtime/ready").exists())
+
+    def test_stopping_bootstrap_stops_active_prewarm(self) -> None:
+        prewarm = self.root / "blocking-prewarm.sh"
+        prewarm.write_text(
+            "#!/usr/bin/env bash\n"
+            "trap 'printf stopped > \"${FAKE_KAFKA_STATE}/prewarm-stopped\"; exit 0' TERM INT HUP\n"
+            "printf started > \"${FAKE_KAFKA_STATE}/prewarm-started\"\n"
+            "while :; do sleep 1; done\n",
+            encoding="utf-8",
+        )
+        prewarm.chmod(0o755)
+        environment = self.environment("alpha")
+        environment.update({
+            "KAFKA_PREWARM_ENABLED": "true",
+            "KAFKA_PREWARM_COMMAND": str(prewarm),
+        })
+        process = subprocess.Popen(
+            [BOOTSTRAP], env=environment, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not (self.root / "prewarm-started").exists():
+                time.sleep(0.05)
+            self.assertTrue((self.root / "prewarm-started").exists())
+            process.terminate()
+            process.communicate(timeout=5)
+            self.assertTrue((self.root / "prewarm-stopped").exists())
+            self.assertFalse((self.root / "runtime/ready").exists())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=5)
+
     def test_invalid_or_empty_topic_configuration_is_rejected(self) -> None:
         for topics in ("", "alpha,,beta", "bad topic"):
             with self.subTest(topics=topics):
@@ -191,6 +266,18 @@ esac
         finally:
             listener.close()
             accepted.join(timeout=2)
+
+    def test_prewarm_rejects_an_unbounded_timeout_before_starting_java(self) -> None:
+        result = subprocess.run(
+            [PREWARM],
+            env={**os.environ, "KAFKA_PREWARM_TIMEOUT_SECONDS": "0"},
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("must be a positive integer", result.stderr)
 
     def test_supervisor_stops_broker_when_bootstrap_fails(self) -> None:
         runtime = self.root / "supervisor"
