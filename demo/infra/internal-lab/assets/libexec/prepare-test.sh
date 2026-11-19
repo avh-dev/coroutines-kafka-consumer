@@ -388,13 +388,35 @@ for override in "${ENV_OVERRIDES[@]}"; do
 done
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
 WARMUP_KAFKA_ENABLED="$(python3 -c 'import sys, yaml; plan = yaml.safe_load(open(sys.argv[1], encoding="utf-8")); print("true" if ((plan.get("environment") or {}).get("warmup_kafka") or {}).get("enabled") else "false")' "${DEPLOYMENT_PLAN_PATH}")"
+WARMUP_KAFKA_READY_PID=""
+stop_warmup_kafka_wait() {
+  if [[ -n "${WARMUP_KAFKA_READY_PID}" ]] && kill -0 "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1; then
+    kill "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1 || true
+    wait "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1 || true
+  fi
+}
+trap stop_warmup_kafka_wait EXIT
 if [[ "${WARMUP_KAFKA_ENABLED}" == "true" ]]; then
   kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka
-  if ! kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=120s; then
+  kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=120s &
+  WARMUP_KAFKA_READY_PID="$!"
+fi
+
+# Stubs are lab-scoped and have stable pod-template labels, so applying an
+# unchanged target leaves their warmed JVMs intact. Their preparation can run
+# while the optional warm-up Kafka deployment becomes ready.
+kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=stubs
+kubectl -n ckc-perf rollout status deployment/ckc-demo-stubs --timeout=10m
+"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+
+if [[ -n "${WARMUP_KAFKA_READY_PID}" ]]; then
+  if ! wait "${WARMUP_KAFKA_READY_PID}"; then
     echo "Warm-up Kafka did not become ready within 120s; applications will start and use cold fallback." >&2
   fi
+  WARMUP_KAFKA_READY_PID=""
 fi
-kubectl apply -f "${PROJECT_MANIFEST}"
+
+kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=application
 
 mapfile -t APPLICATION_DEPLOYMENTS < <(
   kubectl -n ckc-perf get deployment -l ckc.dev/component=application -o name | sort
@@ -406,7 +428,6 @@ fi
 for deployment in "${APPLICATION_DEPLOYMENTS[@]}"; do
   kubectl -n ckc-perf rollout status "${deployment}" --timeout=10m
 done
-"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 kubectl -n ckc-perf get pods,svc,endpoints -o wide
 
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import importlib.util
 import json
 import sys
@@ -24,6 +25,17 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_experiment_lock_rejects_concurrent_shared_stub_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = RUNNER.acquire_experiment_lock(root)
+            try:
+                with self.assertRaisesRegex(ValueError, "another experiment runner is active"):
+                    RUNNER.acquire_experiment_lock(root)
+            finally:
+                fcntl.flock(first.fileno(), fcntl.LOCK_UN)
+                first.close()
+
     def test_jvm_options_starting_with_a_dash_use_equals_form(self) -> None:
         expected = ["--demo-java-tool-options=-XX:+UseSerialGC -Xmx768m"]
 

@@ -275,10 +275,23 @@ they are not SLA misses. A run with such samples is unsuitable for a cross-node
 E2E conclusion and should be repeated after synchronization is healthy.
 
 After the final target drains, the runner deletes the application HPA and scales
-both `ckc-demo` and `ckc-demo-stubs` to zero. This cleanup also runs after a
+the target-owned `ckc-demo` workloads to zero. This cleanup also runs after a
 failed or explicitly stopped experiment and before its terminal notification.
-The Deployment objects remain available for inspection, while Kafka, Redis,
-Prometheus, Loki, and Grafana stay online for result analysis and the next run.
+The lab-scoped `ckc-demo-stubs` deployment remains running across targets and
+experiments. Every target reapplies and verifies its complete REST configuration;
+each new stub process is prewarmed once before an application target starts.
+Kafka, Redis, Prometheus, Loki, and Grafana likewise stay online for result
+analysis and the next run.
+
+Stub preparation calls all three business endpoints with bounded concurrency and
+an internal prewarm header that bypasses configured artificial delay and failure
+injection. `/status` exposes a process UUID, process start time, the effective
+settings, and a normalized SHA-256 content version. Target diagnostics preserve
+those values together with the container image digest and measured prewarm rate.
+The runner reapplies the full settings document even when the content version is
+unchanged, and refuses a second concurrent experiment because the stubs are a
+shared mutable lab dependency. Shared stub logs are archived from each target's
+own time window.
 
 The shared adapter and lifecycle commands read the local lab configuration and
 use bounded non-interactive SSH commands to `ckc-lab` on the configured controller. The scripts under

@@ -1001,6 +1001,14 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
         stubs = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs")
         load_test = next(item for item in manifests if item["kind"] == "Job")
+        stubs_labels = stubs["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual("shared", stubs_labels["ckc_run_id"])
+        self.assertEqual("shared", stubs_labels["ckc_test_definition"])
+        self.assertEqual("stubs", stubs_labels["ckc.dev/component"])
+        self.assertEqual(
+            {"app.kubernetes.io/name": "ckc-demo-stubs"},
+            stubs["spec"]["selector"]["matchLabels"],
+        )
         self.assertEqual({"ckc.dev/role": "controller"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "controller"}, load_test["spec"]["template"]["spec"]["nodeSelector"])
         load_environment = {
