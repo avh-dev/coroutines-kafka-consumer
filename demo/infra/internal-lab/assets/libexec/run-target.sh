@@ -1344,7 +1344,10 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
   for override in "${ENV_OVERRIDES[@]}"; do
     PREPARE_ARGS+=(--env "${override}")
   done
-  AUDIT_RUN_ID="${RUN_ID}" KAFKA_TOPIC_METADATA_FILE="${RESULTS_DIR}/runs/${RUN_ID}/diagnostics/kafka-metadata.json" "${LAB_ROOT}/libexec/prepare-test.sh" "${PREPARE_ARGS[@]}"
+    AUDIT_RUN_ID="${RUN_ID}" \
+      KAFKA_TOPIC_METADATA_FILE="${RESULTS_DIR}/runs/${RUN_ID}/diagnostics/kafka-metadata.json" \
+      STUB_PREPARATION_EVIDENCE_FILE="${RESULTS_DIR}/runs/${RUN_ID}/diagnostics/stubs-preparation.json" \
+      "${LAB_ROOT}/libexec/prepare-test.sh" "${PREPARE_ARGS[@]}"
   if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
     MODEL_SYNC_HTTP_CLIENT="$(sed -n "s/^MODEL_SYNC_HTTP_CLIENT='\([^']*\)'$/\1/p" "${CURRENT_DEPLOYMENT_PATH}" | tail -n 1)"
     CONSUMER_GROUPS="$(sed -n "s/^CONSUMER_GROUPS='\([^']*\)'$/\1/p" "${CURRENT_DEPLOYMENT_PATH}" | tail -n 1)"

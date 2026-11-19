@@ -17,12 +17,17 @@ class WarmupTransportLifecycleTest(unittest.TestCase):
         script = PREPARE.read_text(encoding="utf-8")
         broker_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka')
         ready = script.index("rollout status deployment/ckc-warmup-kafka --timeout=120s")
+        stubs_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=stubs')
+        stubs_prepare = script.index('"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"')
         fallback = script.index("applications will start and use cold fallback")
-        full_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}"\n')
+        application_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=application')
 
         self.assertLess(broker_apply, ready)
+        self.assertLess(ready, stubs_apply)
+        self.assertLess(stubs_apply, stubs_prepare)
         self.assertLess(ready, fallback)
-        self.assertLess(fallback, full_apply)
+        self.assertLess(stubs_prepare, fallback)
+        self.assertLess(fallback, application_apply)
 
     def run_cleanup(self, mode: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as directory:
@@ -68,9 +73,13 @@ if "get deployment,service,pods" in args:
 
         self.assertEqual(0, result.returncode, result.stderr)
         delete = next(i for i, call in enumerate(calls) if "delete deployment,service" in call)
-        application_checks = [i for i, call in enumerate(calls) if "get pods -l app.kubernetes.io/name=" in call]
-        self.assertTrue(application_checks)
-        self.assertLess(max(application_checks), delete)
+        application_lookup = next(
+            i for i, call in enumerate(calls)
+            if "get deployment -l ckc.dev/component=application" in call
+        )
+        self.assertLess(application_lookup, delete)
+        self.assertFalse(any("ckc-demo-stubs" in call for call in calls))
+        self.assertIn("persistent demo stubs remain available", result.stdout)
         self.assertEqual(2, sum("get deployment,service,pods" in call for call in calls))
 
     def test_cleanup_reports_delete_and_verification_failures(self) -> None:

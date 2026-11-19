@@ -523,6 +523,7 @@
 | [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
 | [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
 | [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
+| [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6524,3 +6525,21 @@ and controller-hosted HTTP stubs identical across targets. Raise the application
 The focused materialization regression and all 22 deployment-plan tests pass. The installed internal
 lab contains the cold target first and all four warm-up profiles with identical placement and resource
 settings; no load experiment was started automatically.
+
+<a id="infra-332"></a>
+### INFRA-332 - Keep internal-lab stubs persistent and prewarmed
+
+_Date: 2026-11-19_
+
+Keep compatible internal-lab stub processes running across targets and experiments instead of
+scaling them to zero with each application cleanup. Apply the complete requested settings before
+every experiment, verify the effective configuration and its version through REST, and run a
+bounded representative prewarm whenever the process identity changes. Preserve image identity,
+process identity, effective settings, and configuration timestamps in evidence, while rejecting
+concurrent experiments that could configure the shared stubs incompatibly.
+The stable stub pod template no longer changes with target run IDs, application cleanup leaves the
+dependency running, and each target verifies every ready process before starting applications. A
+bounded prewarm exercises all three business endpoints only for previously unseen process IDs;
+target evidence includes configuration, content version, process/image identity, timing, and rate.
+Focused internal-lab, deployment-plan, result-bundle, and complete demo-stubs tests pass; no load
+experiment was started automatically.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import fcntl
 import json
 import os
 import queue
@@ -69,6 +70,21 @@ STOP_REQUESTED = threading.Event()
 FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
 PROGRESS_WRITER: ProgressWriter | None = None
 ACTIVE_TARGET_PROCESS: subprocess.Popen[str] | None = None
+EXPERIMENT_LOCK = None
+
+
+def acquire_experiment_lock(lab_root: Path):
+    path = lab_root / "state/experiment/runner.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise ValueError(
+            "another experiment runner is active; shared demo-stubs configuration cannot be changed concurrently"
+        )
+    return handle
 
 
 def update_progress(
@@ -1514,7 +1530,7 @@ def finalize_cancellation(
 
 
 def run_main() -> int:
-    global ACTIVE_TARGET_PROCESS, PROGRESS_WRITER
+    global ACTIVE_TARGET_PROCESS, EXPERIMENT_LOCK, PROGRESS_WRITER
     FAILURE_NOTIFICATION_CONTEXT.clear()
     ACTIVE_TARGET_PROCESS = None
     lifecycle_started = time.monotonic()
@@ -1523,6 +1539,7 @@ def run_main() -> int:
     signal.signal(signal.SIGTERM, request_managed_stop)
     args = parse_args()
     lab_root = Path(args.lab_root)
+    EXPERIMENT_LOCK = acquire_experiment_lock(lab_root)
     experiment_dir = Path(args.experiment_dir)
     result_root = Path(args.result_dir)
 
@@ -1730,6 +1747,7 @@ def run_main() -> int:
 
 
 def main() -> int:
+    global EXPERIMENT_LOCK
     try:
         return run_main()
     except BaseException as error:
@@ -1760,6 +1778,10 @@ def main() -> int:
             details={"error": str(error)[:1000]},
         )
         raise
+    finally:
+        if EXPERIMENT_LOCK is not None:
+            EXPERIMENT_LOCK.close()
+            EXPERIMENT_LOCK = None
 
 
 if __name__ == "__main__":

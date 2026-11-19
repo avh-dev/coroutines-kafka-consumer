@@ -26,8 +26,6 @@ kubectl -n "${NAMESPACE}" delete hpa \
   --ignore-not-found=true >/dev/null 2>&1 || true
 
 deployments="$(kubectl -n "${NAMESPACE}" get deployment -l ckc.dev/component=application -o name 2>/dev/null || true)"
-deployments="${deployments}${deployments:+
-}deployment/ckc-demo-stubs"
 for deployment in ${deployments}; do
   if kubectl -n "${NAMESPACE}" get "${deployment}" >/dev/null 2>&1; then
     kubectl -n "${NAMESPACE}" scale "${deployment}" --replicas=0 >/dev/null
@@ -73,4 +71,4 @@ if [ "${cleanup_failed}" -ne 0 ]; then
   exit 1
 fi
 
-echo "Internal-lab application workloads are stopped."
+echo "Internal-lab application workloads are stopped; persistent demo stubs remain available."

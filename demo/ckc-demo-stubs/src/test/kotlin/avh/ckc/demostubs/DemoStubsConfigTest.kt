@@ -89,4 +89,22 @@ class DemoStubsConfigTest {
         assertEquals(listOf("p50", "p999", "p100"), settings.eta.buckets.map { it.name })
         assertEquals(60_000, settings.eta.buckets.last().delayMillis)
     }
+
+    @Test
+    fun `settings version ignores percentile map order`() {
+        val first = DemoStubsSettings(
+            eta = ModelLatencySettings(linkedMapOf("p90" to 10, "p100" to 20)),
+            flavour = ModelLatencySettings(linkedMapOf("p95" to 30, "p100" to 40)),
+            registry = ModelLatencySettings(linkedMapOf("p99" to 2, "p100" to 3)),
+            errorRatePercent = 7
+        )
+        val reordered = first.copy(
+            eta = ModelLatencySettings(linkedMapOf("p100" to 20, "p90" to 10)),
+            flavour = ModelLatencySettings(linkedMapOf("p100" to 40, "p95" to 30)),
+            registry = ModelLatencySettings(linkedMapOf("p100" to 3, "p99" to 2))
+        )
+
+        assertEquals(settingsVersion(first), settingsVersion(reordered))
+        assertEquals(64, settingsVersion(first).length)
+    }
 }

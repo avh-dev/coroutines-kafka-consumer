@@ -219,7 +219,10 @@ def collect(
     dashboard_dir: Path,
     prometheus_url: str | None,
     loki_url: str | None,
-    loki_selector: str = '{{namespace="ckc-perf", run_id="{run_id}"}}',
+    # Lab-scoped dependencies such as demo-stubs keep a stable ``shared``
+    # identity. Export their logs from the same target time window and relabel
+    # the archived records with that target's run id in export_loki_run().
+    loki_selector: str = '{{namespace="ckc-perf", run_id=~"{run_id}|shared"}}',
 ) -> dict[str, Any]:
     result_root.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {

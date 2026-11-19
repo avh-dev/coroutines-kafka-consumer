@@ -927,29 +927,36 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         computed_env["DEMO_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"] = bindings.kafka_ssl_endpoint_identification_algorithm
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))
     resources = values.get("resources") or configuration.get("resources") or {}
+    persistent_stubs = _deployment(
+        name="ckc-demo-stubs",
+        namespace=bindings.application_namespace,
+        container_name="demo-stubs",
+        image=bindings.stubs_image,
+        pull_policy=bindings.image_pull_policy,
+        replicas=int(stub_deployment.get("replicas", 1)),
+        # Stubs are lab-scoped dependencies. Target identifiers in their pod
+        # template would force a rollout before every target.
+        run_id="shared",
+        profile="stubs",
+        environment={
+            "PORT": STUB_SERVICE_PORT,
+            "REDIS_HOST": bindings.redis_host,
+            "REDIS_PORT": 6379,
+            "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
+        },
+        resources=stub_deployment.get("resources") or {},
+        test_definition="shared",
+        node_selector=bindings.support_node_selector,
+    )
+    # Do not add this label to the Deployment selector: older lab deployments
+    # use only app.kubernetes.io/name and Kubernetes selectors are immutable.
+    persistent_stubs["metadata"]["labels"]["ckc.dev/component"] = "stubs"
+    persistent_stubs["spec"]["template"]["metadata"]["labels"]["ckc.dev/component"] = "stubs"
     manifests: list[dict[str, Any]] = [
-        _deployment(
-            name="ckc-demo-stubs",
-            namespace=bindings.application_namespace,
-            container_name="demo-stubs",
-            image=bindings.stubs_image,
-            pull_policy=bindings.image_pull_policy,
-            replicas=int(stub_deployment.get("replicas", 1)),
-            run_id=bindings.run_id,
-            profile="stubs",
-            environment={
-                "PORT": STUB_SERVICE_PORT,
-                "REDIS_HOST": bindings.redis_host,
-                "REDIS_PORT": 6379,
-                "STUB_WORKERS": int(stub_deployment.get("workers", 4)),
-            },
-            resources=stub_deployment.get("resources") or {},
-            test_definition=bindings.test_definition,
-            node_selector=bindings.support_node_selector,
-        ),
+        persistent_stubs,
         {
             "apiVersion": "v1", "kind": "Service",
-            "metadata": _metadata("ckc-demo-stubs", bindings.application_namespace),
+            "metadata": _metadata("ckc-demo-stubs", bindings.application_namespace, {"ckc.dev/component": "stubs"}),
             "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}]},
         },
     ]

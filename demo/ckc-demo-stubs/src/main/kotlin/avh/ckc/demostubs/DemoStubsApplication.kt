@@ -15,6 +15,8 @@ import com.linecorp.armeria.server.ServiceRequestContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -25,6 +27,8 @@ fun main() {
     val config = DemoStubsConfig.fromEnvironment()
     val json = Json { ignoreUnknownKeys = true }
     val delaySampler = DelaySampler(Random.Default)
+    val processId = UUID.randomUUID().toString()
+    val startedAt = Instant.now().toString()
     val settings = DemoStubsSettingsState(
         RedisDemoStubsSettingsStore("redis://${config.redisHost}:${config.redisPort}", json)
     )
@@ -35,6 +39,24 @@ fun main() {
         .requestTimeoutMillis(config.requestTimeoutMillis)
         .service("/health") { _, _ ->
             jsonResponse("""{"status":"UP"}""")
+        }
+        .service("/status") { _, request ->
+            if (request.method() != HttpMethod.GET) {
+                methodNotAllowed()
+            } else {
+                val currentSettings = settings.get()
+                jsonResponse(
+                    json.encodeToString(
+                        DemoStubsStatus.serializer(),
+                        DemoStubsStatus(
+                            processId = processId,
+                            startedAt = startedAt,
+                            settingsVersion = settingsVersion(currentSettings, json),
+                            settings = currentSettings
+                        )
+                    )
+                )
+            }
         }
         .service("/settings") { _, request ->
             when (request.method()) {
@@ -65,8 +87,9 @@ fun main() {
                     try {
                         val modelRequest = json.decodeFromString(ArcaneEtaRequest.serializer(), aggregated.contentUtf8())
                         val currentSettings = settings.get()
-                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.eta)) {
-                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarm = request.isPrewarm()
+                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.eta)) {
+                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -89,8 +112,9 @@ fun main() {
                     try {
                         val modelRequest = json.decodeFromString(OrderFlavourRequest.serializer(), aggregated.contentUtf8())
                         val currentSettings = settings.get()
-                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.flavour)) {
-                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarm = request.isPrewarm()
+                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.flavour)) {
+                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -116,8 +140,9 @@ fun main() {
                             aggregated.contentUtf8()
                         )
                         val currentSettings = settings.get()
-                        scheduledResponse(ctx, delaySampler.sampleDelayMillis(currentSettings.registry)) {
-                            if (Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarm = request.isPrewarm()
+                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.registry)) {
+                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"registry temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -190,6 +215,31 @@ private fun jsonResponse(body: String, status: HttpStatus = HttpStatus.OK): Http
 
 private fun methodNotAllowed(): HttpResponse =
     jsonResponse("""{"error":"method not allowed"}""", HttpStatus.METHOD_NOT_ALLOWED)
+
+private fun HttpRequest.isPrewarm(): Boolean =
+    headers().get(PREWARM_HEADER)?.equals("true", ignoreCase = true) == true
+
+internal fun settingsVersion(settings: DemoStubsSettings, json: Json = Json): String {
+    val normalized = settings.copy(
+        eta = settings.eta.copy(percentiles = settings.eta.percentiles.toSortedMap()),
+        flavour = settings.flavour.copy(percentiles = settings.flavour.percentiles.toSortedMap()),
+        registry = settings.registry.copy(percentiles = settings.registry.percentiles.toSortedMap())
+    )
+    val digest = MessageDigest.getInstance("SHA-256").digest(
+        json.encodeToString(DemoStubsSettings.serializer(), normalized).toByteArray()
+    )
+    return digest.joinToString("") { byte -> "%02x".format(byte) }
+}
+
+private const val PREWARM_HEADER = "x-ckc-prewarm"
+
+@Serializable
+internal data class DemoStubsStatus(
+    val processId: String,
+    val startedAt: String,
+    val settingsVersion: String,
+    val settings: DemoStubsSettings
+)
 
 private fun analyseFlavour(request: OrderFlavourRequest): OrderFlavourResponse {
     val palette = when (abs(request.customerId.hashCode()) % 4) {
