@@ -341,8 +341,20 @@ class DeploymentPlanTest(unittest.TestCase):
             self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
             self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
-    def _assert_controller_stubs_target(self, plan, definition) -> None:
-        self._assert_fourth_pod_scale_up(plan, expected_cpu_request="950m")
+    def _assert_controller_stubs_target(
+        self,
+        plan,
+        definition,
+        expected_cpu_request: str = "950m",
+        expected_base_tps: int = 14_000,
+        expected_load_profile: str | None = None,
+    ) -> None:
+        self._assert_fourth_pod_scale_up(
+            plan,
+            expected_cpu_request=expected_cpu_request,
+            expected_base_tps=expected_base_tps,
+            expected_load_profile=expected_load_profile,
+        )
         self.assertEqual(
             {"application": "worker", "stubs": "controller", "generator": "controller"},
             plan["placement"],
@@ -355,6 +367,62 @@ class DeploymentPlanTest(unittest.TestCase):
             ],
             definition["load_test"]["measurement_windows"],
         )
+
+    def test_materializes_linear_warmup_comparison_at_20k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-linear-warmup-scale-up-20k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "linear-warmup-20k"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            [
+                "ckc.cold-start-controller-stubs-20k",
+                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-120s-20k",
+                "ckc.linear-warmup-controller-stubs-1-to-300-120s-20k",
+                "ckc.linear-control-controller-stubs-1-to-100-180s-20k",
+            ],
+            [target.target.name for target in targets],
+        )
+        load_profile = (
+            "0 -> (3m, ramp-to-12k) -> 60 -> (5m, stabilize-at-12k) -> 60 -> "
+            "(10m, ramp-to-20k) -> 100 -> (4m, hold-20k) -> 100 -> (1m, cool-down) -> 0"
+        )
+        cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
+        self._assert_controller_stubs_target(
+            cold_plan,
+            cold_definition,
+            expected_cpu_request="1200m",
+            expected_base_tps=20_000,
+            expected_load_profile=load_profile,
+        )
+        self.assertEqual(
+            {"order": 20_000, "batch": 20_000, "telemetry": 20_000},
+            cold_plan["workload"]["load"]["producer_capacity_tps"],
+        )
+        self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
+
+        expected_profiles = [
+            ("1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300", "120"),
+            ("1 -> (120s, direct linear) -> 300", "120"),
+            ("1 -> (180s, direct linear control) -> 100", "180"),
+        ]
+        for target, (profile, duration) in zip(targets[1:], expected_profiles, strict=True):
+            plan, definition, environment = self._materialized_application(target)
+            self._assert_controller_stubs_target(
+                plan,
+                definition,
+                expected_cpu_request="1200m",
+                expected_base_tps=20_000,
+                expected_load_profile=load_profile,
+            )
+            self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+            for topic in ("ORDER", "BATCH", "CAULDRON"):
+                self.assertEqual(profile, environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"])
+            self.assertEqual(duration, environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+            self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+            self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
     def _materialized_application(self, target):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
@@ -379,11 +447,19 @@ class DeploymentPlanTest(unittest.TestCase):
         }
         return plan, definition, environment
 
-    def _assert_fourth_pod_scale_up(self, plan, expected_cpu_request: str = "775m") -> None:
-        self.assertEqual(14_000, plan["workload"]["load"]["base_tps"])
+    def _assert_fourth_pod_scale_up(
+        self,
+        plan,
+        expected_cpu_request: str = "775m",
+        expected_base_tps: int = 14_000,
+        expected_load_profile: str | None = None,
+    ) -> None:
+        self.assertEqual(expected_base_tps, plan["workload"]["load"]["base_tps"])
         self.assertEqual(
-            "0 -> (3m, ramp-to-12k) -> 86 -> (5m, stabilize-at-12k) -> 86 -> "
-            "(10m, ramp-to-14k) -> 100 -> (4m, hold-14k) -> 100 -> (1m, cool-down) -> 0",
+            expected_load_profile or (
+                "0 -> (3m, ramp-to-12k) -> 86 -> (5m, stabilize-at-12k) -> 86 -> "
+                "(10m, ramp-to-14k) -> 100 -> (4m, hold-14k) -> 100 -> (1m, cool-down) -> 0"
+            ),
             plan["workload"]["load"]["load_profile"],
         )
         application = plan["application"]["configuration"]
