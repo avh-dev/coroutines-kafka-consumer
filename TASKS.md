@@ -6617,3 +6617,7 @@ Compare only a cold baseline and the best two-stage linear warm-up candidate, ex
 Use three measurement windows for the 25-minute scale-up, ten-minute peak plateau, and ten-minute
 cooldown. Schema validation, focused materialization, and all 86 shared orchestration tests pass;
 no experiment was started automatically.
+The first attempted run exposed that persistent stubs had no readiness probe and declared port
+`8080` while listening on `8085`; rollout could therefore finish before the HTTP server bound its
+socket. Their manifest now publishes `8085` and gates readiness with `/health`, eliminating the
+preparation race without a fixed sleep.

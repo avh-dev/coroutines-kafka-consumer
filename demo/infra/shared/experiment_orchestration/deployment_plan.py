@@ -954,6 +954,20 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
     # use only app.kubernetes.io/name and Kubernetes selectors are immutable.
     persistent_stubs["metadata"]["labels"]["ckc.dev/component"] = "stubs"
     persistent_stubs["spec"]["template"]["metadata"]["labels"]["ckc.dev/component"] = "stubs"
+    stub_container = persistent_stubs["spec"]["template"]["spec"]["containers"][0]
+    stub_container["ports"] = [{"name": "http", "containerPort": STUB_SERVICE_PORT}]
+    stub_container["startupProbe"] = {
+        "httpGet": {"path": "/health", "port": STUB_SERVICE_PORT},
+        "periodSeconds": 1,
+        "timeoutSeconds": 1,
+        "failureThreshold": 60,
+    }
+    stub_container["readinessProbe"] = {
+        "httpGet": {"path": "/health", "port": STUB_SERVICE_PORT},
+        "periodSeconds": 2,
+        "timeoutSeconds": 1,
+        "failureThreshold": 3,
+    }
     manifests: list[dict[str, Any]] = [
         persistent_stubs,
         {

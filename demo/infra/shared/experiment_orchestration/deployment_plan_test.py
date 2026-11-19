@@ -955,6 +955,15 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("23", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
         self.assertEqual(4, stubs["spec"]["replicas"])
         self.assertEqual("4", stubs_environment["STUB_WORKERS"])
+        self.assertEqual([{"name": "http", "containerPort": 8085}], stubs_container["ports"])
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["startupProbe"]["httpGet"],
+        )
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["readinessProbe"]["httpGet"],
+        )
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
         self.assertEqual({"memory": "1536Mi"}, stubs_container["resources"]["limits"])
         self.assertEqual(
