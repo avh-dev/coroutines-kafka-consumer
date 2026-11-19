@@ -19,6 +19,7 @@ class ThreadStatsRulesConfigurationTest {
         assertTrue(rules.contains(ThreadStatsRule("other", "spring-task-scheduler", "ThreadPoolTaskScheduler-")))
         assertTrue(rules.contains(ThreadStatsRule("business", "confluent-parallel", "confluent-parallel-")))
         assertTrue(rules.contains(ThreadStatsRule("business", "confluent-parallel-worker", "pc-reactor-worker-")))
+        assertTrue(rules.contains(ThreadStatsRule("warmup-protocol", "service-executor", "ckc-warmup-")))
         assertTrue(rules.contains(ThreadStatsRule("kafka", "kafka-client", "pc-broker-poll")))
         assertTrue(rules.contains(ThreadStatsRule("kafka", "kafka-client", "pc-control")))
         assertTrue(rules.contains(ThreadStatsRule("kafka", "kafka-client", "pc-pool-")))
@@ -31,7 +32,7 @@ class ThreadStatsRulesConfigurationTest {
         assertTrue(rules.contains(ThreadStatsRule("other", "spring-lifecycle", "startstop-support-")))
         assertTrue(rules.contains(ThreadStatsRule("other", "jvm-system", "DestroyJavaVM")))
         assertEquals(
-            listOf("business", "kafka", "redis-client", "http-client", "audit", "other"),
+            listOf("business", "warmup-protocol", "kafka", "redis-client", "http-client", "audit", "other"),
             loadConfiguredCategoryNames(),
         )
         assertEquals(
