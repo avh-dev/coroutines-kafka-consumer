@@ -359,6 +359,15 @@ esac
         self.assertIn("warmup-kafka-prewarm final_evidence=", result.stderr)
         self.assertIn('"outcome":"failed"', result.stderr)
         self.assertIn('"exit_code":', result.stderr)
+        final_evidence = json.loads(
+            result.stderr.split("warmup-kafka-prewarm final_evidence=", 1)[1].splitlines()[0]
+        )
+        self.assertEqual("failed", final_evidence["outcome"])
+        self.assertNotEqual(0, final_evidence["exit_code"])
+        self.assertEqual(
+            {"outcome": "pending_cleanup", "accepted_records": 17},
+            final_evidence["previous_evidence"],
+        )
 
     def test_supervisor_stops_broker_when_bootstrap_fails(self) -> None:
         runtime = self.root / "supervisor"

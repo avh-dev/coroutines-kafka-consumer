@@ -38,7 +38,11 @@ wait "${child_pid}"
 status=$?
 child_pid=""
 if [[ "${status}" -ne 0 ]]; then
-  final_event="{\"outcome\":\"failed\",\"reason\":\"prewarm_process_exit_${status}\",\"exit_code\":${status}}"
+  previous_evidence="null"
+  if [[ -s "${KAFKA_PREWARM_EVIDENCE_FILE}" ]]; then
+    previous_evidence="$(<"${KAFKA_PREWARM_EVIDENCE_FILE}")"
+  fi
+  final_event="{\"outcome\":\"failed\",\"reason\":\"prewarm_process_exit_${status}\",\"exit_code\":${status},\"previous_evidence\":${previous_evidence}}"
   if [[ ! -s "${KAFKA_PREWARM_EVIDENCE_FILE}" ]]; then
     printf '%s\n' "${final_event}" > "${KAFKA_PREWARM_EVIDENCE_FILE}"
   fi
