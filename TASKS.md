@@ -90,6 +90,7 @@
 | [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
 | [CORE-86](#core-86) | Configure each warm-up mapping quota with a normalized generator-style string profile. | DONE |
 | [CORE-87](#core-87) | Bound warm-up outstanding work and deliver recipient results with parallel Kafka acknowledgements. | DONE |
+| [CORE-88](#core-88) | Isolate warm-up protocol work on bounded named dispatchers whose idle threads expire. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6311,6 +6312,25 @@ three-mapping real-Kafka profile stepping to 300 records per second.
 
 Verified with the complete repository unit suite and a real-Kafka public-DSL scenario delivering
 300 results for each of three typed mappings. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-88"></a>
+### CORE-88 - Isolate warm-up protocol work on bounded named dispatchers
+
+_Date: 2026-11-19_
+
+Give each public warm-up context one owned execution resource with isolated coordination and
+blocking-Kafka dispatchers, bounded parallelism, `ckc-warmup-<context>-<n>` thread names, lazy
+thread creation, and idle expiry. Route protocol
+lifecycle, control transport, metadata lookup, forwarding submission, and result delivery through
+managed execution resources without moving recipient business handlers off their consumer's
+processing dispatcher.
+Keep blocking Kafka calls from starving deadlines and shutdown, and close the owned executor only
+after all dependent sessions and clients have completed or exposed retryable cleanup.
+The public context exposes a total service-thread limit and idle timeout; one coordination worker is
+isolated from the shared blocking pool, while the continuously polling control consumer may retain
+one blocking worker between sessions. Recipient handlers remain on their configured processing
+dispatchers. The complete core unit suite and both public-DSL/shared-partition real-Kafka integration
+classes pass; no smoke, load, chaos, or experiment run was started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image

@@ -233,6 +233,7 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
             metrics = metrics,
             delegationTimeoutMillis = warmup.context.delegationTimeoutMillis(),
             recipientShutdownTimeoutMillis = warmup.context.recipientShutdownTimeoutMillis(),
+            serviceDispatcher = warmup.context.serviceDispatcher(),
             forwardingObserver = warmup.configuration.forwardingObserver
         )
         main.attachManagedLifecycle(warmup.context.register(participant))

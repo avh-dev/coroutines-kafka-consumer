@@ -146,7 +146,9 @@ internal class WarmupControlTransport(
     private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(parentContext.minusKey(Job) + lifecycleJob + CoroutineName("WarmupControl"))
-    private val shutdownScope = CoroutineScope(dispatcher + SupervisorJob())
+    private val shutdownScope = CoroutineScope(
+        parentContext.minusKey(Job) + SupervisorJob() + CoroutineName("WarmupControlShutdown")
+    )
     private val commands = Channel<DispatchItem>(configuration.commandBufferCapacity)
     private val readiness = CompletableDeferred<Unit>()
     private val termination = CompletableDeferred<Throwable?>()
@@ -165,16 +167,18 @@ internal class WarmupControlTransport(
 
     override fun start() {
         check(started.compareAndSet(false, true)) { "Warm-up control transport already started" }
-        try {
-            producer = producerFactory(producerProperties())
-            consumer = consumerFactory(consumerProperties())
-            dispatchJob = scope.launch { dispatchLoop() }.also(::observe)
-            pollJob = scope.launch { pollLoop() }.also(::observe)
-        } catch (error: Throwable) {
-            fail(error)
-            closeClients()
-            throw error
-        }
+        dispatchJob = scope.launch { dispatchLoop() }.also(::observe)
+        pollJob = scope.launch(dispatcher) {
+            try {
+                producer = producerFactory(producerProperties())
+                consumer = consumerFactory(consumerProperties())
+                pollLoop()
+            } catch (error: Throwable) {
+                if (error !is CancellationException || !stopping.get()) fail(error)
+                withContext(NonCancellable + dispatcher) { closeClients() }
+                throw error
+            }
+        }.also(::observe)
     }
 
     override suspend fun awaitReady() {

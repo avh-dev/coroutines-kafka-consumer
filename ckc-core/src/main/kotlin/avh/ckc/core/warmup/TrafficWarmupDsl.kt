@@ -22,9 +22,16 @@ class TrafficWarmupContextConfiguration {
     var delegationTimeout: Duration = 10.seconds
     var maxDonorSessions: Int = 4
 
+    /** Maximum total of coordination and blocking Kafka workers owned by this context. */
+    var serviceThreadLimit: Int = 4
+
+    /** Idle service workers are released; an active control consumer can retain one worker. */
+    var serviceThreadIdleTimeout: Duration = 30.seconds
+
     /** Aggregate logical-session admission capacity in normalized records per second. */
     var maxAggregateQuotaPerSecond: Int = Int.MAX_VALUE
 
+    /** Supplies parent lifecycle context elements; protocol dispatch uses the owned service threads. */
     var parentContext: CoroutineContext = Dispatchers.Default
 
     internal var lifecycleObserver: (TrafficWarmupLifecycleEvent) -> Unit = {}

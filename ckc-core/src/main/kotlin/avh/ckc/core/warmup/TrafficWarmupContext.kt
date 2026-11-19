@@ -12,7 +12,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -57,9 +56,15 @@ class TrafficWarmupContext internal constructor(
     private val lock = Any()
     private val instanceId = WarmupInstanceId(configuration.instanceId)
     private val namespace = WarmupControlNamespace(configuration.namespace)
+    private val execution = WarmupExecutionDispatchers(
+        configuration.instanceId,
+        configuration.serviceThreadLimit,
+        configuration.serviceThreadIdleTimeout
+    )
     private val lifecycleJob = SupervisorJob(configuration.parentContext[Job])
     private val scope = CoroutineScope(
-        configuration.parentContext.minusKey(Job) + lifecycleJob + CoroutineName("TrafficWarmupContext")
+        configuration.parentContext.minusKey(Job) + execution.coordination + lifecycleJob +
+            CoroutineName("TrafficWarmupContext")
     )
     private val startSignal = Channel<Unit>(Channel.CONFLATED)
     private val participants = linkedMapOf<WarmupParticipantId, ParticipantState>()
@@ -97,6 +102,7 @@ class TrafficWarmupContext internal constructor(
     internal fun delegationTimeoutMillis(): Long = configuration.delegationTimeout.inWholeMilliseconds
     internal fun recipientShutdownTimeoutMillis(): Long =
         (configuration.completionTimeout.inWholeMilliseconds / 2).coerceAtLeast(1)
+    internal fun serviceDispatcher() = execution.blocking
 
     internal fun register(participant: RegisteredTrafficWarmupParticipant): ManagedConsumerLifecycle {
         val state = synchronized(lock) {
@@ -279,7 +285,8 @@ class TrafficWarmupContext internal constructor(
                 metadataTimeout = configuration.preparationTimeout
             ),
             newRouter,
-            parentContext = scope.coroutineContext
+            parentContext = scope.coroutineContext,
+            dispatcher = execution.blocking
         )
         val newDonorStore = LogicalWarmupDonorSessionStore(
             configuration.maxDonorSessions,
@@ -422,7 +429,8 @@ class TrafficWarmupContext internal constructor(
             request,
             KafkaWarmupDestinationMetadata(
                 participantById.mapValues { (_, participant) -> participant.warmupConsumerProperties },
-                configuration.preparationTimeout
+                configuration.preparationTimeout,
+                execution.blocking
             ),
             WarmupRecipientConsumerPreparation { recipientSessionId, start ->
                 requireNotNull(participantById[start.assignment.mapping.participantId])
@@ -684,7 +692,10 @@ class TrafficWarmupContext internal constructor(
                 runtime.stop()
                 runtime.close()
             }
-            scope.cancel()
+            lifecycleJob.cancelAndJoin()
+            check(execution.close(configuration.completionTimeout)) {
+                "Warm-up service executors did not terminate before the context shutdown deadline"
+            }
         } catch (error: Throwable) {
             synchronized(lock) { sharedClosed = false }
             throw error

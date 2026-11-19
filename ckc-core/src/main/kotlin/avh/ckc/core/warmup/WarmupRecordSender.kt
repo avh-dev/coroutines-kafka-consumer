@@ -32,7 +32,7 @@ internal fun interface WarmupRecordSender<K, V> {
 /** Copies an admitted source record and adds exactly one current warm-up session header. */
 internal class KafkaWarmupRecordSender<K, V>(
     producerProperties: Map<String, Any?>,
-    private val submissionDispatcher: CoroutineDispatcher = warmupProducerSubmissionDispatcher,
+    private val submissionDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val closeTimeout: Duration = 5.seconds,
     producerFactory: (Map<String, Any?>) -> Producer<K, V> = { KafkaProducer(it) }
 ) : WarmupRecordSender<K, V>, AutoCloseable {
@@ -108,11 +108,5 @@ internal class KafkaWarmupRecordSender<K, V>(
         return WarmupSendAcknowledgement(actual, offset())
     }
 }
-
-/** Bounds only KafkaProducer.send submission; acknowledgement waiting never occupies an IO worker. */
-private val warmupProducerSubmissionDispatcher = Dispatchers.IO.limitedParallelism(
-    parallelism = 4,
-    name = "WarmupProducerSubmission"
-)
 
 internal const val WARMUP_SESSION_HEADER = "ckc-warmup-session"
