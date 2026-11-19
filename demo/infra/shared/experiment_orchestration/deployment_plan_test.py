@@ -132,6 +132,7 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("INTERNAL", environment["KAFKA_INTER_BROKER_LISTENER_NAME"])
         self.assertEqual("120", environment["KAFKA_BOOTSTRAP_TIMEOUT_SECONDS"])
         self.assertEqual("2", environment["KAFKA_BOOTSTRAP_BACKOFF_SECONDS"])
+        self.assertEqual("180", environment["KAFKA_PREWARM_TIMEOUT_SECONDS"])
         self.assertNotIn("KAFKA_RECONCILE_INTERVAL_SECONDS", environment)
         self.assertNotIn("KAFKA_READY_MAX_AGE_SECONDS", environment)
         self.assertEqual(

@@ -398,7 +398,7 @@ stop_warmup_kafka_wait() {
 trap stop_warmup_kafka_wait EXIT
 if [[ "${WARMUP_KAFKA_ENABLED}" == "true" ]]; then
   kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka
-  kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=120s &
+  kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=5m &
   WARMUP_KAFKA_READY_PID="$!"
 fi
 
@@ -411,7 +411,7 @@ kubectl -n ckc-perf rollout status deployment/ckc-demo-stubs --timeout=10m
 
 if [[ -n "${WARMUP_KAFKA_READY_PID}" ]]; then
   if ! wait "${WARMUP_KAFKA_READY_PID}"; then
-    echo "Warm-up Kafka did not become ready within 120s; applications will start and use cold fallback." >&2
+    echo "Warm-up Kafka did not become ready within 5m; applications will start and use cold fallback." >&2
   fi
   WARMUP_KAFKA_READY_PID=""
 fi

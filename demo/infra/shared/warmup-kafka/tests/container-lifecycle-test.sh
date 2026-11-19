@@ -34,6 +34,12 @@ start_broker() {
     -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
     -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
     -e KAFKA_BOOTSTRAP_TOPICS="${configured_topics}" \
+    -e KAFKA_PREWARM_FIRST_PHASE_SECONDS=2 \
+    -e KAFKA_PREWARM_SECOND_PHASE_SECONDS=2 \
+    -e KAFKA_PREWARM_START_RATE=10 \
+    -e KAFKA_PREWARM_MIDDLE_RATE=50 \
+    -e KAFKA_PREWARM_END_RATE=100 \
+    -e KAFKA_PREWARM_TIMEOUT_SECONDS=30 \
     "${image}" >/dev/null
 }
 
@@ -63,10 +69,33 @@ wait_for_log() {
 
 start_broker "${topics}"
 wait_ready
+prewarm_evidence="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/prewarm.json)"
+grep -q '"outcome":"success"' <<< "${prewarm_evidence}"
+grep -q '"accepted_records":' <<< "${prewarm_evidence}"
+
+# A non-multiple byte budget must reserve space for the next complete payload.
+docker exec \
+  -e KAFKA_PREWARM_FIRST_PHASE_SECONDS=1 \
+  -e KAFKA_PREWARM_SECOND_PHASE_SECONDS=1 \
+  -e KAFKA_PREWARM_START_RATE=1000 \
+  -e KAFKA_PREWARM_MIDDLE_RATE=1000 \
+  -e KAFKA_PREWARM_END_RATE=1000 \
+  -e KAFKA_PREWARM_PAYLOAD_BYTES=512 \
+  -e KAFKA_PREWARM_MAX_RECORDS=10 \
+  -e KAFKA_PREWARM_MAX_BYTES=1000 \
+  -e KAFKA_PREWARM_TIMEOUT_SECONDS=15 \
+  "${container}" /opt/ckc-warmup-kafka/bin/prewarm-broker.sh
+byte_budget_evidence="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/prewarm.json)"
+grep -q '"accepted_records":1' <<< "${byte_budget_evidence}"
+grep -q '"accepted_bytes":512' <<< "${byte_budget_evidence}"
 descriptions="$(docker exec "${container}" /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:19092 --describe)"
 if [[ "$(grep -c 'PartitionCount: 1' <<< "${descriptions}")" -ne 4 ]]; then
   echo "Expected four one-partition warm-up topics." >&2
+  exit 1
+fi
+if grep -q '__ckc_warmup_broker_prewarm_' <<< "${descriptions}"; then
+  echo "Temporary prewarm topic remained after readiness opened." >&2
   exit 1
 fi
 
@@ -81,8 +110,16 @@ fi
 
 printf 'retained-record\n' | docker exec -i "${container}" /opt/kafka/bin/kafka-console-producer.sh \
   --bootstrap-server localhost:19092 --topic ckc.traffic-warmup.v6.control >/dev/null
+docker exec "${container}" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 \
+  --create --topic __ckc_warmup_broker_prewarm_interrupted --partitions 1 --replication-factor 1 >/dev/null
 docker restart "${container}" >/dev/null
 wait_ready
+after_restart_topics="$(docker exec "${container}" /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:19092 --list)"
+if grep -q '^__ckc_warmup_broker_prewarm_' <<< "${after_restart_topics}"; then
+  echo "Stale temporary prewarm topic survived container restart." >&2
+  exit 1
+fi
 offsets="$(docker exec "${container}" /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:19092 --topic ckc.traffic-warmup.v6.control)"
 grep -q ':1$' <<< "${offsets}"

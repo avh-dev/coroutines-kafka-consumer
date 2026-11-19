@@ -786,6 +786,7 @@ def _warmup_kafka_manifests(
     bootstrap_timeout = int(configuration.get("bootstrap_timeout_seconds") or 120)
     bootstrap_backoff = int(configuration.get("bootstrap_backoff_seconds") or 2)
     operation_timeout = int(configuration.get("operation_timeout_seconds") or 10)
+    prewarm_timeout = int(configuration.get("prewarm_timeout_seconds") or 180)
     topics = ",".join(str(topic) for topic in (configuration.get("topics") or []))
     container = {
         "name": "kafka",
@@ -826,6 +827,7 @@ def _warmup_kafka_manifests(
             "KAFKA_BOOTSTRAP_TIMEOUT_SECONDS": bootstrap_timeout,
             "KAFKA_BOOTSTRAP_BACKOFF_SECONDS": bootstrap_backoff,
             "KAFKA_OPERATION_TIMEOUT_SECONDS": operation_timeout,
+            "KAFKA_PREWARM_TIMEOUT_SECONDS": prewarm_timeout,
             "KAFKA_READINESS_TIMEOUT_SECONDS": 1,
         }),
         "resources": copy.deepcopy(configuration.get("resources") or {}),

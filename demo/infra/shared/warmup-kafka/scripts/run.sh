@@ -20,7 +20,8 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 mkdir -p "${runtime_dir}"
-rm -f -- "${ready_file}" "${runtime_dir}/broker.pid" "${runtime_dir}/bootstrap.pid"
+rm -f -- "${ready_file}" "${runtime_dir}/prewarm.json" \
+  "${runtime_dir}/broker.pid" "${runtime_dir}/bootstrap.pid"
 
 terminate_children() {
   local deadline pid

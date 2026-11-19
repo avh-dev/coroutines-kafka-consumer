@@ -524,6 +524,7 @@
 | [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
 | [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
 | [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
+| [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6543,3 +6544,18 @@ bounded prewarm exercises all three business endpoints only for previously unsee
 target evidence includes configuration, content version, process/image identity, timing, and rate.
 Focused internal-lab, deployment-plan, result-bundle, and complete demo-stubs tests pass; no load
 experiment was started automatically.
+
+<a id="infra-333"></a>
+### INFRA-333 - Prewarm the optional warm-up Kafka broker before readiness
+
+_Date: 2026-11-19_
+
+Run a bounded one-shot broker prewarm after protocol-topic bootstrap on every warm-up Kafka
+container start. Exercise a dedicated temporary topic with producer and consumer clients already
+running, a smooth two-minute rate profile, and explicit record, byte, inflight, and cleanup bounds.
+Open readiness only after acknowledged records have been consumed, clients have stopped, and the
+temporary topic has been deleted; preserve evidence describing achieved work and failures.
+The pinned image now builds a small bounded Kafka client, removes stale primer topics after an
+interrupted start, and records actual acknowledgements, reads, bytes, rate, duration, and failures.
+The 15 script tests, 86 shared orchestration tests, 28 focused internal-lab tests, image build, and
+short real-broker lifecycle qualification pass; no experiment or smoke workload was started.

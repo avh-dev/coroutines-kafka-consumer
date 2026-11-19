@@ -224,6 +224,7 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
     allowed = {
         "enabled", "placement", "heap", "resources", "topics", "retention_ms",
         "bootstrap_timeout_seconds", "bootstrap_backoff_seconds", "operation_timeout_seconds",
+        "prewarm_timeout_seconds",
     }
     unknown = sorted(set(warmup) - allowed)
     if unknown:
@@ -294,6 +295,7 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
         "bootstrap_timeout_seconds": 120,
         "bootstrap_backoff_seconds": 2,
         "operation_timeout_seconds": 10,
+        "prewarm_timeout_seconds": 180,
     }
     bounded: dict[str, int] = {}
     for name, default in bounded_defaults.items():

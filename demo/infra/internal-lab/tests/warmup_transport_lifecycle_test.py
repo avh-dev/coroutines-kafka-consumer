@@ -27,7 +27,7 @@ class WarmupTransportLifecycleTest(unittest.TestCase):
     def test_preparation_bounds_transport_wait_before_applying_application_manifest(self) -> None:
         script = PREPARE.read_text(encoding="utf-8")
         broker_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka')
-        ready = script.index("rollout status deployment/ckc-warmup-kafka --timeout=120s")
+        ready = script.index("rollout status deployment/ckc-warmup-kafka --timeout=5m")
         stubs_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=stubs')
         stubs_prepare = script.index('"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"')
         fallback = script.index("applications will start and use cold fallback")
