@@ -522,7 +522,7 @@
 | [INFRA-327](#infra-327) | Compare staged-step and direct-linear two-minute warm-up profiles to 300/s. | DONE |
 | [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
 | [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
-| [INFRA-330](#infra-330) | Compare staged and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
+| [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6515,11 +6515,12 @@ not started automatically.
 
 _Date: 2026-11-18_
 
-Compare the staged `1→5→50→300` two-minute quota profile with direct-linear `1→300` over
-two minutes and the `1→100` three-minute reference after CORE-87. Keep the 14k workload,
-measurement windows, forwarding-producer settings, and controller-hosted HTTP stubs identical
-across targets. Raise the application CPU request from `775m` to `950m` so the fourth pod starts
-later in the 12k-to-14k ramp instead of during the initial 12k stabilization plateau.
-The focused materialization test and all 22 deployment-plan tests pass. The installed internal lab
-contains all three targets with the shared `950m` request and controller stub placement; no load
-experiment was started automatically.
+Compare a cold start with the staged `1→5→50→300` profile, direct-linear `1→300` over two
+minutes, a two-stage linear `1→100→300` profile over `60s+60s`, and the `1→100` three-minute
+reference after CORE-87. Keep the 14k workload, measurement windows, forwarding-producer settings,
+and controller-hosted HTTP stubs identical across targets. Raise the application CPU request from
+`775m` to `950m` so the fourth pod starts later in the 12k-to-14k ramp instead of during the initial
+12k stabilization plateau.
+The focused materialization regression and all 22 deployment-plan tests pass. The installed internal
+lab contains the cold target first and all four warm-up profiles with identical placement and resource
+settings; no load experiment was started automatically.

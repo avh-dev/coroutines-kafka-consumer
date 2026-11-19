@@ -307,41 +307,54 @@ class DeploymentPlanTest(unittest.TestCase):
 
         self.assertEqual(
             [
+                "ckc.cold-start-controller-stubs",
                 "ckc.staged-warmup-controller-stubs-1-to-300-120s",
+                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-120s",
                 "ckc.linear-warmup-controller-stubs-1-to-300-120s",
                 "ckc.linear-control-controller-stubs-1-to-100-180s",
             ],
             [target.target.name for target in targets],
         )
+        cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
+        self._assert_controller_stubs_target(cold_plan, cold_definition)
+        self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
+
         expected_profiles = [
             (
                 "1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> "
                 "(0s, step) -> 300 -> (60s, hold) -> 300",
                 "120",
             ),
+            ("1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300", "120"),
             ("1 -> (120s, direct linear) -> 300", "120"),
             ("1 -> (180s, direct linear control) -> 100", "180"),
         ]
-        for target, (profile, duration) in zip(targets, expected_profiles, strict=True):
+        for target, (profile, duration) in zip(targets[1:], expected_profiles, strict=True):
             plan, definition, environment = self._materialized_application(target)
-            self._assert_fourth_pod_scale_up(plan, expected_cpu_request="950m")
-            self.assertEqual(
-                {"application": "worker", "stubs": "controller", "generator": "controller"},
-                plan["placement"],
-            )
-            self.assertNotIn("diagnostic_steps", definition)
-            self.assertEqual(
-                [
-                    {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
-                    {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
-                ],
-                definition["load_test"]["measurement_windows"],
-            )
+            self._assert_controller_stubs_target(plan, definition)
+            self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
             for topic in ("ORDER", "BATCH", "CAULDRON"):
                 self.assertEqual(profile, environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"])
             self.assertEqual(duration, environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
             self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
             self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def _assert_controller_stubs_target(self, plan, definition) -> None:
+        self._assert_fourth_pod_scale_up(plan, expected_cpu_request="950m")
+        self.assertEqual(
+            {"application": "worker", "stubs": "controller", "generator": "controller"},
+            plan["placement"],
+        )
+        self.assertNotIn("diagnostic_steps", definition)
+        self.assertEqual(
+            [
+                {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+            ],
+            definition["load_test"]["measurement_windows"],
+        )
 
     def _materialized_application(self, target):
         plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))

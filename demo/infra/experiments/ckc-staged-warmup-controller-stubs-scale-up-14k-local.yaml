@@ -1,8 +1,8 @@
 schema_version: 2
 name: ckc-staged-warmup-controller-stubs-scale-up-14k-local
 description: >-
-  Compare staged and direct-linear shared-partition warm-up profiles after parallel result delivery,
-  with HTTP stubs on the controller and a deliberately later fourth-pod scale-up at the same 14k load.
+  Compare a cold fourth-pod start with staged and direct-linear shared-partition warm-up profiles,
+  with HTTP stubs on the controller and a deliberately later scale-up at the same 14k load.
 workload:
   stubs:
     error_rate_percent: 0
@@ -58,8 +58,8 @@ workload:
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
-- name: ckc.staged-warmup-controller-stubs-1-to-300-120s
-  annotation_label: CKC · staged warm-up 1→5→50→300/s · controller stubs · 3→4 pod · local 14k
+- name: ckc.cold-start-controller-stubs
+  annotation_label: CKC · cold start · controller stubs · 3→4 pod · local 14k
   implementation: ckc
   placement: &controller_stubs_placement
     application: worker
@@ -93,7 +93,7 @@ targets:
         scale_up: {max_pods: 1, period_seconds: 180, tolerance: 0.1}
         scale_down: {max_pods: 1, period_seconds: 60, stabilization_window_seconds: 600}
   runtime: &common_runtime
-    env: &warm_env
+    env: &common_env
       DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
       METRICS_IMPLEMENTATION: MICROMETER
@@ -108,6 +108,22 @@ targets:
       KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
       TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      TRAFFIC_WARMUP_ENABLED: false
+    planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
+    parallelism: [workers]
+    topics:
+      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+- name: ckc.staged-warmup-controller-stubs-1-to-300-120s
+  annotation_label: CKC · staged warm-up 1→5→50→300/s · controller stubs · 3→4 pod · local 14k
+  implementation: ckc
+  placement: *controller_stubs_placement
+  application: *four_pod_application
+  runtime:
+    <<: *common_runtime
+    env: &warm_env
+      <<: *common_env
       TRAFFIC_WARMUP_ENABLED: true
       TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
       TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> (0s, step) -> 300 -> (60s, hold) -> 300
@@ -123,12 +139,18 @@ targets:
       TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS: 30
       TRAFFIC_WARMUP_PRODUCER_LINGER_MS: 15
       TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE: 32768
-    planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
-    parallelism: [workers]
-    topics:
-      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+- name: ckc.two-stage-linear-controller-stubs-1-to-100-to-300-120s
+  annotation_label: CKC · linear warm-up 1→100→300/s over 60s+60s · controller stubs · 3→4 pod · local 14k
+  implementation: ckc
+  placement: *controller_stubs_placement
+  application: *four_pod_application
+  runtime:
+    <<: *common_runtime
+    env:
+      <<: *warm_env
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: 1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: 1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300
 - name: ckc.linear-warmup-controller-stubs-1-to-300-120s
   annotation_label: CKC · linear warm-up 1→300/s over 120s · controller stubs · 3→4 pod · local 14k
   implementation: ckc
