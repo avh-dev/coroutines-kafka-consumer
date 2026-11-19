@@ -30,6 +30,33 @@ import kotlin.time.Duration.Companion.seconds
 
 class KafkaWarmupRecordSenderTest {
     @Test
+    fun `producer creation and submission use the context service dispatcher`() = runBlocking {
+        val execution = WarmupExecutionDispatchers("sender", 3, 5.seconds)
+        val producer = MockProducer(true, StringSerializer(), StringSerializer())
+        var creationThread = ""
+        val sender = KafkaWarmupRecordSender<String, String>(
+            producerProperties = producerProperties(),
+            submissionDispatcher = execution.blocking,
+            producerFactory = {
+                creationThread = Thread.currentThread().name
+                producer
+            }
+        )
+        try {
+            sender.send(
+                ConsumerRecord("source", 0, 1, "key", "value"),
+                WarmupDestination("warmup"),
+                WarmupSessionId("session")
+            )
+
+            assertTrue(creationThread.startsWith("ckc-warmup-sender-"))
+        } finally {
+            sender.close()
+            assertTrue(execution.close(5.seconds))
+        }
+    }
+
+    @Test
     fun `sender replaces foreign session headers with exactly one current session`() = runBlocking {
         val producer = MockProducer(true, StringSerializer(), StringSerializer())
         val sender = KafkaWarmupRecordSender<String, String>(

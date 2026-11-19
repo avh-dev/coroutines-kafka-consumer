@@ -1,5 +1,6 @@
 package avh.ckc.core.warmup
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import org.apache.kafka.clients.admin.Admin
@@ -14,6 +15,7 @@ import kotlin.time.Duration
 internal class KafkaWarmupDestinationMetadata(
     participantConnections: Map<WarmupParticipantId, Map<String, Any?>>,
     private val timeout: Duration,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val adminFactory: (Map<String, Any?>) -> Admin = AdminClient::create
 ) : WarmupDestinationMetadata {
     private val participantConnections = participantConnections.mapValues { (_, properties) -> properties.toMap() }
@@ -24,7 +26,7 @@ internal class KafkaWarmupDestinationMetadata(
         }
     }
 
-    override suspend fun endOffsets(mapping: WarmupTopicMapping): Map<Int, Long> = runInterruptible(Dispatchers.IO) {
+    override suspend fun endOffsets(mapping: WarmupTopicMapping): Map<Int, Long> = runInterruptible(dispatcher) {
         val properties = requireNotNull(participantConnections[mapping.participantId]) {
             "No warm-up Kafka connection configured for participant ${mapping.participantId.value}"
         }

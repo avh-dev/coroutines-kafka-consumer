@@ -5,6 +5,7 @@ import avh.ckc.core.CoroutinesKafkaConsumerBuilder
 import avh.ckc.core.isFatalJvmError
 import avh.ckc.core.metrics.ConsumerMetrics
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -42,6 +43,7 @@ internal class TrafficWarmupParticipant<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     private val delegationTimeoutMillis: Long,
     private val recipientShutdownTimeoutMillis: Long,
+    private val serviceDispatcher: CoroutineDispatcher,
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
 ) : RegisteredTrafficWarmupParticipant {
     private val metricsObserver = WarmupMetricsObserver(metrics)
@@ -73,7 +75,10 @@ internal class TrafficWarmupParticipant<K, V>(
                     destinationResolver = WarmupDestinationResolver { record ->
                         if (record.topic() == mapping.sourceTopic) WarmupDestination(mapping.warmupTopic) else null
                     },
-                    sender = KafkaWarmupRecordSender(forwardingProducerProperties),
+                    sender = KafkaWarmupRecordSender(
+                        forwardingProducerProperties,
+                        submissionDispatcher = serviceDispatcher
+                    ),
                     observer = observer,
                     pendingLaneId = mapping.mappingFingerprint,
                     supportsRemoteDiscard = { true }
