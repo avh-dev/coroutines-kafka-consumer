@@ -12,6 +12,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -68,6 +69,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     private val lock = Any()
     private val supportedMappings = supportedMappings.associateBy(::mappingIdentity)
     private val sessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
+    // Terminal fences may expire or overflow, but cleanup ownership must remain reachable until
+    // close succeeds. This registry is bounded by actual failed resources rather than protocol IDs.
+    private val retainedCleanupSessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
     private val terminalSessionOrder = linkedSetOf<WarmupSessionId>()
     private var admissionBlockedUntilEpochMillis = 0L
 
@@ -81,7 +85,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         rejectionReason(acceptance)?.let { return rejection(acceptance, it) }
         synchronized(lock) {
             pruneExpiredTerminalFencesLocked()
-            sessions[acceptance.sessionId]?.let { existing ->
+            (sessions[acceptance.sessionId] ?: retainedCleanupSessions[acceptance.sessionId])?.let { existing ->
                 return if (existing.acceptance == acceptance && existing.state !in terminalStates) {
                     accepted(acceptance)
                 } else {
@@ -180,7 +184,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     /** Completion is idempotent and closes delegation before any in-flight wait begins. */
     fun onCompletionRequested(request: WarmupCompletionRequested): Boolean {
         return synchronized(lock) {
-            val existing = sessions[request.sessionId] ?: return@synchronized false
+            val existing = sessions[request.sessionId]
+                ?: retainedCleanupSessions[request.sessionId]
+                ?: return@synchronized false
             if (!matchesSession(existing.acceptance, request)) return@synchronized false
             if (existing.state == State.CLOSED) {
                 scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
@@ -200,7 +206,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     /** Broadcast fallback fences new delegation in every pre-completion state. */
     fun onSessionEnded(ended: SessionEnded): Boolean {
         return synchronized(lock) {
-            val local = sessions[ended.sessionId] ?: return@synchronized false
+            val local = sessions[ended.sessionId]
+                ?: retainedCleanupSessions[ended.sessionId]
+                ?: return@synchronized false
             val acceptance = local.acceptance
             if (ended.protocolVersion != WARMUP_CONTROL_PROTOCOL_VERSION ||
                 ended.namespace != acceptance.namespace || ended.senderInstanceId != acceptance.senderInstanceId ||
@@ -217,11 +225,15 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     /** Ends only logical sessions that depend on a participant whose main runtime is stopping. */
     fun onParticipantUnavailable(participantId: WarmupParticipantId): Int {
         val affected = synchronized(lock) {
-            sessions.values.filter { local ->
+            val closing = sessions.values.filter { local ->
                 local.state !in terminalStates &&
                     local.acceptance.mappings.any { it.mapping.participantId == participantId }
             }.filter { beginCloseLocked(it, acknowledge = false) }
-                .map(LocalSession<S>::acceptance)
+            val retrying = retainedCleanupSessions.values.filter { local ->
+                local.state == State.FAILED &&
+                    local.acceptance.mappings.any { it.mapping.participantId == participantId }
+            }.filter(::requestFailedCleanupLocked)
+            (closing + retrying).distinct().map(LocalSession<S>::acceptance)
         }
         affected.forEach { acceptance ->
             scope.launch { onPreparationFailed(rejection(acceptance, "donor_participant_unavailable")) }
@@ -294,7 +306,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             }
             synchronized(lock) {
                 local.prepared = null
-                local.retainedCleanupResource = detached
+                retainCleanupResourceLocked(local, detached)
             }
         }
         if (!closeRetainedResource(local)) {
@@ -331,7 +343,10 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         return try {
             withContext(NonCancellable + cleanupDispatcher) { resource.close() }
             synchronized(lock) {
-                if (local.retainedCleanupResource === resource) local.retainedCleanupResource = null
+                if (local.retainedCleanupResource === resource) {
+                    local.retainedCleanupResource = null
+                    retainedCleanupSessions.remove(local.acceptance.sessionId, local)
+                }
             }
             true
         } catch (error: Throwable) {
@@ -354,7 +369,25 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         beginCloseLocked(local, acknowledge = false)
     }
 
-    internal fun state(sessionId: WarmupSessionId): State? = synchronized(lock) { sessions[sessionId]?.state }
+    internal fun state(sessionId: WarmupSessionId): State? = synchronized(lock) {
+        (sessions[sessionId] ?: retainedCleanupSessions[sessionId])?.state
+    }
+
+    internal fun pendingCleanupResourceCount(): Int = synchronized(lock) { retainedCleanupSessions.size }
+
+    /** A context stop owns another bounded attempt without depending on terminal fence retention. */
+    suspend fun retryRetainedCleanupAndAwait(timeout: Duration): Boolean {
+        require(timeout.isPositive()) { "Donor cleanup timeout must be > 0" }
+        synchronized(lock) {
+            retainedCleanupSessions.values.toSet().forEach { local ->
+                if (local.closeStarted) local.closeRetryRequested = true else scheduleFailedCleanupLocked(local)
+            }
+        }
+        return withTimeoutOrNull(timeout) {
+            while (pendingCleanupResourceCount() != 0) delay(10)
+            true
+        } == true
+    }
 
     private suspend fun prepare(local: LocalSession<S>) {
         val prepared = try {
@@ -403,7 +436,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 withContext(cleanupDispatcher) { prepared.close() }
                 PreparationCompletion.Cancelled
             } catch (error: Throwable) {
-                synchronized(lock) { local.retainedCleanupResource = prepared }
+                synchronized(lock) { retainCleanupResourceLocked(local, prepared) }
                 PreparationCompletion.ResourceCleanupFailed(error)
             }
             local.preparationFinished.complete(completion)
@@ -433,7 +466,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             check(detached != null) {
                 "Failed unactivated donor session ${local.acceptance.sessionId.value} did not close"
             }
-            local.retainedCleanupResource = detached
+            retainCleanupResourceLocked(local, detached)
             scheduleFailedCleanupLocked(local)
         }
         recordTerminalLocked(local)
@@ -460,6 +493,14 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         if (local.retainedCleanupResource == null) return false
         if (local.closeStarted) local.closeRetryRequested = true else scheduleFailedCleanupLocked(local)
         return true
+    }
+
+    private fun retainCleanupResourceLocked(local: LocalSession<S>, resource: S) {
+        check(local.retainedCleanupResource == null || local.retainedCleanupResource === resource) {
+            "Warm-up session ${local.acceptance.sessionId.value} already owns another cleanup resource"
+        }
+        local.retainedCleanupResource = resource
+        retainedCleanupSessions[local.acceptance.sessionId] = local
     }
 
     /**

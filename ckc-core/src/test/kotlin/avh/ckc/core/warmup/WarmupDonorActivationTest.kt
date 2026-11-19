@@ -114,6 +114,93 @@ class WarmupDonorActivationTest {
     }
 
     @Test
+    fun `failed cleanup remains retryable after terminal fence overflow`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = rejectingInstallStore()
+        val failedId = WarmupSessionId("failed-overflow")
+        val closeAttempts = AtomicInteger()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = store,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { accepted ->
+                if (accepted.sessionId == WarmupSessionId("fence")) error("fence preparation failed")
+                session(accepted.sessionId) {
+                    if (closeAttempts.incrementAndGet() == 1) error("first close failed")
+                }
+            },
+            scope = scope,
+            onPreparationFailed = {},
+            maxTerminalSessionFences = 1,
+            nowEpochMillis = { 1_000 }
+        )
+        val fence = acceptance().copy(sessionId = WarmupSessionId("fence"))
+        val failed = acceptance().copy(sessionId = failedId)
+        try {
+            acceptAndStart(activation, fence)
+            awaitFor(2_000, 10) {
+                activation.state(fence.sessionId).takeIf { it == WarmupDonorActivation.State.FAILED }
+            }
+            acceptAndStart(activation, failed)
+            awaitFor(2_000, 10) { closeAttempts.get().takeIf { it == 1 } }
+
+            assertEquals(1, activation.pendingCleanupResourceCount())
+            assertEquals(WarmupDonorActivation.State.FAILED, activation.state(failedId))
+            assertTrue(activation.onCompletionRequested(completion(failed)))
+
+            awaitFor(2_000, 10) { closeAttempts.get().takeIf { it == 2 } }
+            assertEquals(0, activation.pendingCleanupResourceCount())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `failed cleanup remains owned after terminal fence expiry and context retry closes it`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = rejectingInstallStore()
+        val clock = AtomicLong(1_000)
+        val failedId = WarmupSessionId("failed-expiry")
+        val closeAttempts = AtomicInteger()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = store,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { accepted ->
+                session(accepted.sessionId) {
+                    if (closeAttempts.incrementAndGet() == 1) error("first close failed")
+                }
+            },
+            scope = scope,
+            onPreparationFailed = {},
+            maxTerminalSessionFences = 1,
+            nowEpochMillis = clock::get
+        )
+        val failed = acceptance().copy(sessionId = failedId)
+        try {
+            acceptAndStart(activation, failed)
+            awaitFor(2_000, 10) { closeAttempts.get().takeIf { it == 1 } }
+            clock.set(failed.expiresAtEpochMillis + 1)
+            val next = acceptance().copy(
+                sessionId = WarmupSessionId("after-expiry"),
+                expiresAtEpochMillis = clock.get() + 10_000
+            )
+            assertInstanceOf(DonorAccepted::class.java, activation.accept(next))
+
+            assertEquals(WarmupDonorActivation.State.FAILED, activation.state(failedId))
+            assertTrue(activation.retryRetainedCleanupAndAwait(2.seconds))
+            assertEquals(2, closeAttempts.get())
+            assertEquals(0, activation.pendingCleanupResourceCount())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `readiness received during preparation activates exactly once after preparation`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val plane = MultiSessionWarmupDataPlane<String, String>(2, 20)
@@ -863,6 +950,21 @@ class WarmupDonorActivationTest {
         onPreparationFailed = {},
         nowEpochMillis = { 1_000 }
     )
+
+    private fun rejectingInstallStore(): WarmupDonorSessionStore<WarmupDonorSession<String, String>> =
+        object : WarmupDonorSessionStore<WarmupDonorSession<String, String>> {
+            override fun tryAdmitPreparation(sessionId: WarmupSessionId, budgetPerSecond: Int) =
+                DonorSessionAdmission.ACCEPTED
+            override fun installAdmittedSession(session: WarmupDonorSession<String, String>) = false
+            override fun cancelPreparingAdmission(sessionId: WarmupSessionId) = true
+            override fun activate(sessionId: WarmupSessionId) = false
+            override fun acceptResult(completed: WarmupRecordCompleted) = WarmupResultTracker.Completion.IGNORED
+            override fun stopDelegating(sessionId: WarmupSessionId) = Unit
+            override suspend fun stopDelegatingAndAwaitInflight(sessionId: WarmupSessionId, timeout: kotlin.time.Duration) = Unit
+            override suspend fun awaitInflightCompletion(sessionId: WarmupSessionId) = Unit
+            override fun fail(sessionId: WarmupSessionId, error: Throwable) = Unit
+            override fun detachDrainedSession(sessionId: WarmupSessionId): WarmupDonorSession<String, String>? = null
+        }
 
     private fun acceptAndStart(
         activation: WarmupDonorActivation<WarmupDonorSession<String, String>>,

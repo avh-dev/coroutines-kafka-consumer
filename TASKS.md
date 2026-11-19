@@ -6330,7 +6330,9 @@ The public context exposes a total service-thread limit and idle timeout; one co
 isolated from the shared blocking pool, while the continuously polling control consumer may retain
 one blocking worker between sessions. Recipient handlers remain on their configured processing
 dispatchers. Installed, late-prepared, partially prepared, and failed donor resources also close on
-the blocking pool without allowing an early `DonorClosed`. The complete core unit suite and both
+the blocking pool without allowing an early `DonorClosed`. Failed cleanup ownership is retained
+independently of bounded and expiring terminal fences, and context shutdown performs another
+bounded, retryable cleanup attempt before closing its executors. The complete core unit suite and both
 public-DSL/shared-partition real-Kafka integration
 classes pass; no smoke, load, chaos, or experiment run was started.
 
