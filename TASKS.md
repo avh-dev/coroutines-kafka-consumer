@@ -6332,8 +6332,10 @@ one blocking worker between sessions. Recipient handlers remain on their configu
 dispatchers. Installed, late-prepared, partially prepared, and failed donor resources also close on
 the blocking pool without allowing an early `DonorClosed`. Failed cleanup ownership is retained
 independently of bounded and expiring terminal fences, and context shutdown performs another
-bounded, retryable cleanup attempt before closing its executors. The complete core unit suite and both
-public-DSL/shared-partition real-Kafka integration
+bounded, retryable cleanup attempt before closing its executors. Context shutdown also tracks
+cancelled preparations independently of admission: a late resource must finish its bounded cleanup
+or remain owned for a later stop attempt before the execution resource can close. The complete core
+unit suite and both public-DSL/shared-partition real-Kafka integration
 classes pass; no smoke, load, chaos, or experiment run was started.
 
 <a id="infra-323"></a>

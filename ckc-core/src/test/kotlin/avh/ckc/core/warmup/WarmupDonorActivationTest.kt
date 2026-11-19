@@ -192,7 +192,7 @@ class WarmupDonorActivationTest {
             assertInstanceOf(DonorAccepted::class.java, activation.accept(next))
 
             assertEquals(WarmupDonorActivation.State.FAILED, activation.state(failedId))
-            assertTrue(activation.retryRetainedCleanupAndAwait(2.seconds))
+            assertTrue(activation.awaitCleanupBarrier(2.seconds))
             assertEquals(2, closeAttempts.get())
             assertEquals(0, activation.pendingCleanupResourceCount())
         } finally {
@@ -301,6 +301,65 @@ class WarmupDonorActivationTest {
         assertEquals(0, plane.admittedSessionCount())
         assertFalse(activation.onRecipientReady(ready()))
         scope.cancel()
+    }
+
+    @Test
+    fun `context cleanup barrier retains a late preparation resource for a bounded retry`() = runBlocking {
+        val execution = WarmupExecutionDispatchers("late-preparation-cleanup", 3, 5.seconds)
+        val scope = CoroutineScope(SupervisorJob() + execution.coordination)
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val preparationStarted = CountDownLatch(1)
+        val releasePreparation = CountDownLatch(1)
+        val closeStarted = CountDownLatch(1)
+        val releaseFirstClose = CountDownLatch(1)
+        val closeAttempts = AtomicInteger()
+        val accepted = acceptance()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation {
+                preparationStarted.countDown()
+                releasePreparation.await()
+                session(accepted.sessionId) {
+                    if (closeAttempts.incrementAndGet() == 1) {
+                        closeStarted.countDown()
+                        releaseFirstClose.await()
+                        error("first late close failed")
+                    }
+                }
+            },
+            scope = scope,
+            cleanupDispatcher = execution.blocking,
+            onPreparationFailed = {},
+            nowEpochMillis = { 1_000 }
+        )
+        try {
+            acceptAndStart(activation, accepted)
+            assertTrue(preparationStarted.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(activation.onSessionEnded(fallbackEnded()))
+
+            val firstBarrier = async { activation.awaitCleanupBarrier(100.milliseconds) }
+            releasePreparation.countDown()
+            assertTrue(closeStarted.await(2, java.util.concurrent.TimeUnit.SECONDS))
+
+            assertFalse(withTimeout(1.seconds) { firstBarrier.await() })
+            releaseFirstClose.countDown()
+            awaitFor(2_000, 10) {
+                activation.pendingCleanupResourceCount().takeIf { it == 1 }
+            }
+
+            assertTrue(activation.awaitCleanupBarrier(2.seconds))
+            assertEquals(2, closeAttempts.get())
+            assertEquals(0, activation.pendingCleanupResourceCount())
+        } finally {
+            releasePreparation.countDown()
+            releaseFirstClose.countDown()
+            scope.cancel()
+            assertTrue(execution.close(5.seconds))
+        }
     }
 
     @Test

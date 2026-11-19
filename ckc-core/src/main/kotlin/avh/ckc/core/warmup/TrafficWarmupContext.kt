@@ -691,7 +691,7 @@ class TrafficWarmupContext internal constructor(
             error("Warm-up donor sessions did not drain before context shutdown")
         }
         val donorCleanupComplete = !::donorActivation.isInitialized ||
-            donorActivation.retryRetainedCleanupAndAwait(configuration.completionTimeout)
+            donorActivation.awaitCleanupBarrier(configuration.completionTimeout)
         if (!donorCleanupComplete) {
             synchronized(lock) { sharedClosed = false }
             error("Warm-up donor resource cleanup did not complete before context shutdown")

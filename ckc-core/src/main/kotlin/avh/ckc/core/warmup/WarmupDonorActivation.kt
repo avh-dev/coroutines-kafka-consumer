@@ -69,6 +69,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     private val lock = Any()
     private val supportedMappings = supportedMappings.associateBy(::mappingIdentity)
     private val sessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
+    // Admission may already be released while a cancelled, non-cooperative preparation is still
+    // able to return a resource. Shutdown treats that capability as cleanup ownership too.
+    private val activePreparations = linkedSetOf<LocalSession<S>>()
     // Terminal fences may expire or overflow, but cleanup ownership must remain reachable until
     // close succeeds. This registry is bounded by actual failed resources rather than protocol IDs.
     private val retainedCleanupSessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
@@ -121,6 +124,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             }
             existing.preparationStarted = true
             existing.preparationJob = job
+            activePreparations += existing
             existing to job
         } ?: return false
         val (local, job) = pending
@@ -131,6 +135,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 if (!local.preparationBodyEntered) {
                     local.preparationFinished.complete(PreparationCompletion.Cancelled)
                 }
+                activePreparations.remove(local)
             }
         }
         job.start()
@@ -376,18 +381,37 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     internal fun pendingCleanupResourceCount(): Int = synchronized(lock) { retainedCleanupSessions.size }
 
     /** A context stop owns another bounded attempt without depending on terminal fence retention. */
-    suspend fun retryRetainedCleanupAndAwait(timeout: Duration): Boolean {
+    suspend fun awaitCleanupBarrier(timeout: Duration): Boolean {
         require(timeout.isPositive()) { "Donor cleanup timeout must be > 0" }
-        synchronized(lock) {
-            retainedCleanupSessions.values.toSet().forEach { local ->
-                if (local.closeStarted) local.closeRetryRequested = true else scheduleFailedCleanupLocked(local)
+        val resourcesOwnedAtEntry = synchronized(lock) {
+            retainedCleanupSessions.values.toSet().also { retained ->
+                retained.forEach { local ->
+                    if (local.closeStarted) local.closeRetryRequested = true else scheduleFailedCleanupLocked(local)
+                }
             }
         }
         return withTimeoutOrNull(timeout) {
-            while (pendingCleanupResourceCount() != 0) delay(10)
-            true
+            while (true) {
+                val status = synchronized(lock) {
+                    val retained = retainedCleanupSessions.values.toSet()
+                    when {
+                        activePreparations.isNotEmpty() -> CleanupBarrierStatus.WAITING
+                        retained.isEmpty() -> CleanupBarrierStatus.COMPLETE
+                        retained.any { it !in resourcesOwnedAtEntry } -> CleanupBarrierStatus.INCOMPLETE
+                        retained.any { it.closeStarted } -> CleanupBarrierStatus.WAITING
+                        else -> CleanupBarrierStatus.INCOMPLETE
+                    }
+                }
+                when (status) {
+                    CleanupBarrierStatus.COMPLETE -> return@withTimeoutOrNull true
+                    CleanupBarrierStatus.INCOMPLETE -> return@withTimeoutOrNull false
+                    CleanupBarrierStatus.WAITING -> delay(10)
+                }
+            }
         } == true
     }
+
+    private enum class CleanupBarrierStatus { WAITING, COMPLETE, INCOMPLETE }
 
     private suspend fun prepare(local: LocalSession<S>) {
         val prepared = try {
