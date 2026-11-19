@@ -58,6 +58,11 @@ thread-stats:
         - name: confluent-parallel-worker
           rules:
             - { type: prefix, value: pc-reactor-worker- }
+    - name: warmup-protocol
+      groups:
+        - name: service-executor
+          rules:
+            - { type: prefix, value: ckc-warmup- }
     - name: kafka
       groups:
         - name: ckc-poll

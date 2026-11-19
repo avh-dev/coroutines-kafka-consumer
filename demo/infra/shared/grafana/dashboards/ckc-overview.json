@@ -5801,6 +5801,7 @@
           "type": "timeseries"
         }
       ],
+      "description": "Application JVM thread costs by Thread Stats category. warmup-protocol contains only ckc-warmup service executors; recipient business handlers remain business and Kafka client network threads remain kafka, so this category is protocol overhead rather than the complete cost of warm-up.",
       "title": "Thread Stats",
       "type": "row"
     },

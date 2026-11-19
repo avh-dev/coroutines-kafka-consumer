@@ -526,6 +526,7 @@
 | [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
 | [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
 | [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
+| [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6585,3 +6586,19 @@ The pinned image now builds a small bounded Kafka client, removes stale primer t
 interrupted start, and records actual acknowledgements, reads, bytes, rate, duration, and failures.
 The 15 script tests, 86 shared orchestration tests, 28 focused internal-lab tests, image build, and
 short real-broker lifecycle qualification pass; no experiment or smoke workload was started.
+
+<a id="infra-334"></a>
+### INFRA-334 - Expose warm-up service threads in observability
+
+_Date: 2026-11-19_
+
+Classify `ckc-warmup-*` threads separately from business handlers and Kafka client threads in the
+demo Thread Stats configuration. Update shared dashboards and their contract tests so the category
+is clearly identified as protocol service overhead rather than the complete cost of warm-up.
+Prepare an internal-lab comparison command for thread count, CPU, and processing p99 without
+starting the experiment automatically.
+The demo configuration now reports `warmup-protocol / service-executor` independently while the
+generic category panels retain the separate `business` and `kafka` costs. The Thread Stats dashboard
+documents this accounting boundary. Focused demo and dashboard tests pass; the complete internal-lab
+suite still reports three unrelated existing failures in chaos-helper imports, report wording, and
+Telegram wording. No smoke or experiment was started.

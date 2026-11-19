@@ -515,6 +515,17 @@ class DashboardTest(unittest.TestCase):
             )
             self.assertEqual("A", target["refId"])
 
+    def test_thread_stats_row_explains_warmup_service_cost_boundary(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("id") == 94)
+
+        self.assertIn("warmup-protocol", row["description"])
+        self.assertIn("service executors", row["description"])
+        self.assertIn("business handlers", row["description"])
+        self.assertIn("Kafka client", row["description"])
+        self.assertIn("rather than the complete cost", row["description"])
+
     def test_thread_stats_context_switch_panels_are_split_smooth_and_stacked(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
