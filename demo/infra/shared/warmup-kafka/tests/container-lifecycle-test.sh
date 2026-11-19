@@ -72,6 +72,22 @@ wait_ready
 prewarm_evidence="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/prewarm.json)"
 grep -q '"outcome":"success"' <<< "${prewarm_evidence}"
 grep -q '"accepted_records":' <<< "${prewarm_evidence}"
+
+# A non-multiple byte budget must reserve space for the next complete payload.
+docker exec \
+  -e KAFKA_PREWARM_FIRST_PHASE_SECONDS=1 \
+  -e KAFKA_PREWARM_SECOND_PHASE_SECONDS=1 \
+  -e KAFKA_PREWARM_START_RATE=1000 \
+  -e KAFKA_PREWARM_MIDDLE_RATE=1000 \
+  -e KAFKA_PREWARM_END_RATE=1000 \
+  -e KAFKA_PREWARM_PAYLOAD_BYTES=512 \
+  -e KAFKA_PREWARM_MAX_RECORDS=10 \
+  -e KAFKA_PREWARM_MAX_BYTES=1000 \
+  -e KAFKA_PREWARM_TIMEOUT_SECONDS=15 \
+  "${container}" /opt/ckc-warmup-kafka/bin/prewarm-broker.sh
+byte_budget_evidence="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/prewarm.json)"
+grep -q '"accepted_records":1' <<< "${byte_budget_evidence}"
+grep -q '"accepted_bytes":512' <<< "${byte_budget_evidence}"
 descriptions="$(docker exec "${container}" /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:19092 --describe)"
 if [[ "$(grep -c 'PartitionCount: 1' <<< "${descriptions}")" -ne 4 ]]; then

@@ -56,6 +56,10 @@ public final class PrewarmBroker {
     ) throws Exception {
         Instant startedAt = Instant.now();
         long startedNanos = System.nanoTime();
+        long processDeadlineNanos = saturatedAdd(
+            startedNanos,
+            Duration.ofSeconds(configuration.prewarmTimeoutSeconds).toNanos()
+        );
         String topic = TOPIC_PREFIX + UUID.randomUUID().toString().replace("-", "");
         AtomicBoolean stopping = new AtomicBoolean();
         AtomicLong accepted = new AtomicLong();
@@ -83,7 +87,8 @@ public final class PrewarmBroker {
         String outcome = "failed";
         String reason = "unknown";
 
-        try (Admin admin = Admin.create(common)) {
+        Admin admin = Admin.create(common);
+        try {
             deleteStaleTopics(admin, configuration.operationTimeoutSeconds);
             admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1)))
                 .all().get(configuration.operationTimeoutSeconds, TimeUnit.SECONDS);
@@ -111,87 +116,116 @@ public final class PrewarmBroker {
             producerProperties.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, Long.toString(configuration.operationTimeoutSeconds * 1000L));
             producerProperties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Long.toString(configuration.deliveryTimeoutSeconds * 1000L));
 
-            try (
-                KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProperties);
-                KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(producerProperties)
-            ) {
-                AtomicBoolean consumerAssigned = new AtomicBoolean();
-                Thread consumerThread = new Thread(() -> consume(
-                    consumer, topic, stopping, consumerAssigned, consumed, failure
-                ), "prewarm-consumer");
-                consumerThread.start();
+            KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProperties);
+            try {
+                KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(producerProperties);
+                boolean processingCompleted = false;
                 try {
-                    waitFor(() -> consumerAssigned.get(), failure, stopping, configuration.operationTimeoutSeconds, "consumer assignment");
+                    AtomicBoolean consumerAssigned = new AtomicBoolean();
+                    Thread consumerThread = new Thread(() -> consume(
+                        consumer, topic, stopping, consumerAssigned, consumed, failure
+                    ), "prewarm-consumer");
+                    consumerThread.start();
+                    try {
+                        waitFor(
+                            () -> consumerAssigned.get(), failure, stopping,
+                            configuration.operationTimeoutSeconds, "consumer assignment"
+                        );
 
-                    Semaphore inflight = new Semaphore(configuration.maxInflight);
-                    byte[] payload = new byte[configuration.payloadBytes];
-                    long profileStarted = System.nanoTime();
-                    long lastSend = profileStarted;
-                    while (!stopping.get()) {
-                        long elapsedNanos = System.nanoTime() - profileStarted;
-                        if (elapsedNanos >= configuration.durationNanos ||
-                            accepted.get() >= configuration.maxRecords ||
-                            accepted.get() * configuration.payloadBytes >= configuration.maxBytes) {
-                            break;
-                        }
-                        Throwable deliveryFailure = failure.get();
-                        if (deliveryFailure != null) {
-                            throw new IllegalStateException("prewarm delivery failed", deliveryFailure);
-                        }
+                        Semaphore inflight = new Semaphore(configuration.maxInflight);
+                        byte[] payload = new byte[configuration.payloadBytes];
+                        long profileStarted = System.nanoTime();
+                        long lastSend = profileStarted;
+                        while (!stopping.get()) {
+                            long elapsedNanos = System.nanoTime() - profileStarted;
+                            if (elapsedNanos >= configuration.durationNanos ||
+                                accepted.get() >= configuration.recordBudget()) {
+                                break;
+                            }
+                            Throwable deliveryFailure = failure.get();
+                            if (deliveryFailure != null) {
+                                throw new IllegalStateException("prewarm delivery failed", deliveryFailure);
+                            }
 
-                        double rate = configuration.rateAt(elapsedNanos);
-                        long intervalNanos = Math.max(1L, (long) (1_000_000_000d / rate));
-                        long now = System.nanoTime();
-                        long waitNanos = lastSend + intervalNanos - now;
-                        if (waitNanos > 0) {
-                            LockSupport.parkNanos(waitNanos);
-                        }
-                        if (Thread.interrupted() || stopping.get()) {
-                            break;
-                        }
-                        // Scheduling or producer backpressure never creates a catch-up burst.
-                        lastSend = System.nanoTime();
-                        if (!inflight.tryAcquire(configuration.operationTimeoutSeconds, TimeUnit.SECONDS)) {
-                            throw new IllegalStateException("prewarm producer inflight budget remained full");
-                        }
-                        long sequence = accepted.incrementAndGet();
-                        ByteBuffer.wrap(payload).putLong(0, sequence);
-                        try {
-                            producer.send(new ProducerRecord<>(topic, payload.clone()), (metadata, exception) -> {
-                                try {
-                                    if (exception == null) {
-                                        acknowledged.incrementAndGet();
-                                    } else {
-                                        failure.compareAndSet(null, exception);
+                            double rate = configuration.rateAt(elapsedNanos);
+                            long intervalNanos = Math.max(1L, (long) (1_000_000_000d / rate));
+                            long now = System.nanoTime();
+                            long waitNanos = lastSend + intervalNanos - now;
+                            if (waitNanos > 0) {
+                                LockSupport.parkNanos(waitNanos);
+                            }
+                            if (Thread.interrupted() || stopping.get()) {
+                                break;
+                            }
+                            // Scheduling or producer backpressure never creates a catch-up burst.
+                            lastSend = System.nanoTime();
+                            if (!inflight.tryAcquire(configuration.operationTimeoutSeconds, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("prewarm producer inflight budget remained full");
+                            }
+                            long sequence = accepted.incrementAndGet();
+                            ByteBuffer.wrap(payload).putLong(0, sequence);
+                            try {
+                                producer.send(new ProducerRecord<>(topic, payload.clone()), (metadata, exception) -> {
+                                    try {
+                                        if (exception == null) {
+                                            acknowledged.incrementAndGet();
+                                        } else {
+                                            failure.compareAndSet(null, exception);
+                                        }
+                                    } finally {
+                                        inflight.release();
                                     }
-                                } finally {
-                                    inflight.release();
-                                }
-                            });
-                        } catch (Throwable sendFailure) {
-                            accepted.decrementAndGet();
-                            inflight.release();
-                            throw sendFailure;
+                                });
+                            } catch (Throwable sendFailure) {
+                                accepted.decrementAndGet();
+                                inflight.release();
+                                throw sendFailure;
+                            }
+                        }
+
+                        waitFor(
+                            () -> acknowledged.get() == accepted.get(), failure, stopping,
+                            configuration.deliveryTimeoutSeconds, "producer acknowledgements"
+                        );
+                        producer.flush();
+                        waitFor(
+                            () -> consumed.get() >= acknowledged.get(), failure, stopping,
+                            configuration.deliveryTimeoutSeconds, "consumer drain"
+                        );
+                        processingCompleted = true;
+                    } catch (Throwable processingFailure) {
+                        writeEvidence(
+                            evidenceFile,
+                            "failed",
+                            describe(processingFailure),
+                            startedAt,
+                            elapsedMillis(startedNanos),
+                            accepted.get(), acknowledged.get(), consumed.get(), configuration.payloadBytes
+                        );
+                        throw processingFailure;
+                    } finally {
+                        stopping.set(true);
+                        consumer.wakeup();
+                        consumerThread.join(Math.max(1L, remaining(processDeadlineNanos).toMillis()));
+                        if (consumerThread.isAlive()) {
+                            throw new IllegalStateException("prewarm consumer did not stop");
                         }
                     }
-
-                    waitFor(
-                        () -> acknowledged.get() == accepted.get(), failure, stopping,
-                        configuration.deliveryTimeoutSeconds, "producer acknowledgements"
-                    );
-                    producer.flush();
-                    waitFor(
-                        () -> consumed.get() >= acknowledged.get(), failure, stopping,
-                        configuration.deliveryTimeoutSeconds, "consumer drain"
-                    );
                 } finally {
-                    stopping.set(true);
-                    consumer.wakeup();
-                    consumerThread.join(Duration.ofSeconds(configuration.operationTimeoutSeconds).toMillis());
-                    if (consumerThread.isAlive()) {
-                        throw new IllegalStateException("prewarm consumer did not stop");
+                    if (processingCompleted) {
+                        writeEvidence(
+                            evidenceFile,
+                            "pending_cleanup",
+                            "client_cleanup_started",
+                            startedAt,
+                            elapsedMillis(startedNanos),
+                            accepted.get(), acknowledged.get(), consumed.get(), configuration.payloadBytes
+                        );
                     }
+                    producer.close(remaining(processDeadlineNanos));
                 }
+            } finally {
+                consumer.close(remaining(processDeadlineNanos));
             }
 
             deleteTopic(admin, topic, configuration.operationTimeoutSeconds);
@@ -199,20 +233,35 @@ public final class PrewarmBroker {
             outcome = "success";
             reason = "completed";
         } catch (Throwable thrown) {
-            reason = thrown.getClass().getSimpleName() + ": " + String.valueOf(thrown.getMessage());
+            reason = describe(thrown);
             throw thrown;
         } finally {
+            try {
+                admin.close(remaining(processDeadlineNanos));
+            } catch (Throwable closeFailure) {
+                outcome = "failed";
+                reason += "; admin_close=" + describe(closeFailure);
+            }
             stopping.set(true);
             if (topicCreated) {
-                try (Admin cleanup = Admin.create(common)) {
+                Admin cleanup = null;
+                try {
+                    cleanup = Admin.create(common);
                     deleteTopic(cleanup, topic, configuration.operationTimeoutSeconds);
                 } catch (Throwable cleanupFailure) {
                     reason += "; cleanup=" + cleanupFailure.getClass().getSimpleName();
+                } finally {
+                    if (cleanup != null) {
+                        try {
+                            cleanup.close(remaining(processDeadlineNanos));
+                        } catch (Throwable closeFailure) {
+                            reason += "; cleanup_close=" + closeFailure.getClass().getSimpleName();
+                        }
+                    }
                 }
             }
-            long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
             writeEvidence(
-                evidenceFile, outcome, reason, startedAt, elapsedMillis,
+                evidenceFile, outcome, reason, startedAt, elapsedMillis(startedNanos),
                 accepted.get(), acknowledged.get(), consumed.get(), configuration.payloadBytes
             );
             shutdownComplete.countDown();
@@ -222,6 +271,25 @@ public final class PrewarmBroker {
                 // JVM shutdown is already in progress.
             }
         }
+    }
+
+    private static String describe(Throwable thrown) {
+        return thrown.getClass().getSimpleName() + ": " + String.valueOf(thrown.getMessage());
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
+    }
+
+    private static Duration remaining(long deadlineNanos) {
+        return Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        if (Long.MAX_VALUE - left < right) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
     }
 
     private static void consume(
@@ -335,6 +403,7 @@ public final class PrewarmBroker {
         try {
             Files.writeString(path, json, StandardCharsets.UTF_8);
             System.out.print("warmup-kafka-prewarm evidence=" + json);
+            System.out.flush();
         } catch (IOException writeFailure) {
             System.err.println("warmup-kafka-prewarm evidence_write_failed=" + writeFailure);
         }
@@ -362,6 +431,7 @@ public final class PrewarmBroker {
         long maxBufferedBytes,
         int operationTimeoutSeconds,
         int deliveryTimeoutSeconds,
+        int prewarmTimeoutSeconds,
         long durationNanos
     ) {
         static Configuration fromEnvironment() {
@@ -377,6 +447,7 @@ public final class PrewarmBroker {
             long buffered = positiveLong("KAFKA_PREWARM_MAX_BUFFERED_BYTES", 16L * 1024 * 1024);
             int operationTimeout = positiveInt("KAFKA_OPERATION_TIMEOUT_SECONDS", 10);
             int deliveryTimeout = positiveInt("KAFKA_PREWARM_DELIVERY_TIMEOUT_SECONDS", 30);
+            int prewarmTimeout = positiveInt("KAFKA_PREWARM_TIMEOUT_SECONDS", 180);
             if (payload < Long.BYTES) {
                 throw new IllegalArgumentException(
                     "KAFKA_PREWARM_PAYLOAD_BYTES must be at least " + Long.BYTES + ": " + payload
@@ -389,8 +460,13 @@ public final class PrewarmBroker {
             }
             return new Configuration(
                 first, second, start, middle, end, payload, maxRecords, maxBytes, inflight,
-                buffered, operationTimeout, deliveryTimeout, Duration.ofSeconds(first + second).toNanos()
+                buffered, operationTimeout, deliveryTimeout, prewarmTimeout,
+                Duration.ofSeconds(first + second).toNanos()
             );
+        }
+
+        long recordBudget() {
+            return Math.min(maxRecords, maxBytes / payloadBytes);
         }
 
         double rateAt(long elapsedNanos) {

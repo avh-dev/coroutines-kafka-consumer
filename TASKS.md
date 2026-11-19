@@ -6557,5 +6557,5 @@ Open readiness only after acknowledged records have been consumed, clients have 
 temporary topic has been deleted; preserve evidence describing achieved work and failures.
 The pinned image now builds a small bounded Kafka client, removes stale primer topics after an
 interrupted start, and records actual acknowledgements, reads, bytes, rate, duration, and failures.
-The 13 script tests, 86 shared orchestration tests, 28 focused internal-lab tests, image build, and
+The 14 script tests, 86 shared orchestration tests, 28 focused internal-lab tests, image build, and
 short real-broker lifecycle qualification pass; no experiment or smoke workload was started.
