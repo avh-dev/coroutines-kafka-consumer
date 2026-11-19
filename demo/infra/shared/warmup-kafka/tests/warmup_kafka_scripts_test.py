@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import socket
 import subprocess
 import tempfile
@@ -324,8 +325,40 @@ esac
             timeout=5,
         )
         self.assertFalse(evidence.exists())
-        self.assertIn("warmup-kafka-prewarm evidence=", result.stderr)
+        self.assertIn("warmup-kafka-prewarm final_evidence=", result.stderr)
         self.assertIn("prewarm_process_exit_", result.stderr)
+
+    def test_forced_timeout_logs_final_failure_without_overwriting_pending_counters(self) -> None:
+        java = self.root / "pending-java.sh"
+        java.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '{\"outcome\":\"pending_cleanup\",\"accepted_records\":17}\\n' > \"${6}\"\n"
+            "trap '' TERM\n"
+            "while :; do sleep 1; done\n",
+            encoding="utf-8",
+        )
+        java.chmod(0o755)
+        evidence = self.root / "runtime/pending-prewarm.json"
+        environment = {
+            **os.environ,
+            "KAFKA_PREWARM_JAVA_COMMAND": str(java),
+            "KAFKA_PREWARM_TIMEOUT_SECONDS": "1",
+            "KAFKA_PREWARM_KILL_AFTER_SECONDS": "1",
+            "KAFKA_PREWARM_EVIDENCE_FILE": str(evidence),
+        }
+
+        result = subprocess.run(
+            [PREWARM], env=environment, text=True, capture_output=True, timeout=5
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(
+            {"outcome": "pending_cleanup", "accepted_records": 17},
+            json.loads(evidence.read_text(encoding="utf-8")),
+        )
+        self.assertIn("warmup-kafka-prewarm final_evidence=", result.stderr)
+        self.assertIn('"outcome":"failed"', result.stderr)
+        self.assertIn('"exit_code":', result.stderr)
 
     def test_supervisor_stops_broker_when_bootstrap_fails(self) -> None:
         runtime = self.root / "supervisor"

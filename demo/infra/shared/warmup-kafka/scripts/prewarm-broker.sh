@@ -37,9 +37,11 @@ child_pid=$!
 wait "${child_pid}"
 status=$?
 child_pid=""
-if [[ "${status}" -ne 0 && ! -s "${KAFKA_PREWARM_EVIDENCE_FILE}" ]]; then
-  fallback="{\"outcome\":\"failed\",\"reason\":\"prewarm_process_exit_${status}\"}"
-  printf '%s\n' "${fallback}" > "${KAFKA_PREWARM_EVIDENCE_FILE}"
-  printf 'warmup-kafka-prewarm evidence=%s\n' "${fallback}" >&2
+if [[ "${status}" -ne 0 ]]; then
+  final_event="{\"outcome\":\"failed\",\"reason\":\"prewarm_process_exit_${status}\",\"exit_code\":${status}}"
+  if [[ ! -s "${KAFKA_PREWARM_EVIDENCE_FILE}" ]]; then
+    printf '%s\n' "${final_event}" > "${KAFKA_PREWARM_EVIDENCE_FILE}"
+  fi
+  printf 'warmup-kafka-prewarm final_evidence=%s\n' "${final_event}" >&2
 fi
 exit "${status}"
