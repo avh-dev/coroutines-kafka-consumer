@@ -22,14 +22,16 @@ SPEC.loader.exec_module(PREPARE)
 
 class _PrewarmHandler(BaseHTTPRequestHandler):
     paths: list[str] = []
+    modes: list[str] = []
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
         self.rfile.read(length)
-        if self.headers.get("X-CKC-Prewarm") != "true":
+        if self.headers.get("X-CKC-Prewarm") not in {"true", "scheduled"}:
             self.send_error(400)
             return
         type(self).paths.append(self.path)
+        type(self).modes.append(str(self.headers.get("X-CKC-Prewarm")))
         body = b"{}"
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
@@ -59,6 +61,7 @@ class _Forward:
 class StubsPreparationTest(unittest.TestCase):
     def test_prewarm_exercises_every_endpoint_with_bounded_workers(self) -> None:
         _PrewarmHandler.paths = []
+        _PrewarmHandler.modes = []
         server = ThreadingHTTPServer(("127.0.0.1", 0), _PrewarmHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -75,6 +78,8 @@ class StubsPreparationTest(unittest.TestCase):
             {"/eta": 7, "/flavour": 7, "/brewing-registry/steps": 7},
             {path: _PrewarmHandler.paths.count(path) for path in set(_PrewarmHandler.paths)},
         )
+        self.assertIn("scheduled", _PrewarmHandler.modes)
+        self.assertIn("true", _PrewarmHandler.modes)
 
     def test_prepare_rewarms_only_new_processes_and_records_identity(self) -> None:
         settings = {
@@ -94,7 +99,10 @@ class StubsPreparationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = root / "state.json"
-            state.write_text(json.dumps({"processes": {"process-a": {"prewarmed_at": "earlier"}}}), encoding="utf-8")
+            state.write_text(json.dumps({"processes": {"process-a": {
+                "prewarmed_at": "earlier",
+                "prewarm": {"requests": 6000, "duration_seconds": 2.5, "requests_per_second": 2400.0},
+            }}}), encoding="utf-8")
             args = PREPARE.argparse.Namespace(
                 settings_json=json.dumps(settings), namespace="ckc-perf", selector="app=stubs",
                 container="demo-stubs", state=state, evidence=root / "evidence.json",
@@ -113,9 +121,15 @@ class StubsPreparationTest(unittest.TestCase):
 
         self.assertEqual("ready", result["status"])
         self.assertFalse(result["pods"][0]["prewarm"]["performed"])
+        self.assertEqual("earlier", result["pods"][0]["prewarm"]["prewarmed_at"])
+        self.assertEqual(2.5, result["pods"][0]["prewarm"]["duration_seconds"])
         self.assertTrue(result["pods"][1]["prewarm"]["performed"])
         prewarm.assert_called_once_with(10002, 10, 2, ANY)
         self.assertEqual({"process-a", "process-b"}, set(saved["processes"]))
+        self.assertEqual("earlier", saved["processes"]["process-a"]["prewarmed_at"])
+        self.assertEqual(2400.0, saved["processes"]["process-a"]["prewarm"]["requests_per_second"])
+        self.assertIn("configuration_applied_at", result)
+        self.assertIn("verified_at", result["pods"][0])
         self.assertEqual("sha256:a", result["pods"][1]["image_id"])
         self.assertEqual("POST", request.call_args_list[0].kwargs["method"])
 

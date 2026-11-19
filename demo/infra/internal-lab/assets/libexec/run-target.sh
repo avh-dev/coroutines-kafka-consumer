@@ -1355,7 +1355,8 @@ if [ "${RUN_PREPARE}" -eq 1 ]; then
   fi
   MODEL_SYNC_HTTP_CLIENT="${MODEL_SYNC_HTTP_CLIENT:-ARMERIA}"
 else
-  "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+  STUB_PREPARATION_EVIDENCE_FILE="${RESULTS_DIR}/runs/${RUN_ID}/diagnostics/stubs-preparation.json" \
+    "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
 if [ -z "${DEPLOYMENT_PLAN_PATH:-}" ] || [ ! -f "${DEPLOYMENT_PLAN_PATH}" ]; then

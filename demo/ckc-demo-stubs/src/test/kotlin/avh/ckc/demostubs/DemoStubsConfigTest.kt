@@ -107,4 +107,23 @@ class DemoStubsConfigTest {
         assertEquals(settingsVersion(first), settingsVersion(reordered))
         assertEquals(64, settingsVersion(first).length)
     }
+
+    @Test
+    fun `status serializes the complete effective baseline settings`() {
+        val json = Json { encodeDefaults = true }
+        val settings = DemoStubsSettings(
+            eta = ModelLatencySettings(mapOf("p100" to 10)),
+            flavour = ModelLatencySettings(mapOf("p100" to 20)),
+            errorRatePercent = 0
+        )
+
+        val encoded = json.encodeToString(
+            DemoStubsStatus.serializer(),
+            DemoStubsStatus("process-1", "2026-01-01T00:00:00Z", settingsVersion(settings), settings)
+        )
+        val decoded = json.decodeFromString<DemoStubsStatus>(encoded)
+
+        assertEquals(ModelLatencySettings.registryBaseline(), decoded.settings.registry)
+        kotlin.test.assertTrue(encoded.contains("\"registry\""))
+    }
 }

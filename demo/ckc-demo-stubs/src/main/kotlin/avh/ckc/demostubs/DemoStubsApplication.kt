@@ -25,7 +25,12 @@ import kotlin.random.Random
 
 fun main() {
     val config = DemoStubsConfig.fromEnvironment()
-    val json = Json { ignoreUnknownKeys = true }
+    val json = Json {
+        ignoreUnknownKeys = true
+        // Operational status is an effective configuration contract. Keep
+        // default-valued fields such as registry visible to its verifier.
+        encodeDefaults = true
+    }
     val delaySampler = DelaySampler(Random.Default)
     val processId = UUID.randomUUID().toString()
     val startedAt = Instant.now().toString()
@@ -51,7 +56,7 @@ fun main() {
                         DemoStubsStatus(
                             processId = processId,
                             startedAt = startedAt,
-                            settingsVersion = settingsVersion(currentSettings, json),
+                            settingsVersion = settingsVersion(currentSettings),
                             settings = currentSettings
                         )
                     )
@@ -87,9 +92,9 @@ fun main() {
                     try {
                         val modelRequest = json.decodeFromString(ArcaneEtaRequest.serializer(), aggregated.contentUtf8())
                         val currentSettings = settings.get()
-                        val prewarm = request.isPrewarm()
-                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.eta)) {
-                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarmDelay = request.prewarmDelayMillis()
+                        scheduledResponse(ctx, prewarmDelay ?: delaySampler.sampleDelayMillis(currentSettings.eta)) {
+                            if (prewarmDelay == null && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -112,9 +117,9 @@ fun main() {
                     try {
                         val modelRequest = json.decodeFromString(OrderFlavourRequest.serializer(), aggregated.contentUtf8())
                         val currentSettings = settings.get()
-                        val prewarm = request.isPrewarm()
-                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.flavour)) {
-                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarmDelay = request.prewarmDelayMillis()
+                        scheduledResponse(ctx, prewarmDelay ?: delaySampler.sampleDelayMillis(currentSettings.flavour)) {
+                            if (prewarmDelay == null && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"model temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -140,9 +145,9 @@ fun main() {
                             aggregated.contentUtf8()
                         )
                         val currentSettings = settings.get()
-                        val prewarm = request.isPrewarm()
-                        scheduledResponse(ctx, if (prewarm) 0 else delaySampler.sampleDelayMillis(currentSettings.registry)) {
-                            if (!prewarm && Random.nextInt(100) < currentSettings.errorRatePercent) {
+                        val prewarmDelay = request.prewarmDelayMillis()
+                        scheduledResponse(ctx, prewarmDelay ?: delaySampler.sampleDelayMillis(currentSettings.registry)) {
+                            if (prewarmDelay == null && Random.nextInt(100) < currentSettings.errorRatePercent) {
                                 jsonResponse(
                                     """{"error":"registry temporarily unavailable","trace_id":"${UUID.randomUUID()}"}""",
                                     HttpStatus.SERVICE_UNAVAILABLE
@@ -216,22 +221,27 @@ private fun jsonResponse(body: String, status: HttpStatus = HttpStatus.OK): Http
 private fun methodNotAllowed(): HttpResponse =
     jsonResponse("""{"error":"method not allowed"}""", HttpStatus.METHOD_NOT_ALLOWED)
 
-private fun HttpRequest.isPrewarm(): Boolean =
-    headers().get(PREWARM_HEADER)?.equals("true", ignoreCase = true) == true
+private fun HttpRequest.prewarmDelayMillis(): Long? =
+    when (headers().get(PREWARM_HEADER)?.lowercase()) {
+        "true" -> 0
+        "scheduled" -> 1
+        else -> null
+    }
 
-internal fun settingsVersion(settings: DemoStubsSettings, json: Json = Json): String {
+internal fun settingsVersion(settings: DemoStubsSettings): String {
     val normalized = settings.copy(
         eta = settings.eta.copy(percentiles = settings.eta.percentiles.toSortedMap()),
         flavour = settings.flavour.copy(percentiles = settings.flavour.percentiles.toSortedMap()),
         registry = settings.registry.copy(percentiles = settings.registry.percentiles.toSortedMap())
     )
     val digest = MessageDigest.getInstance("SHA-256").digest(
-        json.encodeToString(DemoStubsSettings.serializer(), normalized).toByteArray()
+        EFFECTIVE_SETTINGS_JSON.encodeToString(DemoStubsSettings.serializer(), normalized).toByteArray()
     )
     return digest.joinToString("") { byte -> "%02x".format(byte) }
 }
 
 private const val PREWARM_HEADER = "x-ckc-prewarm"
+private val EFFECTIVE_SETTINGS_JSON = Json { encodeDefaults = true }
 
 @Serializable
 internal data class DemoStubsStatus(

@@ -10,9 +10,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PREPARE = ROOT / "assets/libexec/prepare-test.sh"
 QUIESCE = ROOT / "assets/libexec/quiesce-application.sh"
+RUN_TARGET = ROOT / "assets/libexec/run-target.sh"
 
 
 class WarmupTransportLifecycleTest(unittest.TestCase):
+    def test_both_preparation_paths_write_target_specific_stub_evidence(self) -> None:
+        script = RUN_TARGET.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            2,
+            script.count(
+                'STUB_PREPARATION_EVIDENCE_FILE="${RESULTS_DIR}/runs/${RUN_ID}/diagnostics/stubs-preparation.json"'
+            ),
+        )
+
     def test_preparation_bounds_transport_wait_before_applying_application_manifest(self) -> None:
         script = PREPARE.read_text(encoding="utf-8")
         broker_apply = script.index('kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka')

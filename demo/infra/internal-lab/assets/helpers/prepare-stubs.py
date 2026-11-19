@@ -181,7 +181,12 @@ def prewarm(port: int, requests_per_endpoint: int, concurrency: int, deadline: f
                     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=min(5, remaining))
                 connection.request(
                     "POST", path, body=body,
-                    headers={"Content-Type": "application/json", "X-CKC-Prewarm": "true"},
+                    headers={
+                        "Content-Type": "application/json",
+                        # Periodically exercise the normal asynchronous response
+                        # scheduling branch without inheriting test latency.
+                        "X-CKC-Prewarm": "scheduled" if sequence % 20 == 0 else "true",
+                    },
                 )
                 response = connection.getresponse()
                 response.read()
@@ -236,22 +241,32 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     with PortForward(args.namespace, pods[0]["name"]) as forward:
         forward.wait_ready(deadline)
         request_json(forward.port, "/settings", method="POST", body=expected)
+    configuration_applied_at = utc_now()
 
     for pod in pods:
         with PortForward(args.namespace, pod["name"]) as forward:
             forward.wait_ready(deadline)
             status = await_settings(forward.port, expected, deadline)
             process_id = str(status["processId"])
-            already_prewarmed = process_id in previous
-            result = None if already_prewarmed else prewarm(
-                forward.port, args.requests_per_endpoint, args.concurrency, deadline
-            )
+            previous_process = previous.get(process_id)
+            already_prewarmed = isinstance(previous_process, dict)
+            if already_prewarmed:
+                result = previous_process.get("prewarm") or {}
+                prewarmed_at = previous_process.get("prewarmed_at")
+            else:
+                result = prewarm(forward.port, args.requests_per_endpoint, args.concurrency, deadline)
+                prewarmed_at = utc_now()
             prepared.append({
                 **pod,
                 "process_id": process_id,
                 "started_at": status["startedAt"],
                 "settings_version": status["settingsVersion"],
-                "prewarm": {"performed": not already_prewarmed, **(result or {})},
+                "verified_at": utc_now(),
+                "prewarm": {
+                    "performed": not already_prewarmed,
+                    "prewarmed_at": prewarmed_at,
+                    **result,
+                },
             })
 
     versions = {pod["settings_version"] for pod in prepared}
@@ -264,7 +279,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "processes": {
             pod["process_id"]: {
                 "pod_uid": pod["uid"], "started_at": pod["started_at"],
-                "settings_version": pod["settings_version"], "prewarmed_at": completed_at,
+                "settings_version": pod["settings_version"],
+                "prewarmed_at": pod["prewarm"]["prewarmed_at"],
+                "prewarm": {
+                    key: value for key, value in pod["prewarm"].items()
+                    if key not in {"performed", "prewarmed_at"}
+                },
             }
             for pod in prepared
         },
@@ -272,6 +292,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "status": "ready",
         "completed_at": completed_at,
+        "configuration_applied_at": configuration_applied_at,
         "settings": expected,
         "settings_version": next(iter(versions)),
         "pods": prepared,
