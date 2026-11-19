@@ -9,6 +9,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -34,6 +36,82 @@ class WarmupDonorActivationTest {
         WarmupParticipantId("orders"), "orders", "warmup-orders", "mapping-fingerprint"
     )
     private val ownership = setOf(WarmupSourcePartition(0, 3))
+
+    @Test
+    fun `blocked donor resource close does not stall sibling preparation or coordination deadlines`() = runBlocking {
+        val execution = WarmupExecutionDispatchers("donor-cleanup", 3, 5.seconds)
+        val scope = CoroutineScope(SupervisorJob() + execution.coordination)
+        val plane = MultiSessionWarmupDataPlane<String, String>(2, 20)
+        val firstId = WarmupSessionId("blocked-close")
+        val secondId = WarmupSessionId("sibling")
+        val closeStarted = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val firstClosed = CompletableDeferred<DonorClosed>()
+        val activation = WarmupDonorActivation(
+            localInstanceId = donor,
+            namespace = namespace,
+            supportedMappings = listOf(mapping),
+            dataPlane = plane,
+            eligibility = WarmupDonorEligibility { ownership },
+            preparation = WarmupDonorSessionPreparation { accepted ->
+                session(accepted.sessionId) {
+                    if (accepted.sessionId == firstId) {
+                        closeStarted.countDown()
+                        releaseClose.await()
+                    }
+                }
+            },
+            scope = scope,
+            cleanupDispatcher = execution.blocking,
+            onPreparationFailed = {},
+            onDonorClosed = { if (it.sessionId == firstId) firstClosed.complete(it) },
+            nowEpochMillis = { 1_000 }
+        )
+        val first = acceptance().copy(sessionId = firstId)
+        val second = acceptance().copy(sessionId = secondId)
+        try {
+            assertInstanceOf(DonorAccepted::class.java, acceptAndStart(activation, first))
+            awaitFor(2_000, 10) {
+                activation.state(firstId).takeIf { it == WarmupDonorActivation.State.WAITING_RECIPIENT_READY }
+            }
+            assertTrue(
+                activation.onRecipientReady(
+                    ready().copy(sessionId = firstId, expiresAtEpochMillis = first.expiresAtEpochMillis)
+                )
+            )
+            assertTrue(activation.onCompletionRequested(completion(first)))
+            assertTrue(closeStarted.await(2, java.util.concurrent.TimeUnit.SECONDS))
+
+            val deadlineContinued = CompletableDeferred<Unit>()
+            scope.launch {
+                delay(25)
+                deadlineContinued.complete(Unit)
+            }
+            assertInstanceOf(DonorAccepted::class.java, acceptAndStart(activation, second))
+
+            withTimeout(1.seconds) { deadlineContinued.await() }
+            awaitFor(2_000, 10) {
+                activation.state(secondId).takeIf {
+                    it == WarmupDonorActivation.State.WAITING_RECIPIENT_READY
+                }
+            }
+            assertFalse(firstClosed.isCompleted)
+
+            releaseClose.countDown()
+            withTimeout(2.seconds) { firstClosed.await() }
+            assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(firstId))
+        } finally {
+            releaseClose.countDown()
+            activation.onSessionEnded(
+                fallbackEnded().copy(
+                    sessionId = secondId,
+                    expiresAtEpochMillis = second.expiresAtEpochMillis
+                )
+            )
+            scope.cancel()
+            assertTrue(execution.close(5.seconds))
+        }
+    }
 
     @Test
     fun `readiness received during preparation activates exactly once after preparation`() = runBlocking {

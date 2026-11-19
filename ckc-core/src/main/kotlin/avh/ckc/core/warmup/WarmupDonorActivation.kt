@@ -3,11 +3,15 @@ package avh.ckc.core.warmup
 import avh.ckc.core.isFatalJvmError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -29,6 +33,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     private val eligibility: WarmupDonorEligibility,
     private val preparation: WarmupDonorSessionPreparation<S>,
     private val scope: CoroutineScope,
+    private val cleanupDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val onPreparationFailed: suspend (SessionRejected) -> Unit,
     private val onDonorClosed: suspend (DonorClosed) -> Unit = {},
     private val drainTimeout: Duration = 5.seconds,
@@ -238,8 +243,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             State.ACTIVE -> dataPlane.stopDelegating(local.acceptance.sessionId)
             State.DRAINING -> Unit
             State.CLOSED,
-            State.FAILED,
             State.CANCELLED -> return false
+            State.FAILED -> return requestFailedCleanupLocked(local)
         }
         local.readySeen = false
         local.acknowledgeClose = local.acknowledgeClose || acknowledge
@@ -321,10 +326,10 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     }
 
     /** Both late and installed resources remain reachable until a close attempt succeeds. */
-    private fun closeRetainedResource(local: LocalSession<S>): Boolean {
+    private suspend fun closeRetainedResource(local: LocalSession<S>): Boolean {
         val resource = synchronized(lock) { local.retainedCleanupResource } ?: return true
         return try {
-            resource.close()
+            withContext(NonCancellable + cleanupDispatcher) { resource.close() }
             synchronized(lock) {
                 if (local.retainedCleanupResource === resource) local.retainedCleanupResource = null
             }
@@ -390,16 +395,21 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             local.preparationFinished.complete(PreparationCompletion.Installed)
             return
         }
-        val completion = try {
-            prepared.close()
-            PreparationCompletion.Cancelled
-        } catch (error: Throwable) {
-            synchronized(lock) { local.retainedCleanupResource = prepared }
-            PreparationCompletion.ResourceCleanupFailed(error)
-        }
-        local.preparationFinished.complete(completion)
-        if (completion is PreparationCompletion.ResourceCleanupFailed && completion.error.isFatalJvmError()) {
-            throw completion.error
+        // Cancellation may have won before a non-cooperative preparation returned. Publish the
+        // cleanup result inside NonCancellable as well: withContext's return to a cancelled caller
+        // otherwise reports cancellation after close succeeded and strands finishClose().
+        withContext(NonCancellable) {
+            val completion = try {
+                withContext(cleanupDispatcher) { prepared.close() }
+                PreparationCompletion.Cancelled
+            } catch (error: Throwable) {
+                synchronized(lock) { local.retainedCleanupResource = prepared }
+                PreparationCompletion.ResourceCleanupFailed(error)
+            }
+            local.preparationFinished.complete(completion)
+            if (completion is PreparationCompletion.ResourceCleanupFailed && completion.error.isFatalJvmError()) {
+                throw completion.error
+            }
         }
     }
 
@@ -423,9 +433,33 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             check(detached != null) {
                 "Failed unactivated donor session ${local.acceptance.sessionId.value} did not close"
             }
-            detached.close()
+            local.retainedCleanupResource = detached
+            scheduleFailedCleanupLocked(local)
         }
         recordTerminalLocked(local)
+    }
+
+    /** Failed activation has no close acknowledgement, but its resource remains retryable. */
+    private fun scheduleFailedCleanupLocked(local: LocalSession<S>) {
+        if (local.closeStarted || local.retainedCleanupResource == null) return
+        local.closeStarted = true
+        scope.launch {
+            val closed = closeRetainedResource(local)
+            synchronized(lock) {
+                local.closeStarted = false
+                if (!closed && local.closeRetryRequested) {
+                    local.closeRetryRequested = false
+                    scheduleFailedCleanupLocked(local)
+                }
+            }
+        }
+    }
+
+    /** A later terminal message or expiry retries a failed resource without reviving its session. */
+    private fun requestFailedCleanupLocked(local: LocalSession<S>): Boolean {
+        if (local.retainedCleanupResource == null) return false
+        if (local.closeStarted) local.closeRetryRequested = true else scheduleFailedCleanupLocked(local)
+        return true
     }
 
     /**

@@ -303,6 +303,7 @@ class TrafficWarmupContext internal constructor(
             eligibility = eligibility,
             preparation = WarmupDonorSessionPreparation(::prepareLogicalDonorSession),
             scope = scope,
+            cleanupDispatcher = execution.blocking,
             onPreparationFailed = { newTransport.send(it) },
             onDonorClosed = { newTransport.send(it) },
             drainTimeout = configuration.completionTimeout
@@ -355,9 +356,11 @@ class TrafficWarmupContext internal constructor(
                 prepared
             )
         } catch (error: Throwable) {
-            prepared.asReversed().forEach { lane ->
-                lane.stopDelegating()
-                if (lane.trySealForRemoval()) runCatching(lane::close)
+            withContext(execution.blocking) {
+                prepared.asReversed().forEach { lane ->
+                    lane.stopDelegating()
+                    if (lane.trySealForRemoval()) runCatching(lane::close)
+                }
             }
             throw error
         }

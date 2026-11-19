@@ -6329,7 +6329,9 @@ after all dependent sessions and clients have completed or exposed retryable cle
 The public context exposes a total service-thread limit and idle timeout; one coordination worker is
 isolated from the shared blocking pool, while the continuously polling control consumer may retain
 one blocking worker between sessions. Recipient handlers remain on their configured processing
-dispatchers. The complete core unit suite and both public-DSL/shared-partition real-Kafka integration
+dispatchers. Installed, late-prepared, partially prepared, and failed donor resources also close on
+the blocking pool without allowing an early `DonorClosed`. The complete core unit suite and both
+public-DSL/shared-partition real-Kafka integration
 classes pass; no smoke, load, chaos, or experiment run was started.
 
 <a id="infra-323"></a>
