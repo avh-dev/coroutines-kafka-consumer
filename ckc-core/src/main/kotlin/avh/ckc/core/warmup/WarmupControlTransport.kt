@@ -1,15 +1,19 @@
 package avh.ckc.core.warmup
 
+import avh.ckc.core.isFatalJvmError
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -25,6 +29,7 @@ import org.apache.kafka.clients.admin.DescribeTopicsOptions
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
+import org.apache.kafka.clients.consumer.ConsumerRecords
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.Producer
@@ -32,6 +37,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.RetriableException
 import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.apache.kafka.common.errors.WakeupException
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
@@ -41,6 +47,7 @@ import org.apache.kafka.common.serialization.StringSerializer
 import org.slf4j.LoggerFactory
 import java.time.Duration as JavaDuration
 import java.util.Collections
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
@@ -59,9 +66,8 @@ internal class WarmupControlTransportConfiguration(
     val sendTimeout: Duration = 30.seconds,
     val metadataTimeout: Duration = 30.seconds,
     val assignmentTimeout: Duration = 15.seconds,
-    val recoveryCheckInterval: Duration = 1.seconds,
+    val topicIdentityCheckInterval: Duration = 5.seconds,
     val recoveryRetryBackoff: Duration = 500.milliseconds,
-    val recoveryFailureThreshold: Int = 3,
     val commandBufferCapacity: Int = 1_024
 ) {
     val producerProperties: Map<String, Any?> = immutableProperties(producerProperties)
@@ -85,9 +91,8 @@ internal class WarmupControlTransportConfiguration(
         require(assignmentTimeout.isPositive() && assignmentTimeout.inWholeMilliseconds > 0) {
             "Control assignment timeout must be at least one millisecond"
         }
-        require(recoveryCheckInterval.isPositive()) { "Control recovery check interval must be positive" }
+        require(topicIdentityCheckInterval.isPositive()) { "Control topic identity check interval must be positive" }
         require(recoveryRetryBackoff.isPositive()) { "Control recovery retry backoff must be positive" }
-        require(recoveryFailureThreshold > 0) { "Control recovery failure threshold must be positive" }
         require(commandBufferCapacity > 0) { "Control command buffer capacity must be positive" }
         require(this.producerProperties.containsKey(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG)) {
             "Control producer bootstrap servers are required"
@@ -255,27 +260,17 @@ internal class WarmupControlTransport(
             try {
                 pollControlTopic(activeConsumer, cursor)
                 return
-            } catch (_: WarmupControlTopicRecreatedException) {
+            } catch (recreated: WarmupControlTopicRecreatedException) {
                 if (stopping.get()) return
+                expectedTopicIdentity = recreated.currentIdentity
                 cursor.nextOffset = null
                 consumer = null
                 replaceProducerAfterTopicRecreation()
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
-            } catch (reset: WarmupControlLogTruncatedException) {
-                if (stopping.get()) return
-                cursor.nextOffset = reset.endOffset
-                consumer = null
-                delay(configuration.recoveryRetryBackoff)
-                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
             } catch (recovery: WarmupControlRecoveryRequiredException) {
                 if (stopping.get()) return
                 log.warn("Warm-up control consumer requires a bounded replacement", recovery)
-                consumer = null
-                delay(configuration.recoveryRetryBackoff)
-                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
-            } catch (timeout: KafkaTimeoutException) {
-                if (!readiness.isCompleted || stopping.get()) throw timeout
                 consumer = null
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
@@ -287,6 +282,7 @@ internal class WarmupControlTransport(
         activeConsumer: Consumer<String, ByteArray>,
         cursor: WarmupControlCursor
     ) {
+        var assignmentState: WarmupControlAssignmentState? = null
         try {
             val metadata = activeConsumer.partitionsFor(
                 configuration.topic,
@@ -295,17 +291,23 @@ internal class WarmupControlTransport(
             check(metadata.size == 1 && metadata.single().partition() == 0) {
                 "Warm-up control topic must expose exactly partition 0"
             }
-            if (expectedTopicIdentity == null) {
-                expectedTopicIdentity = readTopicIdentity(configuration.metadataTimeout)
-                    ?: error("Warm-up control topic identity is unavailable")
-            }
-            var assignmentState: WarmupControlAssignmentState = awaitingAssignment()
+            assignmentState = awaitingAssignment()
             activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
                 override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) {
+                    (assignmentState as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
                     assignmentState = awaitingAssignment()
                 }
 
                 override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
+                    try {
+                        initializeAssignedPartition(partitions)
+                    } catch (error: Throwable) {
+                        if (error.isFatalJvmError()) throw error
+                        assignmentState = WarmupControlAssignmentState.CallbackFailed(error)
+                    }
+                }
+
+                private fun initializeAssignedPartition(partitions: Collection<TopicPartition>) {
                     check(partitions.size == 1) { "Warm-up control topic must have exactly one partition" }
                     val partition = partitions.single()
                     check(partition.topic() == configuration.topic && partition.partition() == 0) {
@@ -313,7 +315,14 @@ internal class WarmupControlTransport(
                     }
                     val awaiting = assignmentState as? WarmupControlAssignmentState.Awaiting
                         ?: awaitingAssignment()
+                    val currentTopicIdentity = withinAssignmentDeadline(
+                        awaiting,
+                        "checking the assigned control topic identity"
+                    ) { timeout ->
+                        topicIdentity.read(configuration.topic, timeout.toMillis().milliseconds)
+                    }
                     if (!readiness.isCompleted) {
+                        expectedTopicIdentity = currentTopicIdentity
                         val end = withinAssignmentDeadline(awaiting, "reading the initial log end") { timeout ->
                             activeConsumer.endOffsets(partitions.toSet(), timeout).getValue(partition)
                         }
@@ -325,13 +334,17 @@ internal class WarmupControlTransport(
                         initialBoundary = end - 1
                         readiness.complete(Unit)
                     } else {
-                        cursor.nextOffset?.let { nextOffset ->
-                            activeConsumer.seek(partition, nextOffset)
+                        val expectedIdentity = requireNotNull(expectedTopicIdentity)
+                        if (currentTopicIdentity != expectedIdentity) {
+                            assignmentState = WarmupControlAssignmentState.TopicRecreated(
+                                expectedIdentity,
+                                currentTopicIdentity
+                            )
+                            return
                         }
-                        // Position initialization also applies to a confirmed fresh topic, where
-                        // the cursor is intentionally empty and Kafka's earliest reset is retained.
+                        cursor.nextOffset?.let { activeConsumer.seek(partition, it) }
                         withinAssignmentDeadline(awaiting, "initializing the replacement position") { timeout ->
-                            activeConsumer.position(partition, timeout)
+                            activeConsumer.position(partition, timeout).also { cursor.nextOffset = it }
                         }
                     }
                     assignmentState = activeAssignment()
@@ -342,6 +355,30 @@ internal class WarmupControlTransport(
                     activeConsumer.poll(JavaDuration.ofMillis(configuration.pollTimeout.inWholeMilliseconds))
                 } catch (wakeup: WakeupException) {
                     if (stopping.get()) break else throw wakeup
+                } catch (error: Exception) {
+                    when (val pollFailure = classifyPollFailure(error)) {
+                        is WarmupControlPollFailure.Temporary -> {
+                            log.warn(
+                                "Warm-up control poll is temporarily unavailable; keeping the current consumer " +
+                                    "and continuing to poll (reason={})",
+                                pollFailure.reason,
+                                error
+                            )
+                            ConsumerRecords.empty()
+                        }
+                        is WarmupControlPollFailure.Terminal -> {
+                            throw error
+                        }
+                    }
+                }
+                (assignmentState as? WarmupControlAssignmentState.TopicRecreated)?.let { recreated ->
+                    throw WarmupControlTopicRecreatedException(
+                        recreated.previousIdentity,
+                        recreated.currentIdentity
+                    )
+                }
+                (assignmentState as? WarmupControlAssignmentState.CallbackFailed)?.let { failed ->
+                    throw failed.error
                 }
                 records.forEach { record ->
                     cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, record.offset() + 1)
@@ -360,31 +397,38 @@ internal class WarmupControlTransport(
                     }
                 }
                 val now = nanoTime()
-                when (val state = assignmentState) {
+                when (val state = requireNotNull(assignmentState)) {
                     is WarmupControlAssignmentState.Awaiting -> {
                         if (now >= state.deadlineNanos) {
                             throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout)
                         }
                     }
                     is WarmupControlAssignmentState.Active -> {
-                        if (now >= state.nextRecoveryCheckNanos) {
-                            if (verifyCurrentControlLog(activeConsumer, cursor)) {
-                                state.consecutiveRecoveryFailures = 0
-                            } else if (++state.consecutiveRecoveryFailures >=
-                                configuration.recoveryFailureThreshold
-                            ) {
-                                throw WarmupControlRecoveryRequiredException(
-                                    "Warm-up control consumer could not validate its position after " +
-                                        "${state.consecutiveRecoveryFailures} attempts"
-                                )
+                        state.identityCheck?.takeIf { it.isCompleted }?.let {
+                            state.identityCheck = null
+                            when (val check = it.await()) {
+                                WarmupControlTopicIdentityCheck.Unavailable -> Unit
+                                is WarmupControlTopicIdentityCheck.Terminal -> throw check.error
+                                is WarmupControlTopicIdentityCheck.Available -> {
+                                    val expected = requireNotNull(expectedTopicIdentity)
+                                    if (check.identity != expected) {
+                                        throw WarmupControlTopicRecreatedException(expected, check.identity)
+                                    }
+                                }
                             }
-                            state.nextRecoveryCheckNanos = now +
-                                configuration.recoveryCheckInterval.inWholeNanoseconds
+                            state.nextIdentityCheckNanos = now +
+                                configuration.topicIdentityCheckInterval.inWholeNanoseconds
+                        }
+                        if (state.identityCheck == null && now >= state.nextIdentityCheckNanos) {
+                            state.identityCheck = scope.async { checkTopicIdentity() }
                         }
                     }
+                    is WarmupControlAssignmentState.TopicRecreated -> error("Topic recreation must be handled first")
+                    is WarmupControlAssignmentState.CallbackFailed -> error("Callback failure must be handled first")
                 }
             }
         } finally {
+            (assignmentState as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
             withContext(NonCancellable + dispatcher) {
                 runCatching { activeConsumer.close(closeDuration()) }
             }
@@ -395,9 +439,25 @@ internal class WarmupControlTransport(
         nanoTime() + configuration.assignmentTimeout.inWholeNanoseconds
     )
 
-    private fun activeAssignment() = WarmupControlAssignmentState.Active(
-        nanoTime() + configuration.recoveryCheckInterval.inWholeNanoseconds
+    private fun activeAssignment(): WarmupControlAssignmentState = WarmupControlAssignmentState.Active(
+        nanoTime() + configuration.topicIdentityCheckInterval.inWholeNanoseconds
     )
+
+    private suspend fun checkTopicIdentity(): WarmupControlTopicIdentityCheck = try {
+        val timeout = minOf(configuration.metadataTimeout, configuration.topicIdentityCheckInterval)
+        val identity = runInterruptible(dispatcher) { topicIdentity.read(configuration.topic, timeout) }
+        WarmupControlTopicIdentityCheck.Available(identity)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        if (error.isFatalJvmError()) throw error
+        val cause = unwrapControlMetadataFailure(error)
+        when (cause) {
+            is KafkaTimeoutException, is java.util.concurrent.TimeoutException, is RetriableException ->
+                WarmupControlTopicIdentityCheck.Unavailable
+            else -> WarmupControlTopicIdentityCheck.Terminal(cause)
+        }
+    }
 
     private fun <T> withinAssignmentDeadline(
         awaiting: WarmupControlAssignmentState.Awaiting,
@@ -414,65 +474,17 @@ internal class WarmupControlTransport(
                 throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout, operation)
             }
             result
-        } catch (timeout: KafkaTimeoutException) {
-            throw WarmupControlAssignmentTimeoutException(
-                configuration.assignmentTimeout,
-                operation,
-                timeout
-            )
+        } catch (error: Throwable) {
+            if (error.isFatalJvmError()) throw error
+            val cause = unwrapControlMetadataFailure(error)
+            if (cause is KafkaTimeoutException ||
+                cause is java.util.concurrent.TimeoutException ||
+                cause is RetriableException
+            ) {
+                throw WarmupControlMetadataUnavailableException(operation, cause)
+            }
+            throw cause
         }
-    }
-
-    private suspend fun verifyCurrentControlLog(
-        activeConsumer: Consumer<String, ByteArray>,
-        cursor: WarmupControlCursor
-    ): Boolean {
-        val currentIdentity = readTopicIdentity(
-            minOf(configuration.metadataTimeout, configuration.recoveryCheckInterval)
-        ) ?: return false
-        verifyTopicIdentity(currentIdentity)
-        return verifyConsumerPosition(activeConsumer, cursor)
-    }
-
-    /** Topic identity, rather than a transient metadata failure, defines a fresh control log. */
-    private fun verifyTopicIdentity(currentIdentity: String) {
-        val expectedIdentity = expectedTopicIdentity
-        if (expectedIdentity != null && currentIdentity != expectedIdentity) {
-            expectedTopicIdentity = currentIdentity
-            throw WarmupControlTopicRecreatedException(expectedIdentity, currentIdentity)
-        }
-    }
-
-    /** A replacement client for the same log must resume after every record already admitted locally. */
-    private fun verifyConsumerPosition(
-        activeConsumer: Consumer<String, ByteArray>,
-        cursor: WarmupControlCursor
-    ): Boolean {
-        val assignment = activeConsumer.assignment()
-        if (assignment.size != 1) return false
-        val partition = assignment.single()
-        return try {
-            val timeout = JavaDuration.ofMillis(
-                minOf(
-                    configuration.metadataTimeout.inWholeMilliseconds,
-                    configuration.recoveryCheckInterval.inWholeMilliseconds
-                ).coerceAtLeast(1)
-            )
-            val position = activeConsumer.position(partition, timeout)
-            val end = activeConsumer.endOffsets(setOf(partition), timeout).getValue(partition)
-            if (position > end) throw WarmupControlLogTruncatedException(position, end)
-            cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, position)
-            true
-        } catch (truncated: WarmupControlLogTruncatedException) {
-            throw truncated
-        } catch (_: Exception) {
-            // Kafka reconnect remains authoritative for ordinary transient metadata failures.
-            false
-        }
-    }
-
-    private suspend fun readTopicIdentity(timeout: Duration): String? = runInterruptible(dispatcher) {
-        topicIdentity.read(configuration.topic, timeout)
     }
 
     private suspend fun dispatchLoop() {
@@ -544,7 +556,9 @@ internal class WarmupControlTransport(
     )
 }
 
-private open class WarmupControlRecoveryRequiredException(message: String) : IllegalStateException(message)
+private open class WarmupControlRecoveryRequiredException(
+    message: String
+) : IllegalStateException(message)
 
 private class WarmupControlAssignmentTimeoutException(
     timeout: Duration,
@@ -559,22 +573,49 @@ private class WarmupControlAssignmentTimeoutException(
     }
 }
 
+private class WarmupControlMetadataUnavailableException(operation: String, cause: Throwable) :
+    WarmupControlRecoveryRequiredException(
+        "Warm-up control metadata is temporarily unavailable while $operation"
+    ) {
+    init {
+        initCause(cause)
+    }
+}
+
+/** Assignment deadlines apply only while Kafka has no usable control-topic position. */
+private sealed interface WarmupControlAssignmentState {
+    data class Awaiting(val deadlineNanos: Long) : WarmupControlAssignmentState
+    data class Active(
+        var nextIdentityCheckNanos: Long,
+        var identityCheck: Deferred<WarmupControlTopicIdentityCheck>? = null
+    ) : WarmupControlAssignmentState
+    data class TopicRecreated(
+        val previousIdentity: String,
+        val currentIdentity: String
+    ) : WarmupControlAssignmentState
+    data class CallbackFailed(val error: Throwable) : WarmupControlAssignmentState
+}
+
+private sealed interface WarmupControlTopicIdentityCheck {
+    data class Available(val identity: String) : WarmupControlTopicIdentityCheck
+    data class Terminal(val error: Throwable) : WarmupControlTopicIdentityCheck
+    data object Unavailable : WarmupControlTopicIdentityCheck
+}
+
+private enum class WarmupControlPollFailureReason {
+    TIMEOUT,
+    RETRIABLE,
+    AUTHENTICATION,
+    AUTHORIZATION,
+    OTHER
+}
+
 internal interface WarmupControlTopicIdentity : AutoCloseable {
-    fun read(topic: String, timeout: Duration): String?
+    fun read(topic: String, timeout: Duration): String
     override fun close() = Unit
 }
 
 private class WarmupControlCursor(var nextOffset: Long? = null)
-
-/** Recovery checks are valid only after the current assignment has been positioned. */
-private sealed interface WarmupControlAssignmentState {
-    data class Awaiting(val deadlineNanos: Long) : WarmupControlAssignmentState
-
-    data class Active(
-        var nextRecoveryCheckNanos: Long,
-        var consecutiveRecoveryFailures: Int = 0
-    ) : WarmupControlAssignmentState
-}
 
 internal class KafkaWarmupControlTopicIdentity(
     properties: Map<String, Any?>,
@@ -582,16 +623,14 @@ internal class KafkaWarmupControlTopicIdentity(
 ) : WarmupControlTopicIdentity {
     private val admin = Admin.create(properties)
 
-    override fun read(topic: String, timeout: Duration): String? = try {
+    override fun read(topic: String, timeout: Duration): String {
         val timeoutMillis = timeout.inWholeMilliseconds.coerceIn(1, Int.MAX_VALUE.toLong())
-        admin.describeTopics(listOf(topic), DescribeTopicsOptions().timeoutMs(timeoutMillis.toInt()))
+        return admin.describeTopics(listOf(topic), DescribeTopicsOptions().timeoutMs(timeoutMillis.toInt()))
             .allTopicNames()
             .get(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
             .getValue(topic)
             .topicId()
             .toString()
-    } catch (_: Exception) {
-        null
     }
 
     override fun close() = admin.close(
@@ -599,15 +638,44 @@ internal class KafkaWarmupControlTopicIdentity(
     )
 }
 
-private class WarmupControlTopicRecreatedException(previous: String, current: String) :
-    WarmupControlRecoveryRequiredException(
-        "Warm-up control topic was recreated with identity $current instead of $previous"
-    )
+private class WarmupControlTopicRecreatedException(
+    previousIdentity: String,
+    val currentIdentity: String
+) : WarmupControlRecoveryRequiredException(
+    "Warm-up control topic identity changed from $previousIdentity to $currentIdentity"
+)
 
-private class WarmupControlLogTruncatedException(position: Long, val endOffset: Long) :
-    WarmupControlRecoveryRequiredException(
-        "Warm-up control position $position exceeds current log end $endOffset"
-    )
+private sealed interface WarmupControlPollFailure {
+    val reason: WarmupControlPollFailureReason
+
+    data class Temporary(override val reason: WarmupControlPollFailureReason) : WarmupControlPollFailure
+    data class Terminal(override val reason: WarmupControlPollFailureReason) : WarmupControlPollFailure
+}
+
+private fun classifyPollFailure(error: Throwable): WarmupControlPollFailure {
+    return when (error) {
+        is org.apache.kafka.common.errors.AuthenticationException -> WarmupControlPollFailure.Terminal(
+            WarmupControlPollFailureReason.AUTHENTICATION
+        )
+        is org.apache.kafka.common.errors.AuthorizationException -> WarmupControlPollFailure.Terminal(
+            WarmupControlPollFailureReason.AUTHORIZATION
+        )
+        is KafkaTimeoutException -> WarmupControlPollFailure.Temporary(
+            WarmupControlPollFailureReason.TIMEOUT
+        )
+        is RetriableException -> WarmupControlPollFailure.Temporary(
+            WarmupControlPollFailureReason.RETRIABLE
+        )
+        else -> WarmupControlPollFailure.Terminal(WarmupControlPollFailureReason.OTHER)
+    }
+}
+
+private tailrec fun unwrapControlMetadataFailure(error: Throwable): Throwable =
+    if (error is ExecutionException && error.cause != null) {
+        unwrapControlMetadataFailure(error.cause!!)
+    } else {
+        error
+    }
 
 private fun immutableProperties(properties: Map<String, Any?>): Map<String, Any?> =
     Collections.unmodifiableMap(LinkedHashMap(properties))

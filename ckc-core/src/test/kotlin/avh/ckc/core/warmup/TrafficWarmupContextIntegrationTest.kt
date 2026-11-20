@@ -150,9 +150,17 @@ class TrafficWarmupContextIntegrationTest {
 
             warmupKafka.startEmptyReplacement()
             createTopicsAt(warmupKafka.connection(), warmup, control)
+            produceForeignControlHistory(
+                warmupKafka.connection(),
+                control,
+                source,
+                warmup,
+                count = 100
+            )
             // The donor transport confirms the new topic identity before replacing stale control
-            // clients; a new recipient starts after that bounded recovery window.
-            kotlinx.coroutines.delay(5.seconds)
+            // clients. The fresh log is deliberately grown beyond the previous numeric cursor:
+            // offset-range checks alone cannot distinguish the two topic generations.
+            kotlinx.coroutines.delay(15.seconds)
             val recoveredConnection = warmupKafka.connection()
             replacement = stringConsumer(
                 recoveryContext(namespace, control, recoveredConnection) { event ->
@@ -912,6 +920,40 @@ class TrafficWarmupContextIntegrationTest {
                 admin.createTopics(topics.map { topic ->
                     NewTopic(topic, 1, 1.toShort())
                 }).all().get(10, TimeUnit.SECONDS)
+            }
+        }
+
+        private fun produceForeignControlHistory(
+            connection: Map<String, Any?>,
+            controlTopic: String,
+            sourceTopic: String,
+            warmupTopic: String,
+            count: Int
+        ) {
+            val mapping = WarmupTopicMapping(
+                WarmupParticipantId("foreign-participant"),
+                sourceTopic,
+                warmupTopic,
+                "foreign-mapping-fingerprint"
+            )
+            val now = System.currentTimeMillis()
+            KafkaProducer(connection, StringSerializer(), ByteArraySerializer()).use { producer ->
+                repeat(count) { index ->
+                    val sessionId = WarmupSessionId("foreign-$index")
+                    val message = WarmupRequested(
+                        namespace = WarmupControlNamespace("foreign-v6-namespace"),
+                        sessionId = sessionId,
+                        senderInstanceId = WarmupInstanceId("foreign-sender"),
+                        mappings = listOf(mapping),
+                        offerDeadlineEpochMillis = now + 60_000,
+                        admissionBudgetPerSecond = normalizedAdmissionBudget(listOf(mapping)),
+                        configurationFingerprint = "foreign-configuration-fingerprint",
+                        expiresAtEpochMillis = now + 120_000
+                    )
+                    producer.send(
+                        ProducerRecord(controlTopic, sessionId.value, WarmupControlCodec.encode(message))
+                    ).get(5, TimeUnit.SECONDS)
+                }
             }
         }
     }
