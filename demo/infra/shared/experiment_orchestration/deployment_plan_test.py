@@ -300,50 +300,55 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
         self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
-    def test_materializes_staged_warmup_with_controller_hosted_stubs(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-staged-warmup-controller-stubs-scale-up-14k-local.yaml"
+    def test_materializes_sequential_warmup_comparison_at_22k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-sequential-warmup-scale-up-22k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
-        root = Path(self.temp.name) / "staged-warmup-controller-stubs"
+        root = Path(self.temp.name) / "sequential-warmup-22k"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
 
         self.assertEqual(
             [
                 "ckc.cold-start-controller-stubs",
-                "ckc.staged-warmup-controller-stubs-1-to-300-120s",
-                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-120s",
-                "ckc.linear-warmup-controller-stubs-1-to-300-120s",
-                "ckc.linear-control-controller-stubs-1-to-100-180s",
+                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-150s",
             ],
             [target.target.name for target in targets],
         )
         cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
         self._assert_controller_stubs_target(cold_plan, cold_definition)
         self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("5m", cold_environment["DEMO_REDIS_STATE_RETENTION"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
 
-        expected_profiles = [
-            (
-                "1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> "
-                "(0s, step) -> 300 -> (60s, hold) -> 300",
-                "120",
-            ),
-            ("1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300", "120"),
-            ("1 -> (120s, direct linear) -> 300", "120"),
-            ("1 -> (180s, direct linear control) -> 100", "180"),
-        ]
-        for target, (profile, duration) in zip(targets[1:], expected_profiles, strict=True):
-            plan, definition, environment = self._materialized_application(target)
-            self._assert_controller_stubs_target(plan, definition)
-            self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
-            for topic in ("ORDER", "BATCH", "CAULDRON"):
-                self.assertEqual(profile, environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"])
-            self.assertEqual(duration, environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
-            self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
-            self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+        plan, definition, environment = self._materialized_application(targets[1])
+        self._assert_controller_stubs_target(plan, definition)
+        self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("5m", environment["DEMO_REDIS_STATE_RETENTION"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300",
+                environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        self.assertEqual("150", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+        self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
     def _assert_controller_stubs_target(self, plan, definition) -> None:
-        self._assert_fourth_pod_scale_up(plan, expected_cpu_request="950m")
+        self.assertEqual(22_000, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            "0 -> (25m, ramp-to-22k) -> 100 -> (10m, hold-22k) -> 100 -> (10m, cool-down) -> 0",
+            plan["workload"]["load"]["load_profile"],
+        )
+        application = plan["application"]["configuration"]
+        self.assertEqual(1, application["replicas"])
+        self.assertEqual("950m", application["resources"]["requests"]["cpu"])
+        self.assertEqual(1, application["hpa"]["min_replicas"])
+        self.assertEqual(4, application["hpa"]["max_replicas"])
+        self.assertEqual(
+            {"max_pods": 1, "period_seconds": 180, "tolerance": 0.1},
+            application["hpa"]["hot_pod_cpu"]["scale_up"],
+        )
+        self.assertIn("jit+compilation=debug", application["java_options"])
         self.assertEqual(
             {"application": "worker", "stubs": "controller", "generator": "controller"},
             plan["placement"],
@@ -351,8 +356,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertNotIn("diagnostic_steps", definition)
         self.assertEqual(
             [
-                {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
-                {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+                {"name": "sequential-scale-up", "start_seconds": 0, "duration_seconds": 1_500},
+                {"name": "peak-plateau", "start_seconds": 1_500, "duration_seconds": 600},
+                {"name": "cool-down", "start_seconds": 2_100, "duration_seconds": 600},
             ],
             definition["load_test"]["measurement_windows"],
         )
@@ -951,6 +957,15 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("23", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
         self.assertEqual(4, stubs["spec"]["replicas"])
         self.assertEqual("4", stubs_environment["STUB_WORKERS"])
+        self.assertEqual([{"name": "http", "containerPort": 8085}], stubs_container["ports"])
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["startupProbe"]["httpGet"],
+        )
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["readinessProbe"]["httpGet"],
+        )
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
         self.assertEqual({"memory": "1536Mi"}, stubs_container["resources"]["limits"])
         self.assertEqual(
