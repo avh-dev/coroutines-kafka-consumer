@@ -6635,3 +6635,8 @@ socket. Their manifest now publishes `8085` and gates readiness with `/health`, 
 preparation race without a fixed sleep.
 The first load attempt showed that the lab could not sustain the 24k peak, so the qualified maximum
 was reduced to 22k without changing the ramp, plateau, cooldown, or warm-up comparison.
+The first 22k cold target reached the demo Redis three-GiB `maxmemory` limit during the peak plateau;
+use the new configurable five-minute state retention for both comparison targets so dependency OOM
+does not invalidate the warm-up measurement.
+Schema validation, the focused materialization regression, and all 86 shared orchestration tests pass
+with the five-minute override rendered identically for the cold and warm targets.

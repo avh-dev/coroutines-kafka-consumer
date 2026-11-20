@@ -316,12 +316,14 @@ class DeploymentPlanTest(unittest.TestCase):
         cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
         self._assert_controller_stubs_target(cold_plan, cold_definition)
         self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("5m", cold_environment["DEMO_REDIS_STATE_RETENTION"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
 
         plan, definition, environment = self._materialized_application(targets[1])
         self._assert_controller_stubs_target(plan, definition)
         self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("5m", environment["DEMO_REDIS_STATE_RETENTION"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertEqual(
                 "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300",
