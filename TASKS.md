@@ -91,6 +91,7 @@
 | [CORE-86](#core-86) | Configure each warm-up mapping quota with a normalized generator-style string profile. | DONE |
 | [CORE-87](#core-87) | Bound warm-up outstanding work and deliver recipient results with parallel Kafka acknowledgements. | DONE |
 | [CORE-88](#core-88) | Isolate warm-up protocol work on bounded named dispatchers whose idle threads expire. | DONE |
+| [CORE-89](#core-89) | Keep healthy control consumers polling through transient recovery-check failures and classify real transport failures. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6340,6 +6341,28 @@ cancelled preparations independently of admission: a late resource must finish i
 or remain owned for a later stop attempt before the execution resource can close. The complete core
 unit suite and both public-DSL/shared-partition real-Kafka integration
 classes pass; no smoke, load, chaos, or experiment run was started.
+
+<a id="core-89"></a>
+### CORE-89 - Stabilize control transport recovery checks
+
+_Date: 2026-11-20_
+
+Keep the control consumer in its normal continuous `poll()` loop through ordinary disconnects,
+broker restarts, and temporary poll or metadata failures. Remove periodic position/end-offset
+validation and never replace a healthy consumer because a short external check timed out.
+Real-Kafka qualification showed that Kafka client 3.4.0 does not discover a completely new broker
+generation at the same address through polling alone, even after fifteen seconds. Retain one
+minimal asynchronous topic-ID sentinel for that CORE-83 case only: unavailable checks have no
+effect, while a confirmed new ID replaces stale control clients and reads the new log from its
+beginning. Initial-tail positioning, same-generation cursor preservation, assignment deadlines,
+session fallback, and terminal authentication/configuration behavior remain bounded.
+Assignment and sentinel detection share the same generation-change path, including producer
+replacement; temporary assignment metadata failures use bounded retry instead of terminating the
+transport, and temporary poll failures cannot postpone deadline or completed-sentinel handling.
+Focused tests cover transient poll and identity-check failures, delayed assignment, a brief real
+connection loss without replay or client replacement, and complete real-Kafka data loss with a
+fresh log deliberately grown beyond the old numeric cursor. The recovered donor warms a new
+recipient without application restart. No load, smoke, or experiment run was started.
 
 <a id="infra-323"></a>
 ### INFRA-323 - Add an autonomous warm-up Kafka image
