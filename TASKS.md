@@ -530,6 +530,7 @@
 | [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
 | [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
 | [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
+| [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6663,3 +6664,17 @@ use the new configurable five-minute state retention for both comparison targets
 does not invalidate the warm-up measurement.
 Schema validation, the focused materialization regression, and all 86 shared orchestration tests pass
 with the five-minute override rendered identically for the cold and warm targets.
+
+<a id="infra-336"></a>
+### INFRA-336 - Repeat sequential scale-up at a stable 20k TPS peak
+
+_Date: 2026-11-20_
+
+Retain the 25-minute one-to-four-pod ramp, ten-minute plateau, ten-minute cooldown, cold baseline,
+and two-stage `1→100→300/s` warm-up comparison from INFRA-335. Reduce the fixed workload peak and
+producer capacities from 22k to 20k TPS so the plateau remains below the lab's saturation boundary
+and the control-transport recovery fix can be evaluated without the unrelated high-load collapse.
+Rename the experiment and labels consistently, validate materialization, and install the updated
+definition without starting the experiment automatically.
+The canonical definition validates for internal-lab, its focused materialization regression passes,
+and all 86 shared experiment-orchestration tests pass before installation.
