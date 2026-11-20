@@ -1,8 +1,8 @@
 schema_version: 2
-name: ckc-sequential-warmup-scale-up-24k-local
+name: ckc-sequential-warmup-scale-up-22k-local
 description: >-
   Compare cold and two-stage shared-partition warm-up while autoscaling sequentially from one to
-  four application pods during a 25-minute ramp to 24k TPS, with HTTP stubs on the controller.
+  four application pods during a 25-minute ramp to 22k TPS, with HTTP stubs on the controller.
 workload:
   stubs:
     error_rate_percent: 0
@@ -19,11 +19,11 @@ workload:
     shards: 1
     workers: 100
     dispatcher_threads: 2
-    base_tps: 24000
-    producer_capacity_tps: {order: 24000, batch: 24000, telemetry: 24000}
+    base_tps: 22000
+    producer_capacity_tps: {order: 22000, batch: 22000, telemetry: 22000}
     load_profile: >-
-      0 -> (25m, ramp-to-24k) -> 100 ->
-      (10m, hold-24k) -> 100 ->
+      0 -> (25m, ramp-to-22k) -> 100 ->
+      (10m, hold-22k) -> 100 ->
       (10m, cool-down) -> 0
     cauldron_count: 10000
     min_orders_per_batch: 3
@@ -60,7 +60,7 @@ workload:
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
 - name: ckc.cold-start-controller-stubs
-  annotation_label: CKC · cold start · controller stubs · sequential 1→4 pod · local 24k
+  annotation_label: CKC · cold start · controller stubs · sequential 1→4 pod · local 22k
   implementation: ckc
   placement: &controller_stubs_placement
     application: worker
@@ -117,7 +117,7 @@ targets:
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
 - name: ckc.two-stage-linear-controller-stubs-1-to-100-to-300-150s
-  annotation_label: CKC · linear warm-up 1→100→300/s over 60s+90s · controller stubs · sequential 1→4 pod · local 24k
+  annotation_label: CKC · linear warm-up 1→100→300/s over 60s+90s · controller stubs · sequential 1→4 pod · local 22k
   implementation: ckc
   placement: *controller_stubs_placement
   application: *sequential_application

@@ -527,7 +527,7 @@
 | [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
 | [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
 | [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
-| [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 24k TPS. | DONE |
+| [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6605,12 +6605,12 @@ suite still reports three unrelated existing failures in chaos-helper imports, r
 Telegram wording. No smoke or experiment was started.
 
 <a id="infra-335"></a>
-### INFRA-335 - Compare sequential cold and warmed scale-up at 24k TPS
+### INFRA-335 - Compare sequential cold and warmed scale-up at 22k TPS
 
 _Date: 2026-11-19_
 
 Start each target with one application pod and let the hot-pod HPA add at most one pod per scaling
-step until four pods are running. Ramp traffic from zero to 24k TPS over 25 minutes, hold the peak
+step until four pods are running. Ramp traffic from zero to 22k TPS over 25 minutes, hold the peak
 for ten minutes, and cool down over ten minutes.
 Compare only a cold baseline and the best two-stage linear warm-up candidate, extending its second
 `100→300` quota phase from 60 to 90 seconds while retaining the 60-second `1→100` first phase.
@@ -6621,3 +6621,5 @@ The first attempted run exposed that persistent stubs had no readiness probe and
 `8080` while listening on `8085`; rollout could therefore finish before the HTTP server bound its
 socket. Their manifest now publishes `8085` and gates readiness with `/health`, eliminating the
 preparation race without a fixed sleep.
+The first load attempt showed that the lab could not sustain the 24k peak, so the qualified maximum
+was reduced to 22k without changing the ramp, plateau, cooldown, or warm-up comparison.

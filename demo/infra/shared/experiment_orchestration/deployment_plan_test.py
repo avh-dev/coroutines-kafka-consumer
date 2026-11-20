@@ -300,10 +300,10 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
         self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
-    def test_materializes_sequential_warmup_comparison_at_24k(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-sequential-warmup-scale-up-24k-local.yaml"
+    def test_materializes_sequential_warmup_comparison_at_22k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-sequential-warmup-scale-up-22k-local.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")
-        root = Path(self.temp.name) / "sequential-warmup-24k"
+        root = Path(self.temp.name) / "sequential-warmup-22k"
         targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
 
         self.assertEqual(
@@ -332,9 +332,9 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
 
     def _assert_controller_stubs_target(self, plan, definition) -> None:
-        self.assertEqual(24_000, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(22_000, plan["workload"]["load"]["base_tps"])
         self.assertEqual(
-            "0 -> (25m, ramp-to-24k) -> 100 -> (10m, hold-24k) -> 100 -> (10m, cool-down) -> 0",
+            "0 -> (25m, ramp-to-22k) -> 100 -> (10m, hold-22k) -> 100 -> (10m, cool-down) -> 0",
             plan["workload"]["load"]["load_profile"],
         )
         application = plan["application"]["configuration"]
