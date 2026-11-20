@@ -199,6 +199,7 @@
 | [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
 | [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota profile configurable. | DONE |
 | [DEMO-108](#demo-108) | Make the demo warm-up forwarding producer batch size configurable. | DONE |
+| [DEMO-109](#demo-109) | Make demo Redis business-state retention configurable while retaining the ten-minute default. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6498,6 +6499,17 @@ Expose the forwarding producer `batch.size` independently from the main load-gen
 Keep the Kafka default-compatible 16 KiB demo value and allow experiments to raise it without
 changing application code. Preserve the independently configurable forwarding `linger.ms`.
 The focused binding test covers both the default and an explicit 32 KiB override.
+
+<a id="demo-109"></a>
+### DEMO-109 - Configure Redis business-state retention
+
+_Date: 2026-11-20_
+
+Expose the demo Redis business-state TTL as `demo.redis.state-retention`, retaining the existing
+ten-minute default. Apply the configured retention consistently to synchronous and coroutine writes
+and reject values shorter than one second. Allow long, high-throughput experiments to choose a
+smaller bounded working set without changing business handlers.
+The focused store regression and complete `ckc-demo` test suite pass.
 
 <a id="infra-327"></a>
 ### INFRA-327 - Compare 300/s staged and direct-linear warm-up profiles

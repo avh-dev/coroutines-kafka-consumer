@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.io.Closeable
+import java.time.Duration
 
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
 @Configuration(proxyBeanMethods = false)
@@ -42,8 +43,9 @@ class RedisConfiguration {
     @Bean
     fun redisBrewingStateStore(
         demoRedisCommands: DemoRedisCommands,
-        redisJson: Json
-    ): RedisBrewingStateStore = RedisBrewingStateStore(demoRedisCommands, redisJson)
+        redisJson: Json,
+        @Value("\${demo.redis.state-retention:10m}") stateRetention: Duration
+    ): RedisBrewingStateStore = RedisBrewingStateStore(demoRedisCommands, redisJson, stateRetention)
 
     @Bean
     fun syncBrewingStateRepository(store: RedisBrewingStateStore): SyncBrewingStateRepository =

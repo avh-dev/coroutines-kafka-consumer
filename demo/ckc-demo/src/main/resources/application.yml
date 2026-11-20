@@ -178,6 +178,7 @@ demo:
   registry:
     base-url: ${REGISTRY_BASE_URL:http://127.0.0.1:18080}
   redis:
+    state-retention: ${DEMO_REDIS_STATE_RETENTION:10m}
     metrics:
       enabled: ${LETTUCE_METRICS_ENABLED:true}
   audit:
