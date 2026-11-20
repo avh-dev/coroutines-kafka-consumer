@@ -15,7 +15,9 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
 import reactor.core.publisher.Mono
+import java.time.Duration
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
 class RedisBrewingStateStoreTest {
@@ -70,6 +72,34 @@ class RedisBrewingStateStoreTest {
             any(ByteArray::class.java)
         )
         verifyNoMoreInteractions(syncCommands)
+    }
+
+    @Test
+    fun `configured retention applies to sync and suspend writes`(): Unit = runBlocking {
+        val redisCommands = mockRedisCommands()
+        val syncCommands = mockSyncCommands()
+        val reactiveCommands = mockReactiveCommands()
+        `when`(redisCommands.sync()).thenReturn(syncCommands)
+        `when`(redisCommands.coroutines()).thenReturn(RedisCoroutinesCommandsImpl(reactiveCommands))
+        `when`(reactiveCommands.setex(
+            eq("batch-state:batch-1"),
+            eq(300L),
+            any(ByteArray::class.java)
+        )).thenReturn(Mono.just("OK"))
+        val store = RedisBrewingStateStore(redisCommands, stateRetention = Duration.ofMinutes(5))
+
+        store.saveBatch(sampleBatch())
+        store.saveBatchSuspending(sampleBatch())
+
+        verify(syncCommands).setex(eq("batch-state:batch-1"), eq(300L), any(ByteArray::class.java))
+        verify(reactiveCommands).setex(eq("batch-state:batch-1"), eq(300L), any(ByteArray::class.java))
+    }
+
+    @Test
+    fun `retention shorter than one second is rejected`() {
+        assertFailsWith<IllegalArgumentException> {
+            RedisBrewingStateStore(mockRedisCommands(), stateRetention = Duration.ofMillis(999))
+        }
     }
 
     private fun sampleBatch(): Batch =
