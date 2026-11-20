@@ -101,8 +101,13 @@ class RedisSuspendBrewingStateRepository(
 @OptIn(ExperimentalLettuceCoroutinesApi::class)
 class RedisBrewingStateStore(
     private val redisCommands: DemoRedisCommands,
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    stateRetention: Duration = DEFAULT_STATE_RETENTION
 ) {
+    private val stateRetentionSeconds = stateRetention.seconds.also {
+        require(it >= 1) { "Redis state retention must be at least one second" }
+    }
+
     fun findOrder(orderId: String): Order? =
         loadJson(orderKey(orderId), Order.serializer())
 
@@ -193,7 +198,7 @@ class RedisBrewingStateStore(
     }
 
     private fun save(key: String, value: ByteArray) {
-        redisCommands.sync().setex(key, STATE_RETENTION.seconds, value)
+        redisCommands.sync().setex(key, stateRetentionSeconds, value)
     }
 
     private fun load(key: String): ByteArray? =
@@ -207,7 +212,7 @@ class RedisBrewingStateStore(
     }
 
     private suspend fun saveSuspending(key: String, value: ByteArray) {
-        redisCommands.coroutines().setex(key, STATE_RETENTION.seconds, value)
+        redisCommands.coroutines().setex(key, stateRetentionSeconds, value)
     }
 
     private suspend fun loadSuspending(key: String): ByteArray? =
@@ -227,7 +232,7 @@ class RedisBrewingStateStore(
         "brewing-step-receipt:$batchId:$stepNumber"
 
     private companion object {
-        private val STATE_RETENTION: Duration = Duration.ofMinutes(10)
+        private val DEFAULT_STATE_RETENTION: Duration = Duration.ofMinutes(10)
     }
 
 }
