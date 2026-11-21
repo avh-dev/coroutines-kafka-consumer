@@ -2399,6 +2399,8 @@ class ExperimentReportTest(unittest.TestCase):
                     "TRAFFIC_WARMUP_ENABLED": True,
                     "TRAFFIC_WARMUP_DURATION_SECONDS": "150",
                     "TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE": "1 -> 300",
+                    "TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE": "2 -> 200",
+                    "TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE": "3 -> 100",
                     "TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE": "32768",
                 }}},
             ]})
@@ -2413,6 +2415,7 @@ class ExperimentReportTest(unittest.TestCase):
                 metadata_path = run_dir / "run-metadata.json"
                 metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
                 metadata["orchestration_started_at"] = preparation
+                metadata["run_plan"]["topics"].extend([{"name": "batch"}, {"name": "telemetry"}])
                 self.write_json(metadata_path, metadata)
                 status = {"status": "completed", "ended_at": end}
                 self.write_json(run_dir / "run-status.json", status)
@@ -2439,10 +2442,18 @@ class ExperimentReportTest(unittest.TestCase):
                 second["resource_windows"][0]["resource_budget"]["broker"],
             )
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn('>Traffic warm-up</th><td>Disabled</td><td>Enabled</td>', markdown)
-            self.assertIn('>Warm-up duration</th><td>—</td><td>150 s</td>', markdown)
-            self.assertIn('>Order quota profile</th><td>—</td><td>1 -&gt; 300</td>', markdown)
-            self.assertIn('>Warm-up producer batch size</th><td>—</td><td>32 KiB</td>', markdown)
+            self.assertIn('>Warm-up</th><td>Disabled</td><td>Enabled · dedicated Kafka (K8s)</td>', markdown)
+            self.assertNotIn('>Application warm-up</th>', markdown)
+            self.assertNotIn('>Warm-up duration</th>', markdown)
+            self.assertNotIn('>Warm-up producer batch size</th>', markdown)
+            topics_start = markdown.index('>Topics configuration</th>')
+            profile_rows = [
+                line for line in markdown[topics_start:].splitlines()
+                if '>Warm-up load profile</th>' in line
+            ]
+            self.assertEqual(3, len(profile_rows))
+            for row, profile in zip(profile_rows, ["1 -&gt; 300", "2 -&gt; 200", "3 -&gt; 100"], strict=True):
+                self.assertIn(f'<td>—</td><td>{profile}</td>', row)
             self.assertIn("Full target including preparation · 240.0 s", markdown)
             self.assertIn("Full target including preparation · 360.0 s", markdown)
             self.assertIn("| Average memory working set (MiB) | no data | 256 | no data |", markdown)
