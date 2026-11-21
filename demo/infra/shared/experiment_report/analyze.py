@@ -1322,9 +1322,11 @@ def analyze_experiment(
                     float(window.get("duration_seconds") or 0),
                 )
         deployment = target_deployment if isinstance(target_deployment, dict) else {}
-        warmup_broker = deployment.get("warmup_kafka") or {}
+        warmup_broker = dict(deployment.get("warmup_kafka") or {})
+        if isinstance(metadata.get("warmup_kafka_enabled"), bool):
+            warmup_broker["enabled"] = metadata["warmup_kafka_enabled"]
         broker_enabled = bool(warmup_broker.get("enabled"))
-        traffic_warmup = deployment.get("traffic_warmup_enabled")
+        traffic_warmup = metadata.get("traffic_warmup_enabled", deployment.get("traffic_warmup_enabled"))
         if traffic_warmup is None and broker_enabled:
             # Older resolved definitions only recorded the dedicated broker.
             override = (target.get("env") or {}).get("TRAFFIC_WARMUP_ENABLED", "true")

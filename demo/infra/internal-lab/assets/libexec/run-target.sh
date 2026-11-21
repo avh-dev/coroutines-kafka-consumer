@@ -1359,6 +1359,11 @@ else
     "${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 fi
 
+if [ -f "${CURRENT_DEPLOYMENT_PATH}" ]; then
+  RUN_WARMUP_KAFKA_ENABLED="$(sed -n "s/^WARMUP_KAFKA_ENABLED='\([^']*\)'$/\1/p" "${CURRENT_DEPLOYMENT_PATH}" | tail -n 1)"
+  RUN_TRAFFIC_WARMUP_ENABLED="$(sed -n "s/^TRAFFIC_WARMUP_ENABLED='\([^']*\)'$/\1/p" "${CURRENT_DEPLOYMENT_PATH}" | tail -n 1)"
+fi
+
 if [ -z "${DEPLOYMENT_PLAN_PATH:-}" ] || [ ! -f "${DEPLOYMENT_PLAN_PATH}" ]; then
   echo "A materialized deployment plan is required for the Kubernetes load-test Job." >&2
   echo "Start the workload through 'lab experiment start' so the shared plan is available." >&2
@@ -1398,6 +1403,7 @@ KAFKA_PRODUCER_COMPRESSION_TYPE="${KAFKA_PRODUCER_COMPRESSION_TYPE:-lz4}"
 KAFKA_PRODUCER_BUFFER_MEMORY="${KAFKA_PRODUCER_BUFFER_MEMORY:-33554432}"
 
 write_run_metadata() {
+  export RUN_WARMUP_KAFKA_ENABLED RUN_TRAFFIC_WARMUP_ENABLED
   export RUN_METADATA_FILE RUN_ID RUN_STARTED_AT ORCHESTRATION_STARTED_AT RUN_PREPARE WAIT_FOR_CONSUMER_DRAIN
   export DEPLOYMENT_PROFILE TEST_DEFINITION LAB_KAFKA_IMPLEMENTATION LAB_KAFKA_TOPOLOGY KAFKA_BOOTSTRAP_HOST PROCESSING_ENABLED AUDIT_LOG_ENABLED METRICS_IMPLEMENTATION LETTUCE_METRICS_ENABLED JDK_HTTP_CLIENT_EXECUTOR MODEL_SYNC_HTTP_CLIENT WORKER_DISPATCHER_THREADS STUB_REPLICA_COUNT
   export LAB_KAFKA_BROKER_COUNT LAB_KAFKA_REPLICATION_FACTOR LAB_KAFKA_MIN_INSYNC_REPLICAS LAB_KAFKA_CPU_PER_BROKER LAB_KAFKA_MEMORY_PER_BROKER LAB_KAFKA_HEAP_PER_BROKER
@@ -1611,6 +1617,11 @@ metadata = {
         "collector_log_file": env("RUN_THREAD_STATS_LOG_FILE"),
     },
 }
+if env("RUN_WARMUP_KAFKA_ENABLED") in ("true", "false"):
+    metadata["warmup_kafka_enabled"] = env("RUN_WARMUP_KAFKA_ENABLED") == "true"
+if env("RUN_TRAFFIC_WARMUP_ENABLED") in ("true", "false"):
+    metadata["traffic_warmup_enabled"] = env("RUN_TRAFFIC_WARMUP_ENABLED") == "true"
+
 run_plan = optional_json_file(env("RUN_PLAN_PATH"))
 if run_plan is not None:
     metadata["run_plan"] = run_plan

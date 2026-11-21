@@ -40,6 +40,14 @@ class WarmupTransportLifecycleTest(unittest.TestCase):
         self.assertLess(stubs_prepare, fallback)
         self.assertLess(fallback, application_apply)
 
+    def test_cold_preparation_removes_existing_transport_before_reset(self) -> None:
+        script = PREPARE.read_text(encoding="utf-8")
+        cold = script.index('if [[ "${WARMUP_KAFKA_ENABLED}" == "false" ]]')
+        delete = script.index("delete deployment,service,pods -l ckc.dev/component=warmup-kafka", cold)
+        reset = script.index('"${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target')
+        self.assertLess(cold, delete)
+        self.assertLess(delete, reset)
+
     def run_cleanup(self, mode: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
