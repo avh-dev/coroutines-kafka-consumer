@@ -2391,8 +2391,18 @@ class ExperimentReportTest(unittest.TestCase):
             experiment["targets"].append({**target_a, "name": "target-b", "run_dir": str(run_b)})
             resolved_path = Path(experiment["resolved_test_path"])
             definition = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+            resolved_experiment = root / "resolved-experiment.yaml"
+            experiment["resolved_experiment_path"] = str(resolved_experiment)
+            self.write_yaml(resolved_experiment, {"targets": [
+                {"name": target_a["name"], "runtime": {"env": {"TRAFFIC_WARMUP_ENABLED": False}}},
+                {"name": "target-b", "runtime": {"env": {
+                    "TRAFFIC_WARMUP_ENABLED": True,
+                    "TRAFFIC_WARMUP_DURATION_SECONDS": "150",
+                    "TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE": "1 -> 300",
+                    "TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE": "32768",
+                }}},
+            ]})
             definition["deployment"] = {
-                "traffic_warmup_enabled": False,
                 "warmup_kafka": {"enabled": True, "resources": {"requests": {"cpu": "500m", "memory": "768Mi"}}},
             }
             self.write_yaml(resolved_path, definition)
@@ -2412,11 +2422,14 @@ class ExperimentReportTest(unittest.TestCase):
                 patch("experiment_report.analyze.collect_standard_measurements", return_value={}),
                 patch("experiment_report.analyze.collect_target_application_resources", return_value={}),
                 patch("experiment_report.analyze.broker_usage", return_value={"used_cpu": None, "average_memory": 256}),
+                patch("experiment_report.analyze.warmup_summary", return_value={}),
             ):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
 
             model = yaml.safe_load((outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8"))
             first, second = model["targets"]
+            self.assertIs(first["warmup"]["enabled"], False)
+            self.assertIs(second["warmup"]["enabled"], True)
             self.assertEqual(240, first["full_target_budget"]["duration_seconds"])
             self.assertEqual(360, second["full_target_budget"]["duration_seconds"])
             self.assertAlmostEqual(0.5 * 240 / 3600, first["full_target_budget"]["broker"]["requested_cpu"])
@@ -2426,6 +2439,10 @@ class ExperimentReportTest(unittest.TestCase):
                 second["resource_windows"][0]["resource_budget"]["broker"],
             )
             markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn('>Traffic warm-up</th><td>Disabled</td><td>Enabled</td>', markdown)
+            self.assertIn('>Warm-up duration</th><td>—</td><td>150 s</td>', markdown)
+            self.assertIn('>Order quota profile</th><td>—</td><td>1 -&gt; 300</td>', markdown)
+            self.assertIn('>Warm-up producer batch size</th><td>—</td><td>32 KiB</td>', markdown)
             self.assertIn("Full target including preparation · 240.0 s", markdown)
             self.assertIn("Full target including preparation · 360.0 s", markdown)
             self.assertIn("| Average memory working set (MiB) | no data | 256 | no data |", markdown)

@@ -7,7 +7,7 @@ from typing import Any
 
 from .model import ExperimentReport, TargetReport
 from .theme import topic_palette
-from .warmup import RESOURCE_ROWS
+from .warmup import RESOURCE_ROWS, WARMUP_SETTING_ROWS
 
 REPORT_GENERATOR_VERSION = "3"
 
@@ -1062,11 +1062,6 @@ def render_markdown(report: ExperimentReport) -> str:
         row("MSK broker type", [escaped(kafka.get("instance_type")) for _ in targets])
     row("Consumer execution model", [execution_model(target) for target in targets])
     row("Autoscaling configuration", [autoscaling_configuration(target) for target in targets])
-    if any(target.warmup.get("broker_enabled") for target in targets):
-        row("Warmup Kafka", [
-            {True: "Enabled", False: "Disabled"}.get(target.warmup.get("broker_enabled"), "—")
-            for target in targets
-        ])
     if not any(target_uses_hpa(target) for target in targets):
         row("Static replicas", [replica_configuration(target) for target in targets])
     row("CPU request", [resource_value(target, "requests", "cpu") for target in targets])
@@ -1088,6 +1083,24 @@ def render_markdown(report: ExperimentReport) -> str:
             [f'{number(target.test_definition.get("telemetry_publish_interval_seconds"), 0)} s' for target in targets],
         )
         row("Peak telemetry fleet", [number(target.test_definition.get("peak_telemetry_fleet_size"), 0) for target in targets])
+    warmup_states = {True: "Enabled", False: "Disabled"}
+    if any(target.warmup.get("enabled") is not None or target.warmup.get("broker_enabled") for target in targets):
+        subsection("Application warm-up")
+        row("Traffic warm-up", [warmup_states.get(target.warmup.get("enabled"), "—") for target in targets])
+        if any(target.warmup.get("broker_enabled") for target in targets):
+            row("Warmup Kafka", [warmup_states.get(target.warmup.get("broker_enabled"), "—") for target in targets])
+        settings = [
+            target.warmup.get("settings", {}) if target.warmup.get("enabled") else {}
+            for target in targets
+        ]
+        for key, label, unit in WARMUP_SETTING_ROWS:
+            values = [settings_by_target.get(key) for settings_by_target in settings]
+            if unit == "bytes":
+                row(label, [bytes_value(value) for value in values])
+            else:
+                suffix = f" {unit}" if unit else ""
+                row(label, [f"{escaped(value)}{suffix}" if value is not None else "—" for value in values])
+
     configured_topics = []
     for target in targets:
         for topic in target.configuration.get("topics", []):
