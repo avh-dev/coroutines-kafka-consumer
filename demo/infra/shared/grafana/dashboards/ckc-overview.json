@@ -3827,20 +3827,12 @@
             }
           },
           "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "1000 * sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval]))",
-              "legendFormat": "selected pods total",
-              "range": true,
-              "refId": "A"
-            }
+            {"expr": "1000 * (sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval])))", "legendFormat": "Application", "refId": "A"},
+            {"expr": "1000 * (sum(rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[$__rate_interval])))", "legendFormat": "Warmup Kafka", "refId": "B"},
+            {"expr": "1000 * ((sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval])) + sum(rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[$__rate_interval]))) or ((sum(rate(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__rate_interval])) and on() max(last_over_time(up{job=\"ckc-warmup-kafka-state\"}[30s]) == 1)) unless on() count(last_over_time(kube_pod_created{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\"}[30s]))))", "legendFormat": "Total", "refId": "C"}
           ],
-      "description": "Total CPU used by the selected demo application containers, summed from kubelet/cAdvisor counters. This shows aggregate deployment demand and naturally changes when the number of pods changes.",
-      "title": "Application Container CPU — Total",
+          "description": "CPU usage of the selected application pods and the dedicated warmup broker. A known absent broker contributes zero to the total.",
+          "title": "Application and Warmup Kafka CPU — Total",
           "type": "timeseries",
           "id": 73
         },
@@ -4478,6 +4470,98 @@
       "title": "Application Resources",
       "type": "row",
       "id": 72
+    },
+    {
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "CPU used by the broker container and Kubernetes CPU requests and limits.",
+          "fieldConfig": {"defaults": {"unit": "cores", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "id": 172,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[$__rate_interval]))", "legendFormat": "{{pod}} usage", "refId": "A"},
+            {"expr": "max by (pod) (last_over_time(kube_pod_container_resource_requests{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\",resource=\"cpu\",unit=\"core\"}[30s]))", "legendFormat": "{{pod}} request", "refId": "B"},
+            {"expr": "max by (pod) (last_over_time(kube_pod_container_resource_limits{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\",resource=\"cpu\",unit=\"core\"}[30s]))", "legendFormat": "{{pod}} limit", "refId": "C"}
+          ],
+          "title": "Broker CPU Usage and Capacity",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Share of CFS periods in which the broker container was throttled.",
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "id": 173,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "100 * sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[$__rate_interval])) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[$__rate_interval]))", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "title": "Broker CPU Throttling",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Working set of the broker container and Kubernetes memory requests and limits.",
+          "fieldConfig": {"defaults": {"unit": "bytes", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+          "id": 174,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "max by (pod) (last_over_time(container_memory_working_set_bytes{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[30s]))", "legendFormat": "{{pod}} working set", "refId": "A"},
+            {"expr": "max by (pod) (last_over_time(kube_pod_container_resource_requests{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\",resource=\"memory\",unit=\"byte\"}[30s]))", "legendFormat": "{{pod}} request", "refId": "B"},
+            {"expr": "max by (pod) (last_over_time(kube_pod_container_resource_limits{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\",resource=\"memory\",unit=\"byte\"}[30s]))", "legendFormat": "{{pod}} limit", "refId": "C"}
+          ],
+          "title": "Broker Memory Usage and Capacity",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Pod interface throughput excluding loopback.",
+          "fieldConfig": {"defaults": {"unit": "Bps", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+          "id": 175,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "sum by (pod) (max by (pod, interface) (rate(container_network_receive_bytes_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",interface!=\"lo\"}[$__rate_interval])))", "legendFormat": "{{pod}} RX", "refId": "A"},
+            {"expr": "sum by (pod) (max by (pod, interface) (rate(container_network_transmit_bytes_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",interface!=\"lo\"}[$__rate_interval])))", "legendFormat": "{{pod}} TX", "refId": "B"}
+          ],
+          "title": "Broker Network RX / TX",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Kubernetes Ready condition per pod. 1 means ready and 0 means unready.",
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+          "id": 176,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "max by (pod) (last_over_time(kube_pod_status_ready{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",condition=\"true\"}[30s]))", "legendFormat": "{{pod}} ready", "refId": "A"}
+          ],
+          "title": "Broker Pod Readiness",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Total Kubernetes container restarts per warmup broker pod.",
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+          "id": 177,
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}},
+          "targets": [
+            {"expr": "max by (pod) (last_over_time(kube_pod_container_status_restarts_total{namespace=~\"ckc-perf|ckc-app\",pod=~\"ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+\",container=\"kafka\"}[30s]))", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "title": "Broker Container Restarts",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Warmup Kafka",
+      "type": "row",
+      "id": 171
     },
     {
       "collapsed": true,

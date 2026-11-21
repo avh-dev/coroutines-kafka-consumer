@@ -112,11 +112,14 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
                         recipientSignal.receive()
                     }
                     recipient.allDonorsAccepted()
-                } == true
+                }
             } else {
-                false
+                null
             }
-            if (!admitted) return fallback(recipient, "donor_acceptance_failed")
+            if (admitted != true) {
+                val reason = if (admitted == null) "donor_acceptance_timeout" else "donor_acceptance_failed"
+                return fallback(recipient, reason)
+            }
 
             return when (val preparation = recipient.prepareConsumers()) {
                 is WarmupRecipientPreparationResult.Ready -> {
@@ -161,15 +164,22 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             recipient.completionRequests().forEach { channel.send(it) }
             val remainingMillis = recipient.request.expiresAtEpochMillis - System.currentTimeMillis()
             val completionMillis = minOf(donorCompletionTimeout.inWholeMilliseconds, remainingMillis)
-            val closed = completionMillis > 0 && withTimeoutOrNull(completionMillis) {
-                while (!recipient.allDonorsClosed() &&
-                    recipient.state() == WarmupRecipientDiscovery.State.DRAINING
-                ) {
-                    recipientSignal.receive()
+            val closed = if (completionMillis > 0) {
+                withTimeoutOrNull(completionMillis) {
+                    while (!recipient.allDonorsClosed() &&
+                        recipient.state() == WarmupRecipientDiscovery.State.DRAINING
+                    ) {
+                        recipientSignal.receive()
+                    }
+                    recipient.allDonorsClosed()
                 }
-                recipient.allDonorsClosed()
-            } == true
-            if (!closed) return completionFallback(recipient, "donor_completion_failed")
+            } else {
+                null
+            }
+            if (closed != true) {
+                val reason = if (closed == null) "donor_completion_timeout" else "donor_completion_failed"
+                return completionFallback(recipient, reason)
+            }
 
             when (val cleanup = recipient.completeAfterDonorsClosed()) {
                 WarmupRecipientCleanupResult.Complete -> {

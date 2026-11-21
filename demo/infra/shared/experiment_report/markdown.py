@@ -7,6 +7,7 @@ from typing import Any
 
 from .model import ExperimentReport, TargetReport
 from .theme import topic_palette
+from .warmup import RESOURCE_ROWS
 
 REPORT_GENERATOR_VERSION = "3"
 
@@ -246,6 +247,72 @@ def e2e_compliance_cells(
             content = f'<span class="champion">{content}</span>'
         cells.append(content)
     return cells
+
+
+def render_warmup_and_resources(
+    targets: list[TargetReport]
+) -> list[str]:
+    if not any(target.resource_windows or target.warmup for target in targets):
+        return []
+    lines = ["## Application and Warmup Kafka resource budget", ""]
+    lines.extend([
+        "Requests measure reserved capacity. Application CPU includes work performed by the application during warm-up.",
+        "",
+    ])
+
+    def value(raw: Any, digits: int) -> str:
+        return "unavailable" if raw is None else number(raw, digits)
+
+    for target in targets:
+        lines.extend([f"### {escaped(target.name)}", ""])
+        for window in target.resource_windows:
+            start = float(window.get("start_seconds") or 0)
+            seconds = float(window.get("duration_seconds") or 0)
+            budget = window["resource_budget"]
+            lines.extend([
+                f"**{escaped(window.get('name') or 'Full measurement')} · {number(start, 0)}–{number(start + seconds, 0)} s**",
+                "",
+                "| Resource | Application | Warmup Kafka | Total |",
+                "| --- | ---: | ---: | ---: |",
+            ])
+            for key, label, digits in RESOURCE_ROWS:
+                app = budget.get("application", {}).get(key)
+                broker = budget.get("broker", {}).get(key)
+                total = app + broker if app is not None and broker is not None else None
+                lines.append(f"| {label} | {value(app, digits)} | {value(broker, digits)} | {value(total, digits)} |")
+            lines.append("")
+
+        outcome = target.warmup
+        enabled = outcome.get("enabled")
+        status = {True: "enabled", False: "disabled"}.get(enabled, "unavailable")
+        broker_status = "enabled" if outcome.get("broker_enabled") else "disabled"
+        lines.extend([
+            f"Application warm-up **{status}** · dedicated broker **{broker_status}**",
+            "",
+            "| Warmed pods | Duration median (s) | Duration max (s) | Records handled | Errors | Timeouts |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        duration_missing = "—" if outcome.get("pods") == 0 else "unavailable"
+        cells = [
+            value(outcome.get("pods"), 0),
+            *[
+                value(outcome[key], 2) if key in outcome else duration_missing
+                for key in ("median_seconds", "max_seconds")
+            ],
+            *[value(outcome.get(key), 0) for key in ("records", "errors", "timeouts")],
+        ]
+        lines.extend(["| " + " | ".join(cells) + " |", ""])
+        if outcome.get("broker_enabled"):
+            full = outcome.get("full_target_budget", {})
+            lines.extend([
+                "**Warmup Kafka · full target lifecycle**",
+                "",
+                "| Resource | Warmup Kafka |",
+                "| --- | ---: |",
+                *[f"| {label} | {value(full.get(key), digits)} |" for key, label, digits in RESOURCE_ROWS],
+                "",
+            ])
+    return lines
 
 
 def render_markdown(report: ExperimentReport) -> str:
@@ -1852,6 +1919,7 @@ def render_markdown(report: ExperimentReport) -> str:
             "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records. Messages per Kafka record batch divides the producer batch record count by decoded topic batches; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
         ])
+    lines.extend(render_warmup_and_resources(targets))
     lines.extend([
         "## Methodology and artifacts",
         "",

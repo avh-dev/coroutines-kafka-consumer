@@ -60,6 +60,10 @@ STANDARD_MEASUREMENTS = {
         "sum(increase(container_cpu_cfs_throttled_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
+    "application_cpu_used_core_hours": (
+        "sum(increase(container_cpu_usage_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / 3600'
+    ),
     "cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[1m])))[{window}:15s])'
@@ -300,16 +304,18 @@ class PrometheusClient:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def query_scalar(self, query: str, at: datetime) -> float | None:
+    def query_vector(self, query: str, at: datetime) -> list[dict[str, Any]]:
         params = urllib.parse.urlencode({"query": query, "time": at.timestamp()})
         url = f"{self.base_url}/api/v1/query?{params}"
         with urllib.request.urlopen(url, timeout=self.timeout_seconds) as response:
             document = json.loads(response.read().decode("utf-8"))
         if document.get("status") != "success":
             raise ValueError(f"Prometheus query failed: {document.get('error', 'unknown error')}")
-        result = document.get("data", {}).get("result", [])
+        return document.get("data", {}).get("result", [])
+
+    def query_scalar(self, query: str, at: datetime) -> float | None:
         values = []
-        for series in result:
+        for series in self.query_vector(query, at):
             value = series.get("value")
             if isinstance(value, list) and len(value) == 2:
                 try:

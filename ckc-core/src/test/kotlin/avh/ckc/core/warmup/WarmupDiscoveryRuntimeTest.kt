@@ -299,7 +299,7 @@ class WarmupDiscoveryRuntimeTest {
         val result = runtime.completeWarmup(recipient)
 
         val fallback = assertInstanceOf(WarmupCompletionResult.ColdFallback::class.java, result)
-        assertEquals("donor_completion_failed", fallback.reasonCode)
+        assertEquals("donor_completion_timeout", fallback.reasonCode)
         assertEquals(1, stopped.get())
         assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, recipient.state())
         assertTrue(channel.sent[channel.sent.lastIndex - 1] is WarmupCompletionRequested)

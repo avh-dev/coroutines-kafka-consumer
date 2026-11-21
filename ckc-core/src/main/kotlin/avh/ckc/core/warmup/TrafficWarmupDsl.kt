@@ -103,14 +103,17 @@ enum class TrafficWarmupLifecyclePhase {
     COLD_FALLBACK,
     MAIN_READY,
     PARTICIPANT_STOPPED,
-    CONTROL_UNAVAILABLE
+    CONTROL_UNAVAILABLE,
+    RECIPIENT_FINISHED
 }
 
 data class TrafficWarmupLifecycleEvent(
     val phase: TrafficWarmupLifecyclePhase,
     val participantId: String? = null,
     val sessionId: String? = null,
-    val reasonCode: String? = null
+    val reasonCode: String? = null,
+    val durationMillis: Long? = null,
+    val processedRecords: Long? = null
 )
 
 data class TrafficWarmupForwardedEvent(
