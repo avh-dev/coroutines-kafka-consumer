@@ -20,6 +20,38 @@ RESOURCE_ROWS = (
 )
 
 
+WARMUP_SETTING_ROWS = (
+    ("DURATION_SECONDS", "Warm-up duration", "s"),
+    ("ORDER_QUOTA_PROFILE", "Order quota profile", ""),
+    ("ORDER_QUOTA_INTERVAL_MS", "Order quota interval", "ms"),
+    ("BATCH_QUOTA_PROFILE", "Batch quota profile", ""),
+    ("BATCH_QUOTA_INTERVAL_MS", "Batch quota interval", "ms"),
+    ("CAULDRON_QUOTA_PROFILE", "Cauldron quota profile", ""),
+    ("CAULDRON_QUOTA_INTERVAL_MS", "Cauldron quota interval", "ms"),
+    ("PARTICIPANT_START_TIMEOUT_SECONDS", "Participant start timeout", "s"),
+    ("PREPARATION_TIMEOUT_SECONDS", "Preparation timeout", "s"),
+    ("COMPLETION_TIMEOUT_SECONDS", "Completion timeout", "s"),
+    ("DELEGATION_TIMEOUT_SECONDS", "Delegation timeout", "s"),
+    ("OFFER_WINDOW_MS", "Offer window", "ms"),
+    ("PRODUCER_LINGER_MS", "Warm-up producer linger", "ms"),
+    ("PRODUCER_BATCH_SIZE", "Warm-up producer batch size", "bytes"),
+    ("CONTROL_TOPIC", "Warm-up control topic", ""),
+)
+
+
+def configured_warmup_settings(*targets: dict[str, Any]) -> dict[str, Any]:
+    env: dict[str, Any] = {}
+    for target in targets:
+        env.update(target.get("env") or {})
+        env.update((target.get("runtime") or {}).get("env") or {})
+    keys = ("ENABLED", *(key for key, _, _ in WARMUP_SETTING_ROWS))
+    return {
+        key: env[f"TRAFFIC_WARMUP_{key}"]
+        for key in keys
+        if env.get(f"TRAFFIC_WARMUP_{key}") not in (None, "")
+    }
+
+
 def warmup_summary(
     prometheus: PrometheusClient,
     run_id: str,

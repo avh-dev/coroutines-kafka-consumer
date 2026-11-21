@@ -26,6 +26,7 @@ from .warmup import (
     application_budget,
     broker_requests,
     broker_usage,
+    configured_warmup_settings,
     cpu_cores,
     memory_gib,
     warmup_summary,
@@ -1108,6 +1109,15 @@ def analyze_experiment(
         if isinstance(item, dict)
     }
 
+    resolved_experiment_path = Path(str(experiment_summary.get("resolved_experiment_path") or ""))
+    resolved_targets = {
+        str(item.get("name") or item.get("id")): item
+        for item in (
+            (load_yaml(resolved_experiment_path).get("targets") or []) if resolved_experiment_path.is_file() else []
+        )
+        if isinstance(item, dict)
+    }
+
     for target in experiment_summary.get("targets", []):
         report_target_name = str(target.get("name") or target.get("target") or "")
         run_dir = Path(str(target.get("run_dir") or ""))
@@ -1334,10 +1344,15 @@ def analyze_experiment(
             warmup_broker["enabled"] = metadata["warmup_kafka_enabled"]
         broker_enabled = bool(warmup_broker.get("enabled"))
         traffic_warmup = metadata.get("traffic_warmup_enabled", deployment.get("traffic_warmup_enabled"))
+        warmup_settings = configured_warmup_settings(
+            configured_target or {}, target, resolved_targets.get(report_target_name, {}),
+        )
+        configured_warmup = warmup_settings.pop("ENABLED", None)
+        if traffic_warmup is None and configured_warmup is not None:
+            traffic_warmup = str(configured_warmup).lower() == "true"
         if traffic_warmup is None and broker_enabled:
             # Older resolved definitions only recorded the dedicated broker.
-            override = (target.get("env") or {}).get("TRAFFIC_WARMUP_ENABLED", "true")
-            traffic_warmup = str(override).lower() == "true"
+            traffic_warmup = True
         preparation_start = parse_instant(
             status.get("orchestration_started_at") or metadata.get("orchestration_started_at")
         ) or started or start
@@ -1392,6 +1407,8 @@ def analyze_experiment(
                 budget = {}
             resource_windows.append({**window, "resource_budget": budget})
         warmup = {"enabled": traffic_warmup, "broker_enabled": broker_enabled, "broker_config": warmup_broker}
+        if warmup_settings:
+            warmup["settings"] = warmup_settings
         try:
             warmup.update(warmup_summary(prometheus, run_dir.name, traffic_warmup, preparation_start, target_end))
         except Exception as error:
