@@ -29,12 +29,11 @@ class PrometheusBlockExportTest(unittest.TestCase):
         self.assertEqual(datetime(2026, 9, 25, 10, 4, tzinfo=timezone.utc), metrics_start)
         self.assertEqual(datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc), logs_start)
 
-    def test_warmup_evidence_covers_preparation_and_verified_cleanup(self) -> None:
+    def test_warmup_evidence_covers_preparation_and_run_end(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
             (run_dir / "run-metadata.json").write_text(json.dumps({
                 "orchestration_started_at": "2026-09-25T10:00:00Z",
-                "warmup_kafka_observed_until": "2026-09-25T10:09:00Z",
             }), encoding="utf-8")
             start = datetime(2026, 9, 25, 10, 4, tzinfo=timezone.utc)
             end = datetime(2026, 9, 25, 10, 7, tzinfo=timezone.utc)
@@ -42,7 +41,7 @@ class PrometheusBlockExportTest(unittest.TestCase):
             windows = warmup_metric_windows([run_dir], start, end)
             self.assertEqual(
                 (datetime(2026, 9, 25, 10, tzinfo=timezone.utc),
-                 datetime(2026, 9, 25, 10, 9, tzinfo=timezone.utc)),
+                 end),
                 windows["container_cpu_usage_seconds_total"],
             )
             self.assertEqual(windows["kube_pod_labels"], windows["demo_warmup_recipient_records"])

@@ -18,7 +18,6 @@ RESOURCE_ROWS = (
     ("used_cpu", "CPU used (core·h)", 4),
     ("average_memory", "Average memory working set (MiB)", 1),
 )
-SAMPLE_SECONDS = 15
 
 
 def warmup_summary(
@@ -63,87 +62,69 @@ def warmup_summary(
     return summary
 
 
-def broker_budget(
+def cpu_cores(value: Any) -> float | None:
+    text = str(value or "").strip()
+    try:
+        return float(text[:-1]) / 1000 if text.endswith("m") else float(text)
+    except ValueError:
+        return None
+
+
+def memory_gib(value: Any) -> float | None:
+    text = str(value or "").strip()
+    units = {"Ki": 1 / 1024 / 1024, "Mi": 1 / 1024, "Gi": 1.0, "Ti": 1024.0}
+    for suffix, factor in units.items():
+        if text.endswith(suffix):
+            try:
+                return float(text[:-len(suffix)]) * factor
+            except ValueError:
+                return None
+    return None
+
+
+def broker_requests(configuration: dict[str, Any], duration_seconds: float | None) -> dict[str, float | None]:
+    if not configuration.get("enabled"):
+        return {"requested_cpu": 0.0, "requested_memory": 0.0}
+    hours = duration_seconds / 3600 if duration_seconds is not None and duration_seconds > 0 else None
+    requests = (configuration.get("resources") or {}).get("requests") or {}
+    cpu = cpu_cores(requests.get("cpu"))
+    memory = memory_gib(requests.get("memory"))
+    return {
+        "requested_cpu": cpu * hours if cpu is not None and hours is not None else None,
+        "requested_memory": memory * hours if memory is not None and hours is not None else None,
+    }
+
+
+def broker_usage(
     prometheus: PrometheusClient,
     run_id: str,
     enabled: bool,
     start: datetime | None,
     end: datetime | None,
-    lifetime_end: datetime | None,
-    *,
-    lifetime: bool = False,
 ) -> dict[str, float | None]:
     if not enabled:
-        return {key: 0.0 for key, _, _ in RESOURCE_ROWS}
-    budget = dict.fromkeys(key for key, _, _ in RESOURCE_ROWS)
-    if not start or not end or not lifetime_end or end <= start:
-        return budget
+        return {"used_cpu": 0.0, "average_memory": 0.0}
+    if not start or not end or end <= start:
+        return {"used_cpu": None, "average_memory": None}
 
     seconds = math.ceil((end - start).total_seconds())
     window = f"{seconds}s"
-    ownership_seconds = math.ceil((lifetime_end - start).total_seconds())
-    if ownership_seconds <= 0:
-        return budget
-    # Anchor the run-to-pod mapping at the end of the observation. It survives
-    # pod replacement and Prometheus queries made after the broker was deleted.
+    step = min(15, seconds)
+    container = f'{BROKER_PODS},container="kafka"'
+    # Resolve ownership across the interval, including pods replaced during this target.
     owner = (
         f'group by (namespace, pod) (max_over_time(kube_pod_labels{{{BROKER_PODS},'
-        f'label_ckc_run_id={json.dumps(run_id)}}}[{ownership_seconds}s] @ {lifetime_end.timestamp():.3f}))'
+        f'label_ckc_run_id={json.dumps(run_id)}}}[{window}] @ {end.timestamp():.3f}))'
     )
-    container = f'{BROKER_PODS},container="kafka"'
-    pod_created = f"kube_pod_created{{{BROKER_PODS}}}"
-    # Freshness also applies when restoring TSDB samples without stale markers.
-    presence = f"(last_over_time({pod_created}[{2 * SAMPLE_SECONDS}s]) > 0) and on(namespace, pod) ({owner})"
-    presence_samples = prometheus.query_scalar(
-        f"count_over_time((count({presence}))[{window}:{SAMPLE_SECONDS}s])", end
-    )
-    if not presence_samples:
-        return budget
-
-    def gauge(expression: str, divisor: float, average: bool = False) -> float | None:
-        observed = f"(max by (namespace, pod) ({expression}) and on(namespace, pod) ({presence}))"
-        # Preserve missing metrics even if another sample in the interval exists.
-        aggregate = f"(sum({observed}) and on() (count({observed}) == count({presence})))"
-        samples = prometheus.query_scalar(
-            f"count_over_time({aggregate}[{window}:{SAMPLE_SECONDS}s])", end
-        )
-        if samples != presence_samples:
-            return None
-        if average and lifetime:
-            return prometheus.query_scalar(
-                f"avg_over_time({aggregate}[{window}:{SAMPLE_SECONDS}s]) / {divisor}", end
-            )
-        scale = min(SAMPLE_SECONDS, seconds) / divisor
-        return prometheus.query_scalar(
-            f"sum_over_time({aggregate}[{window}:{SAMPLE_SECONDS}s]) * {scale}", end
-        )
-
-    def fresh(metric: str, labels: str = container) -> str:
-        return f"last_over_time({metric}{{{labels}}}[{2 * SAMPLE_SECONDS}s])"
-
-    requests = "kube_pod_container_resource_requests"
-    running = "kube_pod_container_status_running"
-    working_set = fresh("container_memory_working_set_bytes")
-    # A pod waiting to start has a reservation and a known zero container working set.
-    memory = f"({working_set}) or on(namespace, pod) ({fresh(running)} == 0)"
-    cpu = (
-        f"(sum by (namespace, pod) (increase(container_cpu_usage_seconds_total{{{container}}}[{window}]))"
-        f" and on(namespace, pod) ({owner}))"
-    )
-    expected_cpu = (
-        f"(max by (namespace, pod) (max_over_time({running}{{{container}}}[{window}])) > 0)"
-        f" and on(namespace, pod) ({owner})"
-    )
-    budget.update({
-        "requested_cpu": gauge(fresh(requests, f'{container},resource="cpu",unit="core"'), 3600),
-        "requested_memory": gauge(fresh(requests, f'{container},resource="memory",unit="byte"'), 3600 * 1024**3),
-        "average_memory": gauge(memory, (1 if lifetime else seconds) * 1024**2, average=True),
-        "used_cpu": prometheus.query_scalar(
-            f"(sum({cpu}) unless on() count(({expected_cpu}) unless on(namespace, pod) {cpu})) / 3600",
-            end,
+    cpu = f"increase(container_cpu_usage_seconds_total{{{container}}}[{window}])"
+    memory = f"last_over_time(container_memory_working_set_bytes{{{container}}}[30s])"
+    member = f"and on(namespace, pod) ({owner})"
+    return {
+        "used_cpu": prometheus.query_scalar(f"sum({cpu} {member}) / 3600", end),
+        "average_memory": prometheus.query_scalar(
+            f"avg_over_time((sum({memory} {member}))[{window}:{step}s]) / 1024 / 1024", end
         ),
-    })
-    return budget
+    }
 
 
 def application_budget(measurements: dict[str, Any]) -> dict[str, float | None]:

@@ -2322,6 +2322,58 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Load producer batch.size", markdown)
             self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
 
+    def test_warmup_requests_use_actual_elapsed_time_for_each_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            experiment = summary["experiments"][0]
+            target_a = experiment["targets"][0]
+            run_a = Path(target_a["run_dir"])
+            run_b = run_a.with_name("run-b")
+            shutil.copytree(run_a, run_b)
+            experiment["targets"].append({**target_a, "name": "target-b", "run_dir": str(run_b)})
+            resolved_path = Path(experiment["resolved_test_path"])
+            definition = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+            definition["deployment"] = {
+                "traffic_warmup_enabled": False,
+                "warmup_kafka": {"enabled": True, "resources": {"requests": {"cpu": "500m", "memory": "768Mi"}}},
+            }
+            self.write_yaml(resolved_path, definition)
+            for run_dir, preparation, end in (
+                (run_a, "2026-08-07T09:58:00Z", "2026-08-07T10:02:00Z"),
+                (run_b, "2026-08-07T10:03:00Z", "2026-08-07T10:09:00Z"),
+            ):
+                metadata_path = run_dir / "run-metadata.json"
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["orchestration_started_at"] = preparation
+                self.write_json(metadata_path, metadata)
+                status = {"status": "completed", "ended_at": end}
+                self.write_json(run_dir / "run-status.json", status)
+            self.write_json(summary_path, summary)
+
+            with (
+                patch("experiment_report.analyze.collect_standard_measurements", return_value={}),
+                patch("experiment_report.analyze.collect_target_application_resources", return_value={}),
+                patch("experiment_report.analyze.broker_usage", return_value={"used_cpu": None, "average_memory": 256}),
+            ):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+
+            model = yaml.safe_load((outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8"))
+            first, second = model["targets"]
+            self.assertEqual(240, first["full_target_budget"]["duration_seconds"])
+            self.assertEqual(360, second["full_target_budget"]["duration_seconds"])
+            self.assertAlmostEqual(0.5 * 240 / 3600, first["full_target_budget"]["broker"]["requested_cpu"])
+            self.assertAlmostEqual(0.75 * 360 / 3600, second["full_target_budget"]["broker"]["requested_memory"])
+            self.assertEqual(
+                first["resource_windows"][0]["resource_budget"]["broker"],
+                second["resource_windows"][0]["resource_budget"]["broker"],
+            )
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn("Full target including preparation · 240.0 s", markdown)
+            self.assertIn("Full target including preparation · 360.0 s", markdown)
+            self.assertIn("| Average memory working set (MiB) | no data | 256 | no data |", markdown)
+
     def test_report_collects_and_renders_multiple_measurement_windows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
