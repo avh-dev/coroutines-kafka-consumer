@@ -7,7 +7,7 @@ from typing import Any
 
 from .model import ExperimentReport, TargetReport
 from .theme import topic_palette
-from .warmup import RESOURCE_ROWS, WARMUP_SETTING_ROWS
+from .warmup import RESOURCE_ROWS, WARMUP_PROFILE_KEYS
 
 REPORT_GENERATOR_VERSION = "3"
 
@@ -955,8 +955,8 @@ def render_markdown(report: ExperimentReport) -> str:
         letter, title = definitions[source]
         return f'<span class="metric-source source-{letter.lower()}" title="{title}">{letter}</span>'
 
-    def row(label: str, values: list[str], source: str | None = None) -> None:
-        if values and all(value == "—" for value in values):
+    def row(label: str, values: list[str], source: str | None = None, *, show_empty: bool = False) -> None:
+        if not show_empty and values and all(value == "—" for value in values):
             return
         if configuration_rendering and len(targets) > 1 and values and len(set(values)) == 1:
             lines.append(
@@ -1053,6 +1053,16 @@ def render_markdown(report: ExperimentReport) -> str:
         maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
         return f"{kind}, {number(minimum, 0)}–{number(maximum, 0)} pods"
 
+    ckc_profiles = {"ckc", "ckc-sync"}
+
+    def warmup_status(target: TargetReport) -> str:
+        if target.configuration.get("profile") not in ckc_profiles:
+            return "N/A"
+        if not target.warmup.get("enabled"):
+            return "Disabled"
+        broker = "dedicated Kafka (K8s)" if target.warmup.get("broker_enabled") else "main Kafka"
+        return f"Enabled · {broker}"
+
     section("Target configuration")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("Requested application placement", [escaped(target.configuration.get("placement")) for target in targets])
@@ -1083,23 +1093,7 @@ def render_markdown(report: ExperimentReport) -> str:
             [f'{number(target.test_definition.get("telemetry_publish_interval_seconds"), 0)} s' for target in targets],
         )
         row("Peak telemetry fleet", [number(target.test_definition.get("peak_telemetry_fleet_size"), 0) for target in targets])
-    warmup_states = {True: "Enabled", False: "Disabled"}
-    if any(target.warmup.get("enabled") is not None or target.warmup.get("broker_enabled") for target in targets):
-        subsection("Application warm-up")
-        row("Traffic warm-up", [warmup_states.get(target.warmup.get("enabled"), "—") for target in targets])
-        if any(target.warmup.get("broker_enabled") for target in targets):
-            row("Warmup Kafka", [warmup_states.get(target.warmup.get("broker_enabled"), "—") for target in targets])
-        settings = [
-            target.warmup.get("settings", {}) if target.warmup.get("enabled") else {}
-            for target in targets
-        ]
-        for key, label, unit in WARMUP_SETTING_ROWS:
-            values = [settings_by_target.get(key) for settings_by_target in settings]
-            if unit == "bytes":
-                row(label, [bytes_value(value) for value in values])
-            else:
-                suffix = f" {unit}" if unit else ""
-                row(label, [f"{escaped(value)}{suffix}" if value is not None else "—" for value in values])
+    row("Warm-up", [warmup_status(target) for target in targets])
 
     configured_topics = []
     for target in targets:
@@ -1166,6 +1160,17 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         topic_subsection(str(kafka_topic))
 
+        profile_key = WARMUP_PROFILE_KEYS.get(topic_name)
+        row(
+            "Warm-up load profile",
+            [
+                escaped(target.warmup.get("settings", {}).get(profile_key))
+                if target.configuration.get("profile") in ckc_profiles and target.warmup.get("enabled")
+                else "—"
+                for target in targets
+            ],
+            show_empty=True,
+        )
         row(
             "Processing mode",
             [

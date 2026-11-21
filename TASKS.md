@@ -540,6 +540,7 @@
 | [INFRA-354](#infra-354) | Align internal-lab tests with ownership handoff and scheduled load notifications. | DONE |
 | [INFRA-355](#infra-355) | Simplify internal-lab topology and show dedicated Warmup Kafka placement. | DONE |
 | [INFRA-356](#infra-356) | Show configured application warm-up settings for each report target. | DONE |
+| [INFRA-357](#infra-357) | Summarize target warm-up and list load profiles under their Kafka topics. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6782,3 +6783,12 @@ Capture resolved application warm-up settings and show them in the target compar
 Show the application setting independently of broker deployment and include quota profiles,
 intervals, timeouts, and producer settings. Rebuilt the archived 20k A/B report on OptiLab.
 Passed 220 internal-lab, 97 AWS, and 9 shared report unit tests.
+
+<a id="infra-357"></a>
+### INFRA-357 - Condense warm-up settings in experiment reports
+
+_Date: 2026-11-21_
+
+Show one target status row and one warm-up load profile row per topic.
+Distinguish unsupported targets, disabled warm-up, main Kafka, and dedicated Kafka.
+Updated OptiLab and rebuilt the saved 20k A/B report. Passed 326 unit tests.
