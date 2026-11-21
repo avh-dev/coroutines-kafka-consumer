@@ -542,6 +542,7 @@
 | [INFRA-356](#infra-356) | Show configured application warm-up settings for each report target. | DONE |
 | [INFRA-357](#infra-357) | Summarize target warm-up and list load profiles under their Kafka topics. | DONE |
 | [INFRA-358](#infra-358) | Show shared warm-up profiles once and place differing profiles at the end of each topic. | DONE |
+| [INFRA-359](#infra-359) | Highlight configuration rows that differ across report targets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6802,3 +6803,12 @@ _Date: 2026-11-21_
 Show the warm-up profile once if it matches across topics within every target.
 Place differing profiles after the other settings for each topic.
 Rebuilt the OptiLab 20k A/B report and verified both layouts. Passed 326 unit tests.
+
+<a id="infra-359"></a>
+### INFRA-359 - Highlight target configuration differences
+
+_Date: 2026-11-21_
+
+Emphasize settings that differ across targets, including topic and shared settings.
+Use bold text and a tinted background for differences in target and topic settings.
+Rebuilt the 20k A/B report on OptiLab. Passed 326 unit tests.
