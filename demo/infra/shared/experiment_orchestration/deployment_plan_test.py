@@ -63,6 +63,27 @@ class DeploymentPlanTest(unittest.TestCase):
                 self.assertEqual("http://ckc-registry-stub:8085", environment_values["REGISTRY_BASE_URL"])
                 self.assertEqual("true", environment_values["MODEL_DISTRIBUTE_STUB_REQUESTS"])
 
+    def test_jdk_profiles_keep_clusterip_stub_urls(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        for profile, setting in (("spring-kafka", "MODEL_SYNC_HTTP_CLIENT"), ("ckc", "MODEL_HTTP_CLIENT")):
+            with self.subTest(profile=profile):
+                plan["target"]["implementation"] = profile
+                plan["application"].setdefault("runtime", {})["env"] = {setting: "JDK"}
+                manifests = render_project_manifests(plan, DeploymentBindings(
+                    run_id="jdk-stub-routing",
+                    application_image="registry/demo@sha256:application",
+                    stubs_image="registry/stubs@sha256:stubs",
+                    load_test_image="registry/load@sha256:load",
+                    kafka_bootstrap="kafka:9092",
+                    redis_host="redis",
+                    audit_host="audit",
+                ))
+                application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+                env = {item["name"]: item["value"] for item in application["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in item}
+                for name in ("ETA_MODEL_BASE_URL", "FLAVOUR_MODEL_BASE_URL", "REGISTRY_BASE_URL"):
+                    self.assertEqual("http://ckc-demo-stubs:8085", env[name])
+                self.assertEqual("false", env["MODEL_DISTRIBUTE_STUB_REQUESTS"])
+
     def test_materializes_aws_terraform_inputs_without_profile_indirection(self) -> None:
         root, plan, target = self.materialize("aws")
         variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))

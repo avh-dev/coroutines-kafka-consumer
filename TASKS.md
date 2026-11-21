@@ -534,6 +534,7 @@
 | [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
 | [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
 | [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | DONE |
+| [INFRA-351](#infra-351) | Keep ClusterIP stub routing for JDK HTTP clients in lab experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6709,3 +6710,13 @@ _Date: 2026-11-21_
 Allow a trailing slash in HTTP origin URLs while retaining validation against non-root paths.
 Cover both accepted origin forms and reject path-bearing overrides.
 Verification: both ModelStubEndpointGroupsTest cases pass.
+
+<a id="infra-351"></a>
+### INFRA-351 - Keep ClusterIP stub routing for JDK clients
+
+_Date: 2026-11-21_
+
+Select lab stub URL topology after all runtime HTTP-client overrides are resolved.
+Use the existing ClusterIP address for active JDK profiles and headless services for Armeria.
+Cover both synchronous and suspend profiles in deployment-plan tests.
+Verification: all 24 deployment-plan tests pass.
