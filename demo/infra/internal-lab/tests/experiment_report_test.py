@@ -2658,15 +2658,15 @@ class ExperimentReportTest(unittest.TestCase):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
 
-            self.assertIn("Lifecycle handoff · reprocessed", markdown)
+            self.assertIn("Ownership handoff · reprocessed", markdown)
             self.assertIn(
-                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'Ownership handoff · reprocessed<span class="metric-source source-a" '
                 'title="Audit records">A</span></th><td>1</td>',
                 markdown,
             )
             self.assertNotIn("Conflicting terminal outcomes", markdown)
             self.assertNotIn(
-                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'Ownership handoff · reprocessed<span class="metric-source source-a" '
                 'title="Audit records">A</span></th><td><span class="champion">',
                 markdown,
             )
