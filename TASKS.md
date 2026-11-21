@@ -541,6 +541,7 @@
 | [INFRA-355](#infra-355) | Simplify internal-lab topology and show dedicated Warmup Kafka placement. | DONE |
 | [INFRA-356](#infra-356) | Show configured application warm-up settings for each report target. | DONE |
 | [INFRA-357](#infra-357) | Summarize target warm-up and list load profiles under their Kafka topics. | DONE |
+| [INFRA-358](#infra-358) | Show shared warm-up profiles once and place differing profiles at the end of each topic. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6792,3 +6793,12 @@ _Date: 2026-11-21_
 Show one target status row and one warm-up load profile row per topic.
 Distinguish unsupported targets, disabled warm-up, main Kafka, and dedicated Kafka.
 Updated OptiLab and rebuilt the saved 20k A/B report. Passed 326 unit tests.
+
+<a id="infra-358"></a>
+### INFRA-358 - Group matching topic warm-up profiles
+
+_Date: 2026-11-21_
+
+Show the warm-up profile once if it matches across topics within every target.
+Place differing profiles after the other settings for each topic.
+Rebuilt the OptiLab 20k A/B report and verified both layouts. Passed 326 unit tests.
