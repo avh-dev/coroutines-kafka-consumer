@@ -543,6 +543,7 @@
 | [INFRA-357](#infra-357) | Summarize target warm-up and list load profiles under their Kafka topics. | DONE |
 | [INFRA-358](#infra-358) | Show shared warm-up profiles once and place differing profiles at the end of each topic. | DONE |
 | [INFRA-359](#infra-359) | Highlight configuration rows that differ across report targets. | DONE |
+| [INFRA-360](#infra-360) | Bold only the target values in differing configuration rows. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6812,3 +6813,11 @@ _Date: 2026-11-21_
 Emphasize settings that differ across targets, including topic and shared settings.
 Use bold text and a tinted background for differences in target and topic settings.
 Rebuilt the 20k A/B report on OptiLab. Passed 326 unit tests.
+
+<a id="infra-360"></a>
+### INFRA-360 - Bold differing target values
+
+_Date: 2026-11-21_
+
+Limit emphasis to target value cells and use the standard table colors.
+Rebuilt the OptiLab report and verified that only the CSS rule changed. Passed 220 internal-lab tests.

@@ -867,7 +867,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison th,table.comparison td{border:1px solid #d0d7de;padding:5px 8px;text-align:right}'
             'table.comparison th:first-child{text-align:left}'
             'table.comparison tbody th[scope=row]{font-weight:400}'
-            'table.comparison tbody tr.configuration-difference>*{background:#fff4d6;color:#24292f;font-weight:700}'
+            'table.comparison tbody tr.configuration-difference>td{font-weight:700}'
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:650}'
