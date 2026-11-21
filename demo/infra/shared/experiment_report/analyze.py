@@ -1017,6 +1017,13 @@ def resolved_environment_topologies(
             instance_type = ((environment.get("kafka") or {}) if isinstance(environment.get("kafka"), dict) else {}).get("instance_type")
             if instance_type and instance_type not in types:
                 types.append(instance_type)
+        elif topology["targets"] and (environment.get("kafka") or {}).get("mode") == "docker":
+            canonical = topology["environment"]
+            java = canonical.get("java") or {}
+            if java.get("application") != (environment.get("java") or {}).get("application"):
+                topology["environment"] = {
+                    **canonical, "java": {role: version for role, version in java.items() if role != "application"}
+                }
         topology["targets"].append(target_name)
     return grouped
 

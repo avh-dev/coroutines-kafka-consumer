@@ -538,6 +538,7 @@
 | [INFRA-352](#infra-352) | Observe application warm-up and include dedicated Kafka in experiment resource budgets. | DONE |
 | [INFRA-353](#infra-353) | Deploy dedicated Warmup Kafka only for eligible targets and lower its 20k A/B CPU request. | DONE |
 | [INFRA-354](#infra-354) | Align internal-lab tests with ownership handoff and scheduled load notifications. | DONE |
+| [INFRA-355](#infra-355) | Simplify internal-lab topology and show dedicated Warmup Kafka placement. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6759,3 +6760,14 @@ Check the current ownership handoff label in audit reports and the generator
 submission message for scheduled starts. Keep the audit counter and wait-time
 assertions in place.
 All 219 internal-lab unit tests passed.
+
+<a id="infra-355"></a>
+### INFRA-355 - Show Warmup Kafka in internal-lab topology
+
+_Date: 2026-11-21_
+
+Keep application deployment settings in the target configuration and show the
+dedicated warm-up broker where it runs, with a visual cue for target availability.
+The target table identifies broker availability. Mixed diagrams show a dashed broker card.
+Validated the installed report generator against saved OptiLab data.
+Passed 220 internal-lab and 97 AWS unit tests.
