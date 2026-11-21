@@ -264,7 +264,7 @@ class ModelStubEndpointGroups(private val enabled: Boolean) : AutoCloseable {
     fun client(baseUrl: String): WebClient {
         if (!enabled) return WebClient.of(baseUrl)
         val uri = URI.create(baseUrl)
-        require(uri.scheme == "http" && uri.host != null && uri.rawPath.isNullOrEmpty()) {
+        require(uri.scheme == "http" && uri.host != null && (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")) {
             "Pod-aware stub routing requires an HTTP origin URL: $baseUrl"
         }
         val port = if (uri.port == -1) 80 else uri.port
