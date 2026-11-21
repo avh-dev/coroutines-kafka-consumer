@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -364,6 +365,47 @@ def collect_standard_measurements(
     for name, template in STANDARD_MEASUREMENTS.items():
         query = template.format(window=window, seconds=seconds)
         measurements[name] = client.query_scalar(query, end)
+    return measurements
+
+
+def collect_target_application_resources(
+    client: PrometheusClient,
+    run_id: str,
+    start: datetime,
+    end: datetime,
+    *,
+    per_topic: bool,
+) -> dict[str, float | None]:
+    duration = (end - start).total_seconds()
+    seconds = math.ceil(duration)
+    window = f"{seconds}s"
+    step = min(15, seconds)
+    owner = (
+        'group by (namespace, pod) (max_over_time(up{job="ckc-demo",'
+        f'run_id={json.dumps(run_id)}}}[{window}] @ {end.timestamp():.3f}))'
+    )
+    member = f"and on(namespace, pod) ({owner})"
+    containers = 'namespace=~"ckc-perf|ckc-app",container="demo"'
+    pods = f'{containers},pod=~"ckc-demo-.+"'
+    memory = "container_memory_working_set_bytes"
+    cpu = f"increase(container_cpu_usage_seconds_total{{{pods}}}[{window}])"
+    working_set = f"last_over_time({memory}{{{pods}}}[30s])"
+    measurements = {
+        "application_cpu_used_core_hours": client.query_scalar(f"sum({cpu} {member}) / 3600", end),
+        "application_memory_average_mib": client.query_scalar(
+            f"avg_over_time((sum({working_set} {member}))[{window}:{step}s]) / 1024 / 1024", end
+        ),
+    }
+    groups = {"application": "ckc-demo-.+"}
+    if per_topic:
+        groups.update({f"application_{topic}": f"ckc-demo-{topic}-.+" for topic in ("order", "batch", "telemetry")})
+    for key, pattern in groups.items():
+        current = f'last_over_time({memory}{{{containers},pod=~"{pattern}"}}[30s])'
+        # Only observed pods contribute replica time during target preparation.
+        measurements[f"{key}_replicas_average"] = client.query_scalar(
+            f"sum_over_time((count({current} {member}))[{window}:{step}s]) * {step} / {duration}",
+            end,
+        )
     return measurements
 
 

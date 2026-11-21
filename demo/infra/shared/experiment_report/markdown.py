@@ -252,35 +252,48 @@ def e2e_compliance_cells(
 def render_warmup_and_resources(
     targets: list[TargetReport]
 ) -> list[str]:
-    if not any(target.resource_windows or target.warmup for target in targets):
+    if not any(target.full_target_budget or target.resource_windows or target.warmup for target in targets):
         return []
     lines = ["## Application and Warmup Kafka resource budget", ""]
     lines.extend([
-        "Requests measure reserved capacity. Application CPU includes work performed by the application during warm-up.",
+        "The full-target broker requests use configured capacity from preparation through target completion. Application CPU includes its own warm-up work.",
         "",
     ])
 
     def value(raw: Any, digits: int) -> str:
         return "unavailable" if raw is None else number(raw, digits)
 
+    def resource_table(title: str, budget: dict[str, Any]) -> None:
+        lines.extend([
+            f"**{title}**",
+            "",
+            "| Resource | Application | Warmup Kafka | Total |",
+            "| --- | ---: | ---: | ---: |",
+        ])
+        for key, label, digits in RESOURCE_ROWS:
+            app = budget.get("application", {}).get(key)
+            broker = budget.get("broker", {}).get(key)
+            total = app + broker if app is not None and broker is not None else None
+            cells = [number(raw, digits) if raw is not None else "no data" for raw in (app, broker, total)]
+            lines.append(f"| {label} | " + " | ".join(cells) + " |")
+        lines.append("")
+
     for target in targets:
         lines.extend([f"### {escaped(target.name)}", ""])
+        if target.full_target_budget:
+            duration = target.full_target_budget.get("duration_seconds")
+            title = "Full target including preparation"
+            if duration is not None:
+                title += f" · {number(duration, 1)} s"
+            resource_table(title, target.full_target_budget)
         for window in target.resource_windows:
             start = float(window.get("start_seconds") or 0)
             seconds = float(window.get("duration_seconds") or 0)
-            budget = window["resource_budget"]
-            lines.extend([
-                f"**{escaped(window.get('name') or 'Full measurement')} · {number(start, 0)}–{number(start + seconds, 0)} s**",
-                "",
-                "| Resource | Application | Warmup Kafka | Total |",
-                "| --- | ---: | ---: | ---: |",
-            ])
-            for key, label, digits in RESOURCE_ROWS:
-                app = budget.get("application", {}).get(key)
-                broker = budget.get("broker", {}).get(key)
-                total = app + broker if app is not None and broker is not None else None
-                lines.append(f"| {label} | {value(app, digits)} | {value(broker, digits)} | {value(total, digits)} |")
-            lines.append("")
+            label = escaped(window.get("name") or "Full measurement")
+            resource_table(
+                f"{label} · {number(start, 0)}–{number(start + seconds, 0)} s",
+                window["resource_budget"],
+            )
 
         outcome = target.warmup
         enabled = outcome.get("enabled")
@@ -302,16 +315,6 @@ def render_warmup_and_resources(
             *[value(outcome.get(key), 0) for key in ("records", "errors", "timeouts")],
         ]
         lines.extend(["| " + " | ".join(cells) + " |", ""])
-        if outcome.get("broker_enabled"):
-            full = outcome.get("full_target_budget", {})
-            lines.extend([
-                "**Warmup Kafka · full target lifecycle**",
-                "",
-                "| Resource | Warmup Kafka |",
-                "| --- | ---: |",
-                *[f"| {label} | {value(full.get(key), digits)} |" for key, label, digits in RESOURCE_ROWS],
-                "",
-            ])
     return lines
 
 

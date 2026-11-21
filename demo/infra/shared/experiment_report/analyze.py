@@ -19,9 +19,17 @@ from .prometheus import (
     collect_kafka_network_counters,
     collect_report_time_series,
     collect_standard_measurements,
+    collect_target_application_resources,
 )
 
-from .warmup import application_budget, broker_budget, warmup_summary
+from .warmup import (
+    application_budget,
+    broker_requests,
+    broker_usage,
+    cpu_cores,
+    memory_gib,
+    warmup_summary,
+)
 
 
 OPERATORS = {
@@ -785,24 +793,6 @@ def requested_pod_capacity(
         })
         return
 
-    def cpu_cores(value: Any) -> float | None:
-        text = str(value or "").strip()
-        try:
-            return float(text[:-1]) / 1000 if text.endswith("m") else float(text)
-        except ValueError:
-            return None
-
-    def memory_gib(value: Any) -> float | None:
-        text = str(value or "").strip()
-        units = {"Ki": 1 / 1024 / 1024, "Mi": 1 / 1024, "Gi": 1.0, "Ti": 1024.0}
-        for suffix, factor in units.items():
-            if text.endswith(suffix):
-                try:
-                    return float(text[:-len(suffix)]) * factor
-                except ValueError:
-                    return None
-        return None
-
     duration_hours = duration_seconds / 3600
     pod_hours = replicas * duration_hours
 
@@ -1339,30 +1329,42 @@ def analyze_experiment(
             # Older resolved definitions only recorded the dedicated broker.
             override = (target.get("env") or {}).get("TRAFFIC_WARMUP_ENABLED", "true")
             traffic_warmup = str(override).lower() == "true"
-        preparation_start = parse_instant(metadata.get("orchestration_started_at")) or started or start
-        broker_end = parse_instant(metadata.get("warmup_kafka_observed_until"))
+        preparation_start = parse_instant(
+            status.get("orchestration_started_at") or metadata.get("orchestration_started_at")
+        ) or started or start
+        target_end = parse_instant(status.get("ended_at")) or ended
 
         def resources_for_interval(
-            interval_data: dict[str, Any], interval_start: datetime | None, seconds: float
+            interval_data: dict[str, Any], interval_start: datetime | None, interval_end: datetime | None
         ) -> dict[str, Any]:
-            interval_end = interval_start + timedelta(seconds=seconds) if interval_start else None
-            broker = {}
+            duration = (interval_end - interval_start).total_seconds() if interval_start and interval_end else None
+            broker = broker_requests(warmup_broker, duration)
             try:
-                broker = broker_budget(
-                    prometheus, run_dir.name, broker_enabled, interval_start, interval_end,
-                    broker_end or interval_end,
-                )
+                broker.update(broker_usage(prometheus, run_dir.name, broker_enabled, interval_start, interval_end))
             except Exception as error:
                 warnings.append(f"Warmup Kafka resource measurements are unavailable: {error}")
             return {"application": application_budget(interval_data), "broker": broker}
 
-        resource_budget = resources_for_interval(measurements, start, target_load_duration)
+        target_measurements = {}
+        target_duration = (target_end - preparation_start).total_seconds() if preparation_start and target_end else None
+        if target_duration is not None and target_duration > 0:
+            try:
+                target_measurements = collect_target_application_resources(
+                    prometheus, run_dir.name, preparation_start, target_end,
+                    per_topic=target_configuration.get("deployment_mode") == "per_topic",
+                )
+                requested_pod_capacity(target_measurements, target_configuration, target_duration)
+            except Exception as error:
+                warnings.append(f"Full-target application resource measurements are unavailable: {error}")
+        full_target_budget = resources_for_interval(target_measurements, preparation_start, target_end)
+        full_target_budget["duration_seconds"] = target_duration if target_duration and target_duration > 0 else None
         resource_windows = []
         for window in comparison_windows or [{"start_seconds": 0, "duration_seconds": measurement_duration}]:
             offset = float(window.get("start_seconds") or 0)
             seconds = float(window.get("duration_seconds") or 0)
             if offset == 0 and seconds == target_load_duration:
-                budget = resource_budget
+                interval_end = start + timedelta(seconds=seconds) if start else None
+                budget = resources_for_interval(measurements, start, interval_end)
             elif start and 0 <= offset < offset + seconds <= target_load_duration:
                 interval_start = start + timedelta(seconds=offset)
                 interval_data = next((
@@ -1376,22 +1378,15 @@ def analyze_experiment(
                     except Exception as error:
                         interval_data = {}
                         warnings.append(f"Resource measurement window is unavailable: {error}")
-                budget = resources_for_interval(interval_data, interval_start, seconds)
+                budget = resources_for_interval(interval_data, interval_start, interval_start + timedelta(seconds=seconds))
             else:
                 budget = {}
             resource_windows.append({**window, "resource_budget": budget})
         warmup = {"enabled": traffic_warmup, "broker_enabled": broker_enabled, "broker_config": warmup_broker}
         try:
-            warmup.update(warmup_summary(prometheus, run_dir.name, traffic_warmup, preparation_start, broker_end or ended))
+            warmup.update(warmup_summary(prometheus, run_dir.name, traffic_warmup, preparation_start, target_end))
         except Exception as error:
             warnings.append(f"Application warm-up outcomes are unavailable: {error}")
-        if broker_enabled:
-            try:
-                warmup["full_target_budget"] = broker_budget(
-                    prometheus, run_dir.name, True, preparation_start, broker_end, broker_end, lifetime=True
-                )
-            except Exception as error:
-                warnings.append(f"Full-target Warmup Kafka measurements are unavailable: {error}")
         targets.append(
             TargetReport(
                 name=str(target.get("name") or target.get("target") or run_dir.name),
@@ -1436,6 +1431,7 @@ def analyze_experiment(
                 network_counters=network_counters,
                 time_series=time_series,
                 resource_windows=resource_windows,
+                full_target_budget=full_target_budget,
                 warmup=warmup,
                 events=events,
                 criteria=criteria,

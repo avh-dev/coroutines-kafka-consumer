@@ -19,7 +19,7 @@ WARMUP_METRICS = {
     "demo_warmup_recipient_records",
     "demo_warmup_recipient_duration_seconds",
 }
-WARMUP_BROKER_METRICS = {
+TARGET_RESOURCE_METRICS = {
     "container_cpu_usage_seconds_total",
     "container_cpu_cfs_throttled_periods_total",
     "container_cpu_cfs_periods_total",
@@ -31,7 +31,6 @@ WARMUP_BROKER_METRICS = {
     "kube_pod_container_resource_requests",
     "kube_pod_container_resource_limits",
     "kube_pod_status_ready",
-    "kube_pod_container_status_running",
     "kube_pod_container_status_restarts_total",
     "up",
 }
@@ -80,27 +79,9 @@ def combined_window(run_dirs: Iterable[Path]) -> tuple[datetime | None, datetime
 def warmup_metric_windows(
     run_dirs: list[Path], start: datetime, end: datetime
 ) -> dict[str, tuple[datetime, datetime]]:
-    preparation_starts = [start]
-    broker_starts = [start]
-    broker_ends = [end]
-    for run_dir in run_dirs:
-        metadata = load_json(run_dir / "run-metadata.json")
-        preparation_start = parse_instant(metadata.get("orchestration_started_at"))
-        broker_end = parse_instant(metadata.get("warmup_kafka_observed_until"))
-        if preparation_start:
-            preparation_starts.append(preparation_start)
-        if broker_end and preparation_start:
-            broker_starts.append(preparation_start)
-            broker_ends.append(broker_end)
-    windows = {
-        metric: (min(preparation_starts), max(broker_ends))
-        for metric in WARMUP_METRICS
-    }
-    if len(broker_starts) > 1:
-        windows.update({
-            metric: (min(broker_starts), max(broker_ends)) for metric in WARMUP_BROKER_METRICS
-        })
-    return windows
+    preparation_starts = [log_window(run_dir)[0] for run_dir in run_dirs]
+    preparation_start = min([start, *(date for date in preparation_starts if date is not None)])
+    return {metric: (preparation_start, end) for metric in WARMUP_METRICS | TARGET_RESOURCE_METRICS}
 
 
 def http_json(base_url: str, path: str, params: dict[str, str], timeout: int = 120) -> dict[str, Any]:

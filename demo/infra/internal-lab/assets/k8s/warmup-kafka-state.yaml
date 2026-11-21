@@ -52,7 +52,7 @@ spec:
             - --namespaces=ckc-perf
             - --resources=pods
             - --metric-labels-allowlist=pods=[ckc_run_id]
-            - --metric-allowlist=kube_pod_labels,kube_pod_created,kube_pod_container_resource_requests,kube_pod_container_resource_limits,kube_pod_status_ready,kube_pod_container_status_running,kube_pod_container_status_restarts_total
+            - --metric-allowlist=kube_pod_labels,kube_pod_created,kube_pod_container_resource_requests,kube_pod_container_resource_limits,kube_pod_status_ready,kube_pod_container_status_restarts_total
           ports:
             - name: metrics
               containerPort: 8080

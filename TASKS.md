@@ -6733,3 +6733,6 @@ Preserve resource and application warm-up evidence for offline reports.
 Keep the application warm-up state separate from the dedicated broker configuration.
 The internal-lab installation was updated and the shared PromQL budget was checked
 against synthetic samples. Workload experiments are launched on operator request.
+The report uses configured broker requests over each target's execution interval,
+including preparation, and shows available Prometheus CPU and memory independently.
+The full-target and common measurement-window tables each include the combined budget.
