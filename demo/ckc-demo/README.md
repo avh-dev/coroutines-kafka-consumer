@@ -30,7 +30,7 @@ The application is intended for functional checks and for comparing consumer imp
 - optional reference read API for current order state at `/api/orders/{orderId}` under the `api` profile
 
 External HTTP dependencies use separate base URL settings: `ETA_MODEL_BASE_URL`, `FLAVOUR_MODEL_BASE_URL`, and `REGISTRY_BASE_URL`.
-Local and lab defaults point all three at `ckc-demo-stubs`, but the application keeps separate clients so production-like deployments can route them to distinct services.
+Local development may point all three to one stub process. Internal-lab and AWS experiments use separate headless Service names over the same stub deployment. With `MODEL_DISTRIBUTE_STUB_REQUESTS=true`, Armeria selects a ready stub pod for each request; JDK clients retain their standard DNS and connection behavior.
 
 ## Local Environment
 

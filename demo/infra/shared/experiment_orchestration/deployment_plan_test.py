@@ -34,6 +34,35 @@ class DeploymentPlanTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def test_stub_services_expose_ready_pods_to_each_logical_client(self) -> None:
+        for environment in ("internal-lab", "aws"):
+            with self.subTest(environment=environment):
+                _, plan, _ = self.materialize(environment)
+                manifests = render_project_manifests(plan, DeploymentBindings(
+                    run_id="stub-balancing",
+                    application_image="registry/demo@sha256:application",
+                    stubs_image="registry/stubs@sha256:stubs",
+                    load_test_image="registry/load@sha256:load",
+                    kafka_bootstrap="kafka:9092",
+                    redis_host="redis",
+                    audit_host="audit",
+                ))
+                services = {item["metadata"]["name"]: item for item in manifests if item["kind"] == "Service"}
+                for name in ("ckc-eta-stub", "ckc-flavour-stub", "ckc-registry-stub"):
+                    self.assertEqual("None", services[name]["spec"]["clusterIP"])
+                    self.assertEqual({"app.kubernetes.io/name": "ckc-demo-stubs"}, services[name]["spec"]["selector"])
+                self.assertNotIn("clusterIP", services["ckc-demo-stubs"]["spec"])
+                application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+                environment_values = {
+                    item["name"]: item["value"]
+                    for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+                    if "value" in item
+                }
+                self.assertEqual("http://ckc-eta-stub:8085", environment_values["ETA_MODEL_BASE_URL"])
+                self.assertEqual("http://ckc-flavour-stub:8085", environment_values["FLAVOUR_MODEL_BASE_URL"])
+                self.assertEqual("http://ckc-registry-stub:8085", environment_values["REGISTRY_BASE_URL"])
+                self.assertEqual("true", environment_values["MODEL_DISTRIBUTE_STUB_REQUESTS"])
+
     def test_materializes_aws_terraform_inputs_without_profile_indirection(self) -> None:
         root, plan, target = self.materialize("aws")
         variables = json.loads((root / "environment/terraform-lab-inputs.json").read_text(encoding="utf-8"))
