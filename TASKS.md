@@ -202,6 +202,7 @@
 | [DEMO-108](#demo-108) | Make the demo warm-up forwarding producer batch size configurable. | DONE |
 | [DEMO-109](#demo-109) | Make demo Redis business-state retention configurable while retaining the ten-minute default. | DONE |
 | [DEMO-113](#demo-113) | Distribute Armeria stub requests across discovered pod endpoints. | DONE |
+| [DEMO-114](#demo-114) | Accept root-path stub URLs in pod-aware Armeria routing. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6699,3 +6700,12 @@ Create ETA, flavour, and registry headless services over the shared stub deploym
 Configure experiment application URLs and enable pod-aware Armeria routing.
 Keep the existing stub ClusterIP service for health checks and port forwarding.
 Verification: all 23 deployment-plan tests pass for internal-lab and AWS rendering.
+
+<a id="demo-114"></a>
+### DEMO-114 - Accept root-path stub URLs
+
+_Date: 2026-11-21_
+
+Allow a trailing slash in HTTP origin URLs while retaining validation against non-root paths.
+Cover both accepted origin forms and reject path-bearing overrides.
+Verification: both ModelStubEndpointGroupsTest cases pass.
