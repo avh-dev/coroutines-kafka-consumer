@@ -2442,7 +2442,12 @@ class ExperimentReportTest(unittest.TestCase):
                 second["resource_windows"][0]["resource_budget"]["broker"],
             )
             markdown = outputs[0].read_text(encoding="utf-8")
-            self.assertIn('>Warm-up</th><td>Disabled</td><td>Enabled · dedicated Kafka (K8s)</td>', markdown)
+            self.assertIn(
+                '<tr class="configuration-difference"><th scope="row">Warm-up</th>'
+                '<td>Disabled</td><td>Enabled · dedicated Kafka (K8s)</td></tr>',
+                markdown,
+            )
+            self.assertIn('<tr><th scope="row">Application</th><td colspan="2">ckc</td></tr>', markdown)
             self.assertNotIn('>Application warm-up</th>', markdown)
             self.assertNotIn('>Warm-up duration</th>', markdown)
             self.assertNotIn('>Warm-up producer batch size</th>', markdown)
@@ -2454,6 +2459,7 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertEqual(3, len(profile_rows))
             for row, profile in zip(profile_rows, ["1 -&gt; 300", "2 -&gt; 200", "3 -&gt; 100"], strict=True):
                 self.assertIn(f'<td>—</td><td>{profile}</td>', row)
+                self.assertTrue(row.startswith('<tr class="configuration-difference">'))
             self.assertIn("Full target including preparation · 240.0 s", markdown)
             self.assertIn("Full target including preparation · 360.0 s", markdown)
             self.assertIn("| Average memory working set (MiB) | no data | 256 | no data |", markdown)
