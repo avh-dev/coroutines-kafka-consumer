@@ -26,6 +26,7 @@ from experiment_report.analyze import (  # noqa: E402
     parse_load_profile,
     peak_telemetry_fleet_size,
     requested_pod_capacity,
+    resolved_environment_topologies,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
@@ -1914,9 +1915,64 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-flow="load-to-kafka" d="M375 455 H405 V420 H440"', svg)
             self.assertIn('data-flow="kafka-to-application" d="M795 420 H855 V450 H920"', svg)
             self.assertIn('data-flow="application-to-redis" d="M920 550 H855 V610 H795"', svg)
-            self.assertIn('data-flow="application-to-stubs" d="M1065 650 V687.5 H410 V667.5 H375"', svg)
+            self.assertIn('data-flow="application-to-stubs" d="M1065 570 V687.5 H410 V667.5 H375"', svg)
             self.assertNotIn("All shown components share this physical host", svg)
             self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
+
+    def test_warmup_kafka_topology_uses_selected_targets_and_broker_placement(self) -> None:
+        environment = {
+            "cluster_name": "optilab",
+            "kafka": {"mode": "docker"},
+            "workloads": {"application": ["optilab2"]},
+            "java": {"application": "21.0.12"},
+        }
+        configuration = {
+            "hpa": {"enabled": True, "min_replicas": 1, "max_replicas": 4},
+            "resources": {"requests": {"cpu": "950m"}, "limits": {"memory": "1280Mi"}},
+        }
+        warm = SimpleNamespace(
+            name="ckc.warm", configuration=configuration,
+            warmup={"broker_enabled": True, "broker_config": {"placement": "application"}},
+        )
+        cold = SimpleNamespace(name="ckc.cold", configuration=configuration, warmup={"broker_enabled": False})
+        report = SimpleNamespace(environment=environment, test_definition={}, targets=[cold, warm])
+        svg = svg_renderer.environment_topology_svg(report)
+        self.assertNotIn("CPU HPA", svg)
+        self.assertNotIn("950m", svg)
+        self.assertNotIn("1280Mi", svg)
+        self.assertIn("Java 21.0.12", svg)
+
+        namespace = "{http://www.w3.org/2000/svg}"
+
+        def cards(svg: str) -> list[ET.Element]:
+            return [
+                element for element in ET.fromstring(svg).iter(f"{namespace}rect")
+                if element.get("data-service-card") == "warmup-kafka"
+            ]
+
+        self.assertIn("Enabled for selected targets", svg)
+        broker, = cards(svg)
+        self.assertEqual("920", broker.get("x"))
+        self.assertEqual("6 4", broker.get("stroke-dasharray"))
+
+        svg = svg_renderer.environment_topology_svg(report, target_names=[warm.name])
+        broker, = cards(svg)
+        self.assertNotIn("stroke-dasharray", broker.attrib)
+        self.assertEqual([], cards(svg_renderer.environment_topology_svg(report, target_names=[cold.name])))
+
+        warm.warmup["broker_config"]["placement"] = "support"
+        broker, = cards(svg_renderer.environment_topology_svg(report))
+        self.assertEqual("65", broker.get("x"))
+        single_host = {**environment, "workloads": {"application": ["optilab"]}}
+        broker, = cards(svg_renderer.environment_topology_svg(report, single_host))
+        self.assertEqual("445", broker.get("x"))
+
+        different_java = {**environment, "java": {"application": "25.0.1"}}
+        topology, = resolved_environment_topologies([(cold.name, environment), (warm.name, different_java)])
+        svg = svg_renderer.environment_topology_svg(report, topology["environment"], topology["targets"])
+        self.assertNotIn("Java 21.0.12", svg)
+        self.assertNotIn("Java 25.0.1", svg)
+        self.assertEqual("21.0.12", environment["java"]["application"])
 
     def test_report_groups_targets_by_actual_application_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
