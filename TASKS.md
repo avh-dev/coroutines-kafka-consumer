@@ -537,6 +537,7 @@
 | [INFRA-351](#infra-351) | Keep ClusterIP stub routing for JDK HTTP clients in lab experiments. | DONE |
 | [INFRA-352](#infra-352) | Observe application warm-up and include dedicated Kafka in experiment resource budgets. | DONE |
 | [INFRA-353](#infra-353) | Deploy dedicated Warmup Kafka only for eligible targets and lower its 20k A/B CPU request. | DONE |
+| [INFRA-354](#infra-354) | Align internal-lab tests with ownership handoff and scheduled load notifications. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6748,3 +6749,13 @@ Set the CPU request to 300m in the sequential 20k A/B experiment.
 Remove any previous broker before preparing a cold target and record the rendered
 deployment state for resource accounting. Updated internal-lab and validated both
 target manifests and budgets without launching a workload experiment.
+
+<a id="infra-354"></a>
+### INFRA-354 - Align internal-lab test expectations
+
+_Date: 2026-11-21_
+
+Check the current ownership handoff label in audit reports and the generator
+submission message for scheduled starts. Keep the audit counter and wait-time
+assertions in place.
+All 219 internal-lab unit tests passed.
