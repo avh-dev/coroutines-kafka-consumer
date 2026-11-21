@@ -137,6 +137,9 @@ def environment_dashboard_options(environment: str, kafka_mode: str | None) -> d
         excluded_rows.update(AWS_ONLY_ROW_TITLES)
     excluded_panels = set() if environment == "aws" and kafka_mode == "msk" else set(AWS_ONLY_PANEL_TITLES)
     substitutions = {'namespace="ckc-perf"': 'namespace="ckc-app"'} if environment == "aws" else {}
+    if environment == "aws":
+        # The current AWS plan does not provision a dedicated warmup broker or its state collector.
+        substitutions['max(last_over_time(up{job="ckc-warmup-kafka-state"}[30s]) == 1)'] = "vector(1)"
     return {
         "excluded_row_titles": excluded_rows,
         "excluded_panel_titles": excluded_panels,

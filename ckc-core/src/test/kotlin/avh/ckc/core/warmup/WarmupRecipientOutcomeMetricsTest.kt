@@ -109,9 +109,14 @@ class WarmupRecipientOutcomeMetricsTest {
         }
         val lane = outbox.lane("orders")
         val first = completed(offset = 1)
-        val second = completed(offset = 2)
+        val second = completed(offset = 2).copy(outcome = WarmupRemoteOutcome.TerminalFailure)
+        val discarded = completed(offset = 3).copy(
+            outcome = WarmupRemoteOutcome.Discarded(RecordDropReason.LIFECYCLE_DISCARD)
+        )
         admitAndPublish(lane, first)
         admitAndPublish(lane, second)
+        admitAndPublish(lane, discarded)
+        assertEquals(2L, outbox.processedRecords())
 
         val flush = async { outbox.flush(2.seconds) }
         delay(50)
@@ -119,7 +124,7 @@ class WarmupRecipientOutcomeMetricsTest {
         releaseFirst.complete(Unit)
         flush.await()
 
-        assertEquals(listOf(first, second), sent)
+        assertEquals(listOf(first, second, discarded), sent)
         outbox.stop(2.seconds)
         scope.cancel()
     }

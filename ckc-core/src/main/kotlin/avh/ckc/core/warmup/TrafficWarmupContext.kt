@@ -24,6 +24,7 @@ import org.apache.kafka.common.TopicPartition
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 /**
  * Registers typed participants and owns only the optional protocol lifecycle.
@@ -75,6 +76,7 @@ class TrafficWarmupContext internal constructor(
     private var startupJob: Job? = null
     private var activeRecipient: WarmupRecipientDiscovery? = null
     private var activeOutbox: WarmupCompletionOutbox? = null
+    private var warmingStarted: TimeSource.Monotonic.ValueTimeMark? = null
     private var activeRecipientCleanup: RetriableWarmupRecipientCleanup? = null
 
     private lateinit var transport: WarmupControlTransport
@@ -384,6 +386,8 @@ class TrafficWarmupContext internal constructor(
                 return
             }
             runDiscoveryAndWarmup()
+        } catch (_: TimeoutCancellationException) {
+            withContext(NonCancellable) { rollbackRecipientAndStartCold("recipient_cleanup_timeout") }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 rollbackRecipientAndStartCold("participant_stopped")
@@ -454,6 +458,7 @@ class TrafficWarmupContext internal constructor(
         when (val result = runtime.discoverAndPrepare(discovery)) {
             is WarmupDiscoveryResult.Ready -> {
                 observe(TrafficWarmupLifecyclePhase.READY, sessionId = sessionId.value)
+                synchronized(lock) { warmingStarted = TimeSource.Monotonic.markNow() }
                 observe(TrafficWarmupLifecyclePhase.WARMING, sessionId = sessionId.value)
                 when (val outcome = awaitWarmupOutcome(discovery, outbox)) {
                     WarmupRunOutcome.DurationElapsed -> Unit
@@ -463,7 +468,10 @@ class TrafficWarmupContext internal constructor(
                     }
                     is WarmupRunOutcome.ResultDeliveryFailed -> {
                         log.warn("Warm-up result delivery failed; ending recipient session", outcome.error)
-                        rollbackRecipientAndStartCold("result_delivery_failed")
+                        val reason = if (outcome.error is WarmupControlSendTimeoutException ||
+                            outcome.error.cause is WarmupControlSendTimeoutException
+                        ) "result_delivery_timeout" else "result_delivery_failed"
+                        rollbackRecipientAndStartCold(reason)
                         return
                     }
                 }
@@ -535,7 +543,7 @@ class TrafficWarmupContext internal constructor(
                 outbox.stop(configuration.completionTimeout)
             } catch (error: TimeoutCancellationException) {
                 failRecipientCleanup(
-                    reasonCode,
+                    "recipient_cleanup_timeout",
                     WarmupRecipientCleanupResult.Incomplete(
                         pendingAssignments = emptyList(),
                         diagnostics = listOf("result delivery cleanup timed out")
@@ -558,13 +566,17 @@ class TrafficWarmupContext internal constructor(
      * Their Kafka readiness is participant-local and must never extend another participant's stop.
      */
     private fun completeRecipientPhaseAndLaunchMains(reasonCode: String?) {
-        synchronized(lock) {
+        val summary = synchronized(lock) {
+            if (recipientFinished) return
+            val summary = recipientSummary(reasonCode)
             recipientFinished = true
             recipientCleanupFailure = null
             activeRecipient = null
             activeOutbox = null
             activeRecipientCleanup = null
+            summary
         }
+        observe(summary)
         if (reasonCode != null) {
             observe(TrafficWarmupLifecyclePhase.COLD_FALLBACK, reasonCode = reasonCode)
         }
@@ -581,13 +593,24 @@ class TrafficWarmupContext internal constructor(
         val failure = IllegalStateException(
             "Warm-up cleanup incomplete: $reasonCode; " + cleanup.diagnostics.joinToString()
         )
-        synchronized(lock) {
+        val summary = synchronized(lock) {
+            if (recipientFinished) return
             recipientFinished = true
             recipientCleanupFailure = failure
             participants.values.filter { it.startRequested && !it.ready.isCompleted }
                 .forEach { it.ready.completeExceptionally(failure) }
+            recipientSummary(reasonCode)
         }
+        observe(summary)
     }
+
+    private fun recipientSummary(reasonCode: String?) = TrafficWarmupLifecycleEvent(
+        TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED,
+        sessionId = activeRecipient?.request?.sessionId?.value,
+        reasonCode = reasonCode,
+        durationMillis = warmingStarted?.elapsedNow()?.inWholeMilliseconds,
+        processedRecords = activeOutbox?.processedRecords() ?: 0L
+    )
 
     private suspend fun retryIncompleteRecipientCleanup() {
         val cleanup = synchronized(lock) { activeRecipientCleanup } ?: return
@@ -728,11 +751,11 @@ class TrafficWarmupContext internal constructor(
         participantId: WarmupParticipantId? = null,
         sessionId: String? = null,
         reasonCode: String? = null
-    ) {
+    ) = observe(TrafficWarmupLifecycleEvent(phase, participantId?.value, sessionId, reasonCode))
+
+    private fun observe(event: TrafficWarmupLifecycleEvent) {
         try {
-            configuration.lifecycleObserver(
-                TrafficWarmupLifecycleEvent(phase, participantId?.value, sessionId, reasonCode)
-            )
+            configuration.lifecycleObserver(event)
         } catch (error: Exception) {
             log.warn("Traffic warm-up lifecycle observer failed", error)
         }

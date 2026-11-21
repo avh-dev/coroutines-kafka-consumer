@@ -145,6 +145,7 @@ internal class WarmupCompletionOutbox(
 
     // All lane queues, reservations, barriers, cursors, and lifecycle flags are protected by lock.
     private val lock = Any()
+    private var handledRecords = 0L
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private val lanes = linkedMapOf<String, LaneState>()
     private val barriers = mutableListOf<Barrier>()
@@ -177,6 +178,8 @@ internal class WarmupCompletionOutbox(
             }
         }
     }
+
+    fun processedRecords(): Long = synchronized(lock) { handledRecords }
 
     fun lane(
         laneId: String,
@@ -336,6 +339,11 @@ internal class WarmupCompletionOutbox(
                     "Terminal warm-up result $coordinate was published more than once"
                 )
                 else -> {
+                    if (completed.outcome == WarmupRemoteOutcome.Succeeded ||
+                        completed.outcome == WarmupRemoteOutcome.TerminalFailure
+                    ) {
+                        handledRecords++
+                    }
                     entry.completed = completed
                     entry.state = DeliveryState.QUEUED
                     lane.queued.addLast(entry)

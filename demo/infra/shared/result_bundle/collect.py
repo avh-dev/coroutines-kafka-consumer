@@ -15,6 +15,26 @@ from typing import Any, Iterable
 from .dashboard import metric_names_from_dashboard, parse_instant
 
 
+WARMUP_METRICS = {
+    "demo_warmup_recipient_records",
+    "demo_warmup_recipient_duration_seconds",
+}
+WARMUP_BROKER_METRICS = {
+    "container_cpu_usage_seconds_total",
+    "container_cpu_cfs_throttled_periods_total",
+    "container_cpu_cfs_periods_total",
+    "container_memory_working_set_bytes",
+    "container_network_receive_bytes_total",
+    "container_network_transmit_bytes_total",
+    "kube_pod_labels",
+    "kube_pod_created",
+    "kube_pod_container_resource_requests",
+    "kube_pod_container_resource_limits",
+    "kube_pod_status_ready",
+    "kube_pod_container_status_running",
+    "kube_pod_container_status_restarts_total",
+    "up",
+}
 PROMETHEUS_IMAGE = "prom/prometheus:v3.3.1"
 
 
@@ -55,6 +75,32 @@ def combined_window(run_dirs: Iterable[Path]) -> tuple[datetime | None, datetime
     starts = [start for start, _ in windows if start]
     ends = [end for _, end in windows if end]
     return (min(starts) if starts else None, max(ends) if ends else None)
+
+
+def warmup_metric_windows(
+    run_dirs: list[Path], start: datetime, end: datetime
+) -> dict[str, tuple[datetime, datetime]]:
+    preparation_starts = [start]
+    broker_starts = [start]
+    broker_ends = [end]
+    for run_dir in run_dirs:
+        metadata = load_json(run_dir / "run-metadata.json")
+        preparation_start = parse_instant(metadata.get("orchestration_started_at"))
+        broker_end = parse_instant(metadata.get("warmup_kafka_observed_until"))
+        if preparation_start:
+            preparation_starts.append(preparation_start)
+        if broker_end and preparation_start:
+            broker_starts.append(preparation_start)
+            broker_ends.append(broker_end)
+    windows = {
+        metric: (min(preparation_starts), max(broker_ends))
+        for metric in WARMUP_METRICS
+    }
+    if len(broker_starts) > 1:
+        windows.update({
+            metric: (min(broker_starts), max(broker_ends)) for metric in WARMUP_BROKER_METRICS
+        })
+    return windows
 
 
 def http_json(base_url: str, path: str, params: dict[str, str], timeout: int = 120) -> dict[str, Any]:
@@ -140,13 +186,15 @@ def write_openmetrics(
     metric_names: list[str],
     start: datetime,
     end: datetime,
+    metric_windows: dict[str, tuple[datetime, datetime]] | None = None,
 ) -> dict[str, int]:
     series_count = 0
     sample_count = 0
     with path.open("w", encoding="utf-8") as target:
         for metric_name in metric_names:
             target.write(f"# TYPE {metric_name} unknown\n")
-            for series in prometheus_series(prometheus_url, metric_name, start, end):
+            metric_start, metric_end = (metric_windows or {}).get(metric_name, (start, end))
+            for series in prometheus_series(prometheus_url, metric_name, metric_start, metric_end):
                 labels = series.get("metric", {})
                 values = series.get("values", [])
                 wrote = False
@@ -159,7 +207,7 @@ def write_openmetrics(
                         instant = float(sample[0])
                     except (TypeError, ValueError):
                         continue
-                    if start.timestamp() <= instant <= end.timestamp():
+                    if metric_start.timestamp() <= instant <= metric_end.timestamp():
                         line = sample_line(metric_name, labels, sample[1], sample[0])
                         if line:
                             target.write(line + "\n")
@@ -195,11 +243,12 @@ def export_prometheus(
     start, end = combined_window(run_dirs)
     if not start or not end:
         raise ValueError("Prometheus export requires a known experiment window")
-    metric_names = metric_names_from_dashboard(dashboard_dir)
+    metric_windows = warmup_metric_windows(run_dirs, start, end)
+    metric_names = sorted(set(metric_names_from_dashboard(dashboard_dir)) | metric_windows.keys())
     output_dir = result_root / "metrics/prometheus"
     with tempfile.TemporaryDirectory(prefix="ckc-prometheus-export-") as temporary:
         openmetrics = Path(temporary) / "metrics.openmetrics"
-        counts = write_openmetrics(openmetrics, prometheus_url, metric_names, start, end)
+        counts = write_openmetrics(openmetrics, prometheus_url, metric_names, start, end, metric_windows)
         blocks = create_prometheus_blocks(openmetrics, output_dir)
     return {
         "type": "prometheus_query_range_tsdb",
@@ -207,6 +256,10 @@ def export_prometheus(
         "start": start.isoformat(),
         "end": end.isoformat(),
         "metric_names": metric_names,
+        "warmup_metric_windows": {
+            metric: {"start": bounds[0].isoformat(), "end": bounds[1].isoformat()}
+            for metric, bounds in sorted(metric_windows.items())
+        },
         **counts,
         "blocks": blocks,
     }

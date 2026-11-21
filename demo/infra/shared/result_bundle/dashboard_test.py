@@ -246,7 +246,13 @@ class DashboardTest(unittest.TestCase):
         row = next(panel for panel in dashboard["panels"] if panel.get("title") == "Application Resources")
         panels = {panel["title"]: panel for panel in row["panels"]}
 
-        self.assertIn("sum(rate(container_cpu_usage_seconds_total", panels["Application Container CPU — Total"]["targets"][0]["expr"])
+        combined_cpu = panels["Application and Warmup Kafka CPU — Total"]["targets"]
+        self.assertEqual(["Application", "Warmup Kafka", "Total"], [target["legendFormat"] for target in combined_cpu])
+        self.assertIn("sum(rate(container_cpu_usage_seconds_total", combined_cpu[0]["expr"])
+        self.assertIn('container="kafka"', combined_cpu[1]["expr"])
+        self.assertIn("kube_pod_created", combined_cpu[2]["expr"])
+        warmup = next(panel for panel in dashboard["panels"] if panel["title"] == "Warmup Kafka")
+        self.assertEqual(6, len(warmup["panels"]))
         cpu_by_pod = panels["Application CPU — Container vs Thread Stats by Pod"]
         self.assertIn(
             "sum by (pod) (rate(container_cpu_usage_seconds_total",

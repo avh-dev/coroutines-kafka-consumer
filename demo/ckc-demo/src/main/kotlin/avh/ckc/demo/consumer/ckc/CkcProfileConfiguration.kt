@@ -3,6 +3,7 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.ConsumerContainer
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.warmup.TrafficWarmupLifecyclePhase
 import avh.ckc.core.warmup.trafficWarmupContext
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConnectionProperties
@@ -18,6 +19,8 @@ import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
+import io.micrometer.core.instrument.Gauge
+import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -29,6 +32,7 @@ import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -59,7 +63,8 @@ class CkcProfileConfiguration {
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher
+        @Qualifier("ckcWorkerDispatcher") workerDispatcher: CoroutineDispatcher,
+        meterRegistry: MeterRegistry
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -69,7 +74,8 @@ class CkcProfileConfiguration {
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
-            workerDispatcher
+            workerDispatcher,
+            meterRegistry
         )
 }
 
@@ -98,7 +104,8 @@ class CkcSyncProfileConfiguration {
         @Qualifier("consumerMetrics") consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
         @Qualifier("orderConsumerMetrics") orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
         @Qualifier("batchConsumerMetrics") batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-        @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher
+        @Qualifier("ckcSyncProcessingDispatcher") processingDispatcher: CoroutineDispatcher,
+        meterRegistry: MeterRegistry
     ): SmartLifecycle =
         CkcConsumerRuntime(
             properties,
@@ -108,7 +115,8 @@ class CkcSyncProfileConfiguration {
             consumerMetrics,
             orderConsumerMetrics,
             batchConsumerMetrics,
-            processingDispatcher
+            processingDispatcher,
+            meterRegistry
         )
 }
 
@@ -120,7 +128,8 @@ private class CkcConsumerRuntime(
     private val consumerMetrics: ConsumerMetrics<String, CauldronTelemetryEvent>,
     private val orderConsumerMetrics: ConsumerMetrics<String, OrderLifecycleEvent>,
     private val batchConsumerMetrics: ConsumerMetrics<String, BatchLifecycleEvent>,
-    private val processingDispatcher: CoroutineDispatcher
+    private val processingDispatcher: CoroutineDispatcher,
+    private val meterRegistry: MeterRegistry
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
     private var lifecycle: CkcConsumersLifecycle? = null
@@ -212,6 +221,29 @@ private class CkcConsumerRuntime(
                     event.sessionId,
                     event.reasonCode
                 )
+                if (event.phase == TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED) {
+                    val outcome = when (event.reasonCode) {
+                        null -> "success"
+                        "incomplete_donor_coverage", "participant_stopped" -> "skipped"
+                        "donor_acceptance_timeout", "donor_completion_timeout",
+                        "participant_start_timeout", "metadata_timeout",
+                        "consumer_preparation_timeout", "result_delivery_timeout",
+                        "recipient_cleanup_timeout" -> "timeout"
+                        else -> "error"
+                    }
+                    // One immutable sample per recipient attempt, including restarts of the same pod.
+                    val attempt = event.sessionId ?: UUID.randomUUID().toString()
+                    Gauge.builder("demo.warmup.recipient.records", event) { (it.processedRecords ?: 0).toDouble() }
+                        .tags("outcome", outcome, "attempt", attempt)
+                        .strongReference(true)
+                        .register(meterRegistry)
+                    event.durationMillis?.let {
+                        Gauge.builder("demo.warmup.recipient.duration.seconds", event) { (it.durationMillis ?: 0) / 1000.0 }
+                            .tags("outcome", outcome, "attempt", attempt)
+                            .strongReference(true)
+                            .register(meterRegistry)
+                    }
+                }
             }
         }
         return DemoConsumers.TrafficWarmup(

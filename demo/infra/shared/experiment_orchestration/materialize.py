@@ -73,6 +73,14 @@ def materialize_target(
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),
     }
     warmup_kafka = copy.deepcopy((experiment.environment_definition or {}).get("warmup_kafka") or {})
+    runtime_env = {
+        **((target.definition.get("runtime") or {}).get("env") or {}),
+        **(target.definition.get("env") or {}),
+    }
+    warmup_enabled = runtime_env.get("TRAFFIC_WARMUP_ENABLED", warmup_kafka.get("enabled", False))
+    definition["deployment"]["traffic_warmup_enabled"] = (
+        target.profile in {"ckc", "ckc-sync"} and str(warmup_enabled).lower() == "true"
+    )
     if warmup_kafka.get("enabled"):
         warmup_names = set(warmup_kafka["topics"])
         main_names = {

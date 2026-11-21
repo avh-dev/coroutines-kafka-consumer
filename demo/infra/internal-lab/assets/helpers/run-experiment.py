@@ -1357,6 +1357,21 @@ def run_experiment(
                     "Application workloads could not be stopped before audit analysis: "
                     f"{application_cleanup.get('error') or application_cleanup.get('application_state')}"
                 )
+            broker_observed_until = datetime.now(timezone.utc).isoformat()
+            for result in results:
+                if not result.get("run_dir"):
+                    continue
+                run_dir = Path(result["run_dir"])
+                test_definition = load_yaml(Path(result["resolved_test_path"]))
+                if not ((test_definition.get("deployment") or {}).get("warmup_kafka") or {}).get("enabled"):
+                    continue
+                metadata_path = run_dir / "run-metadata.json"
+                if metadata_path.is_file():
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                    metadata["warmup_kafka_observed_until"] = broker_observed_until
+                    temporary = metadata_path.with_suffix(".json.tmp")
+                    temporary.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+                    temporary.replace(metadata_path)
             update_progress("releasing_performance", "releasing measurement CPU policy", target=None, details=None)
             change_performance_policy(lab_root, "release")
             notify(hook, "measurements_finished", {"experiment": experiment_name, "runs": len(results), "auditable_runs": len(auditable_runs)}, log_dir)

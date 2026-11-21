@@ -535,6 +535,7 @@
 | [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
 | [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | DONE |
 | [INFRA-351](#infra-351) | Keep ClusterIP stub routing for JDK HTTP clients in lab experiments. | DONE |
+| [INFRA-352](#infra-352) | Observe application warm-up and include dedicated Kafka in experiment resource budgets. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6720,3 +6721,15 @@ Select lab stub URL topology after all runtime HTTP-client overrides are resolve
 Use the existing ClusterIP address for active JDK profiles and headless services for Armeria.
 Cover both synchronous and suspend profiles in deployment-plan tests.
 Verification: all 24 deployment-plan tests pass.
+
+<a id="infra-352"></a>
+### INFRA-352 - Report warm-up and dedicated Kafka resources
+
+_Date: 2026-11-21_
+
+Show the dedicated warm-up Kafka broker in the shared Grafana dashboard and account
+for its resources inside measurement windows and across the full target lifecycle.
+Preserve resource and application warm-up evidence for offline reports.
+Keep the application warm-up state separate from the dedicated broker configuration.
+The internal-lab installation was updated and the shared PromQL budget was checked
+against synthetic samples. Workload experiments are launched on operator request.

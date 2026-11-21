@@ -390,6 +390,8 @@ def build_deployment(result_root: Path, report_dir: Path, destination: Path, rep
     target_names = target_names_by_run(result_root)
     for run_dir in run_directories(result_root):
         target = destination / "targets" / target_names.get(run_dir.name, run_dir.name)
+        for name in ("run-metadata.json", "run-status.json"):
+            copy_portable(run_dir / name, target / "definition" / name, replacements)
         copy_portable_tree(run_dir / "generated", target / "kubernetes", replacements, suffixes={".yaml", ".yml"})
         copy_portable(run_dir / "logs/runner/session.log", target / "execution.log", replacements)
     logs = sorted(result_root.glob("*.log"))
@@ -535,6 +537,7 @@ def finalize(
             evidence_readme(identity, experiment, environment, status), encoding="utf-8"
         )
         copy_report(report_dir, evidence_root / "report", experiment=experiment, environment=environment, status=status)
+        copy_portable(report_dir / "report-model.yaml", evidence_root / "report/report-model.yaml", replacements)
         build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
         build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
         build_lab(result_root, evidence_root / "lab", environment, replacements)
