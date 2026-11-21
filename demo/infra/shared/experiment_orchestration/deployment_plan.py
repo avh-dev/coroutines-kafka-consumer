@@ -913,7 +913,20 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
         "MODEL_DISTRIBUTE_STUB_REQUESTS": "true",
     })
-    computed_env.update(copy.deepcopy(runtime.get("env") or {}))
+    runtime_env = copy.deepcopy(runtime.get("env") or {})
+    computed_env.update(runtime_env)
+    sync_profiles = {
+        "spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool",
+        "confluent-parallel", "ckc-sync",
+    }
+    active_client_setting = "MODEL_SYNC_HTTP_CLIENT" if profile in sync_profiles else "MODEL_HTTP_CLIENT"
+    if str(computed_env[active_client_setting]).upper() == "JDK":
+        # The JDK client does not select a headless Service endpoint per request.
+        # Preserve the ClusterIP balancer for profiles using that client.
+        for url_name in ("ETA_MODEL_BASE_URL", "FLAVOUR_MODEL_BASE_URL", "REGISTRY_BASE_URL"):
+            if url_name not in runtime_env:
+                computed_env[url_name] = computed_env["MODEL_BASE_URL"]
+        computed_env["MODEL_DISTRIBUTE_STUB_REQUESTS"] = "false"
     warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
     if warmup_kafka.get("enabled"):
         warmup_bootstrap = f"{WARMUP_KAFKA_SERVICE}:{WARMUP_KAFKA_PORT}"
