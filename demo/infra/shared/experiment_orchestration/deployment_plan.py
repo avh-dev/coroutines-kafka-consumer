@@ -906,11 +906,12 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
         "AUDIT_TCP_PORT": bindings.audit_port,
         "AUDIT_RUN_ID": bindings.run_id,
         "MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
-        "ETA_MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
-        "FLAVOUR_MODEL_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
-        "REGISTRY_BASE_URL": f"http://ckc-demo-stubs:{STUB_SERVICE_PORT}",
+        "ETA_MODEL_BASE_URL": f"http://ckc-eta-stub:{STUB_SERVICE_PORT}",
+        "FLAVOUR_MODEL_BASE_URL": f"http://ckc-flavour-stub:{STUB_SERVICE_PORT}",
+        "REGISTRY_BASE_URL": f"http://ckc-registry-stub:{STUB_SERVICE_PORT}",
         "MODEL_HTTP_CLIENT": computed_env.get("MODEL_HTTP_CLIENT", "ARMERIA"),
         "MODEL_SYNC_HTTP_CLIENT": computed_env.get("MODEL_SYNC_HTTP_CLIENT", "ARMERIA"),
+        "MODEL_DISTRIBUTE_STUB_REQUESTS": "true",
     })
     computed_env.update(copy.deepcopy(runtime.get("env") or {}))
     warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
@@ -976,6 +977,16 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             "spec": {"selector": {"app.kubernetes.io/name": "ckc-demo-stubs"}, "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}]},
         },
     ]
+    for service_name in ("ckc-eta-stub", "ckc-flavour-stub", "ckc-registry-stub"):
+        manifests.append({
+            "apiVersion": "v1", "kind": "Service",
+            "metadata": _metadata(service_name, bindings.application_namespace, {"ckc.dev/component": "stubs"}),
+            "spec": {
+                "clusterIP": "None",
+                "selector": {"app.kubernetes.io/name": "ckc-demo-stubs"},
+                "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}],
+            },
+        })
     if warmup_kafka.get("enabled"):
         manifests[0:0] = _warmup_kafka_manifests(warmup_kafka, bindings)
     probes = values.get("probes") or {

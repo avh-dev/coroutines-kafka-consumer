@@ -532,7 +532,7 @@
 | [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
 | [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
 | [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
-| [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | IN_PROGRESS |
+| [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6698,3 +6698,4 @@ _Date: 2026-11-21_
 Create ETA, flavour, and registry headless services over the shared stub deployment.
 Configure experiment application URLs and enable pod-aware Armeria routing.
 Keep the existing stub ClusterIP service for health checks and port forwarding.
+Verification: all 23 deployment-plan tests pass for internal-lab and AWS rendering.
