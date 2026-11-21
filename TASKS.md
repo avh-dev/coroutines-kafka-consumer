@@ -536,6 +536,7 @@
 | [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | DONE |
 | [INFRA-351](#infra-351) | Keep ClusterIP stub routing for JDK HTTP clients in lab experiments. | DONE |
 | [INFRA-352](#infra-352) | Observe application warm-up and include dedicated Kafka in experiment resource budgets. | DONE |
+| [INFRA-353](#infra-353) | Deploy dedicated Warmup Kafka only for eligible targets and lower its 20k A/B CPU request. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6736,3 +6737,14 @@ against synthetic samples. Workload experiments are launched on operator request
 The report uses configured broker requests over each target's execution interval,
 including preparation, and shows available Prometheus CPU and memory independently.
 The full-target and common measurement-window tables each include the combined budget.
+
+<a id="infra-353"></a>
+### INFRA-353 - Scope dedicated Warmup Kafka to enabled targets
+
+_Date: 2026-11-21_
+
+Deploy the dedicated warm-up broker only when the target runs application warm-up.
+Set the CPU request to 300m in the sequential 20k A/B experiment.
+Remove any previous broker before preparing a cold target and record the rendered
+deployment state for resource accounting. Updated internal-lab and validated both
+target manifests and budgets without launching a workload experiment.

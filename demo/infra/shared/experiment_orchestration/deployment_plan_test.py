@@ -366,6 +366,9 @@ class DeploymentPlanTest(unittest.TestCase):
         cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
         self._assert_controller_stubs_target(cold_plan, cold_definition)
         self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertFalse(cold_definition["deployment"]["warmup_kafka"]["enabled"])
+        self.assertNotIn("warmup-kafka", cold_plan["project_resources"])
+        self.assertNotIn("TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS", cold_environment)
         self.assertEqual("5m", cold_environment["DEMO_REDIS_STATE_RETENTION"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
@@ -373,6 +376,29 @@ class DeploymentPlanTest(unittest.TestCase):
         plan, definition, environment = self._materialized_application(targets[1])
         self._assert_controller_stubs_target(plan, definition)
         self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertTrue(definition["deployment"]["warmup_kafka"]["enabled"])
+        self.assertIn("warmup-kafka", plan["project_resources"])
+        self.assertEqual("ckc-warmup-kafka:9092", environment["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"])
+        bindings = DeploymentBindings(
+            run_id="20k-ab", application_image="demo:test", stubs_image="stubs:test",
+            load_test_image="load:test", kafka_bootstrap="kafka:9092", redis_host="redis",
+            audit_host="audit", autoscaling_metrics_url="http://prometheus:9090",
+        )
+        for current_plan, expected_kinds in ((cold_plan, []), (plan, ["Deployment", "Service"])):
+            manifests = render_project_manifests(current_plan, bindings)
+            broker = [item for item in manifests if item["metadata"]["name"] == "ckc-warmup-kafka"]
+            self.assertEqual(expected_kinds, [item["kind"] for item in broker])
+            if broker:
+                self.assertEqual(
+                    {"requests": {"cpu": "300m", "memory": "768Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+                    broker[0]["spec"]["template"]["spec"]["containers"][0]["resources"],
+                )
+        # CLI overrides are applied to the runtime environment before rendering.
+        cold_plan["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = "true"
+        plan["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = "false"
+        for current_plan, expected in ((cold_plan, True), (plan, False)):
+            manifests = render_project_manifests(current_plan, bindings)
+            self.assertEqual(expected, any(item["metadata"]["name"] == "ckc-warmup-kafka" for item in manifests))
         self.assertEqual("5m", environment["DEMO_REDIS_STATE_RETENTION"])
         for topic in ("ORDER", "BATCH", "CAULDRON"):
             self.assertEqual(

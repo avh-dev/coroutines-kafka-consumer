@@ -130,6 +130,13 @@ class DeploymentBindings:
     autoscaling_metrics_url: str | None = None
 
 
+def traffic_warmup_enabled(
+    profile: str | None, runtime_env: Mapping[str, Any], warmup_kafka: Mapping[str, Any]
+) -> bool:
+    value = runtime_env.get("TRAFFIC_WARMUP_ENABLED", warmup_kafka.get("enabled", False))
+    return profile in {"ckc", "ckc-sync"} and str(value).strip().lower() in {"true", "on", "yes", "1"}
+
+
 def build_deployment_plan(
     experiment: ResolvedExperiment,
     target: ResolvedTarget,
@@ -164,7 +171,9 @@ def build_deployment_plan(
             raise ValueError(f"Experiment environment third_party[{index}].version must be pinned")
     environment = copy.deepcopy(experiment.environment_definition or {})
     project_resources = ["application", "stubs", "load-test"]
-    if ((environment.get("warmup_kafka") or {}).get("enabled")):
+    warmup_kafka = environment.get("warmup_kafka") or {}
+    runtime_env = (target_snapshot.get("runtime") or {}).get("env") or {}
+    if warmup_kafka.get("enabled") and traffic_warmup_enabled(target.profile, runtime_env, warmup_kafka):
         project_resources.append("warmup-kafka")
     return {
         "schema_version": DEPLOYMENT_PLAN_VERSION,
@@ -928,11 +937,12 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 computed_env[url_name] = computed_env["MODEL_BASE_URL"]
         computed_env["MODEL_DISTRIBUTE_STUB_REQUESTS"] = "false"
     warmup_kafka = ((plan.get("environment") or {}).get("warmup_kafka") or {})
-    if warmup_kafka.get("enabled"):
+    warmup_enabled = traffic_warmup_enabled(profile, runtime_env, warmup_kafka)
+    dedicated_transport = warmup_kafka.get("enabled") and warmup_enabled
+    if warmup_kafka.get("enabled") or "TRAFFIC_WARMUP_ENABLED" in runtime_env:
+        computed_env["TRAFFIC_WARMUP_ENABLED"] = str(warmup_enabled).lower()
+    if dedicated_transport:
         warmup_bootstrap = f"{WARMUP_KAFKA_SERVICE}:{WARMUP_KAFKA_PORT}"
-        # A dedicated transport enables warm-up by default, while an explicit
-        # target override remains authoritative for cold A/B baselines.
-        computed_env.setdefault("TRAFFIC_WARMUP_ENABLED", "true")
         computed_env.update({
             "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
             "TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
@@ -1000,7 +1010,7 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
                 "ports": [{"name": "http", "port": STUB_SERVICE_PORT, "targetPort": STUB_SERVICE_PORT}],
             },
         })
-    if warmup_kafka.get("enabled"):
+    if dedicated_transport:
         manifests[0:0] = _warmup_kafka_manifests(warmup_kafka, bindings)
     probes = values.get("probes") or {
         "readiness": {"initialDelaySeconds": 15, "periodSeconds": 10, "timeoutSeconds": 1, "failureThreshold": 3},
