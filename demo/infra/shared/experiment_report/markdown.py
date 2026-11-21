@@ -1128,6 +1128,19 @@ def render_markdown(report: ExperimentReport) -> str:
         ("Load producer compression.type", lambda topic: escaped((topic.get("producer") or {}).get("compression_type"))),
         ("Load producer buffer.memory", lambda topic: bytes_value((topic.get("producer") or {}).get("buffer_memory"))),
     )
+    warmup_profiles = {
+        topic_name: [
+            escaped(target.warmup.get("settings", {}).get(WARMUP_PROFILE_KEYS.get(topic_name)))
+            if target.configuration.get("profile") in ckc_profiles and target.warmup.get("enabled")
+            else "—"
+            for target in targets
+        ]
+        for topic_name in configured_topics
+    }
+    shared_warmup_profile = len(warmup_profiles) > 1 and len({
+        tuple(values) for values in warmup_profiles.values()
+    }) == 1
+
     section("Topics configuration")
     shared_kafka_settings: set[str] = set()
     if configured_topics:
@@ -1138,11 +1151,13 @@ def render_markdown(report: ExperimentReport) -> str:
             ]
             if all(values and len(set(values)) == 1 for values in per_target):
                 shared_kafka_settings.add(label)
-        if shared_kafka_settings:
-            subsection("Shared Kafka client settings")
+        if shared_kafka_settings or shared_warmup_profile:
+            subsection("Shared topic settings" if shared_warmup_profile else "Shared Kafka client settings")
             for label, formatter in kafka_setting_rows:
                 if label in shared_kafka_settings:
                     row(label, [formatter(configured_topic(target, configured_topics[0])) for target in targets])
+            if shared_warmup_profile:
+                row("Warm-up load profile", warmup_profiles[configured_topics[0]], show_empty=True)
 
     def key_order_value(data: dict[str, Any]) -> Any:
         ordering = data.get("ordering") if isinstance(data.get("ordering"), dict) else {}
@@ -1160,17 +1175,6 @@ def render_markdown(report: ExperimentReport) -> str:
         )
         topic_subsection(str(kafka_topic))
 
-        profile_key = WARMUP_PROFILE_KEYS.get(topic_name)
-        row(
-            "Warm-up load profile",
-            [
-                escaped(target.warmup.get("settings", {}).get(profile_key))
-                if target.configuration.get("profile") in ckc_profiles and target.warmup.get("enabled")
-                else "—"
-                for target in targets
-            ],
-            show_empty=True,
-        )
         row(
             "Processing mode",
             [
@@ -1209,6 +1213,8 @@ def render_markdown(report: ExperimentReport) -> str:
         for label, formatter in kafka_setting_rows:
             if label not in shared_kafka_settings:
                 row(label, [formatter(configured_topic(target, topic_name)) for target in targets])
+        if not shared_warmup_profile:
+            row("Warm-up load profile", warmup_profiles[topic_name], show_empty=True)
 
     measurement_windows = report.test_definition.get("measurement_windows")
     if not isinstance(measurement_windows, list):
