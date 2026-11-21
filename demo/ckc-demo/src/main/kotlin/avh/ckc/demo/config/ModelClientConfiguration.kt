@@ -20,6 +20,8 @@ import avh.ckc.demo.registry.JdkSyncBrewingStepRegistryClient
 import avh.ckc.demo.registry.SuspendBrewingStepRegistryClient
 import avh.ckc.demo.registry.SyncBrewingStepRegistryClient
 import com.linecorp.armeria.client.WebClient
+import com.linecorp.armeria.client.endpoint.EndpointSelectionStrategy
+import com.linecorp.armeria.client.endpoint.dns.DnsAddressEndpointGroup
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.ObjectProvider
@@ -35,6 +37,10 @@ import java.util.concurrent.atomic.AtomicLong
 
 @Configuration(proxyBeanMethods = false)
 class ModelClientConfiguration {
+    @Bean(destroyMethod = "close")
+    fun modelStubEndpointGroups(properties: DemoApplicationProperties): ModelStubEndpointGroups =
+        ModelStubEndpointGroups(properties.model.distributeStubRequests)
+
     @Bean
     fun modelCallMetrics(meterRegistry: MeterRegistry): ModelCallMetrics =
         ModelCallMetrics(meterRegistry)
@@ -81,8 +87,8 @@ class ModelClientConfiguration {
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun syncArmeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.etaModelBaseUrl())
+    fun syncArmeriaEtaModelWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.etaModelBaseUrl())
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
@@ -96,20 +102,20 @@ class ModelClientConfiguration {
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.model", name = ["http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun armeriaEtaModelWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.etaModelBaseUrl())
+    fun armeriaEtaModelWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.etaModelBaseUrl())
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.model", name = ["http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun armeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.flavourModelBaseUrl())
+    fun armeriaFlavourModelWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.flavourModelBaseUrl())
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
     @ConditionalOnProperty(prefix = "demo.model", name = ["http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun armeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.registry.baseUrl)
+    fun armeriaRegistryWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.registry.baseUrl)
 
     @Bean
     @Profile("ckc", "ckc-spring-boot", "confluent-parallel-reactor", "spring-kafka-coroutines-naive")
@@ -157,8 +163,8 @@ class ModelClientConfiguration {
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun syncArmeriaFlavourModelWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.flavourModelBaseUrl())
+    fun syncArmeriaFlavourModelWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.flavourModelBaseUrl())
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
@@ -209,8 +215,8 @@ class ModelClientConfiguration {
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
     @ConditionalOnProperty(prefix = "demo.model", name = ["sync-http-client"], havingValue = "armeria", matchIfMissing = true)
-    fun syncArmeriaRegistryWebClient(properties: DemoApplicationProperties): WebClient =
-        WebClient.of(properties.registry.baseUrl)
+    fun syncArmeriaRegistryWebClient(properties: DemoApplicationProperties, modelStubEndpointGroups: ModelStubEndpointGroups): WebClient =
+        modelStubEndpointGroups.client(properties.registry.baseUrl)
 
     @Bean
     @Profile("spring-kafka", "spring-kafka-thread-pool", "spring-kafka-virtual-thread-pool", "confluent-parallel", "ckc-sync")
@@ -249,4 +255,31 @@ class ModelClientConfiguration {
 
     private fun DemoApplicationProperties.flavourModelBaseUrl(): String =
         model.flavourBaseUrl.ifBlank { model.baseUrl }
+}
+
+class ModelStubEndpointGroups(private val enabled: Boolean) : AutoCloseable {
+    private val groups = mutableMapOf<Pair<String, Int>, DnsAddressEndpointGroup>()
+
+    @Synchronized
+    fun client(baseUrl: String): WebClient {
+        if (!enabled) return WebClient.of(baseUrl)
+        val uri = URI.create(baseUrl)
+        require(uri.scheme == "http" && uri.host != null && uri.rawPath.isNullOrEmpty()) {
+            "Pod-aware stub routing requires an HTTP origin URL: $baseUrl"
+        }
+        val port = if (uri.port == -1) 80 else uri.port
+        val group = groups.getOrPut(uri.host to port) {
+            DnsAddressEndpointGroup.builder(uri.host)
+                .port(port)
+                .selectionStrategy(EndpointSelectionStrategy.roundRobin())
+                .build()
+        }
+        return WebClient.of("h2c", group)
+    }
+
+    @Synchronized
+    override fun close() {
+        groups.values.forEach { it.close() }
+        groups.clear()
+    }
 }
