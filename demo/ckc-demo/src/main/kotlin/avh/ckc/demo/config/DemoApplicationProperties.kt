@@ -56,6 +56,7 @@ data class DemoApplicationProperties(
         var flavourBaseUrl: String = "",
         var httpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
         var syncHttpClient: ModelHttpClient = ModelHttpClient.ARMERIA,
+        var distributeStubRequests: Boolean = false,
         var jdkHttpClientExecutor: JdkHttpClientExecutor = JdkHttpClientExecutor.DEFAULT,
         var jdkHttpClientVirtualThreadNamePrefix: String = "HttpClient-virtual-"
     )

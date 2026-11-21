@@ -201,6 +201,7 @@
 | [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota profile configurable. | DONE |
 | [DEMO-108](#demo-108) | Make the demo warm-up forwarding producer batch size configurable. | DONE |
 | [DEMO-109](#demo-109) | Make demo Redis business-state retention configurable while retaining the ten-minute default. | DONE |
+| [DEMO-113](#demo-113) | Distribute Armeria stub requests across discovered pod endpoints. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -531,6 +532,7 @@
 | [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
 | [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
 | [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
+| [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6678,3 +6680,21 @@ Rename the experiment and labels consistently, validate materialization, and ins
 definition without starting the experiment automatically.
 The canonical definition validates for internal-lab, its focused materialization regression passes,
 and all 86 shared experiment-orchestration tests pass before installation.
+
+<a id="demo-113"></a>
+### DEMO-113 - Distribute stub requests across pod endpoints
+
+_Date: 2026-11-21_
+
+Configure Armeria model clients to discover ready stub pod addresses through DNS and select an endpoint for each request.
+Preserve ordinary URL behavior for local development and non-lab deployments.
+Verify request distribution and client lifecycle without launching an experiment.
+
+<a id="infra-350"></a>
+### INFRA-350 - Expose logical headless stub services
+
+_Date: 2026-11-21_
+
+Create ETA, flavour, and registry headless services over the shared stub deployment.
+Configure experiment application URLs and enable pod-aware Armeria routing.
+Keep the existing stub ClusterIP service for health checks and port forwarding.
