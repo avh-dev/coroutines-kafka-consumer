@@ -528,6 +528,7 @@
 | [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
 | [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
 | [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
+| [INFRA-331](#infra-331) | Compare a cold start with linear warm-up profiles during a 20k scale-up. | DONE |
 | [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
 | [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
 | [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
@@ -6604,6 +6605,20 @@ and controller-hosted HTTP stubs identical across targets. Raise the application
 The focused materialization regression and all 22 deployment-plan tests pass. The installed internal
 lab contains the cold target first and all four warm-up profiles with identical placement and resource
 settings; no load experiment was started automatically.
+
+<a id="infra-331"></a>
+### INFRA-331 - Compare linear warm-up profiles at 20k
+
+_Date: 2026-11-19_
+
+Prepare a new internal-lab experiment that raises the application-node plateau from 14k to 20k after
+moving HTTP stubs to the controller. Keep a cold fourth-pod start as the first baseline and compare it
+with the two-stage `1→100→300` profile, direct-linear `1→300` over two minutes, and the `1→100`
+three-minute reference. Remove the unsuccessful staged-step profile, use a `1200m` application CPU
+request, and retain the common measurement windows and forwarding-producer settings.
+The focused materialization regression and all 23 deployment-plan tests pass. The experiment is
+installed in the internal lab with the cold baseline first, three linear warm-up targets, 20k producer
+capacity, and `1200m` application requests; it was not started automatically.
 
 <a id="infra-332"></a>
 ### INFRA-332 - Keep internal-lab stubs persistent and prewarmed
