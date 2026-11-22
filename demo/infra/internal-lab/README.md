@@ -475,6 +475,65 @@ outside the available range fails the step. When the index is omitted, the
 runner selects a Ready running pod at random. The completion event records
 `podIndex`, `podName`, `podUid`, and `impactAt` (when the action was sent).
 
+## Warm-up chaos experiments
+
+Each command starts a separate single-target experiment. Run one at a time.
+
+```bash
+lab experiment start ckc-warmup-chaos-kafka-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-donor-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-recipient-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-session-isolation-20k-local.yaml
+```
+
+All four start with one CKC replica and HPA disabled. They use the same lab,
+topic processing modes and 45-minute workload as the INFRA-361 profile
+comparison. Load ramps to 20k TPS in 25 minutes, holds for 10 minutes and
+ramps down for 10 minutes. Each topic's warm-up quota ramps from 1 to 100/s
+over 60 seconds, then to 300/s over 90 seconds.
+
+| Scenario | Actions from load start |
+| --- | --- |
+| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod and its ephemeral data, 12:30 scale to three. |
+| Donor loss | 7:00 scale to two, 7:45 crash app pod #1. |
+| Recipient loss | 7:00 scale to two, 7:45 crash app pod #2. |
+| Session isolation | 7:00 scale to two, 7:30 scale to three, 8:15 crash app pod #2. |
+
+In reference run `20261122T145548Z`, Prometheus recorded the second and third
+container starts at +6:56 and +12:28. Loki recorded the second pod in
+`WARMING` from about +7:11 to +9:44. The schedules use these observations
+as estimates. Kubernetes handles replacements at the configured replica
+counts. A JVM crash normally restarts the container in the same pod, so
+distinguish incarnations by container start time and warm-up session ID,
+as well as pod name and UID.
+
+For manual verification, use the run's `experiment-events.jsonl`, audit
+summary, Prometheus, Loki and generated report.
+
+1. Match the completed chaos event's `podIndex`, `podName`, `podUid` and
+   `impactAt` to the intended pod and its observed disruption. In Loki, use
+   `run_id` and `pod` with `|= "Warm-up lifecycle"` to follow the session from
+   `WARMING` through completion or interruption. A scenario is unconfirmed
+   if evidence does not place the disruption inside the intended warm-up.
+2. Verify `AT_LEAST_ONCE_NO_ORDERING` for all three topics in the resolved
+   target. Check `missing_terminal`, `without_publish` and processing
+   failures, and account for duplicates against the at-least-once contract.
+   Check latency against the 2-second limits and compare processed TPS and
+   lag before the failure, through recovery and on the plateau. Check CPU,
+   memory and container restarts for both the application and warm-up Kafka.
+3. For Kafka loss, confirm that the new broker pod logged
+   `broker_prewarm_completed` and `topics_ready` before the third app pod
+   started its session. Confirm that the new session processed warm-up
+   records, logged `RECIPIENT_FINISHED` with no fallback reason and reached
+   `MAIN_READY`.
+4. For donor loss, confirm that pod #1 was serving as donor while pod #2
+   was warming, and that processing recovered after the restart. For
+   recipient loss, match the interruption to pod #2's active session and
+   verify recovery after Kubernetes restarts the workload. For session
+   isolation, establish that both original recipient sessions were in
+   warm-up at impact, then trace pod #3's original session through
+   successful completion while pod #2 restarts.
+
 ## Results
 
 Every experiment finalizes the same named result layout as AWS:
