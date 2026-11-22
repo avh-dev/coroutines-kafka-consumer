@@ -544,6 +544,7 @@
 | [INFRA-358](#infra-358) | Show shared warm-up profiles once and place differing profiles at the end of each topic. | DONE |
 | [INFRA-359](#infra-359) | Highlight configuration rows that differ across report targets. | DONE |
 | [INFRA-360](#infra-360) | Bold only the target values in differing configuration rows. | DONE |
+| [INFRA-361](#infra-361) | Compare five warm-up quota profiles during sequential scale-up at 20k TPS. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6821,3 +6822,16 @@ _Date: 2026-11-21_
 
 Limit emphasis to target value cells and use the standard table colors.
 Rebuilt the OptiLab report and verified that only the CSS rule changed. Passed 220 internal-lab tests.
+
+<a id="infra-361"></a>
+### INFRA-361 - Compare sequential warm-up profiles
+
+_Date: 2026-11-22_
+
+Use the sequential 20k workload to isolate changes in the per-topic warm-up quota.
+Compare scale-up latency and compiler CPU across five warm targets.
+The reference starts at 1/s. Try 10/s and 25/s at the same 60s breakpoint,
+then reach 100/s at 30s or 90s from 10/s. All targets reach 300/s at 150s.
+In runs 20261120T175805Z and 20261121T091138Z, the three scale-out pods peaked
+at ages 77–104s in the first six minutes (native-jit CPU, 1m rate sampled every 15s).
+Compare per-topic post-warm-up latency, lag, delegated throughput and audit results.
