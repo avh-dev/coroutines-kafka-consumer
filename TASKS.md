@@ -549,6 +549,7 @@
 | [INFRA-362](#infra-362) | Queue internal-lab experiments for sequential managed execution. | DONE |
 | [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
 | [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
+| [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6883,3 +6884,13 @@ Add an optional one-based index for pod deletion and crash steps.
 Capture the selected pod identity and impact time in chaos events.
 Preserve random selection of Ready pods when no index is configured.
 Cover index normalization, candidate ordering, and crash evidence in unit tests.
+
+<a id="infra-365"></a>
+### INFRA-365 - Define four warm-up chaos experiments
+
+_Date: 2026-11-22_
+
+Reuse the first INFRA-361 target's processing and warm-up settings with the same 20k workload and HPA disabled.
+Time manual scale-ups from observed pod starts and schedule failures inside the expected warm-up windows.
+Document the launch commands and manual evidence checks for each independent experiment.
+Validate the four canonical definitions and their shared workload, infrastructure, and runtime settings.
