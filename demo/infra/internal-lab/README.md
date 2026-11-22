@@ -216,30 +216,46 @@ CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,
 `k3s`, shell, and wildcard sudo rules are deliberately not granted. Bootstrap
 does not change the active CPU policy.
 
-## Manage an experiment
+## Manage experiments
 
-Start one experiment from the repository checkout. The command updates the lab
-first and returns after the user service has started; closing the terminal does
-not stop the run.
+Pass one or more YAML files from the `demo/infra/experiments` catalog in launch
+order. The CLI validates the whole list, updates the lab, and submits one
+request to the controller's user service. You can close the terminal once the
+command returns. Each experiment saves its own artifacts and report. The
+service launches the next file only after the current experiment finishes
+cleanup and returns exit code zero.
 
 ```bash
-demo/infra/internal-lab/scripts/lab.sh experiment start \
-  demo/infra/experiments/smoke.yaml
+lab experiment start smoke.yaml ckc-spring-boot-smoke.yaml
 ```
 
 Inspect or control it from any later shell in the same checkout:
 
 ```bash
-demo/infra/internal-lab/scripts/lab.sh experiment status
-demo/infra/internal-lab/scripts/lab.sh experiment logs
-demo/infra/internal-lab/scripts/lab.sh experiment logs --follow
-demo/infra/internal-lab/scripts/lab.sh experiment stop
+lab experiment status
+lab experiment status --json
+lab experiment logs --follow
+lab experiment stop
 ```
 
-`start` refuses a second concurrent experiment, and `lab.sh up` refuses to
-replace runtime files while an experiment is active. Add `--no-update` only when
-the installed runtime is already known to match the checkout. `status --json`
-provides a machine-readable view of the current or most recent request.
+`start` refuses a second concurrent request, and `lab up` refuses to replace
+runtime files while the service is active. Add `--no-update` when the installed
+runtime matches the checkout. `stop` cancels the entire queue and asks the
+current experiment to stop gracefully. The controller serializes cancellation
+with each launch. A failed or cancelled queue keeps all previous results and
+leaves the remaining files marked `not_started`. The managed service log
+marks the start and exit of each experiment.
+
+If the installed lab predates queue support, run `lab up` to update the
+experiment service before using the new control commands.
+
+`status` shows the number of successful experiments, the current experiment
+and target positions, and the outcome of each position after completion.
+`status --json` includes the ordered `queue.experiments` list. Each entry
+includes its state, `exit_code`, and `run_id`, which identifies its directory
+under `results/experiments`. Both fields are `null` for entries that never
+started. The top-level `result` includes service cleanup failures, while each
+entry keeps the experiment runner's outcome.
 
 The orchestrator atomically maintains
 `/opt/ckc-lab/state/experiment/progress.json`. Human-readable `status` shows the

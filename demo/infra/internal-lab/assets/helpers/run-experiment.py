@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import fcntl
+import itertools
 import json
 import os
 import queue
@@ -27,10 +28,15 @@ if SHARED_ROOT.is_dir():
     sys.path.insert(0, str(SHARED_ROOT))
 
 from experiment_report import generate_experiment_reports
-from experiment_report.analyze import parse_load_profile
 from experiment_notifications import load_environment_file, notify
 from experiment_progress import ProgressWriter
-from experiment_test import materialize_experiment, resolve_experiment_definition, write_resolved_test
+from experiment_test import (
+    materialize_experiment,
+    merge_target_defaults,
+    resolve_internal_lab_experiment,
+    topic_planning_latency,
+    write_resolved_test,
+)
 from audit_windows import write_measurement_windows
 from result_bundle import collect as collect_evidence
 from result_bundle import finalize as finalize_artifacts
@@ -69,7 +75,7 @@ KAFKA_CHAOS_RESTART_ENV = "CKC_ALLOW_KAFKA_CHAOS_RESTART"
 STOP_REQUESTED = threading.Event()
 FAILURE_NOTIFICATION_CONTEXT: dict[str, Any] = {}
 PROGRESS_WRITER: ProgressWriter | None = None
-ACTIVE_TARGET_PROCESS: subprocess.Popen[str] | None = None
+TARGET_PROCESS_ACTIVE = False
 EXPERIMENT_LOCK = None
 
 
@@ -101,8 +107,29 @@ def update_progress(
 
 def request_managed_stop(_signum: int, _frame: object) -> None:
     STOP_REQUESTED.set()
-    if ACTIVE_TARGET_PROCESS is None and FAILURE_NOTIFICATION_CONTEXT:
+    if not TARGET_PROCESS_ACTIVE and FAILURE_NOTIFICATION_CONTEXT:
         raise InterruptedError("experiment cancelled by user request")
+
+
+def start_target_process(command: list[str], environment: dict[str, str]) -> subprocess.Popen[str]:
+    global TARGET_PROCESS_ACTIVE
+    # Defer interruption throughout Popen so the caller can stop the new
+    # process group gracefully if SIGINT arrives during launch.
+    TARGET_PROCESS_ACTIVE = True
+    try:
+        return subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+            env=environment,
+            start_new_session=os.name == "posix",
+        )
+    except BaseException:
+        TARGET_PROCESS_ACTIVE = False
+        raise
 
 
 def parse_args() -> argparse.Namespace:
@@ -298,12 +325,6 @@ def merge_env(defaults: dict[str, Any], global_env: dict[str, str], test: dict[s
     return result
 
 
-def merge_target_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    result = {str(key): value for key, value in defaults.items() if key != "env"}
-    result.update(target)
-    return result
-
-
 def target_annotation_labels(targets: list[dict[str, Any]]) -> list[str]:
     names = [str(target.get("name") or target.get("id") or "run") for target in targets]
     tokenized = [name.split(".") for name in names]
@@ -321,81 +342,6 @@ def target_annotation_labels(targets: list[dict[str, Any]]) -> list[str]:
         variant = tokens[common_tokens:] if common_tokens < len(tokens) else tokens
         labels.append(" · ".join(variant) or name)
     return labels
-
-
-def topic_planning_latency(target: dict[str, Any], topic: str) -> Any:
-    planning_latency = target.get("planning_latency")
-    if not isinstance(planning_latency, dict):
-        return None
-    if f"{topic}_ms" in planning_latency:
-        return planning_latency[f"{topic}_ms"]
-    topic_value = planning_latency.get(topic)
-    if isinstance(topic_value, dict):
-        return topic_value.get("processing_ms")
-    return topic_value
-
-
-def merged_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    result = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merged_dict(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
-def merge_helm_defaults(defaults: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    default_helm = defaults.get("helm", {})
-    target_helm = target.get("helm", {})
-    if default_helm in ("", None):
-        default_helm = {}
-    if target_helm in ("", None):
-        target_helm = {}
-    if not isinstance(default_helm, dict):
-        raise ValueError("experiment defaults.helm must be an object")
-    if not isinstance(target_helm, dict):
-        raise ValueError("experiment targets[].helm must be an object")
-    return merged_dict(default_helm, target_helm)
-
-
-def validate_helm_overrides(helm: dict[str, Any], context: str) -> None:
-    allowed_top = {"env", "resources"}
-    unknown_top = sorted(set(helm) - allowed_top)
-    if unknown_top:
-        raise ValueError(f"{context}.helm only supports {sorted(allowed_top)}; unknown: {unknown_top}")
-
-    env = helm.get("env", {})
-    if env in ("", None):
-        env = {}
-    if not isinstance(env, dict):
-        raise ValueError(f"{context}.helm.env must be an object")
-    unknown_env = sorted(set(env) - {"javaToolOptions"})
-    if unknown_env:
-        raise ValueError(f"{context}.helm.env only supports javaToolOptions; unknown: {unknown_env}")
-    if "javaToolOptions" in env and not str(env["javaToolOptions"]).strip():
-        raise ValueError(f"{context}.helm.env.javaToolOptions must not be empty")
-
-    resources = helm.get("resources", {})
-    if resources in ("", None):
-        resources = {}
-    if not isinstance(resources, dict):
-        raise ValueError(f"{context}.helm.resources must be an object")
-    unknown_resources = sorted(set(resources) - {"requests", "limits"})
-    if unknown_resources:
-        raise ValueError(f"{context}.helm.resources only supports requests and limits; unknown: {unknown_resources}")
-    for section_name in ("requests", "limits"):
-        section = resources.get(section_name, {})
-        if section in ("", None):
-            section = {}
-        if not isinstance(section, dict):
-            raise ValueError(f"{context}.helm.resources.{section_name} must be an object")
-        unknown = sorted(set(section) - {"cpu", "memory"})
-        if unknown:
-            raise ValueError(f"{context}.helm.resources.{section_name} only supports cpu and memory; unknown: {unknown}")
-        for key, value in section.items():
-            if not str(value).strip():
-                raise ValueError(f"{context}.helm.resources.{section_name}.{key} must not be empty")
 
 
 def helm_override_args(helm: dict[str, Any]) -> list[str]:
@@ -473,43 +419,6 @@ def workload_placement_environment(target: Any) -> dict[str, str]:
             raise ValueError(f"target.placement.{component} must be controller or worker")
         environment[f"EXPERIMENT_{component.upper()}_PLACEMENT"] = str(role)
     return environment
-
-
-def normalize_targets(experiment: dict[str, Any], path: Path) -> list[dict[str, Any]]:
-    targets = experiment.get("targets")
-    if not isinstance(targets, list) or not targets:
-        raise ValueError(f"Experiment must define a non-empty targets list: {path}")
-    normalized = []
-    for index, item in enumerate(targets, start=1):
-        if not isinstance(item, dict):
-            raise ValueError(f"Experiment targets[{index}] must be an object: {path}")
-        target = dict(item)
-        if "deployment" not in target and "profile" not in target:
-            raise ValueError(f"Experiment targets[{index}] must define profile or deployment: {path}")
-        if "test_definition" in target:
-            raise ValueError(f"Experiment targets[{index}] must not define test_definition; put it on the experiment: {path}")
-        if "base_rate" in target or "base_tps" in target:
-            raise ValueError(f"Experiment targets[{index}] must not define base_tps/base_rate; put it on the experiment: {path}")
-        if "capacity_factor" in target:
-            raise ValueError(f"Experiment targets[{index}] must not define capacity_factor; use explicit planning_latency: {path}")
-        if "resources" in target:
-            raise ValueError(f"Experiment targets[{index}] must put pod resources under helm.resources: {path}")
-        helm = merge_helm_defaults(experiment.get("defaults", {}) or {}, target)
-        if helm and "profile" not in target:
-            raise ValueError(f"Experiment targets[{index}].helm is only supported for generated profile targets: {path}")
-        validate_helm_overrides(helm, f"Experiment targets[{index}]")
-        if helm:
-            target["helm"] = helm
-        target_view = merge_target_defaults(experiment.get("defaults", {}) or {}, target)
-        for topic in ("order", "batch", "telemetry"):
-            if topic_planning_latency(target_view, topic) in (None, ""):
-                raise ValueError(f"Experiment targets[{index}] must define planning_latency.{topic}_ms: {path}")
-        target.setdefault("id", str(target.get("name") or target.get("profile") or target.get("deployment")))
-        target.setdefault("name", target["id"])
-        if "annotation_label" in target and not str(target["annotation_label"]).strip():
-            raise ValueError(f"Experiment targets[{index}].annotation_label must not be blank: {path}")
-        normalized.append(target)
-    return normalized
 
 
 def select_bool(title: str, default: str) -> str:
@@ -794,7 +703,7 @@ def prepare_experiment_runtime(
     hook: Path | None,
     log_dir: Path,
 ) -> None:
-    global ACTIVE_TARGET_PROCESS
+    global TARGET_PROCESS_ACTIVE
     cleanup = quiesce_application(lab_root, timeout_seconds=30)
     if cleanup.get("status") != "clean":
         raise RuntimeError(
@@ -818,17 +727,7 @@ def prepare_experiment_runtime(
     log_file.write("command: " + " ".join(command) + "\n")
     log_file.flush()
     update_progress("preparing_experiment", "preparing Kafka and Redis runtime", target=None, details=None)
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-        env=environment,
-        start_new_session=os.name == "posix",
-    )
-    ACTIVE_TARGET_PROCESS = process
+    process = start_target_process(command, environment)
     output: queue.Queue[str] = queue.Queue()
     reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
     reader.start()
@@ -853,7 +752,7 @@ def prepare_experiment_runtime(
         if process.returncode != 0:
             raise RuntimeError(f"Experiment runtime preparation failed with exit code {process.returncode}")
     finally:
-        ACTIVE_TARGET_PROCESS = None
+        TARGET_PROCESS_ACTIVE = False
 
 
 def run_one(
@@ -869,7 +768,7 @@ def run_one(
     hook: Path | None,
     log_dir: Path,
 ) -> dict[str, Any]:
-    global ACTIVE_TARGET_PROCESS
+    global TARGET_PROCESS_ACTIVE
     name = str(test.get("name") or test.get("profile") or test.get("deployment"))
     profile = str(test.get("profile", ""))
     deployment = str(test.get("deployment", ""))
@@ -923,17 +822,7 @@ def run_one(
     env["CKC_EXPERIMENT_INTERNAL"] = "1"
     if expected_seconds is not None:
         env["EXPERIMENT_TARGET_EXPECTED_SECONDS"] = str(expected_seconds)
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-        env={**os.environ, **env, "LAB_ROOT": str(lab_root)},
-        start_new_session=os.name == "posix",
-    )
-    ACTIVE_TARGET_PROCESS = process
+    process = start_target_process(command, {**os.environ, **env, "LAB_ROOT": str(lab_root)})
     output: queue.Queue[str] = queue.Queue()
     stop_queue: queue.Queue[str] = queue.Queue()
     reader = threading.Thread(target=stdout_reader, args=(process, output), daemon=True)
@@ -998,7 +887,7 @@ def run_one(
         line = output.get_nowait()
         print(line, end="")
         log_file.write(line)
-    ACTIVE_TARGET_PROCESS = None
+    TARGET_PROCESS_ACTIVE = False
     if stop_requested and process.returncode is None:
         force_stop_if_needed(process)
 
@@ -1060,6 +949,17 @@ def change_performance_policy(lab_root: Path, action: str) -> None:
     if completed.returncode:
         detail = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
         raise RuntimeError(f"CPU performance policy {action} failed: {detail}")
+
+
+def create_experiment_result_dir(result_root: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for sequence in itertools.count(1):
+        path = result_root / (timestamp if sequence == 1 else f"{timestamp}-{sequence}")
+        try:
+            path.mkdir(parents=True)
+        except FileExistsError:
+            continue
+        return path
 
 
 def audit_analysis_workers(run_count: int) -> int:
@@ -1172,11 +1072,7 @@ def run_experiment(
     global_env: dict[str, str],
     hook: Path | None,
 ) -> dict[str, Any]:
-    source_experiment = load_yaml(experiment_path)
-    resolved_experiment = resolve_experiment_definition(
-        experiment_path,
-        environment="internal-lab",
-    )
+    resolved_experiment, targets, base_tps = resolve_internal_lab_experiment(experiment_path)
     experiment = resolved_experiment.definition
     lab_configuration = (resolved_experiment.environment_definition or {}).get("lab") or {}
     if not isinstance(lab_configuration, dict):
@@ -1191,18 +1087,7 @@ def run_experiment(
         defaults = {}
     if not isinstance(defaults, dict):
         raise ValueError(f"Experiment defaults must be an object: {experiment_path}")
-    resolved_test = resolved_experiment.test
-    definition = resolved_test.definition
-    load_test = definition.get("load_test")
-    if not isinstance(load_test, dict) or not load_test.get("load_profile"):
-        raise ValueError("Resolved experiment test must define load_test.load_profile")
-    parse_load_profile(str(load_test["load_profile"]))
-    base_tps = source_experiment.get("base_tps", load_test.get("base_tps"))
-    if base_tps in (None, ""):
-        raise ValueError(f"Experiment or inline test must define base_tps: {experiment_path}")
-    base_tps = int(base_tps)
-    definition.setdefault("load_test", {})["base_tps"] = base_tps
-    targets = normalize_targets(experiment, experiment_path)
+    definition = resolved_experiment.test.definition
     materialized_dir = log_dir / f"{experiment_path.stem}-materialized"
     materialized_targets = materialize_experiment(
         resolved_experiment,
@@ -1280,13 +1165,7 @@ def run_experiment(
             resolved_target = resolved_experiment.targets[index - 1]
             materialized_target = materialized_targets[index - 1] if materialized_targets else None
             target_definition = resolved_target.test.definition
-            target_load_test = target_definition.get("load_test")
-            if not isinstance(target_load_test, dict) or not target_load_test.get("load_profile"):
-                raise ValueError(f"Resolved target test must define load_test.load_profile: {resolved_target.name}")
-            parse_load_profile(str(target_load_test["load_profile"]))
-            target_base_tps = target_load_test.get("base_tps", base_tps)
-            if target_base_tps in (None, ""):
-                raise ValueError(f"Resolved target test must define load_test.base_tps: {resolved_target.name}")
+            target_base_tps = target_definition["load_test"].get("base_tps", base_tps)
             target_resolved_test_path = (
                 materialized_target.definition_path
                 if materialized_target
@@ -1530,9 +1409,9 @@ def finalize_cancellation(
 
 
 def run_main() -> int:
-    global ACTIVE_TARGET_PROCESS, EXPERIMENT_LOCK, PROGRESS_WRITER
+    global TARGET_PROCESS_ACTIVE, EXPERIMENT_LOCK, PROGRESS_WRITER
     FAILURE_NOTIFICATION_CONTEXT.clear()
-    ACTIVE_TARGET_PROCESS = None
+    TARGET_PROCESS_ACTIVE = False
     lifecycle_started = time.monotonic()
     STOP_REQUESTED.clear()
     signal.signal(signal.SIGINT, request_managed_stop)
@@ -1559,16 +1438,15 @@ def run_main() -> int:
     selected_env = selected_experiment_env(selected)
     global_env = {**interactive_global_env({**selected_env, **cli_env}), **cli_env}
     hook = notify_hook_path(lab_root, args.notify_hook)
-    experiment_set_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_dir = result_root / experiment_set_id
-    log_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = create_experiment_result_dir(result_root)
+    experiment_set_id = log_dir.name
     experiment_names = ", ".join(path.stem for path in selected)
     PROGRESS_WRITER = ProgressWriter(
         Path(os.environ.get("EXPERIMENT_PROGRESS_FILE", lab_root / "state/experiment/progress.json")),
         experiment_names,
+        experiment_set_id=experiment_set_id,
     )
     summaries: list[dict[str, Any]] = []
-    update_progress("preparing_experiment", "preparing experiment", target=None, details=None)
     FAILURE_NOTIFICATION_CONTEXT.update({
         "hook": hook,
         "log_dir": log_dir,
@@ -1579,11 +1457,13 @@ def run_main() -> int:
         "experiment_set_id": experiment_set_id,
         "summaries": summaries,
     })
+    update_progress("preparing_experiment", "preparing experiment", target=None, details=None)
     if STOP_REQUESTED.is_set():
         finalize_cancellation(FAILURE_NOTIFICATION_CONTEXT, lab_root, summaries)
         return 130
+    reacquire_cpu = os.environ.get("CKC_EXPERIMENT_REACQUIRE_CPU") == "1"
     for experiment_index, experiment_path in enumerate(selected):
-        if experiment_index:
+        if experiment_index or reacquire_cpu:
             update_progress("preparing_experiment", "acquiring measurement CPU policy", target=None, details=None)
             change_performance_policy(lab_root, "acquire")
         FAILURE_NOTIFICATION_CONTEXT.pop("application_cleanup", None)

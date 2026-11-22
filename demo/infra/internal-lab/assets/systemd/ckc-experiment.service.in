@@ -8,10 +8,11 @@ WorkingDirectory=@LAB_ROOT@
 Environment=LAB_ROOT=@LAB_ROOT@
 Environment=KUBECONFIG=%h/.kube/config
 ExecStartPre=@LAB_ROOT@/libexec/cluster-performance-acquire.sh
-ExecStart=@LAB_ROOT@/libexec/managed-experiment.py
+ExecStart=@LAB_ROOT@/libexec/experiment-service.py run
 ExecStopPost=-@LAB_ROOT@/libexec/quiesce-application.sh --timeout-seconds 30
+ExecStopPost=@LAB_ROOT@/libexec/experiment-service.py finalize
 ExecStopPost=@LAB_ROOT@/libexec/cluster-performance-release.sh
-KillMode=control-group
+KillMode=mixed
 KillSignal=SIGINT
 TimeoutStopSec=5min
 SuccessExitStatus=130 SIGINT
