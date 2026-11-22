@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
 import sys
 import tempfile
 import threading
@@ -61,6 +63,89 @@ class ChaosScenariosTest(unittest.TestCase):
                 BASELINE_STUBS,
                 path,
             )
+
+    def test_pod_index_is_optional_and_normalized_for_both_actions(self) -> None:
+        for action in ("pod_delete", "pod_crash"):
+            with self.subTest(action=action):
+                indexed, random_choice = self.normalize([
+                    {"at": "1s", "type": action, "params": {"pod_index": 2}},
+                    {"at": "2s", "type": action},
+                ])
+
+                self.assertEqual(2, indexed["params"]["podIndex"])
+                self.assertNotIn("podIndex", random_choice["params"])
+
+    def test_pod_index_rejects_nonpositive_and_noninteger_values(self) -> None:
+        for action in ("pod_delete", "pod_crash"):
+            for value in (0, -1, True, 1.0, "1", None):
+                with self.subTest(action=action, value=value):
+                    with self.assertRaisesRegex(ValueError, "pod_index must be a positive integer"):
+                        self.normalize([
+                            {"at": "1s", "type": action, "params": {"pod_index": value}},
+                        ])
+
+    def test_index_selects_running_pods_by_creation_time_then_name(self) -> None:
+        def pod(name, second, *, phase="Running", ready=True, deleting=False):
+            metadata = {
+                "name": name,
+                "uid": f"uid-{name}",
+                "creationTimestamp": f"2026-11-22T15:00:{second:02d}Z",
+            }
+            if deleting:
+                metadata["deletionTimestamp"] = "2026-11-22T15:01:00Z"
+            return {
+                "metadata": metadata,
+                "status": {
+                    "phase": phase,
+                    "conditions": [{"type": "Ready", "status": "True" if ready else "False"}],
+                },
+            }
+
+        items = [
+            pod("same-time-z", 3, ready=False),
+            pod("deleting", 1, deleting=True),
+            pod("pending", 1, phase="Pending"),
+            pod("oldest", 2),
+            pod("same-time-a", 3, ready=False),
+        ]
+        result = subprocess.CompletedProcess([], 0, stdout=json.dumps({"items": items}))
+        with patch.object(chaos_runner, "run", return_value=result) as run:
+            for index, name in enumerate(("oldest", "same-time-a", "same-time-z"), 1):
+                with self.subTest(index=index):
+                    selected = chaos_runner.select_running_pod("ckc-perf", "app=demo", index)
+                    self.assertEqual(name, selected["name"])
+                    self.assertEqual(f"uid-{name}", selected["uid"])
+
+            with self.assertRaisesRegex(RuntimeError, "pod_index 4 exceeds 3"):
+                chaos_runner.select_running_pod("ckc-perf", "app=demo", 4)
+            self.assertEqual("oldest", chaos_runner.select_running_pod("ckc-perf", "app=demo", None)["name"])
+            self.assertEqual(5, run.call_count)
+
+    def test_indexed_crash_skips_health_status_and_records_impact(self) -> None:
+        scenario = {"atSeconds": 0, "type": "pod_crash", "target": "ckc-demo", "params": {"podIndex": 2}}
+        pod = {"name": "recipient", "uid": "recipient-uid"}
+        timestamp = "2026-11-22T15:00:00.000Z"
+        with (
+            patch.object(chaos_runner, "select_running_pod", return_value=pod) as select,
+            patch.object(chaos_runner, "free_local_port", return_value=12345),
+            patch.object(chaos_runner, "wait_for_http") as wait,
+            patch.object(chaos_runner.subprocess, "Popen") as port_forward,
+            patch.object(chaos_runner, "run", return_value=subprocess.CompletedProcess([], 52)) as run,
+            patch.object(chaos_runner, "utc_iso", return_value=timestamp),
+            patch.object(chaos_runner, "append_event") as append,
+        ):
+            chaos_runner.execute_scenarios([scenario], 0, "/configure-stubs", dry_run=False)
+
+        select.assert_called_once_with("ckc-perf", "ckc.dev/component=application", 2)
+        self.assertIn("pod/recipient", port_forward.call_args.args[0])
+        wait.assert_called_once_with("http://127.0.0.1:12345/actuator/health", 30, require_success=False)
+        self.assertEqual("http://127.0.0.1:12345/internal/crash", run.call_args.args[0][-1])
+        event = append.call_args.args[0]
+        self.assertEqual("completed", event["status"])
+        self.assertEqual(2, event["details"]["podIndex"])
+        self.assertEqual("recipient", event["details"]["podName"])
+        self.assertEqual("recipient-uid", event["details"]["podUid"])
+        self.assertEqual(timestamp, event["details"]["impactAt"])
 
     def test_duration_scenario_stays_one_semantic_scenario(self) -> None:
         scenarios = self.normalize(
@@ -210,7 +295,7 @@ class ChaosScenariosTest(unittest.TestCase):
         }
         with (
             patch.object(chaos_runner, "append_event"),
-            patch.object(chaos_runner, "start_scenario") as start,
+            patch.object(chaos_runner, "start_scenario", return_value=None) as start,
             patch.object(chaos_runner, "wait_for_deployment_rollout") as rollout,
         ):
             result = chaos_runner.execute_sequence(
@@ -250,7 +335,7 @@ class ChaosScenariosTest(unittest.TestCase):
         with (
             patch.object(chaos_runner, "append_event"),
             patch.object(chaos_runner, "wait_until"),
-            patch.object(chaos_runner, "start_scenario") as start,
+            patch.object(chaos_runner, "start_scenario", return_value=None) as start,
         ):
             chaos_runner.execute_scenarios(scenarios, 0, "/configure-stubs", dry_run=True)
 
