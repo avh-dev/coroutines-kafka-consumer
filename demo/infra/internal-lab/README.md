@@ -71,6 +71,12 @@ For a split topology, bootstrap also derives the interface used to reach the
 other node from that route and persists it as k3s `flannel-iface`. This keeps
 cross-node pod traffic on the configured lab addresses even when a management
 or Wi-Fi interface owns the host's default route.
+
+Set `network.redis_address` to a controller IPv4 address reachable from the
+application node to route Redis over a separate link. On OptiLab, set it to
+`10.77.0.1` to use USB Ethernet. If omitted, Redis uses the controller's
+`lab_address`. Run `lab up` to apply a change to the Kubernetes endpoint.
+
 `bootstrap` prepares the controller first, transfers its k3s join token without
 printing it, and then joins the worker. The operator key remains usable on both
 hosts, while a dedicated runtime key permits controller-to-worker operations as

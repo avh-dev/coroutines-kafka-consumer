@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -63,6 +64,7 @@ class LabConfig:
     telegram_env: Path
     performance_cpu_khz: int
     application_link: str
+    redis_address: str
     nodes: tuple[Node, ...]
 
     @property
@@ -154,6 +156,13 @@ def load_config(path: Path) -> LabConfig:
         raise ValueError("lab nodes must have unique names, k3s_name values, and lab_address values")
     controller = controllers[0]
     application = applications[0]
+    redis_address = controller.lab_address
+    if "redis_address" in network:
+        value = _non_empty(network["redis_address"], "network.redis_address")
+        try:
+            redis_address = str(ipaddress.IPv4Address(value))
+        except ValueError as error:
+            raise ValueError("network.redis_address must be an IPv4 address") from error
     if topology == "single-host":
         if len(nodes) != 1 or controller != application:
             raise ValueError("single-host topology requires one node with controller and application roles")
@@ -176,7 +185,7 @@ def load_config(path: Path) -> LabConfig:
             raise ValueError("split-application worker may only host the application k3s agent")
     return LabConfig(
         path, topology, runtime_user, lab_root, public_key, telegram_env,
-        performance_cpu_khz, application_link, tuple(nodes),
+        performance_cpu_khz, application_link, redis_address, tuple(nodes),
     )
 
 
@@ -440,6 +449,7 @@ def write_compatibility_environment(config: LabConfig) -> Path:
         "LAB_SSH_HOST": node.ssh_host,
         "LAB_USER": config.runtime_user,
         "LAB_NODE_IP": node.lab_address,
+        "LAB_REDIS_ADDRESS": config.redis_address,
         "LAB_ROOT": str(config.lab_root),
         "LAB_TOPOLOGY": config.topology,
         "LAB_APPLICATION_LINK": config.application_link,

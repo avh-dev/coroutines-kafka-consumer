@@ -94,6 +94,31 @@ nodes:
         self.assertIn("LAB_SSH_HOST=192.0.2.10", environment)
         self.assertIn("LAB_USER=ckc-lab", environment)
         self.assertIn("LAB_ROOT=/opt/ckc-lab", environment)
+        self.assertIn("LAB_REDIS_ADDRESS=192.0.2.10\n", environment)
+
+    def test_redis_address_overrides_only_the_redis_endpoint(self) -> None:
+        path = self.write_config(topology="split-application")
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "  application_link: direct\n",
+                "  application_link: direct\n  redis_address: 10.77.0.1\n",
+            ),
+            encoding="utf-8",
+        )
+
+        config = LAB.load_config(path)
+        environment = LAB.write_compatibility_environment(config).read_text(encoding="utf-8")
+
+        self.assertIn("LAB_REDIS_ADDRESS=10.77.0.1\n", environment)
+        self.assertIn("LAB_NODE_IP=192.0.2.10\n", environment)
+        self.assertIn("LAB_APPLICATION_HOST=198.51.100.11\n", environment)
+
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("10.77.0.1", "redis.local"),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "network.redis_address must be an IPv4 address"):
+            LAB.load_config(path)
 
     def test_writes_split_worker_runtime_environment(self) -> None:
         config = LAB.load_config(self.write_config(topology="split-application"))
