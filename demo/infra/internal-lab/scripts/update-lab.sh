@@ -89,6 +89,20 @@ legacy_fingerprint_paths() {
   fingerprint_paths_with_locale "${LEGACY_FINGERPRINT_LOCALE}" "$@"
 }
 
+base_deploy_fingerprint() {
+  local fingerprint_function="$1"
+  {
+    "${fingerprint_function}" "base-deploy" \
+      demo/infra/internal-lab/assets/compose \
+      demo/infra/internal-lab/assets/grafana \
+      demo/infra/internal-lab/assets/k8s \
+      demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+      demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
+      demo/infra/shared/grafana
+    printf '%s\n' "${LAB_REDIS_ADDRESS}"
+  } | sha256sum | awk '{ print $1 }'
+}
+
 image_fingerprint() {
   local service="$1"
   local fingerprint_function="${2:-fingerprint_paths}"
@@ -309,6 +323,7 @@ LAB_SSH_HOST="${LAB_SSH_HOST:-${LAB_HOST}}"
 LAB_USER="${LAB_USER:-ckc-lab}"
 LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"
 LAB_NODE_IP="${LAB_NODE_IP:-$(resolve_host_ip "${LAB_HOST}")}"
+LAB_REDIS_ADDRESS="${LAB_REDIS_ADDRESS:-${LAB_NODE_IP}}"
 LAB_TOPOLOGY="${LAB_TOPOLOGY:-single-host}"
 if [[ -z "${LAB_APPLICATION_LINK:-}" ]]; then
   if [[ "${LAB_TOPOLOGY}" == "split-application" ]]; then
@@ -366,13 +381,7 @@ RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
   demo/infra/experiments)"
-BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
-  demo/infra/internal-lab/assets/compose \
-  demo/infra/internal-lab/assets/grafana \
-  demo/infra/internal-lab/assets/k8s \
-  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
-  demo/infra/shared/grafana)"
+BASE_DEPLOY_FINGERPRINT="$(base_deploy_fingerprint fingerprint_paths)"
 UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${DEMO_FINGERPRINT}" "${DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -400,13 +409,7 @@ LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT="$(legacy_fingerprint_paths "runtime-test
   demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
   demo/infra/experiments)"
-LEGACY_BASE_DEPLOY_FINGERPRINT="$(legacy_fingerprint_paths "base-deploy" \
-  demo/infra/internal-lab/assets/compose \
-  demo/infra/internal-lab/assets/grafana \
-  demo/infra/internal-lab/assets/k8s \
-  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
-  demo/infra/shared/grafana)"
+LEGACY_BASE_DEPLOY_FINGERPRINT="$(base_deploy_fingerprint legacy_fingerprint_paths)"
 LEGACY_UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${LEGACY_DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -431,11 +434,13 @@ if [[ "${REMOTE_PROBE}" == active\|* ]]; then
   echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
+REMOTE_REDIS_ADDRESS="$(ssh "${LAB_TARGET}" \
+  'KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}" kubectl -n ckc-perf get endpoints ckc-external-redis -o jsonpath="{.subsets[*].addresses[*].ip}" 2>/dev/null || true')"
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_REDIS_ADDRESS}" == "${LAB_REDIS_ADDRESS}" && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
   echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
   exit 0
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]] && \
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_REDIS_ADDRESS}" == "${LAB_REDIS_ADDRESS}" && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]] && \
   remote_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}" && worker_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}"; then
   record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
   record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
@@ -499,6 +504,7 @@ ssh "${LAB_TARGET}" "
 ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
+LAB_REDIS_ADDRESS=${LAB_REDIS_ADDRESS}
 LAB_ROOT=${LAB_ROOT}
 LAB_TOPOLOGY=${LAB_TOPOLOGY}
 LAB_APPLICATION_LINK=${LAB_APPLICATION_LINK}
@@ -558,7 +564,8 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
+if [[ "${FORCE_REBUILD}" -eq 1 || "${REMOTE_REDIS_ADDRESS}" != "${LAB_REDIS_ADDRESS}" ]] ||
+  ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
 fi
 
@@ -623,7 +630,7 @@ if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
   ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/load-test/build/install/ckc-demo-load-test/bin/'*"
 fi
 if [[ "${BASE_DEPLOY_CHANGED}" -eq 1 ]]; then
-  ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
+  ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_REDIS_ADDRESS='${LAB_REDIS_ADDRESS}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
   record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
 fi
 

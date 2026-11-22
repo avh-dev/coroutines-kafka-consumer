@@ -97,7 +97,7 @@ metadata:
   namespace: ckc-perf
 subsets:
   - addresses:
-      - ip: __LAB_NODE_IP__
+      - ip: __LAB_REDIS_ADDRESS__
     ports:
       - name: redis
         port: 6379

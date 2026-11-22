@@ -546,6 +546,7 @@
 | [INFRA-359](#infra-359) | Highlight configuration rows that differ across report targets. | DONE |
 | [INFRA-360](#infra-360) | Bold only the target values in differing configuration rows. | DONE |
 | [INFRA-361](#infra-361) | Compare five warm-up quota profiles during sequential scale-up at 20k TPS. | DONE |
+| [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6850,3 +6851,13 @@ then reach 100/s at 30s or 90s from 10/s. All targets reach 300/s at 150s.
 In runs 20261120T175805Z and 20261121T091138Z, the three scale-out pods peaked
 at ages 77–104s in the first six minutes (native-jit CPU, 1m rate sampled every 15s).
 Compare per-topic post-warm-up latency, lag, delegated throughput and audit results.
+
+<a id="infra-363"></a>
+### INFRA-363 - Configure the internal-lab Redis address
+
+_Date: 2026-11-22_
+
+Add an optional Redis endpoint address to the local lab configuration.
+Use it to route Redis over the dedicated USB link on OptiLab.
+Reconcile the Kubernetes endpoint during lab updates, including changes to the address alone.
+Verified 221 internal-lab tests and a Redis PING from optilab2 through the Kubernetes service.
