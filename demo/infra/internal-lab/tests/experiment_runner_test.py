@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,6 +36,18 @@ class ExperimentRunnerTest(unittest.TestCase):
             finally:
                 fcntl.flock(first.fileno(), fcntl.LOCK_UN)
                 first.close()
+
+    def test_experiments_starting_in_the_same_second_use_separate_result_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.object(RUNNER, "datetime") as clock:
+            clock.now.return_value = datetime(2026, 11, 22, tzinfo=timezone.utc)
+            root = Path(directory)
+            first = RUNNER.create_experiment_result_dir(root)
+            (first / "summary.json").write_text("first result", encoding="utf-8")
+            second = RUNNER.create_experiment_result_dir(root)
+
+            self.assertEqual("20261122T000000Z", first.name)
+            self.assertEqual("20261122T000000Z-2", second.name)
+            self.assertEqual("first result", (first / "summary.json").read_text(encoding="utf-8"))
 
     def test_jvm_options_starting_with_a_dash_use_equals_form(self) -> None:
         expected = ["--demo-java-tool-options=-XX:+UseSerialGC -Xmx768m"]
@@ -146,6 +159,25 @@ class ExperimentRunnerTest(unittest.TestCase):
             RUNNER.STOP_REQUESTED.clear()
             RUNNER.FAILURE_NOTIFICATION_CONTEXT.clear()
             RUNNER.FAILURE_NOTIFICATION_CONTEXT.update(context)
+
+    def test_managed_stop_during_target_launch_leaves_process_available_for_cleanup(self) -> None:
+        child = object()
+
+        def launch(*_args, **_kwargs):
+            RUNNER.request_managed_stop(2, None)
+            return child
+
+        RUNNER.STOP_REQUESTED.clear()
+        try:
+            with (
+                patch.object(RUNNER, "TARGET_PROCESS_ACTIVE", False),
+                patch.dict(RUNNER.FAILURE_NOTIFICATION_CONTEXT, {"experiment": "comparison"}),
+                patch.object(RUNNER.subprocess, "Popen", side_effect=launch),
+            ):
+                self.assertIs(child, RUNNER.start_target_process(["stub target"], {}))
+                self.assertTrue(RUNNER.STOP_REQUESTED.is_set())
+        finally:
+            RUNNER.STOP_REQUESTED.clear()
 
     def test_application_cleanup_reports_verified_idle_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
