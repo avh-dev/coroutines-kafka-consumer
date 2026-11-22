@@ -548,6 +548,7 @@
 | [INFRA-361](#infra-361) | Compare five warm-up quota profiles during sequential scale-up at 20k TPS. | DONE |
 | [INFRA-362](#infra-362) | Queue internal-lab experiments for sequential managed execution. | DONE |
 | [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
+| [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6872,3 +6873,13 @@ Add an optional Redis endpoint address to the local lab configuration.
 Use it to route Redis over the dedicated USB link on OptiLab.
 Reconcile the Kubernetes endpoint during lab updates, including changes to the address alone.
 Verified 221 internal-lab tests and a Redis PING from optilab2 through the Kubernetes service.
+
+<a id="infra-364"></a>
+### INFRA-364 - Select chaos pods by creation order
+
+_Date: 2026-11-22_
+
+Add an optional one-based index for pod deletion and crash steps.
+Capture the selected pod identity and impact time in chaos events.
+Preserve random selection of Ready pods when no index is configured.
+Cover index normalization, candidate ordering, and crash evidence in unit tests.

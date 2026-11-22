@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from experiment_events import append_event
+from experiment_events import append_event, utc_iso
 
 
 def parse_args() -> argparse.Namespace:
@@ -276,10 +276,14 @@ def docker_service(params: dict[str, Any], action: str, *, dry_run: bool, check:
     run(["docker", action, container], check=check)
 
 
-def wait_for_http_ok(url: str, timeout_seconds: int) -> None:
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        result = subprocess.run(["curl", "-fsS", url], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def wait_for_http(url: str, timeout_seconds: int, *, require_success: bool) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    curl_flags = "-fsS" if require_success else "-sS"
+    while (remaining := deadline - time.monotonic()) > 0:
+        result = subprocess.run(
+            ["curl", curl_flags, "--max-time", str(min(remaining, 1.0)), url],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         if result.returncode == 0:
             return
         time.sleep(0.5)
@@ -374,7 +378,11 @@ def wait_until(
         time.sleep(min(1.0, remaining))
 
 
-def random_running_pod(namespace: str, selector: str) -> str:
+def select_running_pod(namespace: str, selector: str, pod_index: int | None) -> dict[str, Any]:
+    if pod_index is not None and (
+        isinstance(pod_index, bool) or not isinstance(pod_index, int) or pod_index <= 0
+    ):
+        raise ValueError("pod_index must be a positive integer")
     result = run(
         [
             "kubectl",
@@ -393,19 +401,34 @@ def random_running_pod(namespace: str, selector: str) -> str:
     data = json.loads(result.stdout)
     pods = []
     for item in data.get("items", []):
-        metadata = item.get("metadata", {})
-        if metadata.get("deletionTimestamp"):
+        metadata = item["metadata"]
+        status = item.get("status", {})
+        if status.get("phase") != "Running" or metadata.get("deletionTimestamp"):
             continue
-        conditions = item.get("status", {}).get("conditions", [])
-        ready = any(
+        if pod_index is None and not any(
             condition.get("type") == "Ready" and condition.get("status") == "True"
-            for condition in conditions
+            for condition in status.get("conditions", [])
+        ):
+            continue
+        pods.append(metadata)
+    if pod_index is None:
+        if not pods:
+            raise RuntimeError(f"No ready running pods matched namespace={namespace} selector={selector}")
+        return random.SystemRandom().choice(pods)
+    if pod_index > len(pods):
+        raise RuntimeError(
+            f"pod_index {pod_index} exceeds {len(pods)} running pods matched "
+            f"namespace={namespace} selector={selector}"
         )
-        if ready:
-            pods.append(metadata["name"])
-    if not pods:
-        raise RuntimeError(f"No ready running pods matched namespace={namespace} selector={selector}")
-    return random.SystemRandom().choice(pods)
+    pods.sort(key=lambda pod: (
+        datetime.fromisoformat(pod["creationTimestamp"].replace("Z", "+00:00")),
+        pod["name"],
+    ))
+    return pods[pod_index - 1]
+
+
+def pod_impact_details(pod: dict[str, Any], pod_index: int | None) -> dict[str, Any]:
+    return {"podIndex": pod_index, "podName": pod["name"], "podUid": pod["uid"], "impactAt": utc_iso()}
 
 
 def pod_params(params: dict[str, Any]) -> tuple[str, str]:
@@ -419,14 +442,17 @@ def crash_endpoint(params: dict[str, Any]) -> str:
     return endpoint if endpoint.startswith("/") else f"/{endpoint}"
 
 
-def delete_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
+def delete_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace, selector = pod_params(params)
+    pod_index = params.get("podIndex")
     if dry_run:
-        log(f"dry-run: would delete one pod namespace={namespace} selector={selector}")
-        return
-    pod = random_running_pod(namespace, selector)
-    log(f"deleting pod namespace={namespace} pod={pod}")
-    run(["kubectl", "-n", namespace, "delete", "pod", pod])
+        log(f"dry-run: would delete pod namespace={namespace} selector={selector} pod_index={pod_index}")
+        return None
+    pod = select_running_pod(namespace, selector, pod_index)
+    log(f"deleting pod namespace={namespace} pod={pod['name']}")
+    details = pod_impact_details(pod, pod_index)
+    run(["kubectl", "-n", namespace, "delete", "pod", pod["name"]])
+    return details
 
 
 def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
@@ -481,22 +507,27 @@ def wait_for_deployment_rollout(params: dict[str, Any], *, dry_run: bool) -> Non
     ])
 
 
-def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
+def crash_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace, selector = pod_params(params)
     endpoint = crash_endpoint(params)
+    pod_index = params.get("podIndex")
     if dry_run:
-        log(f"dry-run: would crash one pod namespace={namespace} selector={selector} endpoint={endpoint}")
-        return
-    pod = random_running_pod(namespace, selector)
+        log(
+            f"dry-run: would crash pod namespace={namespace} selector={selector} "
+            f"endpoint={endpoint} pod_index={pod_index}"
+        )
+        return None
+    pod = select_running_pod(namespace, selector, pod_index)
     port = free_local_port()
-    log(f"triggering internal crash endpoint namespace={namespace} pod={pod} endpoint={endpoint}")
+    base_url = f"http://127.0.0.1:{port}"
+    log(f"triggering internal crash endpoint namespace={namespace} pod={pod['name']} endpoint={endpoint}")
     port_forward = subprocess.Popen(
         [
             "kubectl",
             "-n",
             namespace,
             "port-forward",
-            f"pod/{pod}",
+            f"pod/{pod['name']}",
             f"{port}:8080",
             "--address",
             "127.0.0.1",
@@ -505,8 +536,16 @@ def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_for_http_ok(f"http://127.0.0.1:{port}/actuator/health", 30)
-        run(["curl", "-fsS", "-X", "POST", f"http://127.0.0.1:{port}{endpoint}"], check=False)
+        wait_for_http(f"{base_url}/actuator/health", 30, require_success=pod_index is None)
+        details = pod_impact_details(pod, pod_index)
+        result = run(
+            ["curl", "-fsS", "--max-time", "30", "-X", "POST", f"{base_url}{endpoint}"],
+            check=False,
+        )
+        # The crash handler halts the JVM before it can send an HTTP response.
+        if pod_index is not None and result.returncode not in {0, 52, 56}:
+            raise RuntimeError(f"Crash request for pod {pod['name']} failed (curl exit {result.returncode})")
+        return details
     finally:
         port_forward.terminate()
         try:
@@ -544,7 +583,9 @@ def scenario_params(scenario: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:
+def start_scenario(
+    scenario: dict[str, Any], configure_stubs: str, *, dry_run: bool
+) -> dict[str, Any] | None:
     scenario_type = str(scenario["type"])
     params = scenario_params(scenario)
     if not isinstance(params, dict):
@@ -552,9 +593,9 @@ def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: b
     if scenario_type == "deployment_scale":
         scale_deployment(params, dry_run=dry_run)
     elif scenario_type == "pod_delete":
-        delete_random_pod(params, dry_run=dry_run)
+        return delete_pod(params, dry_run=dry_run)
     elif scenario_type == "pod_crash":
-        crash_random_pod(params, dry_run=dry_run)
+        return crash_pod(params, dry_run=dry_run)
     elif scenario_type == "stubs_degradation":
         apply_stubs_profile(params, configure_stubs, dry_run=dry_run)
     elif scenario_type == "network_degradation":
@@ -567,6 +608,7 @@ def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: b
         docker_service(params, "restart", dry_run=dry_run)
     else:
         raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
+    return None
 
 
 def recover_scenario(
@@ -706,6 +748,7 @@ def execute_sequence(
                     scenario, step, iteration, step_index, len(steps), "started"
                 )
                 append_event(started_event, publish_annotation=False)
+                action_details = None
                 try:
                     if step_type == "delay":
                         interrupted = wait_sequence_delay(
@@ -731,7 +774,7 @@ def execute_sequence(
                             start_scenario(step, configure_stubs, dry_run=dry_run)
                             wait_for_deployment_rollout(params, dry_run=dry_run)
                         else:
-                            start_scenario(step, configure_stubs, dry_run=dry_run)
+                            action_details = start_scenario(step, configure_stubs, dry_run=dry_run)
                 except Exception as error:
                     append_event(
                         sequence_step_event(
@@ -758,7 +801,7 @@ def execute_sequence(
                     break
                 append_event(
                     sequence_step_event(
-                        scenario, step, iteration, step_index, len(steps), "completed"
+                        scenario, step, iteration, step_index, len(steps), "completed", **(action_details or {})
                     ),
                     publish_annotation=False,
                 )
@@ -951,6 +994,7 @@ def execute_scenarios(
                 "details": {"phase": phase, "target": scenario.get("target", ""), "scheduledAtSeconds": at_seconds},
             }
             append_event(event)
+            action_details = None
             try:
                 if phase == "start":
                     if scenario_type == "sequence":
@@ -965,14 +1009,18 @@ def execute_scenarios(
                         continue
                     if scenario_type in DURATION_SCENARIO_TYPES:
                         active[index] = scenario
-                    start_scenario(scenario, configure_stubs, dry_run=dry_run)
+                    action_details = start_scenario(scenario, configure_stubs, dry_run=dry_run)
                 else:
                     recover_scenario(scenario, configure_stubs, dry_run=dry_run)
                     active.pop(index, None)
             except Exception as error:
                 append_event({**event, "status": "failed", "error": str(error)})
                 raise
-            append_event({**event, "status": "completed"})
+            append_event({
+                **event,
+                "status": "completed",
+                "details": {**event["details"], **(action_details or {})},
+            })
         for execution in sequence_executions:
             if execution.thread is not None:
                 execution.thread.join()

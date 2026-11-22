@@ -458,12 +458,22 @@ workload:
   - at: 20m
     type: pod_crash
     target: ckc-demo
+    params:
+      pod_index: 2
 ```
 
 The sequence runs independently of the absolute-time scheduler, so the pod
 crash above is applied while replica churn continues. Detailed cycle and step
 events remain in experiment evidence, while the planned workload diagram shows
 the sequence as one interval rather than expanding every repetition.
+
+For `pod_crash` and `pod_delete`, `params.pod_index` selects a pod from the
+matches in the requested namespace at execution time. Indices start at 1.
+Pods in the `Running` phase are ordered by creation timestamp and then by
+name, including NotReady pods and excluding pods being deleted. An index
+outside the available range fails the step. When the index is omitted, the
+runner selects a Ready running pod at random. The completion event records
+`podIndex`, `podName`, `podUid`, and `impactAt` (when the action was sent).
 
 ## Results
 

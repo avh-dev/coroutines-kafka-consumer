@@ -283,6 +283,11 @@ def _normalize_chaos_action(
             "namespace": str(params.get("namespace", "ckc-perf")),
             "selector": str(params.get("selector", "ckc.dev/component=application")),
         }
+        if "pod_index" in params:
+            pod_index = params["pod_index"]
+            if isinstance(pod_index, bool) or not isinstance(pod_index, int) or pod_index <= 0:
+                raise ValueError(f"{context}.params.pod_index must be a positive integer: {definition_path}")
+            normalized["params"]["podIndex"] = pod_index
         if step_type == "pod_crash" and "endpoint" in params:
             normalized["params"]["endpoint"] = str(params["endpoint"])
     elif step_type == "stubs_degradation":
