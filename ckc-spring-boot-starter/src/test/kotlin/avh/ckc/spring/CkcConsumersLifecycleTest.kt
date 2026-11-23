@@ -4,9 +4,8 @@ import avh.ckc.core.ConsumerStateSnapshot
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.core.extension.ManagedConsumerLifecycle
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.warmup.TrafficWarmupContext
-import avh.ckc.core.warmup.trafficWarmupContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,9 +14,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerConfig
-import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -256,14 +253,22 @@ class CkcConsumersLifecycleTest {
     }
 
     @Test
-    fun `application stop releases participants from shared and independent warmup contexts`() = runBlocking {
-        val shared = warmupContext("shared")
-        val independent = warmupContext("independent")
-        val consumers = listOf(
-            warmupConsumer(shared, "shared-a", "source-a", "warmup-a"),
-            warmupConsumer(shared, "shared-b", "source-b", "warmup-b"),
-            warmupConsumer(independent, "independent", "source-c", "warmup-c")
-        )
+    fun `application stop releases participants with a coordinated consumer lifecycle`() = runBlocking {
+        val consumers = List(3) { index ->
+            coroutinesKafkaConsumer<String, String>(realConsumerProperties()) {
+                topics("source-$index")
+                handle { }
+            }.also { consumer ->
+                val runtime = consumer.runtimeControl
+                consumer.manageLifecycle(object : ManagedConsumerLifecycle {
+                    override fun start() = runtime.start()
+                    override suspend fun awaitReady() = runtime.awaitReady()
+                    override suspend fun stop() = runtime.stop()
+                    override suspend fun awaitTermination() = runtime.awaitTermination()
+                    override fun isStopComplete() = runtime.isShutdownComplete()
+                })
+            }
+        }
         val lifecycle = lifecycle(
             Duration.ofSeconds(2),
             *consumers.mapIndexed { index, consumer ->
@@ -491,33 +496,4 @@ class CkcConsumersLifecycleTest {
         ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
         ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
     )
-
-    private fun warmupContext(id: String): TrafficWarmupContext = trafficWarmupContext {
-        instanceId = id
-        namespace = "spring-$id"
-        controlTopic = "control-$id"
-        controlProducerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092")
-        controlConsumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092")
-    }
-
-    private fun warmupConsumer(
-        context: TrafficWarmupContext,
-        participantId: String,
-        sourceTopic: String,
-        warmupTopic: String
-    ): CoroutinesKafkaConsumer<String, String> = coroutinesKafkaConsumer(realConsumerProperties()) {
-        topics(sourceTopic)
-        @Suppress("UNCHECKED_CAST")
-        metrics = ConsumerMetrics.NOOP as ConsumerMetrics<String, String>
-        handle { }
-        trafficWarmup(context, participantId) {
-            mapTopic(sourceTopic, warmupTopic)
-            warmupConsumerProperties = mapOf(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092")
-            forwardingProducerProperties = mapOf(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "unused:9092",
-                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java
-            )
-        }
-    }
 }

@@ -41,6 +41,7 @@ dependencies {
 
     testFixturesImplementation(kotlin("test-junit5"))
     testFixturesImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    testFixturesImplementation("org.mockito.kotlin:mockito-kotlin:$mockitoKotlinVersion")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")

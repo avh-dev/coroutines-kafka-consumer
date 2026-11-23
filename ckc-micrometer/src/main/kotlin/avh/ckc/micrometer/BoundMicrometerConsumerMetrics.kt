@@ -8,9 +8,6 @@ import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.core.metrics.WarmupFallbackReason
-import avh.ckc.core.metrics.WarmupResultMetricOutcome
-import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.Gauge
@@ -21,6 +18,7 @@ import io.micrometer.core.instrument.Timer
 import io.micrometer.core.instrument.binder.kafka.KafkaClientMetrics
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -28,37 +26,27 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private val schema: MicrometerConsumerMetricsSchema,
     private val consumerId: String,
     private val recordDrivenTagExtractors: RecordDrivenTagExtractors<K, V>
-) : ConsumerMetrics<K, V> {
+) : ConsumerMetrics<K, V>, MicrometerConsumerMeterBinding {
     private val consumerTags: Tags = Tags.of(schema.staticTags).and("consumer_id", consumerId)
     private val kafkaClientMetrics = mutableMapOf<Int, KafkaClientMetrics>()
     private val runtimeMeters = mutableListOf<Meter>()
     private val partitionMeters = mutableMapOf<Pair<String, Int>, PartitionMeterBinding>()
+    private val extensionGaugeValues = ConcurrentHashMap<String, AtomicInteger>()
     private val recoveringPollLoops = AtomicInteger(0)
-    private val pendingWarmupResults = AtomicInteger(0)
-    private val warmupResultOutstanding = AtomicInteger(0)
-    private val warmupResultQueued = AtomicInteger(0)
-    private val warmupResultAwaitingAck = AtomicInteger(0)
-    private val warmupResultLimitedMappings = AtomicInteger(0)
     private val recoveryActiveGauge: Gauge = Gauge.builder(
         schema.metricName(RECOVERY_ACTIVE),
         recoveringPollLoops
     ) { if (it.get() > 0) 1.0 else 0.0 }
         .tags(consumerTags)
         .register(schema.meterRegistry)
-    @Suppress("unused")
-    private val warmupPendingGauge: Gauge = Gauge.builder(
-        schema.metricName(WARMUP_PENDING),
-        pendingWarmupResults
-    ) { it.get().toDouble() }
-        .tags(consumerTags)
-        .register(schema.meterRegistry)
-    @Suppress("unused")
-    private val warmupResultDeliveryGauges = listOf(
-        gauge(WARMUP_RESULT_DELIVERY_OUTSTANDING, warmupResultOutstanding),
-        gauge(WARMUP_RESULT_DELIVERY_QUEUED, warmupResultQueued),
-        gauge(WARMUP_RESULT_DELIVERY_AWAITING_ACK, warmupResultAwaitingAck),
-        gauge(WARMUP_RESULT_DELIVERY_LIMITED_MAPPINGS, warmupResultLimitedMappings)
-    )
+    override fun <T : Any> unwrap(type: Class<T>): T? =
+        if (type == MicrometerConsumerMeterBinding::class.java) type.cast(this) else null
+
+    override fun extensionCounter(suffix: String, vararg tags: Pair<String, String>): Counter =
+        counter(suffix, tags(*tags))
+
+    override fun extensionTimer(suffix: String, vararg tags: Pair<String, String>): Timer =
+        timer(suffix, tags(*tags))
 
     override fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> {
         require(bindingId.isNotBlank()) { "Metrics runtime binding id must not be blank" }
@@ -202,58 +190,6 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
         ).increment()
     }
 
-    override fun onWarmupDelegated(record: ConsumerRecord<K, V>, sendDurationNanos: Long) {
-        val tags = tags("topic" to record.topic())
-        counter(WARMUP_DELEGATED, tags).increment()
-        timer(WARMUP_SEND_DURATION, tags).record(sendDurationNanos, TimeUnit.NANOSECONDS)
-    }
-
-    override fun onWarmupResult(
-        record: ConsumerRecord<K, V>,
-        outcome: WarmupResultMetricOutcome,
-        waitDurationNanos: Long
-    ) {
-        val tags = tags("topic" to record.topic(), "outcome" to outcome.name.lowercase())
-        counter(WARMUP_RESULT, tags).increment()
-        timer(WARMUP_RESULT_WAIT_DURATION, tags).record(waitDurationNanos, TimeUnit.NANOSECONDS)
-    }
-
-    override fun onWarmupFallback(record: ConsumerRecord<K, V>, reason: WarmupFallbackReason) {
-        counter(
-            WARMUP_FALLBACK,
-            tags("topic" to record.topic(), "reason" to reason.name.lowercase())
-        ).increment()
-    }
-
-    override fun onWarmupPendingChanged(pending: Int) {
-        pendingWarmupResults.set(pending.coerceAtLeast(0))
-    }
-
-    override fun onWarmupResultDeliveryChanged(
-        outstanding: Int,
-        queued: Int,
-        awaitingAcknowledgement: Int,
-        admissionLimitedMappings: Int
-    ) {
-        warmupResultOutstanding.set(outstanding.coerceAtLeast(0))
-        warmupResultQueued.set(queued.coerceAtLeast(0))
-        warmupResultAwaitingAck.set(awaitingAcknowledgement.coerceAtLeast(0))
-        warmupResultLimitedMappings.set(admissionLimitedMappings.coerceAtLeast(0))
-    }
-
-    override fun onWarmupResultAdmissionLimited() {
-        counter(WARMUP_RESULT_ADMISSION_LIMITED).increment()
-    }
-
-    override fun onWarmupResultDeliveryFailure(reason: WarmupResultDeliveryFailureReason) {
-        counter(WARMUP_RESULT_DELIVERY_FAILURE, tags("reason" to reason.name.lowercase())).increment()
-    }
-
-    override fun onWarmupResultDrain(durationNanos: Long, outcome: LifecycleOutcome) {
-        timer(WARMUP_RESULT_DRAIN_DURATION, lifecycleTags(outcome))
-            .record(durationNanos, TimeUnit.NANOSECONDS)
-    }
-
     override fun onRetry(
         key: K?,
         value: V?,
@@ -345,10 +281,14 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
             .tags(consumerTags)
             .register(schema.meterRegistry)
 
-    private fun gauge(suffix: String, value: AtomicInteger): Gauge =
-        Gauge.builder(schema.metricName(suffix), value) { it.get().toDouble() }
-            .tags(consumerTags)
-            .register(schema.meterRegistry)
+    override fun extensionGaugeValue(suffix: String): AtomicInteger =
+        extensionGaugeValues.computeIfAbsent(suffix) {
+            val value = AtomicInteger(0)
+            Gauge.builder(schema.metricName(suffix), value) { it.get().toDouble() }
+                .tags(consumerTags)
+                .register(schema.meterRegistry)
+            value
+        }
 
     private fun tags(vararg pairs: Pair<String, String>): Tags =
         schema.tags(consumerTags, *pairs)

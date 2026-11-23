@@ -7,21 +7,10 @@ import avh.ckc.core.processing.RecordProcessingOutcome
 import avh.ckc.core.processing.RecordProcessor
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.PartitionRegistry
-import avh.ckc.core.warmup.MultiSessionWarmupDataPlane
-import avh.ckc.core.warmup.WarmupDataPlaneObserver
-import avh.ckc.core.warmup.WarmupDestination
-import avh.ckc.core.warmup.WarmupDestinationResolver
-import avh.ckc.core.warmup.WarmupDonorSession
-import avh.ckc.core.warmup.WarmupForwardedEvent
-import avh.ckc.core.warmup.WarmupRecordSender
-import avh.ckc.core.warmup.WarmupQuotaProfile
-import avh.ckc.core.warmup.WarmupSendAcknowledgement
-import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import org.apache.kafka.clients.consumer.ConsumerRecord
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -31,37 +20,24 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 class RecordProcessingSeamTest {
     @Test
     @Suppress("UNCHECKED_CAST")
     fun `ownership revoked while awaiting remote result prevents local fallback handler`() = runBlocking {
         val localHandled = CompletableDeferred<Long>()
-        val forwarded = CompletableDeferred<WarmupForwardedEvent>()
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
-        val session = WarmupDonorSession(
-            sessionId = WarmupSessionId("revoked"),
-            quotaProfile = WarmupQuotaProfile.constant(10),
-            quotaInterval = 1.seconds,
-            delegationTimeout = 100.milliseconds,
-            destinationResolver = WarmupDestinationResolver { WarmupDestination("warmup") },
-            sender = WarmupRecordSender { _, destination, _ ->
-                WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), 1)
-            },
-            observer = object : WarmupDataPlaneObserver<String, String> {
-                override fun onForwarded(
-                    record: ConsumerRecord<String, String>,
-                    event: WarmupForwardedEvent,
-                    durationNanos: Long
-                ) {
-                    forwarded.complete(event)
-                }
+        val intercepted = CompletableDeferred<Unit>()
+        val fallback = CompletableDeferred<Unit>()
+        val released = CompletableDeferred<RecordProcessingOutcome>()
+        val interceptor = AdmittedRecordInterceptor<String, String> { record, processLocally ->
+            if (record.offset() == 19L) {
+                intercepted.complete(Unit)
+                fallback.await()
+                processLocally().also { released.complete(it) }
+            } else {
+                processLocally()
             }
-        )
-        plane.admit(session)
-        plane.activate(session.sessionId)
+        }
         val partition = TopicPartition("topic-a", 0)
         val registry = PartitionRegistry()
         registry.onPartitionsAssigned(listOf(partition))
@@ -81,17 +57,17 @@ class RecordProcessingSeamTest {
             recordProcessingContext = null,
             processingFailureHandler = ProcessingFailureHandler.skip(),
             processedRecordTracker = tracker,
-            interceptor = plane
+            interceptor = interceptor
         )
         runtime.start { failure.complete(it) }
         val delegated = typedTestRecord(offset = 19)
         registry.observe(delegated)
         assertTrue(runtime.tryEmit(delegated))
-        forwarded.await()
+        withTimeout(2_000) { intercepted.await() }
 
         registry.revoke(listOf(partition))
-        plane.stopDelegatingAndAwaitInflight(session.sessionId, 2.seconds)
-        assertTrue(plane.removeDrainedSession(session.sessionId))
+        fallback.complete(Unit)
+        assertTrue(withTimeout(2_000) { released.await() } is RecordProcessingOutcome.HandedOff)
 
         registry.onPartitionsAssigned(listOf(partition))
         val local = typedTestRecord(offset = 20)

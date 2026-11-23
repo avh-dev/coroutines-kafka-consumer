@@ -1,12 +1,15 @@
 package avh.ckc.core
 
+import avh.ckc.core.extension.ConsumerRuntimeControl
+import avh.ckc.core.extension.ManagedConsumerLifecycle
+import avh.ckc.core.extension.RecordAdmission
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
-import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.processing.AdmissionControlledRecordSink
 import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
@@ -14,14 +17,16 @@ import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.localRecordInterceptor
-import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
-import avh.ckc.core.warmup.WarmupRecipientSessionFilteringSink
-import avh.ckc.core.warmup.WarmupResultAdmission
-import avh.ckc.core.warmup.WarmupSessionId
-import avh.ckc.core.warmup.WarmupSourcePartition
+import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import java.util.concurrent.atomic.AtomicReference
+import java.util.regex.Pattern
+import kotlin.concurrent.Volatile
+import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -41,26 +46,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
-import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
-import java.util.concurrent.atomic.AtomicReference
-import java.util.regex.Pattern
-import kotlin.concurrent.Volatile
-import kotlin.coroutines.CoroutineContext
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
-
-/** Internal lifecycle indirection used by library-owned optional features. */
-internal interface ManagedConsumerLifecycle {
-    fun start()
-    suspend fun awaitReady()
-    suspend fun stop()
-    suspend fun awaitTermination()
-    fun isStopComplete(): Boolean
-}
 
 fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
@@ -148,8 +138,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
     private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
-    private val warmupRecipientSessionId: WarmupSessionId? = null,
-    private val warmupResultAdmission: WarmupResultAdmission? = null,
+    recordAdmission: RecordAdmission<K, V>? = null,
     private val fixedAssignment: Map<TopicPartition, Long>? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
@@ -195,13 +184,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         admittedRecordInterceptor
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
-    private val recordSink: PolledRecordSink<K, V> = warmupRecipientSessionId?.let { sessionId ->
-        WarmupRecipientSessionFilteringSink(
-            sessionId,
-            processingRuntime,
-            processedRecordTracker,
-            warmupResultAdmission
-        )
+    private val recordSink: PolledRecordSink<K, V> = recordAdmission?.let {
+        AdmissionControlledRecordSink(processingRuntime, processedRecordTracker, it)
     } ?: processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
         pollLoopFactory(
@@ -316,8 +300,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
         admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
-        warmupRecipientSessionId: WarmupSessionId? = null,
-        warmupResultAdmission: WarmupResultAdmission? = null,
+        recordAdmission: RecordAdmission<K, V>? = null,
         fixedAssignment: Map<TopicPartition, Long>? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
@@ -345,8 +328,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         topics = topics,
         topicsPattern = topicsPattern,
         admittedRecordInterceptor = admittedRecordInterceptor,
-        warmupRecipientSessionId = warmupRecipientSessionId,
-        warmupResultAdmission = warmupResultAdmission,
+        recordAdmission = recordAdmission,
         fixedAssignment = fixedAssignment,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime
@@ -404,19 +386,24 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         failure.get()?.let { throw it }
     }
 
-    internal fun currentWarmupSourceOwnership(topic: String): Set<WarmupSourcePartition>? {
+    private fun partitionOwnership(topic: String): Map<TopicPartition, Long> {
         val pollLoopReadiness = pollLoops.map { it.readiness() }
         if (!started || stopped || failure.get() != null ||
             pollLoopReadiness.any { !it.isCompleted || it.isCancelled }
-        ) return null
-        return partitionRegistry.currentLeases(topic)
-            .mapTo(linkedSetOf()) { lease ->
-                WarmupSourcePartition(
-                    partition = lease.topicPartition.partition(),
-                    ownershipGeneration = lease.generation
-                )
-            }
-            .takeIf(Set<WarmupSourcePartition>::isNotEmpty)
+        ) return emptyMap()
+        return partitionRegistry.currentLeases(topic).associate { it.topicPartition to it.generation }
+    }
+
+    /** Gives extensions control of this runtime independently of the configured consumer lifecycle. */
+    val runtimeControl: ConsumerRuntimeControl = object : ConsumerRuntimeControl {
+        override fun start() = startRuntime()
+        override suspend fun awaitReady() = awaitRuntimeReady()
+        override suspend fun stop() = stopRuntime()
+        override suspend fun abort(cause: Throwable) = abortRuntime(cause)
+        override suspend fun awaitTermination() = awaitRuntimeTermination()
+        override suspend fun awaitShutdownCompletion() = this@CoroutinesKafkaConsumer.awaitShutdownCompletion()
+        override fun isShutdownComplete() = this@CoroutinesKafkaConsumer.isShutdownComplete()
+        override fun partitionOwnership(topic: String) = this@CoroutinesKafkaConsumer.partitionOwnership(topic)
     }
 
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
@@ -461,7 +448,8 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         termination.await()?.let { throw it }
     }
 
-    internal fun attachManagedLifecycle(lifecycle: ManagedConsumerLifecycle) {
+    /** Attaches a coordinating lifecycle before this consumer is started. */
+    fun manageLifecycle(lifecycle: ManagedConsumerLifecycle) {
         check(managedLifecycle == null) { "Consumer lifecycle is already managed" }
         check(!started) { "Consumer lifecycle must be attached before start" }
         managedLifecycle = lifecycle

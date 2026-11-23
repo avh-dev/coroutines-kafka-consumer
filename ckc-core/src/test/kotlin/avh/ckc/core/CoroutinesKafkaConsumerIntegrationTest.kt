@@ -3,15 +3,6 @@ package avh.ckc.core
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
-import avh.ckc.core.warmup.KafkaWarmupRecipientConsumerPreparation
-import avh.ckc.core.warmup.KafkaWarmupDestinationMetadata
-import avh.ckc.core.warmup.WARMUP_SESSION_HEADER
-import avh.ckc.core.warmup.WarmupDestinationStart
-import avh.ckc.core.warmup.WarmupParticipantId
-import avh.ckc.core.warmup.WarmupPartitionAssignment
-import avh.ckc.core.warmup.WarmupSessionId
-import avh.ckc.core.warmup.WarmupTopicMapping
-import avh.ckc.core.warmup.warmupRecipientParticipantRuntime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +22,6 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.header.internals.RecordHeader
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.LongDeserializer
@@ -39,6 +29,7 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
@@ -62,48 +53,8 @@ import kotlin.time.Duration.Companion.milliseconds
 class CoroutinesKafkaConsumerIntegrationTest {
 
     @Test
-    fun `warmup recipient independently assigns partition zero at captured offset and filters sessions`() = runBlocking {
-        val topic = "warmup-recipient-${UUID.randomUUID()}"
-        val participant = WarmupParticipantId("orders")
-        val session = WarmupSessionId("recipient-session")
-        val mapping = WarmupTopicMapping(participant, "orders", topic, "mapping-fingerprint")
-        createTopic(topic)
-        produceWarmup(topic, session, "before-captured-start")
-        val capturedStart = KafkaWarmupDestinationMetadata(
-            mapOf(participant to mapOf("bootstrap.servers" to kafka.bootstrapServers)),
-            5_000.milliseconds
-        ).endOffsets(mapping).getValue(0)
-        val handled = CopyOnWriteArrayList<String>()
-        val preparation = KafkaWarmupRecipientConsumerPreparation(
-            mapOf(
-                participant to warmupRecipientParticipantRuntime<String, String>(
-                    consumerProperties("warmup-${UUID.randomUUID()}")
-                ) {
-                    processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
-                    handle { handled += it.value() }
-                }
-            )
-        )
-        val prepared = preparation.prepare(
-            session,
-            WarmupDestinationStart(WarmupPartitionAssignment(mapping), capturedStart)
-        )
-
-        produceWarmup(topic, WarmupSessionId("foreign-session"), "foreign")
-        produceWarmup(topic, session, "owned")
-        try {
-            prepared.start()
-            withTimeout(15_000) { prepared.awaitReady() }
-            awaitFor(timeoutMillis = 15_000) { handled.takeIf { it.size == 1 } }
-            delay(300)
-            assertEquals(listOf("owned"), handled.toList())
-        } finally {
-            prepared.stop()
-        }
-    }
-
-    @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
+        assertNull(javaClass.classLoader.getResource("avh/ckc/warmup/TrafficWarmupDslKt.class"))
         val topic = "ckc-it-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
@@ -130,6 +81,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         } finally {
             consumer.stop()
         }
+        assertTrue(consumer.isStopComplete())
+        assertEquals(1L, committedOffset(groupId, topic)?.offset())
     }
 
     @Test
@@ -529,8 +482,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "failure-key", "failure-payload")
             withTimeout(15_000) { recovered.await() }
 
+            val failedRecord = awaitFor(15_000) { metrics.failed.firstOrNull() }
+            assertEquals("metrics-boom", failedRecord.error.message)
             assertEquals(1, metrics.failed.size)
-            assertEquals("metrics-boom", metrics.failed.single().error.message)
             assertFalse(metrics.polls.isEmpty())
         } finally {
             consumer.stop()
@@ -1280,21 +1234,6 @@ class CoroutinesKafkaConsumerIntegrationTest {
         ).use { producer ->
             producer.send(ProducerRecord(topic, partition, key, value)).get()
             producer.flush()
-        }
-    }
-
-    private fun produceWarmup(topic: String, sessionId: WarmupSessionId, value: String) {
-        KafkaProducer<String, String>(
-            mapOf(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
-                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-                ProducerConfig.ACKS_CONFIG to "all"
-            )
-        ).use { producer ->
-            val record = ProducerRecord<String, String>(topic, 0, null, value)
-            record.headers().add(RecordHeader(WARMUP_SESSION_HEADER, sessionId.value.toByteArray()))
-            producer.send(record).get()
         }
     }
 

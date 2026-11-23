@@ -14,10 +14,6 @@ import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.typedTestRecord
-import avh.ckc.core.warmup.WarmupCompletionOutbox
-import avh.ckc.core.warmup.WarmupRecipientOutcomeMetrics
-import avh.ckc.core.warmup.WarmupRecordCompleted
-import avh.ckc.core.warmup.WarmupSessionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -53,12 +49,7 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         val testScheduler = TestCoroutineScheduler()
         val dispatcher = StandardTestDispatcher(testScheduler)
         val runtimeScope = CoroutineScope(SupervisorJob() + dispatcher)
-        val outboxScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val sent = CopyOnWriteArrayList<WarmupRecordCompleted>()
-        val outbox = WarmupCompletionOutbox(outboxScope, laneCapacity = 2) { sent += it }
-        val lane = outbox.lane("orders")
-        val recorded = RecordingMetrics<String, String>()
-        val metrics = WarmupRecipientOutcomeMetrics(WarmupSessionId("recipient"), lane, recorded)
+        val metrics = RecordingMetrics<String, String>()
         val topicPartition = TopicPartition("topic", 0)
         val registry = PartitionRegistry().also { partitionRegistry ->
             partitionRegistry.onPartitionsAssigned(listOf(topicPartition)).single().init(0L)
@@ -89,10 +80,8 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
         try {
             runtime.start { throw it }
             registry.observe(first)
-            assertTrue(lane.tryAcquire(first))
             assertTrue(runtime.tryEmit(first))
             registry.observe(waitingForWorker)
-            assertTrue(lane.tryAcquire(waitingForWorker))
             assertTrue(runtime.tryEmit(waitingForWorker))
 
             // The first record occupies the only worker. The deterministic scheduler then suspends
@@ -105,20 +94,12 @@ class AtLeastOnceOrderingRecordProcessingRuntimeTest {
             runtimeScope.cancel(CancellationException("forced abort"))
             testScheduler.runCurrent()
 
-            assertEquals(0, outbox.snapshot().outstanding)
-            assertEquals(setOf(1L, 2L), recorded.handedOff.map { it.record.offset() }.toSet())
-            assertTrue(sent.isEmpty())
-
+            assertEquals(setOf(1L, 2L), metrics.handedOff.map { it.record.offset() }.toSet())
+            assertTrue(metrics.processed.isEmpty())
             runtime.stop()
-            outbox.stop(2.seconds)
-
-            assertEquals(0, outbox.snapshot().outstanding)
-            assertTrue(sent.isEmpty())
         } finally {
             releaseFirst.complete(Unit)
-            outbox.close()
             runtimeScope.cancel()
-            outboxScope.cancel()
         }
     }
 

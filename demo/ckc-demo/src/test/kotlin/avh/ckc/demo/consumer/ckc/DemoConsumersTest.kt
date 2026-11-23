@@ -3,44 +3,48 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.warmup.trafficWarmupContext
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
+import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.micrometer.micrometerConsumerMetrics
+import avh.ckc.warmup.trafficWarmupContext
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.slf4j.LoggerFactory
-import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.test.Test
-import kotlin.test.assertEquals
 
 class DemoConsumersTest {
-    @Test
-    fun `one public warmup context registers all three typed demo consumers`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `three typed demo consumers register warmup meters only when configured`(enabled: Boolean) {
         val connection = mapOf<String, Any?>(
             CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG to "warmup-kafka:9092"
         )
-        val context = trafficWarmupContext {
-            instanceId = "pod-7"
-            namespace = "global5-v6-test"
-            controlTopic = DemoTopics.WARMUP_CONTROL
-            controlProducerProperties = connection
-            controlConsumerProperties = connection
-        }
-        val warmup = DemoConsumers.TrafficWarmup(
-            context,
-            consumerProperties = connection,
-            producerProperties = connection,
-            configuration = DemoApplicationProperties.TrafficWarmup(enabled = true)
-        )
+        val configuration = DemoApplicationProperties.TrafficWarmup(enabled = enabled)
+        val warmup = if (configuration.enabled) {
+            val context = trafficWarmupContext {
+                instanceId = "pod-7"
+                namespace = "global5-v6-test"
+                controlTopic = DemoTopics.WARMUP_CONTROL
+                controlProducerProperties = connection
+                controlConsumerProperties = connection
+            }
+            DemoConsumers.TrafficWarmup(context, connection, connection, configuration)
+        } else null
         val mainProperties = mapOf<String, Any>(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to "main-kafka:9092",
             ConsumerConfig.GROUP_ID_CONFIG to "demo-test"
@@ -52,9 +56,11 @@ class DemoConsumersTest {
         val retry = DemoApplicationProperties.Retry()
         val audit = DemoApplicationProperties.Audit(enabled = false)
 
+        val registry = SimpleMeterRegistry()
+        val schema = MicrometerConsumerMetricsSchema(registry, metricPrefix = "demo")
         val order = DemoConsumers.orderConsumer(
             mainProperties,
-            noopMetrics(),
+            micrometerConsumerMetrics(schema) { consumerId = "orders" },
             audit,
             runtime,
             retry,
@@ -64,7 +70,7 @@ class DemoConsumersTest {
         ) { _, _: OrderLifecycleEvent -> }
         val batch = DemoConsumers.batchConsumer(
             mainProperties,
-            noopMetrics(),
+            micrometerConsumerMetrics(schema) { consumerId = "batches" },
             audit,
             runtime,
             retry,
@@ -74,7 +80,7 @@ class DemoConsumersTest {
         ) { _, _: BatchLifecycleEvent -> }
         val telemetry = DemoConsumers.telemetryConsumer(
             mainProperties,
-            noopMetrics(),
+            micrometerConsumerMetrics(schema) { consumerId = "telemetry" },
             audit,
             telemetryRuntime,
             freshnessMaxRecordAgeSeconds = 10,
@@ -84,8 +90,14 @@ class DemoConsumersTest {
             trafficWarmup = warmup
         ) { _, _: CauldronTelemetryEvent -> }
 
-        runBlocking {
-            consumerContainer(order, batch, telemetry).stop()
+        try {
+            assertEquals(3, registry.find("demo.ckc.recovery.active").gauges().size)
+            val pending = registry.find("demo.ckc.warmup.pending").gauges()
+            val expectedIds = if (enabled) setOf("orders", "batches", "telemetry") else emptySet()
+            assertEquals(expectedIds, pending.mapNotNull { it.id.getTag("consumer_id") }.toSet())
+        } finally {
+            runBlocking { consumerContainer(order, batch, telemetry).stop() }
+            registry.close()
         }
     }
 
@@ -152,8 +164,4 @@ class DemoConsumersTest {
                 markers += processedRemotely
             }
         }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <V> noopMetrics(): ConsumerMetrics<String, V> =
-        ConsumerMetrics.NOOP as ConsumerMetrics<String, V>
 }

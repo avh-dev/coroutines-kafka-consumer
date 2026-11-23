@@ -116,6 +116,7 @@ do not provide that application-level guarantee.
 ## Modules
 
 - `ckc-core` contains the consumer runtime and public Kotlin DSL.
+- `ckc-warmup` contains the opt-in traffic warm-up DSL, runtime, and v6 protocol.
 - `ckc-micrometer` adapts CKC metrics to Micrometer.
 - `ckc-spring-boot-starter` wires CKC consumers into Spring Boot applications.
 - `demo/ckc-demo-contracts` contains shared demo protobuf contracts and serialization helpers.
@@ -123,6 +124,74 @@ do not provide that application-level guarantee.
 - `demo/ckc-demo-load-test` generates reproducible load-test traffic.
 - `demo/ckc-demo-stubs` provides local model-service stubs used by demo and load-test flows.
 - `experiments/ckc-experiments` contains offset-tracker and metadata-compression experiments.
+
+## Using CKC
+
+### Standard consumer
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":ckc-core"))
+}
+```
+
+```kotlin
+import avh.ckc.core.coroutinesKafkaConsumer
+
+val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
+    topics("orders")
+    handle { record -> processOrder(record.value()) }
+}
+```
+
+Supply the main Kafka bootstrap servers, group ID, and deserializers in `kafkaProperties`.
+Call `consumer.start()` and use the suspending `consumer.stop()` during shutdown.
+The base Spring Boot starter and Micrometer adapter also work without the warm-up JAR.
+
+### Consumer with traffic warm-up
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":ckc-warmup"))
+}
+```
+
+```kotlin
+import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.warmup.trafficWarmup
+import avh.ckc.warmup.trafficWarmupContext
+import org.apache.kafka.common.serialization.StringSerializer
+
+val warmupKafka = mapOf("bootstrap.servers" to "localhost:9092")
+val context = trafficWarmupContext {
+    namespace = "orders-service"
+    controlTopic = "warmup.control"
+    controlProducerProperties = warmupKafka
+    controlConsumerProperties = warmupKafka
+}
+
+val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
+    topics("orders")
+    trafficWarmup(context, "orders") {
+        mapTopic("orders", "warmup.orders")
+        warmupConsumerProperties = warmupKafka
+        forwardingProducerProperties = warmupKafka + mapOf(
+            "key.serializer" to StringSerializer::class.java,
+            "value.serializer" to StringSerializer::class.java
+        )
+    }
+    handle { record -> processOrder(record.value()) }
+}
+```
+
+Provision the control topic and a single-partition destination topic before starting the consumer.
+Instances that share a namespace use the same participant IDs and mappings.
+The `coroutines-kafka-consumer-warmup` JAR includes the protocol in `avh.ckc.warmup.protocol`.
+When the consumer uses a CKC Micrometer metrics binding, enabling the DSL also registers the
+warm-up meters with that binding's prefix and tags.
+For custom callbacks, implement `WarmupMetrics<K, V>` and set `metrics` inside the warm-up block.
 
 ## Current Status
 

@@ -4,16 +4,14 @@ import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.CoroutinesKafkaConsumerBuilder
 import avh.ckc.core.RetryPolicy
 import avh.ckc.core.RetryRule
+import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
-import avh.ckc.core.coroutinesKafkaConsumer
-import avh.ckc.core.warmup.TrafficWarmupContext
-import avh.ckc.core.warmup.TrafficWarmupForwardedEvent
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
-import avh.ckc.demo.logFailed
 import avh.ckc.demo.logDropped
+import avh.ckc.demo.logFailed
 import avh.ckc.demo.logHandedOff
 import avh.ckc.demo.logProcessed
 import avh.ckc.demo.logRetryAttempt
@@ -26,6 +24,11 @@ import avh.ckc.demo.serialization.CauldronTelemetryEventDeserializer
 import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
+import avh.ckc.warmup.TrafficWarmupContext
+import avh.ckc.warmup.TrafficWarmupForwardedEvent
+import avh.ckc.warmup.trafficWarmup
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -34,8 +37,6 @@ import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.slf4j.LoggerFactory
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 object DemoConsumers {
     private val log = LoggerFactory.getLogger(DemoConsumers::class.java)
