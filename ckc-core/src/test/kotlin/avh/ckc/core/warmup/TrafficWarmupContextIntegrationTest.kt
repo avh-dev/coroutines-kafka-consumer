@@ -46,6 +46,76 @@ import kotlin.time.Duration.Companion.seconds
 @Testcontainers(disabledWithoutDocker = true)
 class TrafficWarmupContextIntegrationTest {
     @Test
+    fun `idle recipient starts main consumers promptly after losing its control path`() = runBlocking {
+        val source = unique("liveness-source")
+        val warmup = unique("liveness-warmup")
+        val control = unique("liveness-control")
+        val namespace = unique("liveness")
+        val group = unique("liveness-group")
+        createTopics(source, warmup)
+        val controlKafka = ReplaceableWarmupKafka()
+        controlKafka.start()
+        val connection = controlKafka.connection()
+        val warming = CompletableDeferred<Unit>()
+        val interrupted = CompletableDeferred<TrafficWarmupLifecycleEvent>()
+        val mainReady = CompletableDeferred<TrafficWarmupLifecycleEvent>()
+        val donorHandled = CopyOnWriteArrayList<String>()
+        val recipientHandled = CopyOnWriteArrayList<String>()
+
+        fun livenessContext(observe: (TrafficWarmupLifecycleEvent) -> Unit = {}) = trafficWarmupContext {
+            this.namespace = namespace
+            this.controlTopic = control
+            controlProducerProperties = connection
+            controlConsumerProperties = connection
+            warmupDuration = 90.seconds
+            donorLivenessTimeout = 6.seconds
+            completionTimeout = 2.seconds
+            offerWindow = 500.milliseconds
+            preparationTimeout = 3.seconds
+            onLifecycleEvent(observe)
+        }
+        val donor = stringConsumer(livenessContext(), "records", source, warmup, group, donorHandled)
+        val recipientContext = livenessContext { event ->
+            when (event.phase) {
+                TrafficWarmupLifecyclePhase.WARMING -> warming.complete(Unit)
+                TrafficWarmupLifecyclePhase.WARMUP_INTERRUPTED -> interrupted.complete(event)
+                TrafficWarmupLifecyclePhase.MAIN_READY -> mainReady.complete(event)
+                else -> Unit
+            }
+        }
+        val recipient = stringConsumer(recipientContext, "records", source, warmup, group, recipientHandled)
+        try {
+            createTopicsAt(connection, control)
+            donor.start()
+            withTimeout(20.seconds) { donor.awaitReady() }
+            recipient.start()
+            withTimeout(20.seconds) { warming.await() }
+            kotlinx.coroutines.delay(8.seconds)
+            assertFalse(interrupted.isCompleted, "idle donors must keep the control round trip alive")
+            assertFalse(mainReady.isCompleted)
+
+            controlKafka.destroyData()
+            val failure = withTimeout(8.seconds) { interrupted.await() }
+            assertEquals("donor_liveness_timeout", failure.reasonCode)
+            val recovered = withTimeout(10.seconds) { mainReady.await() }
+            assertEquals(failure.sessionId, recovered.sessionId)
+            assertEquals(failure.reasonCode, recovered.reasonCode)
+            assertTrue(requireNotNull(recovered.recoveryDurationMillis) < 10_000)
+            recipient.awaitReady()
+        } finally {
+            try {
+                recipient.stop()
+            } finally {
+                try {
+                    donor.stop()
+                } finally {
+                    controlKafka.stop()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `new recipient warms after complete warmup kafka data loss without restarting donor`() = runBlocking {
         val source = unique("transport-loss-source")
         val warmup = unique("transport-loss-warmup")

@@ -234,6 +234,7 @@ internal class WarmupCompletionOutbox(
 
     /** Closes admission, drains every previously accepted record, and then stops fixed send workers. */
     suspend fun stop(timeout: Duration) {
+        if (isStopped()) return
         require(timeout.isPositive()) { "Warm-up completion stop timeout must be positive" }
         val started = System.nanoTime()
         var outcome = LifecycleOutcome.FAILURE
@@ -261,6 +262,13 @@ internal class WarmupCompletionOutbox(
                 observe { observer.onDrain(System.nanoTime() - started, outcome) }
             }
         }
+    }
+
+    /** Abandons unacknowledged results when donor liveness is lost. The donor retains source ownership. */
+    suspend fun abort(timeout: Duration) {
+        close()
+        withTimeout(timeout) { workers.joinAll() }
+        synchronized(lock) { stopped = true }
     }
 
     override fun close() {

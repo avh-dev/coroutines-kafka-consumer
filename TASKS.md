@@ -92,6 +92,7 @@
 | [CORE-87](#core-87) | Bound warm-up outstanding work and deliver recipient results with parallel Kafka acknowledgements. | DONE |
 | [CORE-88](#core-88) | Isolate warm-up protocol work on bounded named dispatchers whose idle threads expire. | DONE |
 | [CORE-89](#core-89) | Keep healthy control consumers polling through transient recovery-check failures and classify real transport failures. | DONE |
+| [CORE-96](#core-96) | Detect warm-up donor or control-path loss and start main consumers after bounded local cleanup. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6894,3 +6895,13 @@ Reuse the first INFRA-361 target's processing and warm-up settings with the same
 Time manual scale-ups from observed pod starts and schedule failures inside the expected warm-up windows.
 Document the launch commands and manual evidence checks for each independent experiment.
 Validate the four canonical definitions and their shared workload, infrastructure, and runtime settings.
+
+<a id="core-96"></a>
+### CORE-96 - Detect warm-up donor and control-path loss
+
+_Date: 2026-11-23_
+
+Probe every required donor over the control topic during recipient warm-up, including idle traffic.
+Use a configurable 10s deadline, bound terminal-fence publication, and cancel outstanding result delivery on liveness loss.
+Report the interruption and elapsed time until each main consumer becomes ready.
+Passed 343 core tests, 114 demo tests, and an isolated Kafka integration test of control-path loss.

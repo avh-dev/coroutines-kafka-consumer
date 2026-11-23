@@ -170,6 +170,14 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         }
     }
 
+    fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
+        val local = sessions[probe.sessionId] ?: return@synchronized null
+        if (probe.reply || local.state != State.ACTIVE || !matchesSession(local.acceptance, probe) ||
+            nowEpochMillis() >= probe.expiresAtEpochMillis
+        ) return@synchronized null
+        probe.copy(senderInstanceId = localInstanceId, targetInstanceId = probe.senderInstanceId, reply = true)
+    }
+
     /** Routes a remote terminal result only to its exact admitted recipient and destination. */
     fun onRecordCompleted(message: ControlRecordCompleted): WarmupResultTracker.Completion {
         val accepted = synchronized(lock) {

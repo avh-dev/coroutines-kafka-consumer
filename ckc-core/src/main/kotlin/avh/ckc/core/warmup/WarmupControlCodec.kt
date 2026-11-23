@@ -50,6 +50,10 @@ internal object WarmupControlCodec {
                 is ControlRecordCompleted -> data.writeCompleted(message.completed)
                 is WarmupCompletionRequested,
                 is DonorClosed -> Unit
+                is WarmupLivenessProbe -> {
+                    data.writeLong(message.sentAtNanos)
+                    data.writeBoolean(message.reply)
+                }
                 is SessionEnded -> {
                     data.writeByte(message.state.ordinal)
                     data.writeNullableString(message.reasonCode)
@@ -151,6 +155,10 @@ internal object WarmupControlCodec {
             TYPE_DONOR_CLOSED -> DonorClosed(
                 namespace, sessionId, sender, requiredTarget("DonorClosed"), fingerprint, deadline, version
             )
+            TYPE_LIVENESS_PROBE -> WarmupLivenessProbe(
+                namespace, sessionId, sender, requiredTarget("WarmupLivenessProbe"),
+                data.readLong(), data.readBoolean(), fingerprint, deadline, version
+            )
             TYPE_SESSION_ENDED -> SessionEnded(
                 namespace, sessionId, sender,
                 WarmupSessionEndState.entries.getOrNull(data.readUnsignedByte())
@@ -172,6 +180,7 @@ internal object WarmupControlCodec {
         is WarmupCompletionRequested -> TYPE_COMPLETION_REQUESTED
         is DonorClosed -> TYPE_DONOR_CLOSED
         is SessionEnded -> TYPE_SESSION_ENDED
+        is WarmupLivenessProbe -> TYPE_LIVENESS_PROBE
     }
 
     private fun DataOutputStream.writeMapping(mapping: WarmupTopicMapping) {
@@ -317,6 +326,7 @@ internal object WarmupControlCodec {
     private const val TYPE_COMPLETION_REQUESTED = 8
     private const val TYPE_DONOR_CLOSED = 9
     private const val TYPE_SESSION_ENDED = 10
+    private const val TYPE_LIVENESS_PROBE = 11
     private const val OUTCOME_SUCCEEDED = 1
     private const val OUTCOME_TERMINAL_FAILURE = 2
     private const val OUTCOME_DISCARDED = 3

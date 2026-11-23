@@ -160,6 +160,7 @@ messages:
 | `SessionRejected` | Donor | Rejects a targeted acceptance without creating or retaining session capacity. |
 | `RecipientReady` | Recipient | Confirms that every mapping consumer is assigned, positioned, and ready; authorizes delegation. |
 | `RecordCompleted` | Recipient | Reports a terminal runtime result for one forwarded destination coordinate. |
+| `WarmupLivenessProbe` | Recipient and donor | Checks the control round trip for each required active donor session. |
 | `WarmupCompletionRequested` | Recipient | Closes new delegation admission for all selected donors. |
 | `DonorClosed` | Donor | Confirms no admitted record remains without a remote terminal result or required local fallback. |
 | `SessionEnded` | Recipient | Announces completed or cold-fallback outcome for diagnostics; it is not a shared tombstone. |
@@ -368,6 +369,16 @@ fallback for its owned records, and leaves other sessions and the donor main con
 Recipient loss is handled by each donor's local session deadline and close path. A lost donor makes
 the recipient finish or cold-fallback within its own deadline; it does not elect a replacement in
 the same session.
+
+During active warm-up, the recipient probes every selected donor over the control topic, even when
+the main topics are idle. Only a reply from the matching active session renews the recipient's
+deadline. The configurable `donorLivenessTimeout` defaults to 10 seconds, with a probe every
+third of that interval. Renewals are measured from the recipient's original probe send time so
+delayed replies cannot grant a fresh deadline. If a required donor stops answering, the recipient
+stops its warm-up consumers, attempts to publish the terminal fence within one probe interval, and
+cancels outstanding result delivery before launching the main consumers. The lifecycle reports
+`WARMUP_INTERRUPTED` with `donor_liveness_timeout` for a missing control round trip and includes
+the recovery duration in each participant's `MAIN_READY` event.
 
 Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
 loss does not stop main consumers and does not revive completed sessions when topics return. New

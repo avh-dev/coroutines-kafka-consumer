@@ -246,6 +246,24 @@ internal data class DonorClosed(
     }
 }
 
+/** A recipient challenge or its echo from an active donor. The timestamp is opaque to the donor. */
+internal data class WarmupLivenessProbe(
+    override val namespace: WarmupControlNamespace,
+    override val sessionId: WarmupSessionId,
+    override val senderInstanceId: WarmupInstanceId,
+    override val targetInstanceId: WarmupInstanceId,
+    val sentAtNanos: Long,
+    val reply: Boolean,
+    override val configurationFingerprint: String,
+    override val expiresAtEpochMillis: Long,
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+) : WarmupControlMessage {
+    init {
+        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
+        require(sentAtNanos > 0) { "Liveness probe timestamp must be positive" }
+    }
+}
+
 internal enum class WarmupSessionEndState { COMPLETED, FAILED, COLD_FALLBACK }
 
 internal data class SessionEnded(

@@ -20,6 +20,9 @@ class TrafficWarmupContextConfiguration {
     var preparationTimeout: Duration = 15.seconds
     var completionTimeout: Duration = 30.seconds
     var delegationTimeout: Duration = 10.seconds
+
+    /** Maximum time without a successful control round trip to each selected donor during warm-up. */
+    var donorLivenessTimeout: Duration = 10.seconds
     var maxDonorSessions: Int = 4
 
     /** Maximum total of coordination and blocking Kafka workers owned by this context. */
@@ -99,6 +102,7 @@ enum class TrafficWarmupLifecyclePhase {
     DISCOVERING,
     READY,
     WARMING,
+    WARMUP_INTERRUPTED,
     COMPLETING,
     COLD_FALLBACK,
     MAIN_READY,
@@ -113,7 +117,9 @@ data class TrafficWarmupLifecycleEvent(
     val sessionId: String? = null,
     val reasonCode: String? = null,
     val durationMillis: Long? = null,
-    val processedRecords: Long? = null
+    val processedRecords: Long? = null,
+    /** Elapsed time between observing a warm-up interruption and this participant becoming MAIN_READY. */
+    val recoveryDurationMillis: Long? = null
 )
 
 data class TrafficWarmupForwardedEvent(

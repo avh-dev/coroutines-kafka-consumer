@@ -8,6 +8,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.selects.select
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 internal sealed interface WarmupDiscoveryResult {
     data class Ready(val messages: List<RecipientReady>) : WarmupDiscoveryResult
@@ -36,6 +37,12 @@ internal sealed interface WarmupCompletionResult {
     ) : WarmupCompletionResult
 }
 
+internal enum class WarmupInterruption(val reasonCode: String) {
+    DONOR_SESSION_ENDED("donor_session_ended"),
+    RECIPIENT_CONSUMER_TERMINATED("recipient_consumer_terminated"),
+    DONOR_LIVENESS_TIMEOUT("donor_liveness_timeout")
+}
+
 /**
  * Connects the tail-started control transport to stateless donor offers and one local recipient.
  * It is not a coordinator in the protocol sense: it owns no namespace table and dispatches only
@@ -50,19 +57,25 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val donorActivation: WarmupDonorActivation<S>,
     private val offerCollectionWindow: Duration,
     private val donorAcceptanceTimeout: Duration,
-    private val donorCompletionTimeout: Duration = donorAcceptanceTimeout
+    private val donorCompletionTimeout: Duration = donorAcceptanceTimeout,
+    private val donorLivenessTimeout: Duration = 10.seconds
 ) : WarmupControlMessageHandler, AutoCloseable {
     private val lock = Any()
     private val recipientSignal = Channel<Unit>(Channel.CONFLATED)
     private val registration = router.register(this)
     private var activeRecipient: WarmupRecipientDiscovery? = null
     private var completedRecipient: Pair<WarmupRecipientDiscovery, WarmupCompletionResult>? = null
+    private val probeInterval = donorLivenessTimeout / 3
+    @Volatile private var donorLiveness: WarmupDonorLiveness? = null
     @Volatile private var controlFailure: Throwable? = null
 
     init {
         require(offerCollectionWindow.isPositive()) { "Offer collection window must be > 0" }
         require(donorAcceptanceTimeout.isPositive()) { "Donor acceptance timeout must be > 0" }
         require(donorCompletionTimeout.isPositive()) { "Donor completion timeout must be > 0" }
+        require(donorLivenessTimeout.isFinite() && probeInterval.inWholeMilliseconds >= 1) {
+            "Donor liveness timeout must be finite and at least 3 milliseconds"
+        }
     }
 
     suspend fun startControl(): Boolean = try {
@@ -204,34 +217,51 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         }
     }
 
-    /** Rolls back an already prepared local recipient and fences its donors before cold start. */
+    /** Rolls back a prepared recipient and gives its best-effort fence a bounded send window. */
     suspend fun abortWarmup(recipient: WarmupRecipientDiscovery, reasonCode: String): WarmupDiscoveryResult =
-        fallback(recipient, reasonCode)
+        fallback(recipient, reasonCode, fenceTimeout = probeInterval)
 
-    /** Returns early when an accepted donor terminates the active recipient session. */
+    /** An absent round trip may indicate either donor loss or a control-path outage. */
     suspend fun awaitWarmupInterruption(
         recipient: WarmupRecipientDiscovery,
         duration: Duration
-    ): Boolean = withTimeoutOrNull(duration) {
-        supervisorScope {
-            val controlInterruption = async {
-                while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
-                    recipientSignal.receive()
+    ): WarmupInterruption? = withTimeoutOrNull(duration) {
+        val liveness = WarmupDonorLiveness(
+            recipient.request, recipient.selectedDonorIds(), channel, donorLivenessTimeout, probeInterval
+        )
+        donorLiveness = liveness
+        try {
+            supervisorScope {
+                val controlInterruption = async {
+                    while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
+                        recipientSignal.receive()
+                    }
+                    WarmupInterruption.DONOR_SESSION_ENDED
+                }
+                val consumerTermination = async {
+                    recipient.awaitPreparedConsumerTermination()
+                    WarmupInterruption.RECIPIENT_CONSUMER_TERMINATED
+                }
+                val livenessTimeout = async {
+                    liveness.awaitTimeout()
+                    WarmupInterruption.DONOR_LIVENESS_TIMEOUT
+                }
+                try {
+                    select {
+                        controlInterruption.onAwait { it }
+                        consumerTermination.onAwait { it }
+                        livenessTimeout.onAwait { it }
+                    }
+                } finally {
+                    controlInterruption.cancel()
+                    consumerTermination.cancel()
+                    livenessTimeout.cancel()
                 }
             }
-            val consumerTermination = async { recipient.awaitPreparedConsumerTermination() }
-            try {
-                select<Unit> {
-                    controlInterruption.onAwait { }
-                    consumerTermination.onAwait { }
-                }
-            } finally {
-                controlInterruption.cancel()
-                consumerTermination.cancel()
-            }
+        } finally {
+            donorLiveness = null
         }
-        true
-    } == true
+    }
 
     override suspend fun onMessage(record: WarmupControlRecord) {
         val message = record.message
@@ -251,6 +281,11 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             is DonorAccepted -> withRecipient(message.sessionId) { it.onDonorAccepted(message) }
             is SessionRejected -> withRecipient(message.sessionId) { it.onDonorRejected(message) }
             is DonorClosed -> withRecipient(message.sessionId) { it.onDonorClosed(message) }
+            is WarmupLivenessProbe -> if (message.reply) {
+                donorLiveness?.onReply(message)
+            } else {
+                replyToProbe(message)
+            }
         }
     }
 
@@ -268,29 +303,30 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         if (recipient?.request?.sessionId == sessionId && action(recipient)) recipientSignal.trySend(Unit)
     }
 
+    private suspend fun replyToProbe(probe: WarmupLivenessProbe) {
+        val reply = donorActivation.replyToProbe(probe) ?: return
+        try {
+            withTimeoutOrNull(probeInterval) { channel.send(reply) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The recipient retries until its liveness deadline.
+        }
+    }
+
     private suspend fun fallback(
         recipient: WarmupRecipientDiscovery,
         reasonCode: String,
-        knownCleanup: WarmupRecipientCleanupResult? = null
+        knownCleanup: WarmupRecipientCleanupResult? = null,
+        fenceTimeout: Duration? = null
     ): WarmupDiscoveryResult {
         val cleanup = knownCleanup ?: recipient.terminate()
-        val request = recipient.request
-        try {
-            channel.send(
-                SessionEnded(
-                    namespace = namespace,
-                    sessionId = request.sessionId,
-                    senderInstanceId = localInstanceId,
-                    state = WarmupSessionEndState.COLD_FALLBACK,
-                    reasonCode = reasonCode,
-                    configurationFingerprint = request.configurationFingerprint,
-                    expiresAtEpochMillis = request.expiresAtEpochMillis
-                )
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            // Cold fallback is already local; failure to publish its best-effort fence is diagnostic only.
+        if (fenceTimeout == null) {
+            publishEndedFence(recipient, WarmupSessionEndState.COLD_FALLBACK, reasonCode)
+        } else {
+            withTimeoutOrNull(fenceTimeout) {
+                publishEndedFence(recipient, WarmupSessionEndState.COLD_FALLBACK, reasonCode)
+            }
         }
         clearRecipient(recipient)
         return when (cleanup) {

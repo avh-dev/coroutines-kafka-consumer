@@ -42,6 +42,8 @@ class WarmupControlCodecTest {
             ControlRecordCompleted(namespace, session, recipient, donor, completed, fingerprint, 10_000),
             WarmupCompletionRequested(namespace, session, recipient, donor, fingerprint, 10_000),
             DonorClosed(namespace, session, donor, recipient, fingerprint, 10_000),
+            WarmupLivenessProbe(namespace, session, recipient, donor, 500, false, fingerprint, 10_000),
+            WarmupLivenessProbe(namespace, session, donor, recipient, 500, true, fingerprint, 10_000),
             SessionEnded(namespace, session, recipient, WarmupSessionEndState.COLD_FALLBACK, "metadata_failed", fingerprint, 10_000)
         )
 

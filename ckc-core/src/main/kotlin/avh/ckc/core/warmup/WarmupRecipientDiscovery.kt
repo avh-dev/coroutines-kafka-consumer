@@ -237,6 +237,10 @@ internal class WarmupRecipientDiscovery(
         state == State.DRAINING && closedDonors.keys == acceptances.keys
     }
 
+    fun selectedDonorIds(): Set<WarmupInstanceId> = synchronized(lock) {
+        acceptances.keys.toSet()
+    }
+
     fun donorFor(destination: TopicPartition): WarmupInstanceId? = synchronized(lock) {
         acceptances.entries.firstOrNull { (_, acceptance) ->
             acceptance.mappings.any { WarmupPartitionAssignment(it.mapping).destination == destination }

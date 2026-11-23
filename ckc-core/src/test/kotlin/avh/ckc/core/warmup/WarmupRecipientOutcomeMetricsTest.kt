@@ -161,6 +161,31 @@ class WarmupRecipientOutcomeMetricsTest {
     }
 
     @Test
+    fun `abort abandons queued results and cancels sends awaiting acknowledgement`() = runBlocking {
+        val sendStarted = CompletableDeferred<Unit>()
+        val outbox = WarmupCompletionOutbox(this, laneCapacity = 2, senderConcurrency = 1) {
+            sendStarted.complete(Unit)
+            awaitCancellation()
+        }
+        val lane = outbox.lane("orders")
+        try {
+            admitAndPublish(lane, completed(offset = 1))
+            admitAndPublish(lane, completed(offset = 2))
+            withTimeout(2.seconds) { sendStarted.await() }
+            assertEquals(1, outbox.snapshot().awaitingAcknowledgement)
+            assertEquals(1, outbox.snapshot().queued)
+
+            outbox.abort(2.seconds)
+
+            assertEquals(0, outbox.snapshot().outstanding)
+            assertFalse(lane.tryAcquire(record(offset = 3)))
+            outbox.stop(2.seconds)
+        } finally {
+            outbox.close()
+        }
+    }
+
+    @Test
     fun `send cancellation closes outbox instead of accepting undeliverable results`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val outbox = WarmupCompletionOutbox(scope, laneCapacity = 2) {

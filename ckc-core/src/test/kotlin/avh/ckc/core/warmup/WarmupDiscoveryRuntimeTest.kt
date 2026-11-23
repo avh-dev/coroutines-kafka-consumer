@@ -199,7 +199,7 @@ class WarmupDiscoveryRuntimeTest {
             )
         )
 
-        assertTrue(runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
+        assertEquals(WarmupInterruption.DONOR_SESSION_ENDED, runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
         assertInstanceOf(
             WarmupDiscoveryResult.ColdFallback::class.java,
             runtime.abortWarmup(recipient, "donor_session_ended")
@@ -254,7 +254,7 @@ class WarmupDiscoveryRuntimeTest {
         assertInstanceOf(WarmupDiscoveryResult.Ready::class.java, runtime.discoverAndPrepare(recipient))
         termination.completeExceptionally(IllegalStateException("warm-up topic was recreated"))
 
-        assertTrue(runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
+        assertEquals(WarmupInterruption.RECIPIENT_CONSUMER_TERMINATED, runtime.awaitWarmupInterruption(recipient, 100.milliseconds))
         assertInstanceOf(
             WarmupDiscoveryResult.ColdFallback::class.java,
             runtime.abortWarmup(recipient, "recipient_consumer_terminated")
