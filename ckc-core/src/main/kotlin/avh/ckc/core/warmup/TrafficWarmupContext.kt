@@ -409,14 +409,14 @@ class TrafficWarmupContext internal constructor(
             }
             runDiscoveryAndWarmup()
         } catch (_: TimeoutCancellationException) {
-            withContext(NonCancellable) { rollbackRecipientAndStartCold("recipient_cleanup_timeout") }
+            withContext(NonCancellable) { finishInterruptedAttempt("recipient_cleanup_timeout") }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
-                rollbackRecipientAndStartCold("participant_stopped")
+                finishInterruptedAttempt("participant_stopped")
             }
         } catch (error: Throwable) {
             log.warn("Warm-up recipient attempt failed; using cold start", error)
-            withContext(NonCancellable) { rollbackRecipientAndStartCold("recipient_failure") }
+            withContext(NonCancellable) { finishInterruptedAttempt("recipient_failure") }
         }
     }
 
@@ -518,21 +518,34 @@ class TrafficWarmupContext internal constructor(
                 observeInterruption(sessionId, it)
                 outbox.close()
             },
-            finishSends = { finishRecipientSends(sessionId, outbox) }
+            finishSends = { finishRecipientSends(sessionId, outbox, it) }
         )
+        applyCompletion(completion)
+    }
+
+    private fun applyCompletion(completion: WarmupCompletionResult) {
         when (completion) {
             WarmupCompletionResult.Completed,
             is WarmupCompletionResult.CompletedWithDiagnostics -> completeRecipientPhaseAndLaunchMains(null)
-            is WarmupCompletionResult.ColdFallback -> finishFailedRecipient(completion.reasonCode, null)
-            is WarmupCompletionResult.ColdFallbackWithDiagnostics -> finishFailedRecipient(completion.reasonCode, null)
-            is WarmupCompletionResult.CleanupIncomplete -> finishFailedRecipient(completion.reasonCode, completion.cleanup)
+            is WarmupCompletionResult.ColdFallback -> completeRecipientPhaseAndLaunchMains(completion.reasonCode)
+            is WarmupCompletionResult.ColdFallbackWithDiagnostics ->
+                completeRecipientPhaseAndLaunchMains(completion.reasonCode)
+            is WarmupCompletionResult.CleanupIncomplete ->
+                failRecipientCleanup(completion.reasonCode, completion.cleanup)
         }
     }
 
     private suspend fun finishRecipientSends(
         sessionId: WarmupSessionId,
-        outbox: WarmupCompletionOutbox
+        outbox: WarmupCompletionOutbox,
+        consumerResult: WarmupCompletionResult
     ): WarmupCompletionResult {
+        when (consumerResult) {
+            WarmupCompletionResult.Completed,
+            is WarmupCompletionResult.CompletedWithDiagnostics -> Unit
+            else -> return cleanupRecipientSends(consumerResult as? WarmupCompletionResult.CleanupIncomplete)
+                ?: consumerResult
+        }
         val resultFailure = try {
             outbox.stop(configuration.completionTimeout)
             null
@@ -549,12 +562,15 @@ class TrafficWarmupContext internal constructor(
                 runtime.stopRecipientProbes()
                 true
             }
-            if (stopped == true) return WarmupCompletionResult.Completed
+            if (stopped == true) return consumerResult
             "recipient_cleanup_timeout"
         }
 
         observeInterruption(sessionId, reason)
-        return cleanupRecipientSends(null) ?: WarmupCompletionResult.ColdFallback(reason)
+        // A sender can finish unwinding during one bounded retry. Commit the outcome afterward.
+        val cleanup = cleanupRecipientSends(null, resultFailure)
+        if (cleanup != null) cleanupRecipientSends(null, resultFailure)?.let { return it }
+        return WarmupCompletionResult.ColdFallback(reason)
     }
 
     private suspend fun awaitWarmupFailure(
@@ -588,6 +604,16 @@ class TrafficWarmupContext internal constructor(
         observe(TrafficWarmupLifecyclePhase.WARMUP_INTERRUPTED, sessionId = sessionId.value, reasonCode = reasonCode)
     }
 
+    private suspend fun finishInterruptedAttempt(reasonCode: String) {
+        val recipient = activeRecipient
+        val outcome = recipient?.let { runtime.completedResult(it) }
+        if (outcome != null) {
+            applyCompletion(outcome)
+            return
+        }
+        rollbackRecipientAndStartCold(recipient?.terminalOutcome()?.reasonCode ?: reasonCode)
+    }
+
     private suspend fun rollbackRecipientAndStartCold(reasonCode: String) {
         activeOutbox?.close()
         val rollback = activeRecipient?.let { runtime.abortWarmup(it, reasonCode) }
@@ -607,9 +633,10 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun cleanupRecipientSends(
-        incomplete: WarmupCompletionResult.CleanupIncomplete?
+        incomplete: WarmupCompletionResult.CleanupIncomplete?,
+        cause: Throwable? = null
     ): WarmupCompletionResult.CleanupIncomplete? = try {
-        abortRecipientSends(activeOutbox)
+        abortRecipientSends(activeOutbox, cause)
         incomplete
     } catch (_: TimeoutCancellationException) {
         currentCoroutineContext().ensureActive()
@@ -622,9 +649,9 @@ class TrafficWarmupContext internal constructor(
         )
     }
 
-    private suspend fun abortRecipientSends(outbox: WarmupCompletionOutbox?) {
+    private suspend fun abortRecipientSends(outbox: WarmupCompletionOutbox?, cause: Throwable? = null) {
         withTimeout(configuration.completionTimeout) {
-            outbox?.abort(configuration.completionTimeout)
+            outbox?.abort(configuration.completionTimeout, cause)
             if (::runtime.isInitialized) runtime.stopRecipientProbes()
         }
     }

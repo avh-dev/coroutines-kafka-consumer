@@ -252,9 +252,9 @@ internal class WarmupCompletionOutbox(
                     throw failure
                 }
                 flush(timeout)
-                synchronized(lock) { stopped = true }
                 signal.close()
                 workers.joinAll()
+                synchronized(lock) { stopped = true }
                 failure.get()?.let { throw it }
                 outcome = LifecycleOutcome.SUCCESS
             }
@@ -271,20 +271,29 @@ internal class WarmupCompletionOutbox(
         }
     }
 
-    /** Abandons unacknowledged results when donor liveness is lost. The donor retains source ownership. */
-    suspend fun abort(timeout: Duration) {
-        close()
+    /** Abandons unacknowledged results. The donor retains source ownership. */
+    suspend fun abort(timeout: Duration, cause: Throwable? = null) {
+        cancelSends(cause)
         withTimeout(timeout) { workers.joinAll() }
         synchronized(lock) { stopped = true }
     }
 
-    override fun close() {
+    override fun close() = cancelSends(null)
+
+    private fun cancelSends(cause: Throwable?) {
         if (isStopped()) return
         closeAdmission()
-        fail(
-            WarmupCompletionOutboxCancelledException(CancellationException("Warm-up completion outbox closed")),
-            WarmupResultDeliveryFailureReason.CANCELLED
-        )
+        if (cause != null && isWarmupResultDeliveryTimeout(cause)) {
+            fail(
+                WarmupResultDeliveryException("Warm-up result delivery timed out", cause),
+                WarmupResultDeliveryFailureReason.TIMEOUT
+            )
+        } else {
+            fail(
+                WarmupCompletionOutboxCancelledException(CancellationException("Warm-up completion outbox closed")),
+                WarmupResultDeliveryFailureReason.CANCELLED
+            )
+        }
         workers.forEach { it.cancel() }
     }
 

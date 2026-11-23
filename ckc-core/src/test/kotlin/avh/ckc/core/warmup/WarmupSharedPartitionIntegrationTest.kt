@@ -624,10 +624,16 @@ class WarmupSharedPartitionIntegrationTest {
         }
 
         suspend fun complete(): WarmupCompletionResult {
-            val result = recipientRuntime.completeWarmup(recipientDiscovery, finishSends = {
-                outbox.stop(5.seconds)
+            val result = recipientRuntime.completeWarmup(recipientDiscovery, finishSends = { result ->
+                if (result == WarmupCompletionResult.Completed ||
+                    result is WarmupCompletionResult.CompletedWithDiagnostics
+                ) {
+                    outbox.stop(5.seconds)
+                } else {
+                    outbox.abort(5.seconds)
+                }
                 recipientRuntime.stopRecipientProbes()
-                WarmupCompletionResult.Completed
+                result
             })
             if (result is WarmupCompletionResult.Completed ||
                 result is WarmupCompletionResult.CompletedWithDiagnostics
