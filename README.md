@@ -204,6 +204,21 @@ When the consumer uses a CKC Micrometer metrics binding, enabling the DSL also r
 warm-up meters with that binding's prefix and tags.
 For custom callbacks, implement `WarmupMetrics<K, V>` and set `metrics` inside the warm-up block.
 
+For a temporary broker configured for coordinated shutdown, point each participating context at its
+dedicated lifecycle topic and broker connection.
+
+```kotlin
+brokerLifecycle {
+    topic = "ckc.traffic-warmup.lifecycle"
+    kafkaProperties = warmupKafka
+}
+```
+
+The broker supervisor publishes a fresh epoch at startup. A context joins that epoch before
+serving warm-up and uses the ordinary main consumer path when the broker is draining.
+The stop coordinator waits for the contexts present at the first drain request's offset.
+Stage the standalone CLI and its dependencies with `./gradlew :ckc-warmup:stageWarmupBrokerCli`.
+
 ## Current Status
 
 The project currently prioritizes:

@@ -356,8 +356,10 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         val message = record.message
         if (message.namespace != namespace) return
         when (message) {
-            is WarmupRequested -> donorDiscovery.offer(message, System.currentTimeMillis())?.let { channel.send(it) }
-            is SessionAccepted -> if (message.targetInstanceId == localInstanceId) {
+            is WarmupRequested -> if (donorActivation.isAdmissionOpen()) {
+                donorDiscovery.offer(message, System.currentTimeMillis())?.let { channel.send(it) }
+            }
+            is SessionAccepted -> if (message.targetInstanceId == localInstanceId && donorActivation.isAdmissionOpen()) {
                 val response = donorActivation.accept(message)
                 channel.send(response)
                 if (response is DonorAccepted) donorActivation.startPreparation(message.sessionId)

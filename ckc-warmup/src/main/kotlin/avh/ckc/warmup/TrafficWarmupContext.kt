@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -110,6 +111,10 @@ class TrafficWarmupContext internal constructor(
     private var warmingStarted: TimeSource.Monotonic.ValueTimeMark? = null
     private var interruption: RecipientInterruption? = null
     private var activeRecipientCleanup: RetriableWarmupRecipientCleanup? = null
+    private var brokerInterruptionReason: String? = null
+    private var brokerCleanup: Deferred<Set<String>>? = null
+    private var brokerLifecycle: WarmupBrokerLifecycle? = null
+    private var brokerControlReady: Deferred<Boolean>? = null
 
     private lateinit var transport: WarmupControlChannel
     private lateinit var router: WarmupControlRouter
@@ -133,6 +138,14 @@ class TrafficWarmupContext internal constructor(
         require(configuration.maxDonorSessions > 0) { "Maximum donor sessions must be positive" }
         require(configuration.maxAggregateQuotaPerSecond > 0) {
             "Maximum aggregate quota per second must be positive"
+        }
+        configuration.brokerLifecycleConfiguration?.let { broker ->
+            require(broker.topic.isNotBlank() && broker.topic != configuration.controlTopic) {
+                "Broker lifecycle requires a dedicated topic"
+            }
+            require(broker.operationTimeout.isFinite() && broker.operationTimeout.inWholeMilliseconds in 1..Int.MAX_VALUE) {
+                "Broker lifecycle operation timeout must be finite and positive"
+            }
         }
     }
 
@@ -186,6 +199,8 @@ class TrafficWarmupContext internal constructor(
                     else runProtocolInitializationFallback()
                 }
                 startupJob = workflowToStart
+                brokerControlReady?.start()
+                brokerLifecycle?.start()
             } else if (recipientFinished) {
                 terminalFailure = recipientCleanupFailure
                 launchCold = terminalFailure == null
@@ -343,7 +358,8 @@ class TrafficWarmupContext internal constructor(
             cleanupDispatcher = execution.blocking,
             onPreparationFailed = { newTransport.send(it) },
             onDonorClosed = { newTransport.send(it) },
-            drainTimeout = configuration.completionTimeout
+            drainTimeout = configuration.completionTimeout,
+            admissionInitiallyOpen = configuration.brokerLifecycleConfiguration == null
         )
         val newRuntime = WarmupDiscoveryRuntime(
             instanceId,
@@ -363,6 +379,49 @@ class TrafficWarmupContext internal constructor(
         donorStore = newDonorStore
         donorActivation = newDonorActivation
         runtime = newRuntime
+        configuration.brokerLifecycleConfiguration?.let { broker ->
+            brokerControlReady = scope.async(start = CoroutineStart.LAZY) { newRuntime.startControl() }
+            brokerLifecycle = WarmupBrokerLifecycle(
+                broker, scope, execution.blocking, ::fenceBrokerAdmission, ::reopenBrokerAdmission
+            )
+        }
+    }
+
+    private fun fenceBrokerAdmission(reason: String): Deferred<Set<String>> = synchronized(lock) {
+        brokerCleanup?.let { return@synchronized it }
+        brokerInterruptionReason = reason
+        val sessions = donorActivation.closeBrokerAdmission().toMutableSet()
+        val recipient = activeRecipient
+        val workflow = startupJob?.takeUnless { it.isCompleted || recipientFinished }
+        if (recipient != null) {
+            val sessionId = recipient.request.sessionId
+            sessions += sessionId.value
+            if (runtime.completedResult(recipient) == null && recipient.terminalOutcome() == null && !recipientFinished) {
+                observeInterruption(sessionId, reason)
+            }
+        }
+        workflow?.cancel(CancellationException("Warm-up broker admission closed"))
+        scope.async {
+            // Main startup is scheduled by the recipient cleanup path and has its own readiness.
+            workflow?.join()
+            if (synchronized(lock) { !recipientFinished }) finishInterruptedAttempt(reason)
+            check(synchronized(lock) { recipientCleanupFailure == null }) { "Broker recipient cleanup incomplete" }
+            while (donorStore.admittedSessionCount() != 0) delay(10)
+            while (!donorActivation.awaitCleanupBarrier(configuration.completionTimeout)) delay(100)
+            donorActivation.awaitBrokerCloseSends()
+            sessions.toSet()
+        }.also { brokerCleanup = it }
+    }
+
+    private fun reopenBrokerAdmission(): Boolean = synchronized(lock) {
+        val cleanup = brokerCleanup
+        if (sharedClosed || participants.values.none { it.startRequested && !it.stopRequested } ||
+            (cleanup != null && (!cleanup.isCompleted || cleanup.isCancelled))
+        ) return@synchronized false
+        brokerCleanup = null
+        brokerInterruptionReason = null
+        donorActivation.openBrokerAdmission()
+        true
     }
 
     private suspend fun runProtocolInitializationFallback() {
@@ -408,10 +467,15 @@ class TrafficWarmupContext internal constructor(
     private suspend fun runInitialRecipientAttempt() {
         var controlReady = false
         try {
-            controlReady = runtime.startControl()
+            controlReady = brokerControlReady?.await() ?: runtime.startControl()
             if (!controlReady) {
                 observe(TrafficWarmupLifecyclePhase.CONTROL_UNAVAILABLE, reasonCode = "control_unavailable")
                 completeRecipientPhaseAndLaunchMains("control_unavailable")
+                return
+            }
+            val lifecycle = brokerLifecycle
+            if (lifecycle != null && !lifecycle.awaitInitialAdmission(configuration.preparationTimeout)) {
+                completeRecipientPhaseAndLaunchMains(synchronized(lock) { brokerInterruptionReason } ?: "control_unavailable")
                 return
             }
             val allStarted = withTimeoutOrNull(configuration.participantStartTimeout) {
@@ -427,7 +491,7 @@ class TrafficWarmupContext internal constructor(
             withContext(NonCancellable) { finishInterruptedAttempt("recipient_cleanup_timeout") }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
-                finishInterruptedAttempt("participant_stopped")
+                finishInterruptedAttempt(synchronized(lock) { brokerInterruptionReason } ?: "participant_stopped")
             }
         } catch (error: Throwable) {
             log.warn("Warm-up recipient attempt failed; using cold start", error)
@@ -846,6 +910,7 @@ class TrafficWarmupContext internal constructor(
                 runtime.stop()
                 runtime.close()
             }
+            brokerLifecycle?.leave(configuration.completionTimeout)
             lifecycleJob.cancelAndJoin()
             check(execution.close(configuration.completionTimeout)) {
                 "Warm-up service executors did not terminate before the context shutdown deadline"
