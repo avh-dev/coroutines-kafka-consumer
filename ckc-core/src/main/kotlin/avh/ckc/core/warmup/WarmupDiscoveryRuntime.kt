@@ -1,7 +1,14 @@
 package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
@@ -58,10 +65,12 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val offerCollectionWindow: Duration,
     private val donorAcceptanceTimeout: Duration,
     private val donorCompletionTimeout: Duration = donorAcceptanceTimeout,
-    private val donorLivenessTimeout: Duration = 10.seconds
+    private val donorLivenessTimeout: Duration = 10.seconds,
+    scope: CoroutineScope
 ) : WarmupControlMessageHandler, AutoCloseable {
     private val lock = Any()
     private val recipientSignal = Channel<Unit>(Channel.CONFLATED)
+    private val recipientInterruptionSignal = Channel<Unit>(Channel.CONFLATED)
     private val registration = router.register(this)
     private var activeRecipient: WarmupRecipientDiscovery? = null
     private var completedRecipient: Pair<WarmupRecipientDiscovery, WarmupCompletionResult>? = null
@@ -78,9 +87,26 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         }
     }
 
+    private val probesToReply = Channel<WarmupLivenessProbe>(32)
+    private val probeReplyWorkers = List(2) {
+        scope.launch(start = CoroutineStart.LAZY) {
+            for (probe in probesToReply) {
+                val reply = donorActivation.replyToProbe(probe) ?: continue
+                try {
+                    withTimeoutOrNull(probeInterval) { channel.send(reply) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A missed probe reply is retried by the recipient within its liveness window.
+                }
+            }
+        }
+    }
+
     suspend fun startControl(): Boolean = try {
         channel.start()
         channel.awaitReady()
+        probeReplyWorkers.forEach { it.start() }
         true
     } catch (error: CancellationException) {
         throw error
@@ -166,7 +192,11 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
      * Closes every selected donor before stopping recipient consumers. A repeated call after an
      * incomplete local cleanup re-sends the same requests and retries the retained resources.
      */
-    suspend fun completeWarmup(recipient: WarmupRecipientDiscovery): WarmupCompletionResult {
+    suspend fun completeWarmup(
+        recipient: WarmupRecipientDiscovery,
+        interruption: Deferred<String>? = null,
+        onFailureDetected: (String) -> Unit = {}
+    ): WarmupCompletionResult {
         synchronized(lock) {
             completedRecipient?.takeIf { it.first === recipient }?.let { return it.second }
         }
@@ -174,23 +204,25 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             "Recipient is not the active local warm-up session"
         }
         return try {
-            recipient.completionRequests().forEach { channel.send(it) }
-            val remainingMillis = recipient.request.expiresAtEpochMillis - System.currentTimeMillis()
-            val completionMillis = minOf(donorCompletionTimeout.inWholeMilliseconds, remainingMillis)
-            val closed = if (completionMillis > 0) {
-                withTimeoutOrNull(completionMillis) {
-                    while (!recipient.allDonorsClosed() &&
-                        recipient.state() == WarmupRecipientDiscovery.State.DRAINING
-                    ) {
-                        recipientSignal.receive()
+            val reason = try {
+                if (interruption == null) awaitDonorCompletion(recipient)
+                else coroutineScope {
+                    val completion = async { awaitDonorCompletion(recipient) }
+                    try {
+                        select {
+                            completion.onAwait { it }
+                            interruption.onAwait { it }
+                        }
+                    } finally {
+                        completion.cancelAndJoin()
                     }
-                    recipient.allDonorsClosed()
                 }
-            } else {
-                null
+            } finally {
+                // Intentional recipient shutdown after all donors close must not trigger interruption.
+                interruption?.cancelAndJoin()
             }
-            if (closed != true) {
-                val reason = if (closed == null) "donor_completion_timeout" else "donor_completion_failed"
+            if (reason != null) {
+                onFailureDetected(reason)
                 return completionFallback(recipient, reason)
             }
 
@@ -213,7 +245,25 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             clearRecipient(recipient)
             throw error
         } catch (_: Exception) {
+            onFailureDetected("completion_failed")
             completionFallback(recipient, "completion_failed")
+        }
+    }
+
+    private suspend fun awaitDonorCompletion(recipient: WarmupRecipientDiscovery): String? {
+        val remainingMillis = recipient.request.expiresAtEpochMillis - System.currentTimeMillis()
+        val completionMillis = minOf(donorCompletionTimeout.inWholeMilliseconds, remainingMillis)
+        val closed = withTimeoutOrNull(completionMillis) {
+            recipient.completionRequests().forEach { channel.send(it) }
+            while (!recipient.allDonorsClosed() && recipient.state() == WarmupRecipientDiscovery.State.DRAINING) {
+                recipientSignal.receive()
+            }
+            recipient.allDonorsClosed()
+        }
+        return when (closed) {
+            true -> null
+            false -> WarmupInterruption.DONOR_SESSION_ENDED.reasonCode
+            null -> "donor_completion_timeout"
         }
     }
 
@@ -224,17 +274,18 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     /** An absent round trip may indicate either donor loss or a control-path outage. */
     suspend fun awaitWarmupInterruption(
         recipient: WarmupRecipientDiscovery,
-        duration: Duration
-    ): WarmupInterruption? = withTimeoutOrNull(duration) {
+        readiness: List<RecipientReady>
+    ): WarmupInterruption {
         val liveness = WarmupDonorLiveness(
-            recipient.request, recipient.selectedDonorIds(), channel, donorLivenessTimeout, probeInterval
+            recipient.request, readiness.filter { recipient.supportsDonorLiveness(it.targetInstanceId) },
+            channel, donorLivenessTimeout, probeInterval
         )
         donorLiveness = liveness
-        try {
+        return try {
             supervisorScope {
                 val controlInterruption = async {
-                    while (recipient.state() == WarmupRecipientDiscovery.State.READY) {
-                        recipientSignal.receive()
+                    while (recipient.state() != WarmupRecipientDiscovery.State.COLD_FALLBACK) {
+                        recipientInterruptionSignal.receive()
                     }
                     WarmupInterruption.DONOR_SESSION_ENDED
                 }
@@ -279,39 +330,48 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             is SessionEnded -> donorActivation.onSessionEnded(message)
             is DonorOffered -> withRecipient(message.sessionId) { it.onOffer(message) }
             is DonorAccepted -> withRecipient(message.sessionId) { it.onDonorAccepted(message) }
-            is SessionRejected -> withRecipient(message.sessionId) { it.onDonorRejected(message) }
-            is DonorClosed -> withRecipient(message.sessionId) { it.onDonorClosed(message) }
+            is SessionRejected -> withRecipient(message.sessionId) {
+                it.onDonorRejected(message).also { rejected ->
+                    if (rejected) recipientInterruptionSignal.trySend(Unit)
+                }
+            }
+            is DonorClosed -> withRecipient(message.sessionId) {
+                if (!it.onDonorClosed(message)) false
+                else {
+                    donorLiveness?.onDonorClosed(message.senderInstanceId)
+                    true
+                }
+            }
             is WarmupLivenessProbe -> if (message.reply) {
                 donorLiveness?.onReply(message)
             } else {
-                replyToProbe(message)
+                // The recipient retries if the bounded reply queue is full.
+                probesToReply.trySend(message)
             }
         }
     }
 
     suspend fun stop() {
+        stopProbeReplies()
+        probeReplyWorkers.joinAll()
         channel.stop()
     }
 
     override fun close() {
+        stopProbeReplies()
         registration.close()
         recipientSignal.close()
+        recipientInterruptionSignal.close()
+    }
+
+    private fun stopProbeReplies() {
+        probesToReply.cancel()
+        probeReplyWorkers.forEach { it.cancel() }
     }
 
     private fun withRecipient(sessionId: WarmupSessionId, action: (WarmupRecipientDiscovery) -> Boolean) {
         val recipient = synchronized(lock) { activeRecipient }
         if (recipient?.request?.sessionId == sessionId && action(recipient)) recipientSignal.trySend(Unit)
-    }
-
-    private suspend fun replyToProbe(probe: WarmupLivenessProbe) {
-        val reply = donorActivation.replyToProbe(probe) ?: return
-        try {
-            withTimeoutOrNull(probeInterval) { channel.send(reply) }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // The recipient retries until its liveness deadline.
-        }
     }
 
     private suspend fun fallback(
@@ -343,7 +403,9 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         reasonCode: String
     ): WarmupCompletionResult {
         val cleanup = recipient.terminate()
-        publishEndedFence(recipient, WarmupSessionEndState.COLD_FALLBACK, reasonCode)
+        withTimeoutOrNull(probeInterval) {
+            publishEndedFence(recipient, WarmupSessionEndState.COLD_FALLBACK, reasonCode)
+        }
         // The terminated recipient retains any unresolved resources for direct cleanup retry, but
         // no late control message may keep it registered as the current protocol session.
         clearRecipient(recipient)

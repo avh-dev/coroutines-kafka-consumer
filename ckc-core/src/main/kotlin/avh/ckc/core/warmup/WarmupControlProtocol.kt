@@ -160,7 +160,8 @@ internal data class DonorAccepted(
     val admissionBudgetPerSecond: Int,
     override val configurationFingerprint: String,
     override val expiresAtEpochMillis: Long,
-    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
+    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION,
+    val supportsLiveness: Boolean = false
 ) : WarmupControlMessage {
     init {
         validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
@@ -246,20 +247,15 @@ internal data class DonorClosed(
     }
 }
 
-/** A recipient challenge or its echo from an active donor. The timestamp is opaque to the donor. */
+/** The matching v6 readiness or admission envelope carries the probe timestamp in a Kafka header. */
 internal data class WarmupLivenessProbe(
-    override val namespace: WarmupControlNamespace,
-    override val sessionId: WarmupSessionId,
-    override val senderInstanceId: WarmupInstanceId,
-    override val targetInstanceId: WarmupInstanceId,
-    val sentAtNanos: Long,
-    val reply: Boolean,
-    override val configurationFingerprint: String,
-    override val expiresAtEpochMillis: Long,
-    override val protocolVersion: Int = WARMUP_CONTROL_PROTOCOL_VERSION
-) : WarmupControlMessage {
+    val envelope: WarmupControlMessage,
+    val sentAtNanos: Long
+) : WarmupControlMessage by envelope {
+    val reply: Boolean get() = envelope is DonorAccepted
+
     init {
-        validateCommonControlFields(configurationFingerprint, expiresAtEpochMillis)
+        require(envelope is RecipientReady || envelope is DonorAccepted)
         require(sentAtNanos > 0) { "Liveness probe timestamp must be positive" }
     }
 }

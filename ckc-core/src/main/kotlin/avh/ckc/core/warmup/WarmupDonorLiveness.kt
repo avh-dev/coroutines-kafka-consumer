@@ -16,14 +16,18 @@ import kotlin.time.TimeSource
 /** Checks the round trip to every required donor, including when no records are being delegated. */
 internal class WarmupDonorLiveness(
     private val request: WarmupRequested,
-    donors: Set<WarmupInstanceId>,
+    private val readiness: List<RecipientReady>,
     private val channel: WarmupControlChannel,
     private val timeout: Duration,
     private val interval: Duration,
     timeSource: TimeSource = TimeSource.Monotonic
 ) {
     private val started = timeSource.markNow()
-    private val replies = donors.associateWith { MutableStateFlow(0L) }
+    private val replies = readiness.associate { it.targetInstanceId to MutableStateFlow<Long?>(0) }
+
+    fun onDonorClosed(donor: WarmupInstanceId) {
+        replies[donor]?.value = null
+    }
 
     fun onReply(reply: WarmupLivenessProbe) {
         val latest = replies[reply.senderInstanceId] ?: return
@@ -32,18 +36,17 @@ internal class WarmupDonorLiveness(
             reply.configurationFingerprint == request.configurationFingerprint &&
             reply.expiresAtEpochMillis == request.expiresAtEpochMillis && reply.sentAtNanos <= elapsedNanos().coerceAtLeast(1)
         ) {
-            latest.update { maxOf(it, reply.sentAtNanos) }
+            latest.update { it?.let { confirmed -> maxOf(confirmed, reply.sentAtNanos) } }
         }
     }
 
     suspend fun awaitTimeout() = coroutineScope {
         val missingReply = CompletableDeferred<Unit>()
-        val monitors = replies.map { (donor, latest) ->
+        val monitors = readiness.map { ready ->
             launch {
-                val sender = launch { sendProbes(donor) }
+                val sender = launch { sendProbes(ready) }
                 try {
-                    awaitMissingReply(latest)
-                    missingReply.complete(Unit)
+                    if (replyTimedOut(replies.getValue(ready.targetInstanceId))) missingReply.complete(Unit)
                 } finally {
                     sender.cancel()
                 }
@@ -56,21 +59,25 @@ internal class WarmupDonorLiveness(
         }
     }
 
-    private suspend fun awaitMissingReply(latest: MutableStateFlow<Long>) {
+    private suspend fun replyTimedOut(latest: MutableStateFlow<Long?>): Boolean {
         var confirmedSend = 0L
         while (true) {
             val remaining = timeout - (elapsedNanos() - confirmedSend).nanoseconds
-            if (remaining <= Duration.ZERO) return
-            confirmedSend = withTimeoutOrNull(remaining) { latest.first { it > confirmedSend } } ?: return
+            if (latest.value == null) return false
+            if (remaining <= Duration.ZERO) return true
+            val reply = withTimeoutOrNull(remaining) {
+                // Wrap the value so donor completion and expiry of the local wait stay distinct.
+                latest.first { it == null || it > confirmedSend }.let(::ProbeConfirmation)
+            } ?: return true
+            confirmedSend = reply.sentAtNanos ?: return false
         }
     }
 
-    private suspend fun sendProbes(donor: WarmupInstanceId) {
+    private data class ProbeConfirmation(val sentAtNanos: Long?)
+
+    private suspend fun sendProbes(ready: RecipientReady) {
         while (true) {
-            val probe = WarmupLivenessProbe(
-                request.namespace, request.sessionId, request.senderInstanceId, donor,
-                elapsedNanos().coerceAtLeast(1), false, request.configurationFingerprint, request.expiresAtEpochMillis
-            )
+            val probe = WarmupLivenessProbe(ready, elapsedNanos().coerceAtLeast(1))
             // Submission may itself suspend while Kafka is unavailable. The deadline watcher runs independently.
             try {
                 withTimeoutOrNull(interval) { channel.send(probe) }

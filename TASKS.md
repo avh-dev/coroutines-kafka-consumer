@@ -6901,7 +6901,8 @@ Validate the four canonical definitions and their shared workload, infrastructur
 
 _Date: 2026-11-23_
 
-Probe every required donor over the control topic during recipient warm-up, including idle traffic.
-Use a configurable 10s deadline, bound terminal-fence publication, and cancel outstanding result delivery on liveness loss.
-Report the interruption and elapsed time until each main consumer becomes ready.
-Passed 343 core tests, 114 demo tests, and an isolated Kafka integration test of control-path loss.
+Negotiate donor probes using v6-compatible Kafka headers and send replies over a bounded queue.
+Keep the configurable 10s liveness deadline through donor drain until each DonorClosed arrives.
+Cancel and join outstanding result senders on recipient failure before starting main consumers.
+Report the interruption reason, session identity, and time until each main consumer becomes ready.
+Passed 345 core tests, 114 demo tests, and all 13 Kafka tests in TrafficWarmupContextIntegrationTest.

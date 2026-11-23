@@ -34,7 +34,6 @@ import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.RetriableException
@@ -202,7 +201,7 @@ internal class WarmupControlTransport(
         awaitReady()
         check(!stopping.get()) { "Warm-up control transport is stopping" }
         failure.get()?.let { throw it }
-        val record = ProducerRecord(configuration.topic, message.sessionId.value, WarmupControlCodec.encode(message))
+        val record = WarmupControlCodec.producerRecord(configuration.topic, message)
         return withTimeoutOrNull(configuration.sendTimeout) {
             val acknowledgement = CompletableDeferred<RecordMetadata>()
             runInterruptible(dispatcher) {
@@ -383,7 +382,7 @@ internal class WarmupControlTransport(
                 records.forEach { record ->
                     cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, record.offset() + 1)
                     val message = try {
-                        WarmupControlCodec.decode(record.value()).also { decoded ->
+                        WarmupControlCodec.decode(record.value(), record.headers()).also { decoded ->
                             require(record.key() == decoded.sessionId.value) {
                                 "Control record key does not match its session"
                             }

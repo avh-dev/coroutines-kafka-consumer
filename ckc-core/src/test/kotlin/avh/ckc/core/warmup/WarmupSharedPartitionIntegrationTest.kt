@@ -541,7 +541,8 @@ class WarmupSharedPartitionIntegrationTest {
                 donorActivation,
                 150.milliseconds,
                 5.seconds,
-                5.seconds
+                5.seconds,
+                scope = scope
             )
             recipientRuntime = WarmupDiscoveryRuntime(
                 recipientId,
@@ -552,7 +553,8 @@ class WarmupSharedPartitionIntegrationTest {
                 recipientActivation,
                 150.milliseconds,
                 5.seconds,
-                5.seconds
+                5.seconds,
+                scope = scope
             )
             outbox = WarmupCompletionOutbox(scope, 64) { completed ->
                 recipientTransport.send(

@@ -237,8 +237,8 @@ internal class WarmupRecipientDiscovery(
         state == State.DRAINING && closedDonors.keys == acceptances.keys
     }
 
-    fun selectedDonorIds(): Set<WarmupInstanceId> = synchronized(lock) {
-        acceptances.keys.toSet()
+    fun supportsDonorLiveness(donor: WarmupInstanceId): Boolean = synchronized(lock) {
+        confirmations[donor]?.supportsLiveness == true
     }
 
     fun donorFor(destination: TopicPartition): WarmupInstanceId? = synchronized(lock) {
@@ -363,13 +363,12 @@ internal class WarmupRecipientDiscovery(
         true
     }
 
-    /** Any recipient runtime termination while READY invalidates the whole recipient session. */
+    /** Any recipient runtime termination before the donors close invalidates the recipient session. */
     suspend fun awaitPreparedConsumerTermination() = supervisorScope {
         val resources = synchronized(lock) {
-            check(state == State.READY) { "Recipient consumers can be monitored only while ready" }
-            prepared.toList()
+            if (state == State.READY || state == State.DRAINING) prepared.toList() else emptyList()
         }
-        require(resources.isNotEmpty()) { "Ready recipient session has no prepared consumers" }
+        if (resources.isEmpty()) kotlinx.coroutines.awaitCancellation()
         val waiters = resources.map { resource ->
             async {
                 try {

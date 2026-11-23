@@ -4,6 +4,7 @@ import avh.ckc.core.metrics.RecordDropReason
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class WarmupControlCodecTest {
@@ -42,12 +43,31 @@ class WarmupControlCodecTest {
             ControlRecordCompleted(namespace, session, recipient, donor, completed, fingerprint, 10_000),
             WarmupCompletionRequested(namespace, session, recipient, donor, fingerprint, 10_000),
             DonorClosed(namespace, session, donor, recipient, fingerprint, 10_000),
-            WarmupLivenessProbe(namespace, session, recipient, donor, 500, false, fingerprint, 10_000),
-            WarmupLivenessProbe(namespace, session, donor, recipient, 500, true, fingerprint, 10_000),
             SessionEnded(namespace, session, recipient, WarmupSessionEndState.COLD_FALLBACK, "metadata_failed", fingerprint, 10_000)
         )
 
         messages.forEach { message -> assertEquals(message, WarmupControlCodec.decode(WarmupControlCodec.encode(message))) }
+    }
+
+    @Test
+    fun `capability and probes retain their exact legacy v6 wire envelopes`() {
+        val accepted = DonorAccepted(namespace, session, donor, recipient, listOf(donorMapping), 10, fingerprint, 10_000)
+        val ready = RecipientReady(
+            namespace, session, recipient, donor, listOf(WarmupPartitionAssignment(mapping)), fingerprint, 10_000
+        )
+        val messages = listOf(
+            accepted.copy(supportsLiveness = true) to accepted,
+            WarmupLivenessProbe(ready, 500) to ready,
+            WarmupLivenessProbe(accepted, 500) to accepted
+        )
+
+        messages.forEach { (modern, legacy) ->
+            val wire = WarmupControlCodec.producerRecord("control", modern)
+            assertEquals(legacy.sessionId.value, wire.key())
+            assertTrue(WarmupControlCodec.encode(legacy).contentEquals(wire.value()))
+            assertEquals(legacy, WarmupControlCodec.decode(wire.value()))
+            assertEquals(modern, WarmupControlCodec.decode(wire.value(), wire.headers()))
+        }
     }
 
     @Test

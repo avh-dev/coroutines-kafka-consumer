@@ -32,7 +32,7 @@ class WarmupDonorLivenessTest {
         val channel = probeChannel { probe ->
             if (controlAvailable && probe.targetInstanceId != silentDonor) liveness.onReply(probe.asReply())
         }
-        liveness = WarmupDonorLiveness(request, setOf(firstDonor, secondDonor), channel, 9.seconds, 3.seconds,
+        liveness = WarmupDonorLiveness(request, listOf(ready(firstDonor), ready(secondDonor)), channel, 9.seconds, 3.seconds,
             testScheduler.timeSource)
         val timeout = async { liveness.awaitTimeout() }
 
@@ -62,13 +62,13 @@ class WarmupDonorLivenessTest {
                 liveness.onReply(reply)
             } else {
                 liveness.onReply(requireNotNull(firstReply))
-                liveness.onReply(reply.copy(sessionId = WarmupSessionId("old-session")))
-                liveness.onReply(reply.copy(senderInstanceId = secondDonor))
-                liveness.onReply(reply.copy(configurationFingerprint = "other-context"))
+                liveness.onReply(reply.copy(envelope = reply.accepted().copy(sessionId = WarmupSessionId("old-session"))))
+                liveness.onReply(reply.copy(envelope = reply.accepted().copy(senderInstanceId = secondDonor)))
+                liveness.onReply(reply.copy(envelope = reply.accepted().copy(configurationFingerprint = "other-context")))
                 awaitCancellation()
             }
         }
-        liveness = WarmupDonorLiveness(request, setOf(firstDonor), channel, 9.seconds, 3.seconds,
+        liveness = WarmupDonorLiveness(request, listOf(ready(firstDonor)), channel, 9.seconds, 3.seconds,
             testScheduler.timeSource)
         val timeout = async { liveness.awaitTimeout() }
 
@@ -80,8 +80,20 @@ class WarmupDonorLivenessTest {
         timeout.await()
     }
 
-    private fun WarmupLivenessProbe.asReply() =
-        copy(senderInstanceId = targetInstanceId, targetInstanceId = senderInstanceId, reply = true)
+    private fun ready(donor: WarmupInstanceId) = RecipientReady(
+        request.namespace, request.sessionId, request.senderInstanceId, donor,
+        request.mappings.map(::WarmupPartitionAssignment), request.configurationFingerprint, request.expiresAtEpochMillis
+    )
+
+    private fun WarmupLivenessProbe.accepted() = envelope as DonorAccepted
+
+    private fun WarmupLivenessProbe.asReply() = copy(
+        envelope = DonorAccepted(
+            namespace, sessionId, requireNotNull(targetInstanceId), senderInstanceId,
+            request.mappings.map { WarmupDonorMapping(it, setOf(WarmupSourcePartition(0, 1))) },
+            request.admissionBudgetPerSecond, configurationFingerprint, expiresAtEpochMillis
+        )
+    )
 
     private fun probeChannel(onProbe: suspend (WarmupLivenessProbe) -> Unit) = object : WarmupControlChannel {
         override fun start() = Unit

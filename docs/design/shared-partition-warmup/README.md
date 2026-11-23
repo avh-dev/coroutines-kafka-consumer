@@ -370,15 +370,20 @@ Recipient loss is handled by each donor's local session deadline and close path.
 the recipient finish or cold-fallback within its own deadline; it does not elect a replacement in
 the same session.
 
-During active warm-up, the recipient probes every selected donor over the control topic, even when
-the main topics are idle. Only a reply from the matching active session renews the recipient's
-deadline. The configurable `donorLivenessTimeout` defaults to 10 seconds, with a probe every
-third of that interval. Renewals are measured from the recipient's original probe send time so
-delayed replies cannot grant a fresh deadline. If a required donor stops answering, the recipient
-stops its warm-up consumers, attempts to publish the terminal fence within one probe interval, and
-cancels outstanding result delivery before launching the main consumers. The lifecycle reports
-`WARMUP_INTERRUPTED` with `donor_liveness_timeout` for a missing control round trip and includes
-the recovery duration in each participant's `MAIN_READY` event.
+During active warm-up and donor drain, the recipient probes every selected donor that advertised
+support, even when the main topics are idle. Capability is advertised in the Kafka headers of
+`DonorAccepted`. Probes carry a header on existing v6 `RecipientReady` and `DonorAccepted`
+envelopes. Older control consumers can still decode the record bodies, and recipients retain the
+existing completion timeout for donors that have no liveness capability. Donors send probe replies
+through a bounded queue on separate workers so a delayed acknowledgement leaves protocol dispatch
+available for other sessions.
+
+The configurable `donorLivenessTimeout` defaults to 10 seconds, with a probe every third of that
+interval. Replies renew the deadline from the original send time. The deadline stays active across
+`COMPLETING` for each donor until its matching `DonorClosed` arrives. On any recipient interruption,
+result senders are cancelled and joined, recipient warm-up consumers are stopped, and the terminal
+fence gets a bounded best-effort send window. The lifecycle records the reason in
+`WARMUP_INTERRUPTED` and includes the session and recovery duration in each `MAIN_READY` event.
 
 Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
 loss does not stop main consumers and does not revive completed sessions when topics return. New

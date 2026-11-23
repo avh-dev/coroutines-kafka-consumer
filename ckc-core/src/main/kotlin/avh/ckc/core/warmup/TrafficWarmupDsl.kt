@@ -21,7 +21,7 @@ class TrafficWarmupContextConfiguration {
     var completionTimeout: Duration = 30.seconds
     var delegationTimeout: Duration = 10.seconds
 
-    /** Maximum time without a successful control round trip to each selected donor during warm-up. */
+    /** Maximum time without a control round trip to a supporting donor during warm-up and donor drain. */
     var donorLivenessTimeout: Duration = 10.seconds
     var maxDonorSessions: Int = 4
 

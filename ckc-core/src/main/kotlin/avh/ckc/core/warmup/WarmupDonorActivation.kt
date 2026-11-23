@@ -172,10 +172,11 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
 
     fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
         val local = sessions[probe.sessionId] ?: return@synchronized null
-        if (probe.reply || local.state != State.ACTIVE || !matchesSession(local.acceptance, probe) ||
-            nowEpochMillis() >= probe.expiresAtEpochMillis
+        val ready = probe.envelope as? RecipientReady ?: return@synchronized null
+        if (local.state !in setOf(State.ACTIVE, State.DRAINING, State.CLOSED) ||
+            !matches(local.acceptance, ready) || nowEpochMillis() >= probe.expiresAtEpochMillis
         ) return@synchronized null
-        probe.copy(senderInstanceId = localInstanceId, targetInstanceId = probe.senderInstanceId, reply = true)
+        WarmupLivenessProbe(accepted(local.acceptance).copy(supportsLiveness = false), probe.sentAtNanos)
     }
 
     /** Routes a remote terminal result only to its exact admitted recipient and destination. */
@@ -620,7 +621,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         mappings = acceptance.mappings,
         admissionBudgetPerSecond = acceptance.admissionBudgetPerSecond,
         configurationFingerprint = acceptance.configurationFingerprint,
-        expiresAtEpochMillis = acceptance.expiresAtEpochMillis
+        expiresAtEpochMillis = acceptance.expiresAtEpochMillis,
+        supportsLiveness = true
     )
 
     private fun rejection(acceptance: SessionAccepted, reasonCode: String) = SessionRejected(
