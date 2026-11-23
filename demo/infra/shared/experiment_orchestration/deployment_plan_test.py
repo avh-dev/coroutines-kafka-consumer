@@ -209,6 +209,36 @@ class DeploymentPlanTest(unittest.TestCase):
             application_env["TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS"],
         )
 
+    def test_coordinated_broker_exposes_a_pod_address_and_opts_in_its_applications(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-warmup-broker-drain-qualification-20k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        target = materialize_experiment(resolved, output_dir=Path(self.temp.name), repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="warmup-drain",
+            application_image="demo", stubs_image="stubs", load_test_image="load",
+            kafka_bootstrap="application-kafka:9092", redis_host="redis", audit_host="audit",
+        ))
+        broker = next(item for item in manifests if
+                      item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-warmup-kafka")
+        spec = broker["spec"]["template"]["spec"]
+        self.assertEqual(90, spec["terminationGracePeriodSeconds"])
+        env = {item["name"]: item for item in spec["containers"][0]["env"]}
+        self.assertEqual("status.podIP", env["CKC_WARMUP_POD_IP"]["valueFrom"]["fieldRef"]["fieldPath"])
+        self.assertEqual("50", env["KAFKA_DRAIN_TIMEOUT_SECONDS"]["value"])
+        self.assertEqual("30", env["KAFKA_SHUTDOWN_TIMEOUT_SECONDS"]["value"])
+        topic = env["KAFKA_BROKER_LIFECYCLE_TOPIC"]["value"]
+        self.assertNotIn(topic, env["KAFKA_BOOTSTRAP_TOPICS"]["value"].split(","))
+        service = next(item for item in manifests if
+                       item["kind"] == "Service" and item["metadata"]["name"] == "ckc-warmup-kafka")
+        self.assertTrue(service["spec"]["publishNotReadyAddresses"])
+        application = next(item for item in manifests if
+                           item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+        env = {entry["name"]: entry["value"] for entry in
+               application["spec"]["template"]["spec"]["containers"][0]["env"]}
+        self.assertEqual(topic, env["TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC"])
+        self.assertEqual("application-kafka:9092", env["DEMO_KAFKA_BOOTSTRAP_SERVERS"])
+
     def test_materializes_internal_lab_warmup_transport_qualification(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/ckc-shared-partition-warmup-transport-qualification.yaml"
         resolved = resolve_experiment_definition(source, environment="internal-lab")

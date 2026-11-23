@@ -205,6 +205,12 @@ private class CkcConsumerRuntime(
             controlTopic = warmup.controlTopic
             controlProducerProperties = controlProperties
             controlConsumerProperties = controlProperties
+            if (warmup.brokerLifecycleTopic.isNotBlank()) {
+                brokerLifecycle {
+                    topic = warmup.brokerLifecycleTopic
+                    kafkaProperties = destinationProperties
+                }
+            }
             warmupDuration = warmup.durationSeconds.seconds
             offerWindow = warmup.offerWindowMs.milliseconds
             participantStartTimeout = warmup.participantStartTimeoutSeconds.seconds

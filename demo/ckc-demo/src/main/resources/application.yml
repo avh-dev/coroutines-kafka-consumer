@@ -193,6 +193,7 @@ demo:
     instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:demo}}
     namespace: ${TRAFFIC_WARMUP_NAMESPACE:global5-shared-partition-v6-local}
     control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v6.control}
+    broker-lifecycle-topic: ${TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC:}
     control-kafka:
       bootstrap-servers: ${TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
       security-protocol: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}

@@ -481,6 +481,25 @@ class CanonicalExperimentContractTest(unittest.TestCase):
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, warmup["resources"]["limits"])
         self.assertEqual(600_000, warmup["retention_ms"])
 
+    def test_coordinated_shutdown_reserves_time_for_kafka_after_drain(self) -> None:
+        experiment = canonical_experiment()
+        warmup = {
+            "topics": ["ckc.traffic-warmup.v6.control"],
+            "coordinated_shutdown": {"termination_grace_period_seconds": 84},
+        }
+        experiment["environments"] = {"internal-lab": {"lab": {"profile": "installed"}, "warmup_kafka": warmup}}
+        with self.assertRaisesRegex(ValueError, "must be at least 85"):
+            validate_canonical_experiment(experiment, self.source)
+
+        warmup["coordinated_shutdown"]["termination_grace_period_seconds"] = 85
+        snapshot = validate_canonical_experiment(experiment, self.source)
+        normalized = snapshot["environment"]["configuration"]["warmup_kafka"]
+        self.assertEqual({
+            "drain_timeout_seconds": 50,
+            "kafka_shutdown_timeout_seconds": 30,
+            "termination_grace_period_seconds": 85,
+        }, normalized["coordinated_shutdown"])
+
     def test_warmup_kafka_rejects_wrong_namespace_and_non_internal_environment(self) -> None:
         experiment = canonical_experiment()
         experiment["environments"] = {"internal-lab": {

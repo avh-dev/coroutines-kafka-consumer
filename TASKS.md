@@ -554,6 +554,7 @@
 | [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
 | [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
 | [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
+| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6945,3 +6946,14 @@ Fence warm-up admission, drain donor and recipient resources, and preserve the s
 Verify offsets, shutdown races, and reconnect to a new broker generation with Kafka integration tests.
 Run the broker CLI from the existing warm-up JAR with an isolated classpath.
 Passed the warm-up unit suite and seven targeted Kafka scenarios, including a killed participant, delayed ACKs, and a restart with the same log.
+
+<a id="infra-366"></a>
+### INFRA-366 - Package warm-up broker drain
+
+_Date: 2026-11-23_
+
+Stage the standalone CLI and verify the lifecycle topic keeps the complete current epoch.
+Run lifecycle coordination before Kafka SIGTERM within the pod grace period.
+Route fresh final-confirmation connections to the old pod's advertised address during deletion.
+Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
+Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.

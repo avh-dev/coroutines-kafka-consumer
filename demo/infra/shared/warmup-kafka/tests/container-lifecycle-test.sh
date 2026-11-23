@@ -18,7 +18,7 @@ trap cleanup EXIT
 docker network create "${network}" >/dev/null
 
 start_broker() {
-  local configured_topics="$1"
+  local configured_topics="$1" lifecycle_topic="${2:-}"
   docker run -d --name "${container}" \
     --network "${network}" --network-alias ckc-warmup-kafka \
     --mount "type=volume,source=${volume},target=/var/lib/kafka/data" \
@@ -34,6 +34,10 @@ start_broker() {
     -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
     -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
     -e KAFKA_BOOTSTRAP_TOPICS="${configured_topics}" \
+    -e KAFKA_BROKER_LIFECYCLE_TOPIC="${lifecycle_topic}" \
+    -e KAFKA_DRAIN_TIMEOUT_SECONDS=12 \
+    -e KAFKA_SHUTDOWN_TIMEOUT_SECONDS=8 \
+    -e KAFKA_TERMINATION_GRACE_PERIOD_SECONDS=25 \
     -e KAFKA_PREWARM_FIRST_PHASE_SECONDS=2 \
     -e KAFKA_PREWARM_SECOND_PHASE_SECONDS=2 \
     -e KAFKA_PREWARM_START_RATE=10 \
@@ -164,5 +168,34 @@ while [[ "$(docker inspect -f '{{.State.Running}}' "${container}")" == "true" ]]
   fi
   sleep 1
 done
+
+docker rm "${container}" >/dev/null
+lifecycle_topic=ckc.traffic-warmup.lifecycle
+start_broker "${topics}" "${lifecycle_topic}"
+wait_ready
+first_epoch="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/broker-epoch)"
+docker stop --time 25 "${container}" >/dev/null
+first_logs="$(docker logs "${container}" 2>&1)"
+drained="$(grep -n "status=DRAINED brokerEpoch=${first_epoch}.*expected=\[\]" <<< "${first_logs}" | cut -d: -f1)"
+stopped="$(grep -n "event=KafkaSIGTERM brokerEpoch=${first_epoch}" <<< "${first_logs}" | cut -d: -f1)"
+if [[ -z "${drained}" || -z "${stopped}" ]] || (( drained >= stopped )); then
+  echo "Kafka was stopped before the drain CLI proved the empty roster." >&2
+  exit 1
+fi
+
+docker start "${container}" >/dev/null
+wait_ready
+second_epoch="$(docker exec "${container}" cat /var/run/ckc-warmup-kafka/broker-epoch)"
+if [[ "${first_epoch}" == "${second_epoch}" ]]; then
+  echo "A broker process restart reused the previous epoch." >&2
+  exit 1
+fi
+if docker exec "${container}" /opt/ckc-warmup-kafka/bin/broker-lifecycle.sh \
+  drain localhost:19092 "${lifecycle_topic}" "${first_epoch}" 5000; then
+  echo "The old epoch was accepted after broker restart." >&2
+  exit 1
+fi
+docker stop --time 25 "${container}" >/dev/null
+docker logs "${container}" 2>&1 | grep "status=DRAINED brokerEpoch=${second_epoch}" >/dev/null
 
 echo "Autonomous warm-up Kafka container lifecycle passed."

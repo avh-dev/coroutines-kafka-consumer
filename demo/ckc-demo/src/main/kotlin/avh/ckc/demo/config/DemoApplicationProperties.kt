@@ -78,6 +78,7 @@ data class DemoApplicationProperties(
         var instanceId: String = "demo",
         var namespace: String = "global5-shared-partition-v6-local",
         var controlTopic: String = DemoTopics.WARMUP_CONTROL,
+        var brokerLifecycleTopic: String = "",
         var controlKafka: KafkaConnection = KafkaConnection(),
         var destinationKafka: KafkaConnection = KafkaConnection(),
         var mappings: TrafficWarmupMappings = TrafficWarmupMappings(),

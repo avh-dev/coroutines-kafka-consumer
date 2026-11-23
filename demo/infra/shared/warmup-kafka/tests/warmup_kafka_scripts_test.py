@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import signal
 import socket
 import subprocess
 import tempfile
@@ -30,6 +31,10 @@ class WarmupKafkaScriptsTest(unittest.TestCase):
 set -eu
 state="${FAKE_KAFKA_STATE}"
 tool="$(basename "$0")"
+if [[ "$tool" == kafka-configs.sh ]]; then
+  cat "${state}/lifecycle-config"
+  exit
+fi
 topic=""
 operation=""
 while [ "$#" -gt 0 ]; do
@@ -59,7 +64,7 @@ esac
             encoding="utf-8",
         )
         fake.chmod(0o755)
-        for name in ("kafka-topics.sh",):
+        for name in ("kafka-topics.sh", "kafka-configs.sh"):
             (self.bin / name).symlink_to(fake)
 
     def tearDown(self) -> None:
@@ -129,6 +134,33 @@ esac
             ["__ALL__", "__ALL__"],
             (self.root / "described").read_text(encoding="utf-8").splitlines(),
         )
+
+    def test_dedicated_lifecycle_configuration_is_verified_on_bootstrap(self) -> None:
+        environment = self.environment("alpha")
+        environment["KAFKA_BROKER_LIFECYCLE_TOPIC"] = "warmup.lifecycle"
+        config = self.root / "lifecycle-config"
+        valid = (
+            "  cleanup.policy=delete sensitive=false\n"
+            "  retention.ms=-1 sensitive=false\n"
+            "  retention.bytes=-1 sensitive=false\n"
+            "  message.timestamp.type=LogAppendTime sensitive=false\n"
+        )
+        config.write_text(valid, encoding="utf-8")
+        result = subprocess.run([BOOTSTRAP], env=environment, text=True, capture_output=True, timeout=10)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("lifecycle_topic_ready", result.stderr)
+        self.assertTrue((self.root / "runtime/ready").exists())
+
+        for broken in (
+            valid.replace("retention.ms=-1", "retention.ms=600000"),
+            valid.replace("retention.bytes=-1", "retention.bytes=1024"),
+            valid.replace("cleanup.policy=delete", "cleanup.policy=compact"),
+        ):
+            config.write_text(broken, encoding="utf-8")
+            result = subprocess.run([BOOTSTRAP], env=environment, text=True, capture_output=True, timeout=10)
+            self.assertEqual(1, result.returncode, result.stderr)
+            self.assertIn("lifecycle_topic_incompatible_retention", result.stderr)
+            self.assertFalse((self.root / "runtime/ready").exists())
 
     def test_broker_unavailability_fails_bounded_bootstrap_with_distinct_diagnostic(self) -> None:
         environment = self.environment("alpha")
@@ -431,6 +463,79 @@ esac
         finally:
             process.terminate()
             process.communicate(timeout=5)
+
+    def test_supervisor_waits_for_the_first_drain_before_signalling_kafka(self) -> None:
+        runtime = self.root / "coordinated"
+        events = self.root / "shutdown-events"
+        broker = self.root / "broker.sh"
+        bootstrap = self.root / "bootstrap.sh"
+        cli = self.root / "cli.sh"
+        broker.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$KAFKA_ADVERTISED_LISTENERS\" > \"$FAKE_KAFKA_STATE/advertised\"\n"
+            "trap 'echo KafkaStopped >> \"$FAKE_KAFKA_STATE/shutdown-events\"; exit 0' TERM\n"
+            "while :; do sleep 0.1; done\n",
+            encoding="utf-8",
+        )
+        bootstrap.write_text("#!/usr/bin/env bash\nprintf 'ready\\n' > \"$KAFKA_READY_FILE\"\n", encoding="utf-8")
+        cli.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [[ $1 == serve ]]; then\n"
+            "  printf '%s' \"$4\" > \"$6\"\n"
+            "  while :; do sleep 0.1; done\n"
+            "fi\n"
+            "printf 'drain %s %s\\n' \"$4\" \"$5\" >> \"$FAKE_KAFKA_STATE/shutdown-events\"\n"
+            "while [[ ! -f $FAKE_KAFKA_STATE/release ]]; do sleep 0.05; done\n"
+            "echo DRAINED >> \"$FAKE_KAFKA_STATE/shutdown-events\"\n",
+            encoding="utf-8",
+        )
+        for path in (broker, bootstrap, cli):
+            path.chmod(0o755)
+        process = subprocess.Popen(
+            [SUPERVISOR, broker],
+            env={
+                **os.environ,
+                "FAKE_KAFKA_STATE": str(self.root),
+                "KAFKA_RUNTIME_DIR": str(runtime),
+                "KAFKA_READY_FILE": str(runtime / "ready"),
+                "KAFKA_BOOTSTRAP_COMMAND": str(bootstrap),
+                "KAFKA_BROKER_LIFECYCLE_TOPIC": "warmup.lifecycle",
+                "KAFKA_BROKER_LIFECYCLE_COMMAND": str(cli),
+                "KAFKA_DRAIN_TIMEOUT_SECONDS": "5",
+                "KAFKA_SHUTDOWN_TIMEOUT_SECONDS": "2",
+                "KAFKA_TERMINATION_GRACE_PERIOD_SECONDS": "12",
+                "CKC_WARMUP_POD_IP": "10.20.30.40",
+            },
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not (runtime / "ready").exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue((runtime / "ready").exists())
+            self.assertEqual(
+                "INTERNAL://localhost:19092,EXTERNAL://10.20.30.40:9092",
+                (self.root / "advertised").read_text().strip(),
+            )
+            epoch = (runtime / "broker-epoch").read_text()
+            process.terminate()
+            deadline = time.monotonic() + 4
+            while not events.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual([f"drain {epoch} 3000"], events.read_text().splitlines())
+            self.assertFalse((runtime / "ready").exists())
+            process.terminate()
+            (self.root / "release").touch()
+            _, stderr = process.communicate(timeout=5)
+            self.assertEqual([f"drain {epoch} 3000", "DRAINED", "KafkaStopped"], events.read_text().splitlines())
+            self.assertIn("event=KafkaSIGTERM", stderr)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate(timeout=5)
 
 
 if __name__ == "__main__":

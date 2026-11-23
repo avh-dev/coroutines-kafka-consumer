@@ -10,6 +10,7 @@ FROM kafka
 
 USER root
 COPY scripts/ /opt/ckc-warmup-kafka/bin/
+COPY cli/ /opt/ckc-warmup-kafka/cli/
 COPY --from=prewarm-builder /classes/ /opt/ckc-warmup-kafka/classes/
 RUN chmod 0755 /opt/ckc-warmup-kafka/bin/*.sh \
     && mkdir -p /var/run/ckc-warmup-kafka \
