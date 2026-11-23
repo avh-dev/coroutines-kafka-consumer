@@ -380,10 +380,15 @@ available for other sessions.
 
 The configurable `donorLivenessTimeout` defaults to 10 seconds, with a probe every third of that
 interval. Replies renew the deadline from the original send time. The deadline stays active across
-`COMPLETING` for each donor until its matching `DonorClosed` arrives. On any recipient interruption,
-result senders are cancelled and joined, recipient warm-up consumers are stopped, and the terminal
-fence gets a bounded best-effort send window. The lifecycle records the reason in
-`WARMUP_INTERRUPTED` and includes the session and recovery duration in each `MAIN_READY` event.
+`COMPLETING` for each donor until its matching `DonorClosed` arrives. Only an active donor session
+or a donor session closing in response to `WarmupCompletionRequested` answers probes.
+
+The timer reports `WARMUP_INTERRUPTED` before waiting for cancelled Kafka probe sends. Recovery
+cancels the result outbox, stops recipient warm-up consumers, and joins the result and probe
+senders before the main consumers launch. The terminal fence gets a bounded best-effort send
+window. After all donors close, a timeout waiting for a result ACK also records
+`WARMUP_INTERRUPTED`. Each subsequent `MAIN_READY` event includes the session, reason, and
+recovery duration.
 
 Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
 loss does not stop main consumers and does not revive completed sessions when topics return. New

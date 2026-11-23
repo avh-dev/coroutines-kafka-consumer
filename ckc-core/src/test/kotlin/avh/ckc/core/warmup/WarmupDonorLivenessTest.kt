@@ -33,7 +33,7 @@ class WarmupDonorLivenessTest {
             if (controlAvailable && probe.targetInstanceId != silentDonor) liveness.onReply(probe.asReply())
         }
         liveness = WarmupDonorLiveness(request, listOf(ready(firstDonor), ready(secondDonor)), channel, 9.seconds, 3.seconds,
-            testScheduler.timeSource)
+            backgroundScope, testScheduler.timeSource)
         val timeout = async { liveness.awaitTimeout() }
 
         advanceTimeBy(10.seconds)
@@ -69,7 +69,7 @@ class WarmupDonorLivenessTest {
             }
         }
         liveness = WarmupDonorLiveness(request, listOf(ready(firstDonor)), channel, 9.seconds, 3.seconds,
-            testScheduler.timeSource)
+            backgroundScope, testScheduler.timeSource)
         val timeout = async { liveness.awaitTimeout() }
 
         advanceTimeBy(8.seconds)

@@ -2,11 +2,14 @@ package avh.ckc.core.warmup
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
@@ -20,10 +23,20 @@ internal class WarmupDonorLiveness(
     private val channel: WarmupControlChannel,
     private val timeout: Duration,
     private val interval: Duration,
+    scope: CoroutineScope,
     timeSource: TimeSource = TimeSource.Monotonic
 ) {
     private val started = timeSource.markNow()
     private val replies = readiness.associate { it.targetInstanceId to MutableStateFlow<Long?>(0) }
+    // Keep blocking sends out of the timeout scope. Recipient cleanup joins them after cancelling
+    // the result outbox, which may itself be holding the Kafka worker needed to unwind a send.
+    private val senders = readiness.associate { ready ->
+        ready.targetInstanceId to scope.launch(start = CoroutineStart.LAZY) { sendProbes(ready) }
+    }
+
+    fun cancelSenders() = senders.values.forEach { it.cancel() }
+
+    suspend fun awaitSendersStopped() = senders.values.joinAll()
 
     fun onDonorClosed(donor: WarmupInstanceId) {
         replies[donor]?.value = null
@@ -44,7 +57,8 @@ internal class WarmupDonorLiveness(
         val missingReply = CompletableDeferred<Unit>()
         val monitors = readiness.map { ready ->
             launch {
-                val sender = launch { sendProbes(ready) }
+                val sender = senders.getValue(ready.targetInstanceId)
+                sender.start()
                 try {
                     if (replyTimedOut(replies.getValue(ready.targetInstanceId))) missingReply.complete(Unit)
                 } finally {
@@ -55,6 +69,7 @@ internal class WarmupDonorLiveness(
         try {
             missingReply.await()
         } finally {
+            cancelSenders()
             monitors.forEach { it.cancel() }
         }
     }

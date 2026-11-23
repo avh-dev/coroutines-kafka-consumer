@@ -173,9 +173,14 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
         val local = sessions[probe.sessionId] ?: return@synchronized null
         val ready = probe.envelope as? RecipientReady ?: return@synchronized null
-        if (local.state !in setOf(State.ACTIVE, State.DRAINING, State.CLOSED) ||
-            !matches(local.acceptance, ready) || nowEpochMillis() >= probe.expiresAtEpochMillis
-        ) return@synchronized null
+        val answering = when (local.state) {
+            State.ACTIVE -> true
+            State.DRAINING, State.CLOSED -> local.acknowledgeClose
+            else -> false
+        }
+        if (!answering || !matches(local.acceptance, ready) || nowEpochMillis() >= probe.expiresAtEpochMillis) {
+            return@synchronized null
+        }
         WarmupLivenessProbe(accepted(local.acceptance).copy(supportsLiveness = false), probe.sentAtNanos)
     }
 
@@ -202,6 +207,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 ?: retainedCleanupSessions[request.sessionId]
                 ?: return@synchronized false
             if (!matchesSession(existing.acceptance, request)) return@synchronized false
+            if (existing.state in setOf(State.DRAINING, State.CLOSED) && !existing.acknowledgeClose) {
+                return@synchronized false
+            }
             if (existing.state == State.CLOSED) {
                 scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
                 return@synchronized true
@@ -273,7 +281,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             State.FAILED -> return requestFailedCleanupLocked(local)
         }
         local.readySeen = false
-        local.acknowledgeClose = local.acknowledgeClose || acknowledge
+        local.acknowledgeClose = acknowledge
         local.state = State.DRAINING
         if (!local.closeStarted) {
             local.closeStarted = true

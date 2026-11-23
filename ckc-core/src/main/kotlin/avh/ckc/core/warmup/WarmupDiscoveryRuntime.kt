@@ -66,7 +66,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val donorAcceptanceTimeout: Duration,
     private val donorCompletionTimeout: Duration = donorAcceptanceTimeout,
     private val donorLivenessTimeout: Duration = 10.seconds,
-    scope: CoroutineScope
+    private val scope: CoroutineScope
 ) : WarmupControlMessageHandler, AutoCloseable {
     private val lock = Any()
     private val recipientSignal = Channel<Unit>(Channel.CONFLATED)
@@ -205,26 +205,23 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         }
         return try {
             val reason = try {
-                if (interruption == null) awaitDonorCompletion(recipient)
+                if (interruption == null) awaitDonorCompletion(recipient)?.also(onFailureDetected)
                 else coroutineScope {
                     val completion = async { awaitDonorCompletion(recipient) }
                     try {
                         select {
-                            completion.onAwait { it }
-                            interruption.onAwait { it }
+                            interruption.onAwait { it.also(onFailureDetected) }
+                            completion.onAwait { it?.also(onFailureDetected) }
                         }
                     } finally {
-                        completion.cancelAndJoin()
+                        completion.cancel()
                     }
                 }
             } finally {
                 // Intentional recipient shutdown after all donors close must not trigger interruption.
                 interruption?.cancelAndJoin()
             }
-            if (reason != null) {
-                onFailureDetected(reason)
-                return completionFallback(recipient, reason)
-            }
+            if (reason != null) return completionFallback(recipient, reason)
 
             when (val cleanup = recipient.completeAfterDonorsClosed()) {
                 WarmupRecipientCleanupResult.Complete -> {
@@ -278,7 +275,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     ): WarmupInterruption {
         val liveness = WarmupDonorLiveness(
             recipient.request, readiness.filter { recipient.supportsDonorLiveness(it.targetInstanceId) },
-            channel, donorLivenessTimeout, probeInterval
+            channel, donorLivenessTimeout, probeInterval, scope
         )
         donorLiveness = liveness
         return try {
@@ -310,8 +307,15 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
                 }
             }
         } finally {
-            donorLiveness = null
+            liveness.cancelSenders()
         }
+    }
+
+    suspend fun stopRecipientProbes() {
+        val liveness = donorLiveness ?: return
+        liveness.cancelSenders()
+        liveness.awaitSendersStopped()
+        if (donorLiveness === liveness) donorLiveness = null
     }
 
     override suspend fun onMessage(record: WarmupControlRecord) {
@@ -353,12 +357,15 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
 
     suspend fun stop() {
         stopProbeReplies()
-        probeReplyWorkers.joinAll()
+        donorLiveness?.cancelSenders()
         channel.stop()
+        stopRecipientProbes()
+        probeReplyWorkers.joinAll()
     }
 
     override fun close() {
         stopProbeReplies()
+        donorLiveness?.cancelSenders()
         registration.close()
         recipientSignal.close()
         recipientInterruptionSignal.close()

@@ -6902,7 +6902,7 @@ Validate the four canonical definitions and their shared workload, infrastructur
 _Date: 2026-11-23_
 
 Negotiate donor probes using v6-compatible Kafka headers and send replies over a bounded queue.
-Keep the configurable 10s liveness deadline through donor drain until each DonorClosed arrives.
-Cancel and join outstanding result senders on recipient failure before starting main consumers.
-Report the interruption reason, session identity, and time until each main consumer becomes ready.
-Passed 345 core tests, 114 demo tests, and all 13 Kafka tests in TrafficWarmupContextIntegrationTest.
+Keep the configurable 10s deadline through graceful donor drain until each DonorClosed arrives.
+Publish interruption before waiting for stalled Kafka sends, then join result and probe senders during cleanup.
+Fence donor sessions closed by an abort and report ACK failures after DonorClosed through MAIN_READY.
+Passed 345 core tests, 114 demo tests, and all 16 Kafka tests in TrafficWarmupContextIntegrationTest.
