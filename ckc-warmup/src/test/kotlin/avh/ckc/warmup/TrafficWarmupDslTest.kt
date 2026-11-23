@@ -8,10 +8,33 @@ import avh.ckc.warmup.protocol.WarmupQuotaProfileParser
 import org.apache.kafka.clients.CommonClientConfigs
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class TrafficWarmupDslTest {
+    @Test
+    fun `inflight delegation limit is positive and local to each context`() {
+        fun context(limit: Int = Int.MAX_VALUE) = trafficWarmupContext {
+            namespace = "test"
+            controlTopic = "warmup-control"
+            maxInflightDelegations = limit
+        }
+
+        listOf(0, -1).forEach { invalid ->
+            val error = assertThrows(IllegalArgumentException::class.java) { context(invalid) }
+            assertTrue(error.message!!.contains("maxInflightDelegations"))
+        }
+        assertEquals(Int.MAX_VALUE, TrafficWarmupContextConfiguration().maxInflightDelegations)
+        assertEquals(Int.MAX_VALUE, context().inflightDelegations.availablePermits)
+        val first = context(1)
+        val second = context(1)
+        assertTrue(first.inflightDelegations.tryAcquire())
+        assertEquals(0, first.inflightDelegations.availablePermits)
+        assertEquals(1, second.inflightDelegations.availablePermits)
+        first.inflightDelegations.release()
+    }
+
     @Test
     fun `mapping quota profile is parsed while the DSL configuration is built`() {
         val configuration = TrafficWarmupConsumerConfiguration<String, String>().apply {

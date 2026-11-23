@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -1327,6 +1328,106 @@ class TrafficWarmupContextIntegrationTest {
                 throw IllegalStateException("Multi-recipient cleanup failed").apply {
                     failures.forEach(::addSuppressed)
                 }
+            }
+        }
+    }
+
+    @Test
+    fun `public donor limit sends a saturated participant local and then resumes delegation`() = runBlocking {
+        val firstSource = unique("inflight-first-source")
+        val firstWarmup = unique("inflight-first-warmup")
+        val secondSource = unique("inflight-second-source")
+        val secondWarmup = unique("inflight-second-warmup")
+        val control = unique("inflight-control")
+        val namespace = unique("inflight-namespace")
+        createTopics(firstSource, firstWarmup, secondSource, secondWarmup, control)
+        val donorContext = trafficWarmupContext {
+            this.namespace = namespace
+            controlTopic = control
+            controlProducerProperties = kafkaConnection()
+            controlConsumerProperties = kafkaConnection()
+            offerWindow = 250.milliseconds
+            delegationTimeout = 20.seconds
+            maxInflightDelegations = 1
+        }
+        val recipientContext = context(namespace, control, warmupDuration = 30.seconds)
+        val firstGroup = unique("inflight-first-group")
+        val secondGroup = unique("inflight-second-group")
+        val firstEntered = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val firstDonorHandled = CopyOnWriteArrayList<String>()
+        val secondDonorHandled = CopyOnWriteArrayList<String>()
+        val secondRecipientHandled = CopyOnWriteArrayList<String>()
+        val firstMetrics = RecordingWarmupMetrics<String, String>()
+        val secondMetrics = RecordingWarmupMetrics<String, String>()
+        val donor = consumerContainer(
+            stringConsumer(
+                donorContext, "first", firstSource, firstWarmup, firstGroup, firstDonorHandled,
+                consumerMetrics = firstMetrics
+            ),
+            stringConsumer(
+                donorContext, "second", secondSource, secondWarmup, secondGroup, secondDonorHandled,
+                consumerMetrics = secondMetrics
+            )
+        )
+        val recipient = consumerContainer(
+            stringConsumer(
+                recipientContext, "first", firstSource, firstWarmup, firstGroup, CopyOnWriteArrayList(),
+                beforeHandle = {
+                    firstEntered.complete(Unit)
+                    releaseFirst.await()
+                }
+            ),
+            stringConsumer(
+                recipientContext, "second", secondSource, secondWarmup, secondGroup, secondRecipientHandled
+            )
+        )
+        try {
+            donor.start()
+            withTimeout(15.seconds) { donor.awaitReady() }
+            recipient.start()
+            // A probe reply establishes that the donor has processed readiness and activated its lanes.
+            val controlProperties = consumerProperties(unique("inflight-control-observer"), ByteArrayDeserializer::class.java)
+            KafkaConsumer<String, ByteArray>(controlProperties).use { observer ->
+                val partition = TopicPartition(control, 0)
+                observer.assign(listOf(partition))
+                observer.seekToBeginning(listOf(partition))
+                withTimeout(15.seconds) {
+                    while (true) {
+                        val active = observer.poll(JavaDuration.ofMillis(100)).any { record ->
+                            val message = WarmupControlCodec.decode(record.value(), record.headers())
+                            message is WarmupLivenessProbe && message.reply
+                        }
+                        if (active) break
+                        yield()
+                    }
+                }
+            }
+
+            produce(firstSource, "key", "held", StringSerializer())
+            withTimeout(10.seconds) { firstEntered.await() }
+            awaitFor { firstMetrics.warmupPending.lastOrNull() == 1 }
+            produce(secondSource, "key", "local", StringSerializer())
+            awaitFor { secondMetrics.processed.any { it.value == "local" && !it.processedRemotely } }
+            assertEquals(listOf("local"), secondDonorHandled.toList())
+            assertTrue(secondMetrics.warmupDelegated.isEmpty())
+            assertTrue(secondMetrics.warmupFallbacks.isEmpty())
+            assertTrue(firstMetrics.processed.isEmpty())
+
+            releaseFirst.complete(Unit)
+            awaitFor { firstMetrics.processed.any { it.value == "held" && it.processedRemotely } }
+            produce(secondSource, "key", "remote", StringSerializer())
+            awaitFor { secondMetrics.processed.any { it.value == "remote" && it.processedRemotely } }
+            assertEquals(listOf("remote"), secondRecipientHandled.toList())
+            assertEquals(listOf("local"), secondDonorHandled.toList())
+            assertTrue(firstDonorHandled.isEmpty())
+            assertEquals(listOf("remote"), secondMetrics.warmupDelegated.map { it.first.value() })
+        } finally {
+            releaseFirst.complete(Unit)
+            try {
+                recipient.stop()
+            } finally {
+                donor.stop()
             }
         }
     }

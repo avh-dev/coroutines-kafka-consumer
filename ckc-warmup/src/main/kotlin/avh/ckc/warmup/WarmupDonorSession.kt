@@ -12,6 +12,7 @@ import avh.ckc.warmup.protocol.quotaPerSecond
 import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -27,7 +28,7 @@ internal fun interface WarmupDestinationResolver<K, V> {
  * [sessionLock] protects [state], [inflight], and [inflightDrained]. Result waiters have a separate
  * lock inside [WarmupResultTracker]: `inflight` counts every delegation from successful admission
  * through its `finally`, while pending results count only acknowledged sends currently awaiting a
- * recipient outcome. A successful [tryBeginDelegation] must therefore have exactly one matching
+ * recipient outcome. A successful [tryBeginDelegation] also holds one shared permit until
  * [finishDelegation].
  *
  * `DRAINING` rejects new delegation but accepts results for existing work. `FAILED` also rejects new
@@ -47,7 +48,8 @@ internal class WarmupDonorSession<K, V>(
     private val supportsRemoteDiscard: (RecordDropReason) -> Boolean = { false },
     private val maxEarlyResults: Int = 1_024,
     earlyResultTtl: Duration = delegationTimeout,
-    nanoTime: () -> Long = System::nanoTime
+    nanoTime: () -> Long = System::nanoTime,
+    private val inflightDelegations: Semaphore = Semaphore(Int.MAX_VALUE)
 ) : WarmupDonorSessionLifecycle {
     override val admissionBudgetPerSecond: Int = normalizedSessionBudget(quotaProfile.maximumQuota, quotaInterval)
     private enum class State { ADMITTED, ACTIVE, DRAINING, FAILED, CLOSED }
@@ -88,7 +90,9 @@ internal class WarmupDonorSession<K, V>(
     fun tryBeginDelegation(record: ConsumerRecord<K, V>): WarmupDestination? {
         val destination = destinationResolver.destinationFor(record) ?: return null
         return synchronized(sessionLock) {
-            if (state != State.ACTIVE || !quota.tryAcquire()) return@synchronized null
+            if (state != State.ACTIVE || !quota.tryAcquire { inflightDelegations.tryAcquire() }) {
+                return@synchronized null
+            }
             if (inflight == 0) inflightDrained = CompletableDeferred()
             inflight++
             destination
@@ -288,6 +292,7 @@ internal class WarmupDonorSession<K, V>(
     private fun finishDelegation() = synchronized(sessionLock) {
         check(inflight > 0) { "Warm-up delegation accounting underflow" }
         inflight--
+        inflightDelegations.release()
         if (inflight == 0) inflightDrained.complete(Unit)
     }
 

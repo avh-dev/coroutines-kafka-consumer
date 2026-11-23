@@ -11,7 +11,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 
-/** Public protocol settings shared by every participant in one local context. */
+/** Warm-up settings shared by every participant in one local context. */
 class TrafficWarmupContextConfiguration {
     var instanceId: String = UUID.randomUUID().toString()
     var namespace: String = ""
@@ -38,6 +38,9 @@ class TrafficWarmupContextConfiguration {
 
     /** Aggregate logical-session admission capacity in normalized records per second. */
     var maxAggregateQuotaPerSecond: Int = Int.MAX_VALUE
+
+    /** Shared donor capacity from admission through ACK, result, and any local fallback. */
+    var maxInflightDelegations: Int = Int.MAX_VALUE
 
     /** Supplies parent lifecycle context elements; protocol dispatch uses the owned service threads. */
     var parentContext: CoroutineContext = Dispatchers.Default
@@ -193,6 +196,7 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
             metrics = runtimeFactory.metrics,
             warmupMetrics = configuration.metrics ?: defaultWarmupMetrics(runtimeFactory.metrics),
             delegationTimeoutMillis = context.delegationTimeoutMillis(),
+            inflightDelegations = context.inflightDelegations,
             recipientShutdownTimeoutMillis = context.recipientShutdownTimeoutMillis(),
             serviceDispatcher = context.serviceDispatcher(),
             forwardingObserver = configuration.forwardingObserver

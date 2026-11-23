@@ -170,6 +170,7 @@ val context = trafficWarmupContext {
     controlTopic = "warmup.control"
     controlProducerProperties = warmupKafka
     controlConsumerProperties = warmupKafka
+    maxInflightDelegations = 4
 }
 
 val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
@@ -188,6 +189,16 @@ val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
 
 Provision the control topic and a single-partition destination topic before starting the consumer.
 Instances that share a namespace use the same participant IDs and mappings.
+
+`maxInflightDelegations` accepts values from `1` to `Int.MAX_VALUE` and defaults to `Int.MAX_VALUE`.
+Each `TrafficWarmupContext` has its own limit shared by all its donor sessions, participants, and source topics.
+A delegation holds a place from admission before the Kafka send through the producer ACK, the recipient result,
+and any required local fallback. When all places are occupied, the record is processed locally immediately.
+Saturation preserves the remaining mapping quota and the session can delegate later records as places become free.
+The `warmup.pending` metric counts only sends acknowledged by Kafka that are still awaiting a recipient result.
+Use each consumer's `workerConcurrency` when sizing the limit if local processing needs spare workers.
+Any participant can use all available places up to its own worker concurrency.
+
 The `coroutines-kafka-consumer-warmup` JAR includes the protocol in `avh.ckc.warmup.protocol`.
 When the consumer uses a CKC Micrometer metrics binding, enabling the DSL also registers the
 warm-up meters with that binding's prefix and tags.
