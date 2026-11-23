@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.Sync
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -19,9 +20,16 @@ java {
     targetCompatibility = JavaVersion.VERSION_11
 }
 
+val brokerCliImplementation = configurations.dependencyScope("brokerCliImplementation")
+val brokerCliRuntime = configurations.resolvable("brokerCliRuntime") {
+    extendsFrom(brokerCliImplementation.get())
+}
+
 dependencies {
     api(project(":ckc-core"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    add(brokerCliImplementation.name, kotlin("stdlib"))
+    add(brokerCliImplementation.name, "org.apache.kafka:kafka-clients:3.4.0")
 
     compileOnly(project(":ckc-micrometer"))
     compileOnly("io.micrometer:micrometer-core:1.15.0")
@@ -36,6 +44,12 @@ dependencies {
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.3.1")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.2")
     testImplementation("org.testcontainers:testcontainers-kafka:2.0.2")
+}
+
+val brokerCliDirectory = layout.buildDirectory.dir("warmup-broker-cli")
+val stageWarmupBrokerCli = tasks.register<Sync>("stageWarmupBrokerCli") {
+    from(tasks.jar, brokerCliRuntime)
+    into(brokerCliDirectory)
 }
 
 tasks.test {
@@ -56,6 +70,9 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+    dependsOn(stageWarmupBrokerCli)
+    inputs.dir(brokerCliDirectory)
+    systemProperty("ckc.warmup.brokerCliDirectory", brokerCliDirectory.get().asFile.absolutePath)
     shouldRunAfter(tasks.test)
     useJUnitPlatform {
         includeTags("integration")

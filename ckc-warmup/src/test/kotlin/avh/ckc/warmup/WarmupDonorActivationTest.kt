@@ -41,6 +41,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.withTimeout
@@ -62,6 +63,75 @@ class WarmupDonorActivationTest {
         WarmupParticipantId("orders"), "orders", "warmup-orders", "mapping-fingerprint"
     )
     private val ownership = setOf(WarmupSourcePartition(0, 3))
+
+    @Test
+    fun `broker fence rejects activation and retains cleanup ownership through ACK failure and local fallback`() =
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val plane = MultiSessionWarmupDataPlane<String, String>(2, 20)
+            val active = acceptance()
+            val waiting = active.copy(sessionId = WarmupSessionId("not-yet-active"))
+            val capacity = Semaphore(1)
+            val sent = CompletableDeferred<Unit>()
+            val ack = CompletableDeferred<WarmupSendAcknowledgement>()
+            val fallback = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val controller = WarmupDonorActivation(
+                donor, namespace, listOf(mapping), plane, WarmupDonorEligibility { ownership },
+                WarmupDonorSessionPreparation { accepted ->
+                    if (accepted == waiting) session(waiting.sessionId)
+                    else WarmupDonorSession(
+                        sessionId = active.sessionId,
+                        quotaProfile = WarmupQuotaProfile.constant(10),
+                        quotaInterval = 1.seconds,
+                        delegationTimeout = 5.seconds,
+                        destinationResolver = WarmupDestinationResolver { WarmupDestination(mapping.warmupTopic) },
+                        sender = WarmupRecordSender { _, _, _ ->
+                            sent.complete(Unit)
+                            ack.await()
+                        },
+                        inflightDelegations = capacity
+                    )
+                },
+                scope, onPreparationFailed = {}, nowEpochMillis = { 1_000 }
+            )
+            try {
+                listOf(active, waiting).forEach { accepted ->
+                    assertInstanceOf(DonorAccepted::class.java, acceptAndStart(controller, accepted))
+                    awaitFor<WarmupDonorActivation.State>(2_000, 10) {
+                        controller.state(accepted.sessionId)
+                            .takeIf { it == WarmupDonorActivation.State.WAITING_RECIPIENT_READY }
+                    }
+                }
+                assertTrue(controller.onRecipientReady(ready()))
+                val result = async {
+                    plane.process(ConsumerRecord(mapping.sourceTopic, 0, 0, "key", "value")) {
+                        fallback.complete(Unit)
+                        release.await()
+                        RecordProcessingOutcome.HandlerSucceeded
+                    }
+                }
+                withTimeout(2_000) { sent.await() }
+                assertEquals(setOf(active.sessionId.value, waiting.sessionId.value), controller.closeBrokerAdmission())
+                assertFalse(controller.onRecipientReady(ready().copy(sessionId = waiting.sessionId)))
+                assertInstanceOf(SessionRejected::class.java, controller.accept(active.copy(sessionId = WarmupSessionId("late"))))
+                assertEquals(RecordProcessingOutcome.HandlerSucceeded, plane.process(
+                    ConsumerRecord(mapping.sourceTopic, 0, 1, "key", "next")
+                ) { RecordProcessingOutcome.HandlerSucceeded })
+                ack.completeExceptionally(IllegalStateException("Producer ACK failed"))
+                withTimeout(2_000) { fallback.await() }
+                assertEquals(0, capacity.availablePermits)
+                assertTrue(plane.admittedSessionCount() > 0)
+                release.complete(Unit)
+                assertEquals(RecordProcessingOutcome.HandlerSucceeded, withTimeout(2_000) { result.await() })
+                withTimeout(2_000) { controller.awaitBrokerCloseSends() }
+                assertEquals(0, plane.admittedSessionCount())
+                assertEquals(1, capacity.availablePermits)
+            } finally {
+                release.complete(Unit)
+                scope.cancel()
+            }
+        }
 
     @Test
     fun `blocked donor resource close does not stall sibling preparation or coordination deadlines`() = runBlocking {

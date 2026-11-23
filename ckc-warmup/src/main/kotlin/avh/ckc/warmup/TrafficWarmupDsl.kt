@@ -42,6 +42,13 @@ class TrafficWarmupContextConfiguration {
     /** Shared donor capacity from admission through ACK, result, and any local fallback. */
     var maxInflightDelegations: Int = Int.MAX_VALUE
 
+    internal var brokerLifecycleConfiguration: TrafficWarmupBrokerLifecycleConfiguration? = null
+
+    /** Enables coordinated stop for the temporary broker hosting this context's warm-up destinations. */
+    fun brokerLifecycle(block: TrafficWarmupBrokerLifecycleConfiguration.() -> Unit) {
+        brokerLifecycleConfiguration = TrafficWarmupBrokerLifecycleConfiguration().apply(block)
+    }
+
     /** Supplies parent lifecycle context elements; protocol dispatch uses the owned service threads. */
     var parentContext: CoroutineContext = Dispatchers.Default
 
@@ -50,6 +57,12 @@ class TrafficWarmupContextConfiguration {
     fun onLifecycleEvent(observer: (TrafficWarmupLifecycleEvent) -> Unit) {
         lifecycleObserver = observer
     }
+}
+
+class TrafficWarmupBrokerLifecycleConfiguration internal constructor() {
+    var topic: String = ""
+    var kafkaProperties: Map<String, Any?> = emptyMap()
+    var operationTimeout: Duration = 2.seconds
 }
 
 /** Per-mapping quota; unused capacity is never transferred to another mapping. */

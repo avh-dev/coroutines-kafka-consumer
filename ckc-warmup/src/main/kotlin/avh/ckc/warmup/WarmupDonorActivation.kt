@@ -57,7 +57,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     private val onDonorClosed: suspend (DonorClosed) -> Unit = {},
     private val drainTimeout: Duration = 5.seconds,
     private val maxTerminalSessionFences: Int = 1_024,
-    private val nowEpochMillis: () -> Long = System::currentTimeMillis
+    private val nowEpochMillis: () -> Long = System::currentTimeMillis,
+    admissionInitiallyOpen: Boolean = true
 ) {
     internal enum class State {
         PREPARING, WAITING_RECIPIENT_READY, ACTIVE, DRAINING, CLOSED, FAILED, CANCELLED
@@ -94,6 +95,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     // close succeeds. This registry is bounded by actual failed resources rather than protocol IDs.
     private val retainedCleanupSessions = linkedMapOf<WarmupSessionId, LocalSession<S>>()
     private val terminalSessionOrder = linkedSetOf<WarmupSessionId>()
+    private val brokerCloseJobs = mutableSetOf<Job>()
+    private var admissionOpen = admissionInitiallyOpen
     private var admissionBlockedUntilEpochMillis = 0L
 
     init {
@@ -105,6 +108,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     fun accept(acceptance: SessionAccepted): WarmupControlMessage {
         rejectionReason(acceptance)?.let { return rejection(acceptance, it) }
         synchronized(lock) {
+            if (!admissionOpen) return rejection(acceptance, "broker_draining")
             pruneExpiredTerminalFencesLocked()
             (sessions[acceptance.sessionId] ?: retainedCleanupSessions[acceptance.sessionId])?.let { existing ->
                 return if (existing.acceptance == acceptance && existing.state !in terminalStates) {
@@ -162,6 +166,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
 
     /** Unknown, foreign, expired, or mismatched readiness cannot create or mutate local state. */
     fun onRecipientReady(ready: RecipientReady): Boolean = synchronized(lock) {
+        if (!admissionOpen) return@synchronized false
         val local = sessions[ready.sessionId] ?: return@synchronized false
         if (!matches(local.acceptance, ready) || nowEpochMillis() > ready.expiresAtEpochMillis) {
             return@synchronized false
@@ -186,6 +191,23 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             State.FAILED,
             State.CANCELLED -> false
         }
+    }
+
+    fun isAdmissionOpen(): Boolean = synchronized(lock) { admissionOpen }
+
+    fun openBrokerAdmission() = synchronized(lock) { admissionOpen = true }
+
+    /** Fences new sessions and closes delegation before returning to the lifecycle listener. */
+    fun closeBrokerAdmission(): Set<String> = synchronized(lock) {
+        admissionOpen = false
+        val affected = (sessions.values.filter { it.state !in terminalStates } + retainedCleanupSessions.values).toSet()
+        affected.forEach { beginCloseLocked(it, acknowledge = it.acknowledgeClose) }
+        affected.mapTo(linkedSetOf()) { it.acceptance.sessionId.value }
+    }
+
+    suspend fun awaitBrokerCloseSends() {
+        val jobs = synchronized(lock) { brokerCloseJobs.toList() }
+        jobs.forEach { it.join() }
     }
 
     fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
@@ -303,12 +325,19 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         local.state = State.DRAINING
         if (!local.closeStarted) {
             local.closeStarted = true
-            scope.launch { finishClose(local) }
+            launchCloseLocked(local)
         } else {
             // A close trigger racing a failed cleanup must not be lost before closeStarted resets.
             local.closeRetryRequested = true
         }
         return true
+    }
+
+    private fun launchCloseLocked(local: LocalSession<S>) {
+        val job = scope.launch(start = CoroutineStart.LAZY) { finishClose(local) }
+        brokerCloseJobs += job
+        job.invokeOnCompletion { synchronized(lock) { brokerCloseJobs.remove(job) } }
+        job.start()
     }
 
     private suspend fun finishClose(local: LocalSession<S>) {
@@ -374,7 +403,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 false
             }
         }
-        if (retryNow) scope.launch { finishClose(local) }
+        if (retryNow) synchronized(lock) { launchCloseLocked(local) }
     }
 
     /** Both late and installed resources remain reachable until a close attempt succeeds. */

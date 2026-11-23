@@ -95,6 +95,7 @@
 | [CORE-96](#core-96) | Detect warm-up donor or control-path loss and start main consumers after bounded local cleanup. | DONE |
 | [CORE-97](#core-97) | Extract the traffic warm-up runtime and protocol into an optional library module. | DONE |
 | [CORE-98](#core-98) | Bound concurrent donor delegations across a warm-up context. | DONE |
+| [CORE-99](#core-99) | Coordinate warm-up context drain and prove completion before temporary Kafka shutdown. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6933,3 +6934,14 @@ Process records locally on saturation without consuming mapping quota.
 Release capacity when each admitted delegation finishes, including local fallback.
 Cover concurrent admission and recovery with controlled results and a Kafka DSL scenario.
 Passed 141 warm-up unit tests, 37 Kafka integration tests, and 2 Kafka scenarios without Micrometer.
+
+<a id="core-99"></a>
+### CORE-99 - Coordinate warm-up broker drain
+
+_Date: 2026-11-23_
+
+Reconstruct current broker membership up to the first drain request and require a final acknowledgement from each expected context.
+Fence warm-up admission, drain donor and recipient resources, and preserve the selected recipient outcome independently of main readiness.
+Verify offsets, shutdown races, and reconnect to a new broker generation with Kafka integration tests.
+Run the broker CLI from the existing warm-up JAR with an isolated classpath.
+Passed the warm-up unit suite and seven targeted Kafka scenarios, including a killed participant, delayed ACKs, and a restart with the same log.
