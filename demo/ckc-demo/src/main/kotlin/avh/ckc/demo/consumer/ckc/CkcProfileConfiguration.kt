@@ -3,8 +3,8 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.ConsumerContainer
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.core.warmup.TrafficWarmupLifecyclePhase
-import avh.ckc.core.warmup.trafficWarmupContext
+import avh.ckc.warmup.TrafficWarmupLifecyclePhase
+import avh.ckc.warmup.trafficWarmupContext
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConnectionProperties
 import avh.ckc.demo.config.kafkaConsumerProperties

@@ -8,9 +8,6 @@ import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.core.metrics.WarmupFallbackReason
-import avh.ckc.core.metrics.WarmupResultMetricOutcome
-import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
@@ -60,51 +57,11 @@ class MicrometerConsumerMetricsSchemaTest {
             processedRemotely = true
         )
 
+        assertTrue(registry.meters.none { ".warmup." in it.id.name })
         assertEquals(1L, processingBeforeRemote)
         assertEquals(1L, endToEndBeforeRemote)
         assertEquals(processingBeforeRemote, registry.get("test.ckc.record.process.duration").timer().count())
         assertEquals(endToEndBeforeRemote, registry.get("test.ckc.record.end.to.end.duration").timer().count())
-    }
-
-    @Test
-    fun `warmup metrics expose transport outcomes fallback and aggregate pending`() {
-        val registry = SimpleMeterRegistry()
-        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
-            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
-        )
-        val record = testRecord<String, TestLifecycleEvent>(topic = "orders", partition = 0)
-
-        metrics.onWarmupDelegated(record, 10)
-        metrics.onWarmupResult(record, WarmupResultMetricOutcome.SUCCEEDED, 20)
-        metrics.onWarmupFallback(record, WarmupFallbackReason.RESULT_TIMEOUT)
-        metrics.onWarmupPendingChanged(4)
-        metrics.onWarmupResultDeliveryChanged(9, 4, 5, 1)
-        metrics.onWarmupResultAdmissionLimited()
-        metrics.onWarmupResultDeliveryFailure(WarmupResultDeliveryFailureReason.TIMEOUT)
-        metrics.onWarmupResultDrain(30, LifecycleOutcome.SUCCESS)
-
-        assertEquals(1.0, registry.get("test.ckc.warmup.delegated").counter().count())
-        assertEquals(1L, registry.get("test.ckc.warmup.send.duration").timer().count())
-        assertEquals(1.0, registry.get("test.ckc.warmup.result").tag("outcome", "succeeded").counter().count())
-        assertEquals(1L, registry.get("test.ckc.warmup.result.wait.duration").timer().count())
-        assertEquals(
-            1.0,
-            registry.get("test.ckc.warmup.fallback").tag("reason", "result_timeout").counter().count()
-        )
-        assertEquals(4.0, registry.get("test.ckc.warmup.pending").gauge().value())
-        assertEquals(9.0, registry.get("test.ckc.warmup.result.delivery.outstanding").gauge().value())
-        assertEquals(4.0, registry.get("test.ckc.warmup.result.delivery.queued").gauge().value())
-        assertEquals(5.0, registry.get("test.ckc.warmup.result.delivery.awaiting.ack").gauge().value())
-        assertEquals(1.0, registry.get("test.ckc.warmup.result.delivery.limited.mappings").gauge().value())
-        assertEquals(1.0, registry.get("test.ckc.warmup.result.admission.limited").counter().count())
-        assertEquals(
-            1.0,
-            registry.get("test.ckc.warmup.result.delivery.failure").tag("reason", "timeout").counter().count()
-        )
-        assertEquals(
-            1L,
-            registry.get("test.ckc.warmup.result.drain.duration").tag("outcome", "success").timer().count()
-        )
     }
 
     private data class TestLifecycleEvent(

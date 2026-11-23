@@ -701,6 +701,12 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo("UNKNOWN")
                 assertThat(metrics.micrometer.kafkaClientMetricsEnabled)
                     .isTrue()
+
+                val meters = context.getBean(SimpleMeterRegistry::class.java).meters.map { it.id.name }
+                assertThat(meters).contains("testapp.ckc.recovery.active")
+                assertThat(meters).noneMatch { ".warmup." in it }
+                assertThat(javaClass.classLoader.getResource("avh/ckc/warmup/TrafficWarmupDslKt.class"))
+                    .isNull()
             }
     }
 

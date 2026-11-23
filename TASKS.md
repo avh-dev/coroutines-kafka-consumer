@@ -93,6 +93,7 @@
 | [CORE-88](#core-88) | Isolate warm-up protocol work on bounded named dispatchers whose idle threads expire. | DONE |
 | [CORE-89](#core-89) | Keep healthy control consumers polling through transient recovery-check failures and classify real transport failures. | DONE |
 | [CORE-96](#core-96) | Detect warm-up donor or control-path loss and start main consumers after bounded local cleanup. | DONE |
+| [CORE-97](#core-97) | Extract the traffic warm-up runtime and protocol into an optional library module. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6908,3 +6909,15 @@ Fence donor sessions closed by an abort and classify Kafka and CKC ACK timeouts 
 Resolve the bounded sender cleanup retry before committing a single terminal outcome after DonorClosed.
 Keep timeout metrics on abort and preserve the recorded session interruption or terminal outcome when a participant stops.
 Passed 345 core tests, 114 demo tests, and 33 Kafka warm-up integration tests.
+
+<a id="core-97"></a>
+### CORE-97 - Extract the optional warm-up module
+
+_Date: 2026-11-23_
+
+Move traffic warm-up and the v6 protocol into a single opt-in artifact.
+Use core extension points for record admission, processing, partition ownership, and lifecycle.
+Keep the base starter and Micrometer adapter independent of warm-up.
+Verify the runtime classpaths, both demo modes, and the wire payloads against CORE-96.
+Run the Micrometer-free Kafka scenarios from Gradle `check` and reuse gauge values when a metrics binding is reused.
+Include warm-up sources in the internal-lab demo image fingerprint.

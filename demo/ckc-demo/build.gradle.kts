@@ -32,6 +32,7 @@ val threadStatsVersion = providers.gradleProperty("threadStatsVersion").get()
 
 dependencies {
     implementation(project(":ckc-core"))
+    implementation(project(":ckc-warmup"))
     implementation(project(":ckc-demo-contracts"))
     implementation(project(":ckc-micrometer"))
     implementation(project(":ckc-spring-boot-starter"))

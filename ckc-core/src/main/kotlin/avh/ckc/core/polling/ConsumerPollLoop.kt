@@ -381,7 +381,7 @@ internal class ConsumerPollLoop<K, V>(
         }
     }
 
-    /** Registers an explicitly assigned warm-up partition at its captured session start offset. */
+    /** Registers an explicitly assigned partition at its configured start offset. */
     private fun handleFixedPartitionsAssigned(
         partitions: Set<TopicPartition>,
         startOffsets: Map<TopicPartition, Long>
