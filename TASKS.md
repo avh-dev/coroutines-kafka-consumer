@@ -6906,5 +6906,5 @@ Keep the configurable 10s deadline through graceful donor drain until each Donor
 Publish interruption before waiting for stalled Kafka sends, then join result and probe senders during cleanup.
 Fence donor sessions closed by an abort and classify Kafka and CKC ACK timeouts consistently.
 Resolve the bounded sender cleanup retry before committing a single terminal outcome after DonorClosed.
-Keep timeout metrics on abort and preserve that outcome when the SessionEnded ACK wait is cancelled.
-Passed 345 core tests, 114 demo tests, and 32 Kafka warm-up integration tests.
+Keep timeout metrics on abort and preserve the recorded session interruption or terminal outcome when a participant stops.
+Passed 345 core tests, 114 demo tests, and 33 Kafka warm-up integration tests.

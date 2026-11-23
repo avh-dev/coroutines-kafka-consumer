@@ -605,13 +605,16 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun finishInterruptedAttempt(reasonCode: String) {
-        val recipient = activeRecipient
+        val (recipient, observedInterruption) = synchronized(lock) { activeRecipient to interruption }
         val outcome = recipient?.let { runtime.completedResult(it) }
         if (outcome != null) {
             applyCompletion(outcome)
             return
         }
-        rollbackRecipientAndStartCold(recipient?.terminalOutcome()?.reasonCode ?: reasonCode)
+        val observedReason = observedInterruption
+            ?.takeIf { it.sessionId == recipient?.request?.sessionId?.value }
+            ?.reasonCode
+        rollbackRecipientAndStartCold(recipient?.terminalOutcome()?.reasonCode ?: observedReason ?: reasonCode)
     }
 
     private suspend fun rollbackRecipientAndStartCold(reasonCode: String) {

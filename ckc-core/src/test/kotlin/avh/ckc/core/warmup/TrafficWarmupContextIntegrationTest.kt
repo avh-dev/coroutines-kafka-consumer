@@ -10,9 +10,11 @@ import avh.ckc.core.metrics.LifecycleOutcome
 import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -370,7 +372,12 @@ class TrafficWarmupContextIntegrationTest {
 
     @Test
     fun `recipient recovers when a result sender stops during the cleanup retry`() = runBlocking {
-        verifyLateResultTimeout(holdCancelledSend = true)
+        verifyLateResultTimeout(cleanup = LateResultCleanup.RETRY)
+    }
+
+    @Test
+    fun `participant stop during sender cleanup retains the result timeout for the surviving participant`() = runBlocking {
+        verifyLateResultTimeout(cleanup = LateResultCleanup.STOP_PARTICIPANT)
     }
 
     @Test
@@ -433,16 +440,23 @@ class TrafficWarmupContextIntegrationTest {
         }
     }
 
+    private enum class LateResultCleanup { IMMEDIATE, RETRY, STOP_PARTICIPANT }
+
     private suspend fun verifyLateResultTimeout(
         kafkaFailure: KafkaTimeoutException? = null,
-        holdCancelledSend: Boolean = false
+        cleanup: LateResultCleanup = LateResultCleanup.IMMEDIATE
     ) {
         val source = unique("late-result-ack-source")
         val warmup = unique("late-result-ack-warmup")
         val control = unique("late-result-ack-control")
         val namespace = unique("late-result-ack")
         val group = unique("late-result-ack-group")
-        createTopics(source, warmup, control)
+        val siblingSource = unique("late-result-sibling-source")
+        val siblingWarmup = unique("late-result-sibling-warmup")
+        val siblingGroup = unique("late-result-sibling-group")
+        val stopSibling = cleanup == LateResultCleanup.STOP_PARTICIPANT
+        if (stopSibling) createTopics(source, warmup, control, siblingSource, siblingWarmup)
+        else createTopics(source, warmup, control)
         val firstReply = CompletableDeferred<Unit>()
         val donorClosed = CompletableDeferred<DonorClosed>()
         val donorContext = faultInjectionContext(namespace, control, send = { message ->
@@ -455,6 +469,10 @@ class TrafficWarmupContextIntegrationTest {
         val donor = stringConsumer(
             donorContext, "records", source, warmup, group, CopyOnWriteArrayList(), consumerMetrics = donorMetrics
         )
+        val siblingDonor = if (stopSibling) stringConsumer(
+            donorContext, "sibling", siblingSource, siblingWarmup, siblingGroup, CopyOnWriteArrayList()
+        ) else null
+        val donors = consumerContainer(*listOfNotNull(donor, siblingDonor).toTypedArray())
         val resultSent = CompletableDeferred<Unit>()
         val resultStopped = CompletableDeferred<Unit>()
         val sendCancellationStarted = CompletableDeferred<Unit>()
@@ -479,13 +497,17 @@ class TrafficWarmupContextIntegrationTest {
         }
         val interruption = CompletableDeferred<TrafficWarmupLifecycleEvent>()
         val mainReady = CompletableDeferred<TrafficWarmupLifecycleEvent>()
+        val finished = CompletableDeferred<TrafficWarmupLifecycleEvent>()
         val recipientContext = faultInjectionContext(namespace, control, configure = {
             warmupDuration = 4.seconds
             completionTimeout = sendCleanupTimeout
             onLifecycleEvent { event ->
                 when (event.phase) {
                     TrafficWarmupLifecyclePhase.WARMUP_INTERRUPTED -> interruption.complete(event)
-                    TrafficWarmupLifecyclePhase.MAIN_READY -> mainReady.complete(event)
+                    TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED -> finished.complete(event)
+                    TrafficWarmupLifecyclePhase.MAIN_READY -> if (event.participantId == "records") {
+                        mainReady.complete(event)
+                    }
                     else -> Unit
                 }
             }
@@ -499,7 +521,9 @@ class TrafficWarmupContextIntegrationTest {
                     throw kafkaFailure
                 } finally {
                     sendCancellationStarted.complete(Unit)
-                    if (holdCancelledSend) withContext(NonCancellable) { releaseCancelledSend.await() }
+                    if (cleanup != LateResultCleanup.IMMEDIATE) {
+                        withContext(NonCancellable) { releaseCancelledSend.await() }
+                    }
                     resultStopped.complete(Unit)
                 }
             }
@@ -508,10 +532,14 @@ class TrafficWarmupContextIntegrationTest {
         val recipient = stringConsumer(
             recipientContext, "records", source, warmup, group, CopyOnWriteArrayList(), consumerMetrics = recipientMetrics
         )
+        val siblingRecipient = if (stopSibling) stringConsumer(
+            recipientContext, "sibling", siblingSource, siblingWarmup, siblingGroup, CopyOnWriteArrayList()
+        ) else null
+        val recipients = consumerContainer(*listOfNotNull(recipient, siblingRecipient).toTypedArray())
         try {
-            donor.start()
-            withTimeout(15.seconds) { donor.awaitReady() }
-            recipient.start()
+            donors.start()
+            withTimeout(15.seconds) { donors.awaitReady() }
+            recipients.start()
             withTimeout(15.seconds) { firstReply.await() }
             produce(source, "delegated", "delegated", StringSerializer())
             withTimeout(4.seconds) { resultSent.await() }
@@ -523,31 +551,50 @@ class TrafficWarmupContextIntegrationTest {
             }
             assertFalse(resultStopped.isCompleted)
             releaseKafkaFailure.complete(Unit)
-            if (holdCancelledSend) {
+            val interrupted = withTimeout(5.seconds) { interruption.await() }
+            if (cleanup != LateResultCleanup.IMMEDIATE) {
                 withTimeout(5.seconds) { sendCancellationStarted.await() }
                 // Let the first cleanup wait expire while keeping the sender within the retry budget.
                 delay(sendCleanupTimeout + 400.milliseconds)
                 assertFalse(mainReady.isCompleted)
-                releaseCancelledSend.complete(Unit)
+                if (siblingRecipient != null) coroutineScope {
+                    // stop() cancels the shared startup before suspending on its completion.
+                    val stop = async(start = CoroutineStart.UNDISPATCHED) { siblingRecipient.stop() }
+                    try {
+                        assertFalse(stop.isCompleted)
+                    } finally {
+                        releaseCancelledSend.complete(Unit)
+                    }
+                    withTimeout(5.seconds) { stop.await() }
+                } else releaseCancelledSend.complete(Unit)
             }
 
-            val ready = withTimeout(10.seconds) { mainReady.await() }
+            val ready = withTimeout(10.seconds) {
+                recipient.awaitReady()
+                mainReady.await()
+            }
+            val outcome = withTimeout(2.seconds) { finished.await() }
             assertTrue(resultStopped.isCompleted)
-            assertEquals("result_delivery_timeout", ready.reasonCode)
-            assertEquals(withTimeout(2.seconds) { interruption.await() }.sessionId, ready.sessionId)
+            assertEquals("result_delivery_timeout", interrupted.reasonCode)
+            assertEquals(interrupted.reasonCode, ready.reasonCode)
+            assertEquals(interrupted.sessionId, ready.sessionId)
+            assertEquals(ready.reasonCode, outcome.reasonCode)
+            assertEquals(ready.sessionId, outcome.sessionId)
             assertTrue(requireNotNull(ready.recoveryDurationMillis) >= 0)
             assertEquals(closed.sessionId.value, ready.sessionId)
             assertEquals(LifecycleOutcome.TIMEOUT, withTimeout(2.seconds) { drainOutcome.await() })
             assertEquals(WarmupResultDeliveryFailureReason.TIMEOUT, withTimeout(2.seconds) { sendFailure.await() })
             val fences = sessionEndRecords(control, closed.sessionId)
             assertEquals(listOf(WarmupSessionEndState.COLD_FALLBACK), fences.map { it.state })
-            assertEquals(ready.reasonCode, fences.single().reasonCode)
+            val fence = fences.single()
+            assertEquals(ready.sessionId, fence.sessionId.value)
+            assertEquals(ready.reasonCode, fence.reasonCode)
         } finally {
             releaseCancelledSend.complete(Unit)
             try {
-                recipient.stop()
+                recipients.stop()
             } finally {
-                donor.stop()
+                donors.stop()
             }
         }
     }

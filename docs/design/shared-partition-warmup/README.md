@@ -389,7 +389,9 @@ senders before the main consumers launch. The terminal fence gets a bounded best
 window. After all donors close, the recipient finishes result delivery and stops probe senders
 before selecting the terminal outcome. Late sender cleanup may use one additional bounded wait
 before this decision. The recipient records the decision before sending `SessionEnded` and uses
-it for local lifecycle events if the acknowledgement wait is cancelled.
+it for local lifecycle events if the acknowledgement wait is cancelled. If a participant stops
+during cleanup before the decision, the recipient keeps any interruption reason already recorded
+for that session.
 
 A Kafka producer or CKC result ACK timeout records `WARMUP_INTERRUPTED` with
 `result_delivery_timeout` and records a timeout in the delivery metrics. If cleanup succeeds, the
