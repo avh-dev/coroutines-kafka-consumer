@@ -386,9 +386,10 @@ or a donor session closing in response to `WarmupCompletionRequested` answers pr
 The timer reports `WARMUP_INTERRUPTED` before waiting for cancelled Kafka probe sends. Recovery
 cancels the result outbox, stops recipient warm-up consumers, and joins the result and probe
 senders before the main consumers launch. The terminal fence gets a bounded best-effort send
-window. After all donors close, a timeout waiting for a result ACK also records
-`WARMUP_INTERRUPTED`. Each subsequent `MAIN_READY` event includes the session, reason, and
-recovery duration.
+window. After all donors close, the recipient finishes result delivery and stops probe senders
+before publishing the terminal outcome. A Kafka producer or CKC result ACK timeout records
+`WARMUP_INTERRUPTED` and publishes `SessionEnded(COLD_FALLBACK)` with `result_delivery_timeout`.
+Each subsequent `MAIN_READY` event includes the same reason, session ID, and recovery duration.
 
 Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
 loss does not stop main consumers and does not revive completed sessions when topics return. New

@@ -6904,5 +6904,6 @@ _Date: 2026-11-23_
 Negotiate donor probes using v6-compatible Kafka headers and send replies over a bounded queue.
 Keep the configurable 10s deadline through graceful donor drain until each DonorClosed arrives.
 Publish interruption before waiting for stalled Kafka sends, then join result and probe senders during cleanup.
-Fence donor sessions closed by an abort and report ACK failures after DonorClosed through MAIN_READY.
-Passed 345 core tests, 114 demo tests, and all 16 Kafka tests in TrafficWarmupContextIntegrationTest.
+Fence donor sessions closed by an abort and classify Kafka and CKC ACK timeouts consistently.
+Publish one terminal outcome after checking local send cleanup following DonorClosed.
+Passed 345 core tests, 114 demo tests, and 30 Kafka warm-up integration tests.

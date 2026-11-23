@@ -189,13 +189,14 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     }
 
     /**
-     * Closes every selected donor before stopping recipient consumers. A repeated call after an
-     * incomplete local cleanup re-sends the same requests and retries the retained resources.
+     * Closes donors and recipient consumers before finishing local sends and publishing the outcome.
+     * Repeated calls retry incomplete consumer cleanup and reuse a recorded terminal result.
      */
     suspend fun completeWarmup(
         recipient: WarmupRecipientDiscovery,
         interruption: Deferred<String>? = null,
-        onFailureDetected: (String) -> Unit = {}
+        onFailureDetected: (String) -> Unit = {},
+        finishSends: suspend () -> WarmupCompletionResult = { WarmupCompletionResult.Completed }
     ): WarmupCompletionResult {
         synchronized(lock) {
             completedRecipient?.takeIf { it.first === recipient }?.let { return it.second }
@@ -223,20 +224,29 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             }
             if (reason != null) return completionFallback(recipient, reason)
 
-            when (val cleanup = recipient.completeAfterDonorsClosed()) {
-                WarmupRecipientCleanupResult.Complete -> {
-                    publishCompletedFence(recipient)
-                    WarmupCompletionResult.Completed.also { rememberCompletion(recipient, it) }
-                }
-                is WarmupRecipientCleanupResult.CompleteWithDiagnostics -> {
-                    publishCompletedFence(recipient)
-                    WarmupCompletionResult.CompletedWithDiagnostics(cleanup.diagnostics).also {
-                        rememberCompletion(recipient, it)
-                    }
-                }
-                is WarmupRecipientCleanupResult.Incomplete ->
-                    WarmupCompletionResult.CleanupIncomplete("recipient_cleanup_incomplete", cleanup)
+            val cleanup = recipient.completeAfterDonorsClosed()
+            if (cleanup is WarmupRecipientCleanupResult.Incomplete) {
+                return WarmupCompletionResult.CleanupIncomplete("recipient_cleanup_incomplete", cleanup)
             }
+            val sends = finishSends()
+            val result = if (sends == WarmupCompletionResult.Completed &&
+                cleanup is WarmupRecipientCleanupResult.CompleteWithDiagnostics
+            ) WarmupCompletionResult.CompletedWithDiagnostics(cleanup.diagnostics) else sends
+
+            val failureReason = when (result) {
+                WarmupCompletionResult.Completed,
+                is WarmupCompletionResult.CompletedWithDiagnostics -> null
+                is WarmupCompletionResult.ColdFallback -> result.reasonCode
+                is WarmupCompletionResult.ColdFallbackWithDiagnostics -> result.reasonCode
+                is WarmupCompletionResult.CleanupIncomplete -> result.reasonCode
+            }
+            val terminalState = if (failureReason == null) WarmupSessionEndState.COMPLETED
+                else WarmupSessionEndState.COLD_FALLBACK
+            withTimeoutOrNull(probeInterval) {
+                publishEndedFence(recipient, terminalState, failureReason)
+            }
+            rememberCompletion(recipient, result)
+            result
         } catch (error: CancellationException) {
             recipient.terminate()
             clearRecipient(recipient)
@@ -425,15 +435,12 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         }
     }
 
-    private suspend fun publishCompletedFence(recipient: WarmupRecipientDiscovery) {
-        publishEndedFence(recipient, WarmupSessionEndState.COMPLETED, null)
-    }
-
     private suspend fun publishEndedFence(
         recipient: WarmupRecipientDiscovery,
         state: WarmupSessionEndState,
         reasonCode: String?
     ) {
+        if (!recipient.claimTerminalFence(state)) return
         val request = recipient.request
         try {
             channel.send(

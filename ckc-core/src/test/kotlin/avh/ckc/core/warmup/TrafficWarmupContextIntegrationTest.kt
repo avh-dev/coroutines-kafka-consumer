@@ -6,6 +6,8 @@ import avh.ckc.core.RecordingMetrics
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.core.metrics.WarmupResultDeliveryFailureReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -21,11 +23,13 @@ import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.LongDeserializer
@@ -45,6 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.KafkaContainer
 import org.testcontainers.utility.DockerImageName
 import java.net.ServerSocket
+import java.time.Duration as JavaDuration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -354,7 +359,16 @@ class TrafficWarmupContextIntegrationTest {
     }
 
     @Test
-    fun `result ACK timeout after DonorClosed is recorded at main readiness`() = runBlocking {
+    fun `outbox ACK timeout after DonorClosed publishes one cold fallback`() = runBlocking {
+        verifyLateResultTimeout()
+    }
+
+    @Test
+    fun `Kafka producer timeout after DonorClosed publishes one cold fallback`() = runBlocking {
+        verifyLateResultTimeout(KafkaTimeoutException("result delivery expired"))
+    }
+
+    private suspend fun verifyLateResultTimeout(kafkaFailure: KafkaTimeoutException? = null) {
         val source = unique("late-result-ack-source")
         val warmup = unique("late-result-ack-warmup")
         val control = unique("late-result-ack-control")
@@ -362,11 +376,11 @@ class TrafficWarmupContextIntegrationTest {
         val group = unique("late-result-ack-group")
         createTopics(source, warmup, control)
         val firstReply = CompletableDeferred<Unit>()
-        val donorClosed = CompletableDeferred<Unit>()
+        val donorClosed = CompletableDeferred<DonorClosed>()
         val donorContext = faultInjectionContext(namespace, control, send = { message ->
             send(message).also {
                 if (message is WarmupLivenessProbe && message.reply) firstReply.complete(Unit)
-                if (message is DonorClosed) donorClosed.complete(Unit)
+                if (message is DonorClosed) donorClosed.complete(message)
             }
         })
         val donorMetrics = RecordingMetrics<String, String>()
@@ -375,6 +389,23 @@ class TrafficWarmupContextIntegrationTest {
         )
         val resultSent = CompletableDeferred<Unit>()
         val resultStopped = CompletableDeferred<Unit>()
+        val warmupStopped = CompletableDeferred<Unit>()
+        val releaseKafkaFailure = CompletableDeferred<Unit>()
+        val drainOutcome = CompletableDeferred<LifecycleOutcome>()
+        val sendFailure = CompletableDeferred<WarmupResultDeliveryFailureReason>()
+        val recipientMetrics = object : ConsumerMetrics<String, String> {
+            override fun onShutdown(durationNanos: Long, outcome: LifecycleOutcome) {
+                warmupStopped.complete(Unit)
+            }
+
+            override fun onWarmupResultDrain(durationNanos: Long, outcome: LifecycleOutcome) {
+                drainOutcome.complete(outcome)
+            }
+
+            override fun onWarmupResultDeliveryFailure(reason: WarmupResultDeliveryFailureReason) {
+                sendFailure.complete(reason)
+            }
+        }
         val interruption = CompletableDeferred<TrafficWarmupLifecycleEvent>()
         val mainReady = CompletableDeferred<TrafficWarmupLifecycleEvent>()
         val recipientContext = faultInjectionContext(namespace, control, configure = {
@@ -392,7 +423,9 @@ class TrafficWarmupContextIntegrationTest {
             if (message is ControlRecordCompleted) {
                 resultSent.complete(Unit)
                 try {
-                    awaitCancellation()
+                    if (kafkaFailure == null) awaitCancellation()
+                    releaseKafkaFailure.await()
+                    throw kafkaFailure
                 } finally {
                     resultStopped.complete(Unit)
                 }
@@ -400,7 +433,7 @@ class TrafficWarmupContextIntegrationTest {
             ack
         })
         val recipient = stringConsumer(
-            recipientContext, "records", source, warmup, group, CopyOnWriteArrayList()
+            recipientContext, "records", source, warmup, group, CopyOnWriteArrayList(), consumerMetrics = recipientMetrics
         )
         try {
             donor.start()
@@ -410,19 +443,54 @@ class TrafficWarmupContextIntegrationTest {
             produce(source, "delegated", "delegated", StringSerializer())
             withTimeout(4.seconds) { resultSent.await() }
             awaitFor { donorMetrics.processed.any { it.processedRemotely } }
-            withTimeout(8.seconds) { donorClosed.await() }
+            val closed = withTimeout(8.seconds) {
+                val message = donorClosed.await()
+                warmupStopped.await()
+                message
+            }
             assertFalse(resultStopped.isCompleted)
+            releaseKafkaFailure.complete(Unit)
 
             val ready = withTimeout(10.seconds) { mainReady.await() }
             assertTrue(resultStopped.isCompleted)
             assertEquals("result_delivery_timeout", ready.reasonCode)
             assertEquals(withTimeout(2.seconds) { interruption.await() }.sessionId, ready.sessionId)
             assertTrue(requireNotNull(ready.recoveryDurationMillis) >= 0)
+            assertEquals(closed.sessionId.value, ready.sessionId)
+            assertEquals(LifecycleOutcome.TIMEOUT, withTimeout(2.seconds) { drainOutcome.await() })
+            if (kafkaFailure != null) {
+                assertEquals(WarmupResultDeliveryFailureReason.TIMEOUT, withTimeout(2.seconds) { sendFailure.await() })
+            }
+            val fences = sessionEndRecords(control, closed.sessionId)
+            assertEquals(listOf(WarmupSessionEndState.COLD_FALLBACK), fences.map { it.state })
+            assertEquals(ready.reasonCode, fences.single().reasonCode)
         } finally {
             try {
                 recipient.stop()
             } finally {
                 donor.stop()
+            }
+        }
+    }
+
+    private suspend fun sessionEndRecords(controlTopic: String, sessionId: WarmupSessionId): List<SessionEnded> {
+        val properties = consumerProperties(unique("control-audit"), ByteArrayDeserializer::class.java)
+        return KafkaConsumer<String, ByteArray>(properties).use { consumer ->
+            val partition = TopicPartition(controlTopic, 0)
+            consumer.assign(listOf(partition))
+            consumer.seekToBeginning(listOf(partition))
+            val end = consumer.endOffsets(listOf(partition), JavaDuration.ofSeconds(5)).getValue(partition)
+            withTimeout(5.seconds) {
+                val messages = mutableListOf<SessionEnded>()
+                while (consumer.position(partition, JavaDuration.ofSeconds(1)) < end) {
+                    consumer.poll(JavaDuration.ofMillis(100)).forEach { record ->
+                        if (record.offset() < end && record.key() == sessionId.value) {
+                            val message = WarmupControlCodec.decode(record.value(), record.headers())
+                            if (message is SessionEnded) messages += message
+                        }
+                    }
+                }
+                messages
             }
         }
     }

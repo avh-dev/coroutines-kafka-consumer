@@ -107,6 +107,7 @@ internal class WarmupRecipientDiscovery(
     private val log = LoggerFactory.getLogger(javaClass)
     private val cleanupMutex = Mutex()
     private var state = State.DISCOVERING
+    private var terminalFenceClaimed = false
     private val offers = linkedMapOf<WarmupInstanceId, DonorOffered>()
     private var acceptances = emptyMap<WarmupInstanceId, SessionAccepted>()
     private val confirmations = linkedMapOf<WarmupInstanceId, DonorAccepted>()
@@ -235,6 +236,14 @@ internal class WarmupRecipientDiscovery(
 
     fun allDonorsClosed(): Boolean = synchronized(lock) {
         state == State.DRAINING && closedDonors.keys == acceptances.keys
+    }
+
+    /** A cancellation or cleanup retry must never send a second terminal outcome for this session. */
+    fun claimTerminalFence(outcome: WarmupSessionEndState): Boolean = synchronized(lock) {
+        if (terminalFenceClaimed) return@synchronized false
+        terminalFenceClaimed = true
+        state = if (outcome == WarmupSessionEndState.COMPLETED) State.COMPLETED else State.COLD_FALLBACK
+        true
     }
 
     fun supportsDonorLiveness(donor: WarmupInstanceId): Boolean = synchronized(lock) {

@@ -185,7 +185,13 @@ class WarmupDiscoveryRuntimeTest {
             listOf(WarmupRequested::class, SessionAccepted::class, RecipientReady::class),
             channel.sent.map { it::class }
         )
-        assertEquals(WarmupCompletionResult.Completed, runtime.completeWarmup(recipient))
+        val completion = runtime.completeWarmup(recipient, finishSends = {
+            assertEquals(1, stopped.get())
+            assertTrue(channel.sent.last() is WarmupCompletionRequested)
+            assertFalse(channel.sent.any { it is SessionEnded })
+            WarmupCompletionResult.Completed
+        })
+        assertEquals(WarmupCompletionResult.Completed, completion)
         assertEquals(1, stopped.get())
         assertEquals(
             listOf(
