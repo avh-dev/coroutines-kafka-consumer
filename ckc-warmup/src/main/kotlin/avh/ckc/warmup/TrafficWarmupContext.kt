@@ -36,6 +36,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -84,6 +85,9 @@ class TrafficWarmupContext internal constructor(
     private val lock = Any()
     private val instanceId = WarmupInstanceId(configuration.instanceId)
     private val namespace = WarmupControlNamespace(configuration.namespace)
+    internal val inflightDelegations = Semaphore(configuration.maxInflightDelegations.also {
+        require(it > 0) { "maxInflightDelegations must be positive" }
+    })
     private val execution = WarmupExecutionDispatchers(
         configuration.instanceId,
         configuration.serviceThreadLimit,

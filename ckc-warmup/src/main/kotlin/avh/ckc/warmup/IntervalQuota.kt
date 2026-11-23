@@ -25,8 +25,9 @@ internal class IntervalQuota(
         require(interval.isPositive()) { "Warm-up quota interval must be > 0" }
     }
 
+    /** Consumes quota only after the caller also reserves capacity for an eligible record. */
     @Synchronized
-    fun tryAcquire(): Boolean {
+    fun tryAcquire(tryReserve: () -> Boolean = { true }): Boolean {
         val now = nanoTime()
         if (profileStartedAt == Long.MIN_VALUE || now < profileStartedAt) profileStartedAt = now
         if (windowStartedAt == Long.MIN_VALUE || now < windowStartedAt || now - windowStartedAt >= intervalNanos) {
@@ -34,6 +35,7 @@ internal class IntervalQuota(
             used = 0
         }
         if (used >= profile.quotaAt(now - profileStartedAt)) return false
+        if (!tryReserve()) return false
         used++
         return true
     }

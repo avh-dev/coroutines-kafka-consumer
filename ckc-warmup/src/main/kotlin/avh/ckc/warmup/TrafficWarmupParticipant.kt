@@ -10,6 +10,7 @@ import avh.ckc.warmup.protocol.WarmupTopicMapping
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Semaphore
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -45,6 +46,7 @@ internal class TrafficWarmupParticipant<K, V>(
     private val metrics: ConsumerMetrics<K, V>,
     warmupMetrics: WarmupMetrics<K, V>,
     private val delegationTimeoutMillis: Long,
+    private val inflightDelegations: Semaphore,
     private val recipientShutdownTimeoutMillis: Long,
     private val serviceDispatcher: CoroutineDispatcher,
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
@@ -84,7 +86,8 @@ internal class TrafficWarmupParticipant<K, V>(
                     ),
                     observer = observer,
                     pendingLaneId = mapping.mappingFingerprint,
-                    supportsRemoteDiscard = { true }
+                    supportsRemoteDiscard = { true },
+                    inflightDelegations = inflightDelegations
                 )
             }
             return WarmupParticipantDonorLane(acceptance.sessionId, dataPlane, sessions)
