@@ -20,6 +20,7 @@ import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -158,6 +159,31 @@ class WarmupRecipientOutcomeMetricsTest {
             scope.cancel()
         }
         Unit
+    }
+
+    @Test
+    fun `abort abandons queued results and cancels sends awaiting acknowledgement`() = runBlocking {
+        val sendStarted = CompletableDeferred<Unit>()
+        val outbox = WarmupCompletionOutbox(this, laneCapacity = 2, senderConcurrency = 1) {
+            sendStarted.complete(Unit)
+            awaitCancellation()
+        }
+        val lane = outbox.lane("orders")
+        try {
+            admitAndPublish(lane, completed(offset = 1))
+            admitAndPublish(lane, completed(offset = 2))
+            withTimeout(2.seconds) { sendStarted.await() }
+            assertEquals(1, outbox.snapshot().awaitingAcknowledgement)
+            assertEquals(1, outbox.snapshot().queued)
+
+            outbox.abort(2.seconds)
+
+            assertEquals(0, outbox.snapshot().outstanding)
+            assertFalse(lane.tryAcquire(record(offset = 3)))
+            outbox.stop(2.seconds)
+        } finally {
+            outbox.close()
+        }
     }
 
     @Test
@@ -323,6 +349,11 @@ class WarmupRecipientOutcomeMetricsTest {
 
     @Test
     fun `transport timeout is diagnosed without escaping the terminal publisher`() = runBlocking {
+        verifyTransportTimeout(WarmupControlSendTimeoutException(10.milliseconds))
+        verifyTransportTimeout(KafkaTimeoutException("producer did not acknowledge the result"))
+    }
+
+    private suspend fun verifyTransportTimeout(error: Exception) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val failures = Channel<WarmupResultDeliveryFailureReason>(Channel.UNLIMITED)
         val observer = object : WarmupResultDeliveryObserver {
@@ -331,7 +362,7 @@ class WarmupRecipientOutcomeMetricsTest {
             }
         }
         val outbox = WarmupCompletionOutbox(scope, laneCapacity = 1) {
-            throw WarmupControlSendTimeoutException(10.milliseconds)
+            throw error
         }
         val lane = outbox.lane("orders", observer)
         try {
@@ -348,7 +379,6 @@ class WarmupRecipientOutcomeMetricsTest {
             runCatching { outbox.stop(2.seconds) }
             scope.cancel()
         }
-        Unit
     }
 
     @Test

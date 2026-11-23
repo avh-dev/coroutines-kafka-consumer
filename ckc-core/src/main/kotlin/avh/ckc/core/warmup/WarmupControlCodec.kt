@@ -1,11 +1,14 @@
 package avh.ckc.core.warmup
 
 import avh.ckc.core.metrics.RecordDropReason
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.header.Headers
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 
 /** Bounded binary codec for the incompatible, namespace-scoped GLOBAL-5 control protocol. */
@@ -14,6 +17,37 @@ internal object WarmupControlCodec {
     private const val MAX_MESSAGE_BYTES = 1024 * 1024
     private const val MAX_STRING_BYTES = 4096
     private const val MAX_COLLECTION_SIZE = 4096
+
+    private const val LIVENESS_CAPABILITY = "ckc.warmup.liveness.supported"
+    private const val LIVENESS_PROBE = "ckc.warmup.liveness.probe"
+
+    fun producerRecord(topic: String, message: WarmupControlMessage): ProducerRecord<String, ByteArray> {
+        val envelope = if (message is WarmupLivenessProbe) message.envelope else message
+        return ProducerRecord(topic, message.sessionId.value, encode(envelope)).apply {
+            when (message) {
+                is WarmupLivenessProbe -> headers().add(
+                    LIVENESS_PROBE, ByteBuffer.allocate(Long.SIZE_BYTES).putLong(message.sentAtNanos).array()
+                )
+                is DonorAccepted -> if (message.supportsLiveness) {
+                    headers().add(LIVENESS_CAPABILITY, byteArrayOf(1))
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun decode(bytes: ByteArray, headers: Headers): WarmupControlMessage {
+        val envelope = decode(bytes)
+        val probe = headers.lastHeader(LIVENESS_PROBE)
+        if (probe != null) {
+            val stamp = requireNotNull(probe.value())
+            require(stamp.size == Long.SIZE_BYTES) { "Invalid warm-up liveness probe header" }
+            return WarmupLivenessProbe(envelope, ByteBuffer.wrap(stamp).long)
+        }
+        return if (envelope is DonorAccepted &&
+            headers.lastHeader(LIVENESS_CAPABILITY)?.value()?.contentEquals(byteArrayOf(1)) == true
+        ) envelope.copy(supportsLiveness = true) else envelope
+    }
 
     fun encode(message: WarmupControlMessage): ByteArray {
         require(message.protocolVersion == WARMUP_CONTROL_PROTOCOL_VERSION) {
@@ -50,6 +84,7 @@ internal object WarmupControlCodec {
                 is ControlRecordCompleted -> data.writeCompleted(message.completed)
                 is WarmupCompletionRequested,
                 is DonorClosed -> Unit
+                is WarmupLivenessProbe -> error("Encode a probe as a Kafka record")
                 is SessionEnded -> {
                     data.writeByte(message.state.ordinal)
                     data.writeNullableString(message.reasonCode)
@@ -172,6 +207,7 @@ internal object WarmupControlCodec {
         is WarmupCompletionRequested -> TYPE_COMPLETION_REQUESTED
         is DonorClosed -> TYPE_DONOR_CLOSED
         is SessionEnded -> TYPE_SESSION_ENDED
+        is WarmupLivenessProbe -> error("Encode a probe as a Kafka record")
     }
 
     private fun DataOutputStream.writeMapping(mapping: WarmupTopicMapping) {

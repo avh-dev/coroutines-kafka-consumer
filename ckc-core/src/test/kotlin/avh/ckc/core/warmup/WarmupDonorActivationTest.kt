@@ -20,6 +20,8 @@ import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
@@ -251,6 +253,9 @@ class WarmupDonorActivationTest {
 
         assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(acceptance.sessionId))
         assertFalse(activation.onRecipientReady(ready()))
+        assertNull(activation.replyToProbe(WarmupLivenessProbe(ready(), 1)))
+        assertFalse(activation.onCompletionRequested(completion(acceptance)))
+        assertNull(activation.replyToProbe(WarmupLivenessProbe(ready(), 2)))
         assertEquals(0, plane.admittedSessionCount())
         scope.cancel()
     }
@@ -842,6 +847,7 @@ class WarmupDonorActivationTest {
 
         assertTrue(activation.onCompletionRequested(completion))
         assertEquals(WarmupDonorActivation.State.DRAINING, activation.state(accepted.sessionId))
+        assertNotNull(activation.replyToProbe(WarmupLivenessProbe(ready(), 1)))
         val localCalls = AtomicInteger()
         plane.process(ConsumerRecord("orders", 0, 1, "other", "value")) {
             localCalls.incrementAndGet()
@@ -864,6 +870,7 @@ class WarmupDonorActivationTest {
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, delegated.await())
         awaitFor(2_000, 10) { acknowledgements.size.takeIf { it == 1 } }
         assertEquals(WarmupDonorActivation.State.CLOSED, activation.state(accepted.sessionId))
+        assertNotNull(activation.replyToProbe(WarmupLivenessProbe(ready(), 2)))
         assertEquals(0, plane.admittedSessionCount())
 
         assertTrue(activation.onCompletionRequested(completion))

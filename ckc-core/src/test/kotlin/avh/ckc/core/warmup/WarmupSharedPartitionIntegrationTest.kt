@@ -541,7 +541,8 @@ class WarmupSharedPartitionIntegrationTest {
                 donorActivation,
                 150.milliseconds,
                 5.seconds,
-                5.seconds
+                5.seconds,
+                scope = scope
             )
             recipientRuntime = WarmupDiscoveryRuntime(
                 recipientId,
@@ -552,7 +553,8 @@ class WarmupSharedPartitionIntegrationTest {
                 recipientActivation,
                 150.milliseconds,
                 5.seconds,
-                5.seconds
+                5.seconds,
+                scope = scope
             )
             outbox = WarmupCompletionOutbox(scope, 64) { completed ->
                 recipientTransport.send(
@@ -622,7 +624,17 @@ class WarmupSharedPartitionIntegrationTest {
         }
 
         suspend fun complete(): WarmupCompletionResult {
-            val result = recipientRuntime.completeWarmup(recipientDiscovery)
+            val result = recipientRuntime.completeWarmup(recipientDiscovery, finishSends = { result ->
+                if (result == WarmupCompletionResult.Completed ||
+                    result is WarmupCompletionResult.CompletedWithDiagnostics
+                ) {
+                    outbox.stop(5.seconds)
+                } else {
+                    outbox.abort(5.seconds)
+                }
+                recipientRuntime.stopRecipientProbes()
+                result
+            })
             if (result is WarmupCompletionResult.Completed ||
                 result is WarmupCompletionResult.CompletedWithDiagnostics
             ) {

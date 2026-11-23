@@ -170,6 +170,20 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         }
     }
 
+    fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
+        val local = sessions[probe.sessionId] ?: return@synchronized null
+        val ready = probe.envelope as? RecipientReady ?: return@synchronized null
+        val answering = when (local.state) {
+            State.ACTIVE -> true
+            State.DRAINING, State.CLOSED -> local.acknowledgeClose
+            else -> false
+        }
+        if (!answering || !matches(local.acceptance, ready) || nowEpochMillis() >= probe.expiresAtEpochMillis) {
+            return@synchronized null
+        }
+        WarmupLivenessProbe(accepted(local.acceptance).copy(supportsLiveness = false), probe.sentAtNanos)
+    }
+
     /** Routes a remote terminal result only to its exact admitted recipient and destination. */
     fun onRecordCompleted(message: ControlRecordCompleted): WarmupResultTracker.Completion {
         val accepted = synchronized(lock) {
@@ -193,6 +207,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 ?: retainedCleanupSessions[request.sessionId]
                 ?: return@synchronized false
             if (!matchesSession(existing.acceptance, request)) return@synchronized false
+            if (existing.state in setOf(State.DRAINING, State.CLOSED) && !existing.acknowledgeClose) {
+                return@synchronized false
+            }
             if (existing.state == State.CLOSED) {
                 scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
                 return@synchronized true
@@ -264,7 +281,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             State.FAILED -> return requestFailedCleanupLocked(local)
         }
         local.readySeen = false
-        local.acknowledgeClose = local.acknowledgeClose || acknowledge
+        local.acknowledgeClose = acknowledge
         local.state = State.DRAINING
         if (!local.closeStarted) {
             local.closeStarted = true
@@ -612,7 +629,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         mappings = acceptance.mappings,
         admissionBudgetPerSecond = acceptance.admissionBudgetPerSecond,
         configurationFingerprint = acceptance.configurationFingerprint,
-        expiresAtEpochMillis = acceptance.expiresAtEpochMillis
+        expiresAtEpochMillis = acceptance.expiresAtEpochMillis,
+        supportsLiveness = true
     )
 
     private fun rejection(acceptance: SessionAccepted, reasonCode: String) = SessionRejected(

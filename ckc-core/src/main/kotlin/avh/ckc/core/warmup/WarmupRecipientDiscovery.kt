@@ -107,6 +107,7 @@ internal class WarmupRecipientDiscovery(
     private val log = LoggerFactory.getLogger(javaClass)
     private val cleanupMutex = Mutex()
     private var state = State.DISCOVERING
+    private var terminalOutcome: SessionEnded? = null
     private val offers = linkedMapOf<WarmupInstanceId, DonorOffered>()
     private var acceptances = emptyMap<WarmupInstanceId, SessionAccepted>()
     private val confirmations = linkedMapOf<WarmupInstanceId, DonorAccepted>()
@@ -237,6 +238,20 @@ internal class WarmupRecipientDiscovery(
         state == State.DRAINING && closedDonors.keys == acceptances.keys
     }
 
+    /** A cancellation or cleanup retry must never send a second terminal outcome for this session. */
+    fun claimTerminalFence(outcome: SessionEnded): Boolean = synchronized(lock) {
+        if (terminalOutcome != null) return@synchronized false
+        terminalOutcome = outcome
+        state = if (outcome.state == WarmupSessionEndState.COMPLETED) State.COMPLETED else State.COLD_FALLBACK
+        true
+    }
+
+    fun terminalOutcome(): SessionEnded? = synchronized(lock) { terminalOutcome }
+
+    fun supportsDonorLiveness(donor: WarmupInstanceId): Boolean = synchronized(lock) {
+        confirmations[donor]?.supportsLiveness == true
+    }
+
     fun donorFor(destination: TopicPartition): WarmupInstanceId? = synchronized(lock) {
         acceptances.entries.firstOrNull { (_, acceptance) ->
             acceptance.mappings.any { WarmupPartitionAssignment(it.mapping).destination == destination }
@@ -359,13 +374,12 @@ internal class WarmupRecipientDiscovery(
         true
     }
 
-    /** Any recipient runtime termination while READY invalidates the whole recipient session. */
+    /** Any recipient runtime termination before the donors close invalidates the recipient session. */
     suspend fun awaitPreparedConsumerTermination() = supervisorScope {
         val resources = synchronized(lock) {
-            check(state == State.READY) { "Recipient consumers can be monitored only while ready" }
-            prepared.toList()
+            if (state == State.READY || state == State.DRAINING) prepared.toList() else emptyList()
         }
-        require(resources.isNotEmpty()) { "Ready recipient session has no prepared consumers" }
+        if (resources.isEmpty()) kotlinx.coroutines.awaitCancellation()
         val waiters = resources.map { resource ->
             async {
                 try {

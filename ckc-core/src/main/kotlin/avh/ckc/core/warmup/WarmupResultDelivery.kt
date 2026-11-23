@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
@@ -16,6 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.errors.TimeoutException as KafkaTimeoutException
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 
@@ -234,6 +238,7 @@ internal class WarmupCompletionOutbox(
 
     /** Closes admission, drains every previously accepted record, and then stops fixed send workers. */
     suspend fun stop(timeout: Duration) {
+        if (isStopped()) return
         require(timeout.isPositive()) { "Warm-up completion stop timeout must be positive" }
         val started = System.nanoTime()
         var outcome = LifecycleOutcome.FAILURE
@@ -247,14 +252,17 @@ internal class WarmupCompletionOutbox(
                     throw failure
                 }
                 flush(timeout)
-                synchronized(lock) { stopped = true }
                 signal.close()
                 workers.joinAll()
+                synchronized(lock) { stopped = true }
                 failure.get()?.let { throw it }
                 outcome = LifecycleOutcome.SUCCESS
             }
-        } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+        } catch (error: TimeoutCancellationException) {
             outcome = LifecycleOutcome.TIMEOUT
+            throw error
+        } catch (error: WarmupResultDeliveryException) {
+            if (isWarmupResultDeliveryTimeout(error)) outcome = LifecycleOutcome.TIMEOUT
             throw error
         } finally {
             distinctObservers().forEach { observer ->
@@ -263,13 +271,29 @@ internal class WarmupCompletionOutbox(
         }
     }
 
-    override fun close() {
+    /** Abandons unacknowledged results. The donor retains source ownership. */
+    suspend fun abort(timeout: Duration, cause: Throwable? = null) {
+        cancelSends(cause)
+        withTimeout(timeout) { workers.joinAll() }
+        synchronized(lock) { stopped = true }
+    }
+
+    override fun close() = cancelSends(null)
+
+    private fun cancelSends(cause: Throwable?) {
         if (isStopped()) return
         closeAdmission()
-        fail(
-            WarmupCompletionOutboxCancelledException(CancellationException("Warm-up completion outbox closed")),
-            WarmupResultDeliveryFailureReason.CANCELLED
-        )
+        if (cause != null && isWarmupResultDeliveryTimeout(cause)) {
+            fail(
+                WarmupResultDeliveryException("Warm-up result delivery timed out", cause),
+                WarmupResultDeliveryFailureReason.TIMEOUT
+            )
+        } else {
+            fail(
+                WarmupCompletionOutboxCancelledException(CancellationException("Warm-up completion outbox closed")),
+                WarmupResultDeliveryFailureReason.CANCELLED
+            )
+        }
         workers.forEach { it.cancel() }
     }
 
@@ -377,7 +401,7 @@ internal class WarmupCompletionOutbox(
                 throw error
             } catch (error: Throwable) {
                 if (error.isFatalJvmError()) throw error
-                val reason = if (error is WarmupControlSendTimeoutException) {
+                val reason = if (isWarmupResultDeliveryTimeout(error)) {
                     WarmupResultDeliveryFailureReason.TIMEOUT
                 } else {
                     WarmupResultDeliveryFailureReason.SEND_FAILURE
@@ -527,6 +551,15 @@ internal open class WarmupResultDeliveryException(message: String, cause: Throwa
 
 internal class WarmupCompletionOutboxCancelledException(cause: Throwable) :
     WarmupResultDeliveryException("Warm-up completion outbox worker was cancelled before drain", cause)
+
+internal fun isWarmupResultDeliveryTimeout(error: Throwable): Boolean {
+    // Coroutine stack-trace recovery can add another copy of the same wrapper on await.
+    val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+    return generateSequence(error, Throwable::cause).takeWhile(seen::add).any { failure ->
+        failure is TimeoutCancellationException ||
+            failure is WarmupControlSendTimeoutException || failure is KafkaTimeoutException
+    }
+}
 
 private fun ConsumerRecord<*, *>.coordinate() =
     WarmupResultCoordinate(topic(), partition(), offset())

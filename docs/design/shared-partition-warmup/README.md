@@ -160,6 +160,7 @@ messages:
 | `SessionRejected` | Donor | Rejects a targeted acceptance without creating or retaining session capacity. |
 | `RecipientReady` | Recipient | Confirms that every mapping consumer is assigned, positioned, and ready; authorizes delegation. |
 | `RecordCompleted` | Recipient | Reports a terminal runtime result for one forwarded destination coordinate. |
+| `WarmupLivenessProbe` | Recipient and donor | Checks the control round trip for each required active donor session. |
 | `WarmupCompletionRequested` | Recipient | Closes new delegation admission for all selected donors. |
 | `DonorClosed` | Donor | Confirms no admitted record remains without a remote terminal result or required local fallback. |
 | `SessionEnded` | Recipient | Announces completed or cold-fallback outcome for diagnostics; it is not a shared tombstone. |
@@ -368,6 +369,34 @@ fallback for its owned records, and leaves other sessions and the donor main con
 Recipient loss is handled by each donor's local session deadline and close path. A lost donor makes
 the recipient finish or cold-fallback within its own deadline; it does not elect a replacement in
 the same session.
+
+During active warm-up and donor drain, the recipient probes every selected donor that advertised
+support, even when the main topics are idle. Capability is advertised in the Kafka headers of
+`DonorAccepted`. Probes carry a header on existing v6 `RecipientReady` and `DonorAccepted`
+envelopes. Older control consumers can still decode the record bodies, and recipients retain the
+existing completion timeout for donors that have no liveness capability. Donors send probe replies
+through a bounded queue on separate workers so a delayed acknowledgement leaves protocol dispatch
+available for other sessions.
+
+The configurable `donorLivenessTimeout` defaults to 10 seconds, with a probe every third of that
+interval. Replies renew the deadline from the original send time. The deadline stays active across
+`COMPLETING` for each donor until its matching `DonorClosed` arrives. Only an active donor session
+or a donor session closing in response to `WarmupCompletionRequested` answers probes.
+
+The timer reports `WARMUP_INTERRUPTED` before waiting for cancelled Kafka probe sends. Recovery
+cancels the result outbox, stops recipient warm-up consumers, and joins the result and probe
+senders before the main consumers launch. The terminal fence gets a bounded best-effort send
+window. After all donors close, the recipient finishes result delivery and stops probe senders
+before selecting the terminal outcome. Late sender cleanup may use one additional bounded wait
+before this decision. The recipient records the decision before sending `SessionEnded` and uses
+it for local lifecycle events if the acknowledgement wait is cancelled. If a participant stops
+during cleanup before the decision, the recipient keeps any interruption reason already recorded
+for that session.
+
+A Kafka producer or CKC result ACK timeout records `WARMUP_INTERRUPTED` with
+`result_delivery_timeout` and records a timeout in the delivery metrics. If cleanup succeeds, the
+recipient publishes `SessionEnded(COLD_FALLBACK)` and each `MAIN_READY` event includes the same
+reason, session ID, and recovery duration.
 
 Destroying the warm-up broker and its data may therefore lose every active warm-up session. That
 loss does not stop main consumers and does not revive completed sessions when topics return. New

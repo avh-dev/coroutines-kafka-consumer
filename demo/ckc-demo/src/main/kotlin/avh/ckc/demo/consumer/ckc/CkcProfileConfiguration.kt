@@ -215,17 +215,18 @@ private class CkcConsumerRuntime(
             maxAggregateQuotaPerSecond = warmup.maxAggregateQuotaPerSecond
             onLifecycleEvent { event ->
                 log.info(
-                    "Warm-up lifecycle: phase={}, participantId={}, sessionId={}, reasonCode={}",
+                    "Warm-up lifecycle: phase={}, participantId={}, sessionId={}, reasonCode={}, recoveryDurationMillis={}",
                     event.phase,
                     event.participantId,
                     event.sessionId,
-                    event.reasonCode
+                    event.reasonCode,
+                    event.recoveryDurationMillis
                 )
                 if (event.phase == TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED) {
                     val outcome = when (event.reasonCode) {
                         null -> "success"
                         "incomplete_donor_coverage", "participant_stopped" -> "skipped"
-                        "donor_acceptance_timeout", "donor_completion_timeout",
+                        "donor_acceptance_timeout", "donor_completion_timeout", "donor_liveness_timeout",
                         "participant_start_timeout", "metadata_timeout",
                         "consumer_preparation_timeout", "result_delivery_timeout",
                         "recipient_cleanup_timeout" -> "timeout"
