@@ -1,9 +1,27 @@
 package avh.ckc.warmup.protocol
 
+import java.nio.ByteBuffer
 import java.util.UUID
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.header.Headers
 
 const val WARMUP_SESSION_HEADER = "ckc-warmup-session"
+private const val WARMUP_DELEGATION_HEADER = "ckc.warmup.delegation"
+private const val DELEGATION_ID_BYTES = 2 * Long.SIZE_BYTES
+
+internal fun Headers.setWarmupDelegationId(id: UUID?) {
+    remove(WARMUP_DELEGATION_HEADER)
+    if (id != null) {
+        val encoded = ByteBuffer.allocate(DELEGATION_ID_BYTES)
+            .putLong(id.mostSignificantBits).putLong(id.leastSignificantBits).array()
+        add(WARMUP_DELEGATION_HEADER, encoded)
+    }
+}
+
+internal fun Headers.warmupDelegationId(): UUID? =
+    lastHeader(WARMUP_DELEGATION_HEADER)?.value()?.takeIf { it.size == DELEGATION_ID_BYTES }?.let { bytes ->
+        ByteBuffer.wrap(bytes).let { UUID(it.long, it.long) }
+    }
 
 private const val MAX_WARMUP_IDENTIFIER_LENGTH = 255
 
@@ -54,7 +72,8 @@ sealed interface WarmupRemoteOutcome {
 
 data class WarmupRecordCompleted(
     val recordId: WarmupRecordId,
-    val outcome: WarmupRemoteOutcome
+    val outcome: WarmupRemoteOutcome,
+    val delegationId: UUID? = null
 )
 
 enum class WarmupDiscardReason {

@@ -101,6 +101,8 @@ class WarmupDiscoveryRuntimeTest {
                     override suspend fun stopDelegatingAndAwaitInflight(timeout: Duration) = Unit
                     override suspend fun awaitInflightCompletion() = Unit
                     override fun fail(error: Throwable) = Unit
+                    override fun finishResults() = Unit
+                    override fun stopWaitingForForwardingAcks() = Unit
                     override fun trySealForRemoval() = true
                     override fun close() = Unit
                 }
@@ -166,7 +168,7 @@ class WarmupDiscoveryRuntimeTest {
     @Test
     fun `runtime follows request offer acceptance preparation readiness sequence`() = runBlocking {
         val router = WarmupControlRouter(recipientId, namespace)
-        val channel = InMemoryControlChannel(router, remoteDonor, mapping)
+        val channel = InMemoryControlChannel(router, remoteDonor, mapping, holdCompletionAck = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
         val activation = WarmupDonorActivation(
@@ -491,7 +493,8 @@ class WarmupDiscoveryRuntimeTest {
         private val router: WarmupControlRouter,
         private val donor: WarmupInstanceId,
         private val mapping: WarmupTopicMapping,
-        private val acknowledgeCompletion: Boolean = true
+        private val acknowledgeCompletion: Boolean = true,
+        private val holdCompletionAck: Boolean = false
     ) : WarmupControlChannel {
         val sent = mutableListOf<WarmupControlMessage>()
 
@@ -535,6 +538,7 @@ class WarmupDiscoveryRuntimeTest {
                 )
                 else -> Unit
             }
+            if (holdCompletionAck && message is WarmupCompletionRequested) awaitCancellation()
             return mock()
         }
     }

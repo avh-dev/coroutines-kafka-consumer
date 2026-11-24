@@ -22,7 +22,9 @@ import avh.ckc.warmup.protocol.normalizedAdmissionBudget
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
+import kotlin.time.TimeMark
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -277,13 +279,13 @@ internal class WarmupRecipientDiscovery(
     }
 
     /** Stops recipient consumers only after every selected donor has fenced new delegation. */
-    suspend fun completeAfterDonorsClosed(): WarmupRecipientCleanupResult {
+    suspend fun completeAfterDonorsClosed(drain: Deferred<WarmupBrokerDrain>? = null): WarmupRecipientCleanupResult {
         synchronized(lock) {
             check(state == State.DRAINING && closedDonors.keys == acceptances.keys) {
                 "Recipient donors have not all closed"
             }
         }
-        val cleanup = cleanupPreparedConsumers()
+        val cleanup = cleanupPreparedConsumers(drain)
         if (cleanup !is WarmupRecipientCleanupResult.Incomplete) {
             synchronized(lock) {
                 if (state == State.DRAINING) state = State.COMPLETED
@@ -341,7 +343,7 @@ internal class WarmupRecipientDiscovery(
                         state == State.PREPARING_CONSUMERS
                     }
                     if (!retained) {
-                        stopAll(listOf(consumer))
+                        withContext(NonCancellable) { stopAll(listOf(consumer)) }
                         throw WarmupRecipientPreparationStoppedException()
                     }
                     require(consumer.assignment == start.assignment && consumer.startOffset == start.offset) {
@@ -422,21 +424,23 @@ internal class WarmupRecipientDiscovery(
      * Terminates this recipient session from any non-terminal stage, including prepared readiness.
      * An incomplete result retains the unresolved consumers; another call waits for them again.
      */
-    suspend fun terminate(): WarmupRecipientCleanupResult = withContext(NonCancellable) {
-        cleanupMutex.withLock {
-            val resources = synchronized(lock) {
-                state = State.COLD_FALLBACK
-                prepared.toList()
+    suspend fun terminate(drain: Deferred<WarmupBrokerDrain>? = null): WarmupRecipientCleanupResult =
+        withContext(NonCancellable) {
+            cleanupMutex.withLock {
+                val resources = synchronized(lock) {
+                    state = State.COLD_FALLBACK
+                    prepared.toList()
+                }
+                stopAll(resources, drain)
             }
-            stopAll(resources)
         }
-    }
 
-    private suspend fun cleanupPreparedConsumers(): WarmupRecipientCleanupResult = withContext(NonCancellable) {
-        cleanupMutex.withLock {
-            stopAll(synchronized(lock) { prepared.toList() })
+    private suspend fun cleanupPreparedConsumers(drain: Deferred<WarmupBrokerDrain>?): WarmupRecipientCleanupResult =
+        withContext(NonCancellable) {
+            cleanupMutex.withLock {
+                stopAll(synchronized(lock) { prepared.toList() }, drain)
+            }
         }
-    }
 
     internal fun state(): State = synchronized(lock) { state }
 
@@ -475,7 +479,8 @@ internal class WarmupRecipientDiscovery(
     }
 
     private suspend fun stopAll(
-        resources: List<PreparedWarmupRecipientConsumer>
+        resources: List<PreparedWarmupRecipientConsumer>,
+        drain: Deferred<WarmupBrokerDrain>? = null
     ): WarmupRecipientCleanupResult {
         if (resources.isEmpty()) return WarmupRecipientCleanupResult.Complete
         data class StopResult(
@@ -484,75 +489,48 @@ internal class WarmupRecipientDiscovery(
             val diagnostic: String? = null
         )
 
-        var results = emptyList<StopResult>()
-        // Cleanup owns a separate bounded cancellation scope so caller cancellation cannot leak clients.
-        val finished = withContext(NonCancellable) {
-            withTimeoutOrNull(cleanupTimeout.inWholeMilliseconds.coerceAtLeast(1)) {
-                // Mappings own independent runtimes. Stop them concurrently so the context cleanup
-                // deadline does not grow with the number of registered participants.
-                results = supervisorScope {
-                    resources.asReversed().map { resource ->
-                        async {
-                            try {
-                                resource.stop()
-                                StopResult(resource, completed = true)
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
-                                StopResult(
-                                    resource,
-                                    completed = true,
-                                    diagnostic = "${resource.assignment.destination}: " +
-                                        "${error.cause?.javaClass?.name}: ${error.cause?.message}"
-                                )
-                            } catch (error: Throwable) {
-                                if (error.isFatalJvmError()) throw error
-                                StopResult(
-                                    resource,
-                                    completed = false,
-                                    diagnostic = "${resource.assignment.destination}: " +
-                                        "${error.javaClass.name}: ${error.message}"
-                                )
-                            }
+        // Mappings own independent runtimes, so both phases use the same deadline across resources.
+        suspend fun stopResources(force: Boolean): List<StopResult> = supervisorScope {
+            resources.asReversed().map { resource ->
+                async {
+                    try {
+                        if (force) {
+                            StopResult(
+                                resource,
+                                completed = resource.abort(),
+                                diagnostic = "${resource.assignment.destination}: forced_after_cleanup_timeout"
+                            )
+                        } else {
+                            resource.stop()
+                            StopResult(resource, completed = true)
                         }
-                    }.awaitAll()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
+                        StopResult(
+                            resource,
+                            completed = true,
+                            diagnostic = "${resource.assignment.destination}: " +
+                                "${error.cause?.javaClass?.name}: ${error.cause?.message}"
+                        )
+                    } catch (error: Throwable) {
+                        if (error.isFatalJvmError()) throw error
+                        StopResult(
+                            resource,
+                            completed = false,
+                            diagnostic = "${resource.assignment.destination}: " +
+                                "${error.javaClass.name}: ${error.message}"
+                        )
+                    }
                 }
-                true
-            }
+            }.awaitAll()
         }
-        val diagnostics = results.mapNotNull(StopResult::diagnostic).toMutableList()
-        if (finished != true) {
+
+        var results = runCleanupPhase(drain, WarmupBrokerDrain::consumerStopDeadline) { stopResources(force = false) }
+        val diagnostics = results.orEmpty().mapNotNull(StopResult::diagnostic).toMutableList()
+        if (results == null) {
             diagnostics += "recipient_consumer_cleanup_timeout"
-            val forced = withTimeoutOrNull(cleanupTimeout.inWholeMilliseconds.coerceAtLeast(1)) {
-                supervisorScope {
-                    resources.asReversed().map { resource ->
-                        async {
-                            try {
-                                StopResult(
-                                    resource,
-                                    completed = resource.abort(),
-                                    diagnostic = "${resource.assignment.destination}: forced_after_cleanup_timeout"
-                                )
-                            } catch (error: WarmupRecipientConsumerStoppedWithFailureException) {
-                                StopResult(
-                                    resource,
-                                    completed = true,
-                                    diagnostic = "${resource.assignment.destination}: " +
-                                        "${error.cause?.javaClass?.name}: ${error.cause?.message}"
-                                )
-                            } catch (error: Throwable) {
-                                if (error.isFatalJvmError()) throw error
-                                StopResult(
-                                    resource,
-                                    completed = false,
-                                    diagnostic = "${resource.assignment.destination}: " +
-                                        "${error.javaClass.name}: ${error.message}"
-                                )
-                            }
-                        }
-                    }.awaitAll()
-                }
-            }
+            val forced = runCleanupPhase(drain, WarmupBrokerDrain::resultFlushDeadline) { stopResources(force = true) }
             if (forced == null) {
                 diagnostics += "recipient_consumer_forced_cleanup_timeout"
             } else {
@@ -560,7 +538,7 @@ internal class WarmupRecipientDiscovery(
                 diagnostics += forced.mapNotNull(StopResult::diagnostic)
             }
         }
-        val completed = results.filter(StopResult::completed).map(StopResult::resource)
+        val completed = results.orEmpty().filter(StopResult::completed).map(StopResult::resource)
         val pending = synchronized(lock) {
             prepared.removeAll(completed.toSet())
             prepared.map(PreparedWarmupRecipientConsumer::assignment)
@@ -573,6 +551,22 @@ internal class WarmupRecipientDiscovery(
             }
         } else {
             WarmupRecipientCleanupResult.Incomplete(pending, diagnostics.toList())
+        }
+    }
+
+    private suspend fun <T : Any> runCleanupPhase(
+        drain: Deferred<WarmupBrokerDrain>?,
+        deadline: (WarmupBrokerDrain) -> TimeMark,
+        cleanup: suspend () -> T
+    ): T? {
+        if (drain == null) return withTimeoutOrNull(cleanupTimeout) { cleanup() }
+        return supervisorScope {
+            val operation = async { cleanup() }
+            try {
+                operation.awaitDuringDrain(cleanupTimeout, drain) { deadline(it).remaining() }
+            } finally {
+                operation.cancel()
+            }
         }
     }
 

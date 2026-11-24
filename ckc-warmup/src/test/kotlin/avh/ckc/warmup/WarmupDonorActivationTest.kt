@@ -1,6 +1,7 @@
 package avh.ckc.warmup
 
 import avh.ckc.core.awaitFor
+import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.processing.RecordProcessingOutcome
 import avh.ckc.warmup.protocol.ControlRecordCompleted
 import avh.ckc.warmup.protocol.DonorAccepted
@@ -27,6 +28,7 @@ import avh.ckc.warmup.protocol.WarmupSourcePartition
 import avh.ckc.warmup.protocol.WarmupTopicMapping
 import avh.ckc.warmup.protocol.normalizedAdmissionBudget
 import java.util.concurrent.CountDownLatch
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.milliseconds
@@ -34,16 +36,21 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -63,6 +70,270 @@ class WarmupDonorActivationTest {
         WarmupParticipantId("orders"), "orders", "warmup-orders", "mapping-fingerprint"
     )
     private val ownership = setOf(WarmupSourcePartition(0, 3))
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `planned broker drain acknowledges completion in either order`() = runTest {
+        for (brokerFirst in listOf(true, false)) {
+            val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+            val accepted = acceptance()
+            val acknowledgements = mutableListOf<DonorClosed>()
+            val session = session(accepted.sessionId)
+            val activation = WarmupDonorActivation(
+                donor, namespace, listOf(mapping), plane, WarmupDonorEligibility { ownership },
+                WarmupDonorSessionPreparation { session }, backgroundScope,
+                cleanupDispatcher = StandardTestDispatcher(testScheduler),
+                onPreparationFailed = {}, onDonorClosed = { acknowledgements += it },
+                drainTimeout = 20.milliseconds, nowEpochMillis = { 1_000 }
+            )
+            acceptAndStart(activation, accepted)
+            runCurrent()
+            assertTrue(activation.onRecipientReady(ready()))
+            val delegated = async {
+                plane.process(ConsumerRecord(mapping.sourceTopic, 0, 0, "key", "value")) {
+                    error("The result must survive planned drain")
+                }
+            }
+            runCurrent()
+            assertEquals(1, session.pendingResultCount())
+            val plan = WarmupBrokerDrain(System.currentTimeMillis() + 5_000, 1.seconds, 1.seconds)
+            if (brokerFirst) {
+                activation.closeBrokerAdmission(plan)
+                runCurrent()
+                assertTrue(activation.onCompletionRequested(completion(accepted)))
+            } else {
+                assertTrue(activation.onCompletionRequested(completion(accepted)))
+                runCurrent()
+                activation.closeBrokerAdmission(plan)
+            }
+            advanceTimeBy(100.milliseconds)
+            assertFalse(delegated.isCompleted)
+            assertEquals(WarmupResultTracker.Completion.DELIVERED, activation.onRecordCompleted(result(accepted, 0)))
+            runCurrent()
+            assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, delegated.await())
+            assertEquals(listOf(accepted.sessionId), acknowledgements.map { it.sessionId })
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `broker session fence preserves early results and releases only unresolved waits in that session`() = runTest {
+        val accepted = acceptance()
+        val sibling = accepted.copy(sessionId = WarmupSessionId("sibling"))
+        val capacity = Semaphore(4)
+        val earlyAck = CompletableDeferred<WarmupSendAcknowledgement>()
+        val releaseHandoff = CompletableDeferred<Unit>()
+        val handoff = RecordProcessingOutcome.HandedOff(RecordHandoffReason.ASSIGNMENT_ENDED)
+        val sessions = listOf(accepted, sibling).associate { admission ->
+            admission.sessionId to WarmupDonorSession<String, String>(
+                sessionId = admission.sessionId,
+                quotaProfile = WarmupQuotaProfile.constant(10),
+                quotaInterval = 1.seconds,
+                delegationTimeout = 60.seconds,
+                destinationResolver = WarmupDestinationResolver { WarmupDestination(mapping.warmupTopic) },
+                sender = WarmupRecordSender { record, _, id ->
+                    when {
+                        id == accepted.sessionId && record.offset() == 0L -> earlyAck.await()
+                        id == accepted.sessionId && record.offset() == 2L -> awaitCancellation()
+                        else -> WarmupSendAcknowledgement(TopicPartition(mapping.warmupTopic, 0), record.offset())
+                    }
+                },
+                inflightDelegations = capacity
+            )
+        }
+        val plane = MultiSessionWarmupDataPlane<String, String>(2, 20)
+        val activation = WarmupDonorActivation(
+            donor, namespace, listOf(mapping), plane, WarmupDonorEligibility { ownership },
+            WarmupDonorSessionPreparation { sessions.getValue(it.sessionId) }, backgroundScope,
+            cleanupDispatcher = StandardTestDispatcher(testScheduler),
+            onPreparationFailed = {}, nowEpochMillis = { 1_000 }
+        )
+        listOf(accepted, sibling).forEach {
+            acceptAndStart(activation, it)
+            runCurrent()
+            assertTrue(activation.onRecipientReady(ready().copy(sessionId = it.sessionId)))
+        }
+        fun delegate(id: WarmupSessionId, offset: Long, local: suspend () -> RecordProcessingOutcome) = async {
+            val session = sessions.getValue(id)
+            val record = ConsumerRecord(mapping.sourceTopic, 0, offset, "key", "value")
+            session.processDelegatedRecord(record, checkNotNull(session.tryBeginDelegation(record)), local)
+        }
+        var handoffs = 0
+        var sendFallbacks = 0
+        val early = delegate(accepted.sessionId, 0) { error("Early result was lost") }
+        val unresolved = delegate(accepted.sessionId, 1) {
+            handoffs++
+            releaseHandoff.await()
+            handoff
+        }
+        val siblingResult = delegate(sibling.sessionId, 0) { error("Sibling session was interrupted") }
+        val sending = delegate(accepted.sessionId, 2) {
+            sendFallbacks++
+            RecordProcessingOutcome.HandlerSucceeded
+        }
+        runCurrent()
+        assertEquals(1, sessions.getValue(accepted.sessionId).pendingResultCount())
+        assertEquals(WarmupResultTracker.Completion.STORED_EARLY, activation.onRecordCompleted(result(accepted, 0)))
+        val ended = fallbackEnded().copy(reasonCode = BROKER_DRAINING)
+        assertTrue(activation.onSessionEnded(ended))
+        assertFalse(activation.onSessionEnded(ended))
+        assertEquals(WarmupResultTracker.Completion.IGNORED, activation.onRecordCompleted(result(accepted, 1)))
+        runCurrent()
+        assertEquals(1, handoffs)
+        assertEquals(0, capacity.availablePermits)
+        assertFalse(sending.isCompleted)
+        assertFalse(siblingResult.isCompleted)
+        earlyAck.complete(WarmupSendAcknowledgement(TopicPartition(mapping.warmupTopic, 0), 0))
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, early.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, sending.await())
+        assertEquals(1, sendFallbacks)
+        assertEquals(2, capacity.availablePermits)
+        releaseHandoff.complete(Unit)
+        assertEquals(handoff, unresolved.await())
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, activation.onRecordCompleted(result(sibling, 0)))
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, siblingResult.await())
+        assertEquals(4, capacity.availablePermits)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `an early result for a cancelled send cannot hold another ACK past the broker drain cutoff`() = runTest {
+        val accepted = acceptance()
+        val capacity = Semaphore(2)
+        val sending = mutableListOf<Long>()
+        val session = WarmupDonorSession<String, String>(
+            sessionId = accepted.sessionId,
+            quotaProfile = WarmupQuotaProfile.constant(10),
+            quotaInterval = 1.seconds,
+            delegationTimeout = 60.seconds,
+            destinationResolver = WarmupDestinationResolver { WarmupDestination(mapping.warmupTopic) },
+            sender = WarmupRecordSender { record, _, _ ->
+                sending += record.offset()
+                awaitCancellation()
+            },
+            inflightDelegations = capacity
+        )
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val activation = WarmupDonorActivation(
+            donor, namespace, listOf(mapping), plane, WarmupDonorEligibility { ownership },
+            WarmupDonorSessionPreparation { session }, backgroundScope,
+            cleanupDispatcher = StandardTestDispatcher(testScheduler),
+            onPreparationFailed = {}, nowEpochMillis = { 1_000 }
+        )
+        acceptAndStart(activation, accepted)
+        runCurrent()
+        assertTrue(activation.onRecipientReady(ready()))
+        val cancelled = async {
+            plane.process(ConsumerRecord(mapping.sourceTopic, 0, 0, "first", "value")) {
+                error("Cancelled delegation must hand off through the main runtime")
+            }
+        }
+        var fallbacks = 0
+        val remaining = async {
+            plane.process(ConsumerRecord(mapping.sourceTopic, 0, 1, "second", "value")) {
+                fallbacks++
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        runCurrent()
+        assertEquals(listOf(0L, 1L), sending)
+        assertEquals(0, capacity.availablePermits)
+        cancelled.cancelAndJoin()
+        assertEquals(1, capacity.availablePermits)
+        assertEquals(WarmupResultTracker.Completion.STORED_EARLY, activation.onRecordCompleted(result(accepted, 0)))
+
+        val budget = 1.seconds
+        val drain = WarmupBrokerDrain(System.currentTimeMillis() + budget.inWholeMilliseconds, 1.seconds, 1.seconds)
+        activation.closeBrokerAdmission(drain)
+        val ended = fallbackEnded().copy(reasonCode = BROKER_DRAINING)
+        assertTrue(activation.onSessionEnded(ended))
+        assertFalse(activation.onSessionEnded(ended))
+        advanceTimeBy(500.milliseconds)
+        runCurrent()
+        assertTrue(remaining.isCompleted)
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, remaining.await())
+        assertEquals(1, fallbacks)
+        assertEquals(2, capacity.availablePermits)
+        assertEquals(0, plane.admittedSessionCount())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a matched early result completes an active delegation while a sibling ACK stays blocked`() = runTest {
+        val accepted = acceptance()
+        val capacity = Semaphore(2)
+        val destination = TopicPartition(mapping.warmupTopic, 0)
+        val firstAck = CompletableDeferred<WarmupSendAcknowledgement>()
+        val sending = mutableMapOf<Long, UUID>()
+        val session = WarmupDonorSession(
+            sessionId = accepted.sessionId,
+            quotaProfile = WarmupQuotaProfile.constant(10),
+            quotaInterval = 1.seconds,
+            delegationTimeout = 60.seconds,
+            destinationResolver = WarmupDestinationResolver { WarmupDestination(mapping.warmupTopic) },
+            sender = object : WarmupRecordSender<String, String> {
+                override suspend fun send(
+                    record: ConsumerRecord<String, String>,
+                    destination: WarmupDestination,
+                    sessionId: WarmupSessionId
+                ): WarmupSendAcknowledgement = error("Delegation ID required")
+
+                override suspend fun send(
+                    record: ConsumerRecord<String, String>,
+                    destination: WarmupDestination,
+                    sessionId: WarmupSessionId,
+                    delegationId: UUID?
+                ): WarmupSendAcknowledgement {
+                    sending[record.offset()] = checkNotNull(delegationId)
+                    if (record.offset() == 0L) return firstAck.await()
+                    awaitCancellation()
+                }
+            },
+            inflightDelegations = capacity
+        )
+        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val activation = WarmupDonorActivation(
+            donor, namespace, listOf(mapping), plane, WarmupDonorEligibility { ownership },
+            WarmupDonorSessionPreparation { session }, backgroundScope,
+            cleanupDispatcher = StandardTestDispatcher(testScheduler),
+            onPreparationFailed = {}, nowEpochMillis = { 1_000 }
+        )
+        acceptAndStart(activation, accepted)
+        runCurrent()
+        assertTrue(activation.onRecipientReady(ready()))
+        val handledLocally = mutableListOf<Long>()
+        fun delegate(offset: Long) = async {
+            plane.process(ConsumerRecord(mapping.sourceTopic, 0, offset, "key", "value")) {
+                handledLocally += offset
+                RecordProcessingOutcome.HandlerSucceeded
+            }
+        }
+        val first = delegate(0)
+        val second = delegate(1)
+        runCurrent()
+        assertEquals(setOf(0L, 1L), sending.keys)
+        assertEquals(0, capacity.availablePermits)
+        activation.closeBrokerAdmission(WarmupBrokerDrain(System.currentTimeMillis() + 5_000, 1.seconds, 1.seconds))
+        val completed = result(accepted, 73).let {
+            it.copy(completed = it.completed.copy(delegationId = sending.getValue(0)))
+        }
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, activation.onRecordCompleted(completed))
+        assertTrue(activation.onSessionEnded(fallbackEnded().copy(reasonCode = BROKER_DRAINING)))
+
+        advanceTimeBy(300.milliseconds)
+        assertFalse(firstAck.isCompleted)
+        assertTrue(first.isCompleted)
+        assertTrue(second.isCompleted)
+        assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, first.await())
+        assertEquals(RecordProcessingOutcome.HandlerSucceeded, second.await())
+        assertEquals(listOf(1L), handledLocally)
+        assertEquals(2, capacity.availablePermits)
+        firstAck.complete(WarmupSendAcknowledgement(destination, 73))
+        runCurrent()
+        assertEquals(0, plane.admittedSessionCount())
+        assertEquals(listOf(1L), handledLocally)
+        assertEquals(2, capacity.availablePermits)
+    }
 
     @Test
     fun `broker fence rejects activation and retains cleanup ownership through ACK failure and local fallback`() =
@@ -1150,6 +1421,16 @@ class WarmupDonorActivationTest {
         acceptance.sessionId,
         recipient,
         donor,
+        acceptance.configurationFingerprint,
+        acceptance.expiresAtEpochMillis
+    )
+
+    private fun result(acceptance: SessionAccepted, offset: Long) = ControlRecordCompleted(
+        namespace, acceptance.sessionId, recipient, donor,
+        WarmupRecordCompleted(
+            WarmupRecordId(acceptance.sessionId, TopicPartition(mapping.warmupTopic, 0), offset),
+            WarmupRemoteOutcome.Succeeded
+        ),
         acceptance.configurationFingerprint,
         acceptance.expiresAtEpochMillis
     )

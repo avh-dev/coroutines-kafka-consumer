@@ -128,10 +128,10 @@ class BrokerLifecycleCliIntegrationTest {
         val cleanupStarted = CompletableDeferred<Unit>()
         val cleanup = CompletableDeferred<Set<String>>()
         val before = WarmupBrokerLifecycle(
-            configuration, this, Dispatchers.IO, fence = { CompletableDeferred(emptySet()) }, reopen = { true }
+            configuration, this, Dispatchers.IO, fence = { _, _ -> CompletableDeferred(emptySet()) }, reopen = { true }
         )
         val after = WarmupBrokerLifecycle(
-            configuration, this, Dispatchers.IO, fence = {
+            configuration, this, Dispatchers.IO, fence = { _, _ ->
                 cleanupStarted.complete(Unit)
                 cleanup
             }, reopen = { true }, submit = { sender, event ->

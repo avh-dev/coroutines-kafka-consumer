@@ -20,6 +20,8 @@ internal interface WarmupDonorSessionLifecycle : AutoCloseable {
     suspend fun stopDelegatingAndAwaitInflight(timeout: Duration)
     suspend fun awaitInflightCompletion()
     fun fail(error: Throwable)
+    fun finishResults()
+    fun stopWaitingForForwardingAcks()
     fun trySealForRemoval(): Boolean
 }
 

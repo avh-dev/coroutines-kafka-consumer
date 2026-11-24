@@ -72,7 +72,8 @@ internal class WarmupControlTransportConfiguration(
     val assignmentTimeout: Duration = 15.seconds,
     val topicIdentityCheckInterval: Duration = 5.seconds,
     val recoveryRetryBackoff: Duration = 500.milliseconds,
-    val commandBufferCapacity: Int = 1_024
+    val commandBufferCapacity: Int = 1_024,
+    val preserveSendOrder: Boolean = false
 ) {
     val producerProperties: Map<String, Any?> = immutableProperties(producerProperties)
     val consumerProperties: Map<String, Any?> = immutableProperties(consumerProperties)
@@ -536,16 +537,27 @@ internal class WarmupControlTransport(
 
     private fun closeDuration() = JavaDuration.ofMillis(configuration.sendTimeout.inWholeMilliseconds)
 
-    private fun producerProperties(): Map<String, Any?> = buildControlProducerProperties(
-        configuration.producerProperties,
-        mapOf(
-            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
-            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
-            ProducerConfig.ACKS_CONFIG to "all",
-            ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
-            ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+    private fun producerProperties(): Map<String, Any?> {
+        val properties = buildControlProducerProperties(
+            configuration.producerProperties,
+            mapOf(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to ByteArraySerializer::class.java,
+                ProducerConfig.ACKS_CONFIG to "all",
+                ProducerConfig.CLIENT_ID_CONFIG to "${configuration.groupId}-producer",
+                ProducerConfig.MAX_BLOCK_MS_CONFIG to configuration.sendTimeout.inWholeMilliseconds
+            )
         )
-    )
+        if (!configuration.preserveSendOrder) return properties
+        val idempotenceDisabled = properties[ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG]
+            ?.toString()?.trim().equals("false", ignoreCase = true)
+        val inflight = properties[ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION]
+            ?.toString()?.trim()?.toIntOrNull()
+        // A cancelled ACK wait leaves Kafka's send alive. Its retry must precede a later SessionEnded.
+        return if (idempotenceDisabled || (inflight != null && inflight > 5)) {
+            properties + (ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION to 1)
+        } else properties
+    }
 
     private fun consumerProperties(): Map<String, Any?> = buildControlConsumerProperties(
         configuration.consumerProperties,

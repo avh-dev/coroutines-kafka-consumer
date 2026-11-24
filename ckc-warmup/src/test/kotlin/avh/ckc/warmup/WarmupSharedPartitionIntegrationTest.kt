@@ -28,8 +28,11 @@ import avh.ckc.warmup.protocol.WarmupTopicMapping
 import avh.ckc.warmup.protocol.normalizedAdmissionBudget
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +52,8 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.RetriableException
+import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.header.internals.RecordHeader
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
@@ -489,8 +494,8 @@ class WarmupSharedPartitionIntegrationTest {
         delegationTimeout: kotlin.time.Duration = 3.seconds,
         donorGroup: String = unique("donor-group")
     ): Topology {
-        createTopicIfMissing(sourceTopic)
-        createTopicIfMissing(warmupTopic)
+        createTopic(sourceTopic)
+        createTopic(warmupTopic)
         return Topology(sourceTopic, warmupTopic, maxSessions, delegationTimeout, donorGroup)
             .also(openTopologies::add)
     }
@@ -503,9 +508,9 @@ class WarmupSharedPartitionIntegrationTest {
         donorGroup: String = unique("protocol-donor-group"),
         warmupPartitions: Int = 1
     ): ProtocolPair {
-        createTopicIfMissing(sourceTopic)
-        if (warmupTopic !in topicNames()) createTopic(warmupTopic, warmupPartitions)
-        createTopicIfMissing(controlTopic)
+        createTopic(sourceTopic)
+        createTopic(warmupTopic, warmupPartitions)
+        createTopic(controlTopic)
         return ProtocolPair(sourceTopic, warmupTopic, controlTopic, namespace, donorGroup)
             .also(openProtocolPairs::add)
     }
@@ -1003,22 +1008,25 @@ class WarmupSharedPartitionIntegrationTest {
         ProducerConfig.ACKS_CONFIG to "all"
     )
 
-    private fun createTopicIfMissing(topic: String) {
-        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
-            if (topic !in admin.listTopics().names().get()) {
-                admin.createTopics(listOf(NewTopic(topic, 1, 1))).all().get()
-            }
-        }
-    }
-
-    private fun topicNames(): Set<String> =
-        AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
-            admin.listTopics().names().get()
-        }
-
     private fun createTopic(topic: String, partitions: Int = 1) {
         AdminClient.create(mapOf("bootstrap.servers" to kafka.bootstrapServers)).use { admin ->
-            admin.createTopics(listOf(NewTopic(topic, partitions, 1))).all().get()
+            try {
+                admin.createTopics(listOf(NewTopic(topic, partitions, 1))).all().get(10, TimeUnit.SECONDS)
+            } catch (error: ExecutionException) {
+                if (error.cause !is TopicExistsException) throw error
+            }
+            // CreateTopics may return before the broker can answer requests for the new partitions.
+            val offsets = (0 until partitions).associate { TopicPartition(topic, it) to OffsetSpec.latest() }
+            val started = TimeSource.Monotonic.markNow()
+            while (true) {
+                try {
+                    admin.listOffsets(offsets).all().get(5, TimeUnit.SECONDS)
+                    return
+                } catch (error: ExecutionException) {
+                    if (error.cause !is RetriableException || started.elapsedNow() >= 5.seconds) throw error
+                    Thread.sleep(50)
+                }
+            }
         }
     }
 

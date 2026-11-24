@@ -15,6 +15,7 @@ import avh.ckc.warmup.protocol.WarmupSessionId
 import avh.ckc.warmup.protocol.WarmupTopicMapping
 import avh.ckc.warmup.protocol.normalizedAdmissionBudget
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
@@ -86,6 +87,7 @@ class TrafficWarmupContext internal constructor(
     private val lock = Any()
     private val instanceId = WarmupInstanceId(configuration.instanceId)
     private val namespace = WarmupControlNamespace(configuration.namespace)
+    private val delegationAdmissionOpen = AtomicBoolean(configuration.brokerLifecycleConfiguration == null)
     internal val inflightDelegations = Semaphore(configuration.maxInflightDelegations.also {
         require(it > 0) { "maxInflightDelegations must be positive" }
     })
@@ -111,6 +113,8 @@ class TrafficWarmupContext internal constructor(
     private var warmingStarted: TimeSource.Monotonic.ValueTimeMark? = null
     private var interruption: RecipientInterruption? = null
     private var activeRecipientCleanup: RetriableWarmupRecipientCleanup? = null
+    private var recipientReadinessStarted = false
+    private val recipientBrokerDrain = CompletableDeferred<WarmupBrokerDrain>()
     private var brokerInterruptionReason: String? = null
     private var brokerCleanup: Deferred<Set<String>>? = null
     private var brokerLifecycle: WarmupBrokerLifecycle? = null
@@ -150,6 +154,7 @@ class TrafficWarmupContext internal constructor(
     }
 
     internal fun delegationTimeoutMillis(): Long = configuration.delegationTimeout.inWholeMilliseconds
+    internal fun canDelegate(): Boolean = delegationAdmissionOpen.get()
     internal fun recipientShutdownTimeoutMillis(): Long =
         (configuration.completionTimeout.inWholeMilliseconds / 2).coerceAtLeast(1)
     internal fun serviceDispatcher() = execution.blocking
@@ -334,7 +339,8 @@ class TrafficWarmupContext internal constructor(
                 producerProperties = configuration.controlProducerProperties,
                 consumerProperties = configuration.controlConsumerProperties,
                 sendTimeout = configuration.preparationTimeout,
-                metadataTimeout = configuration.preparationTimeout
+                metadataTimeout = configuration.preparationTimeout,
+                preserveSendOrder = configuration.brokerLifecycleConfiguration != null
             ),
             newRouter,
             scope,
@@ -387,26 +393,40 @@ class TrafficWarmupContext internal constructor(
         }
     }
 
-    private fun fenceBrokerAdmission(reason: String): Deferred<Set<String>> = synchronized(lock) {
+    private fun fenceBrokerAdmission(reason: String, deadlineMillis: Long?): Deferred<Set<String>> = synchronized(lock) {
         brokerCleanup?.let { return@synchronized it }
+        delegationAdmissionOpen.set(false)
         brokerInterruptionReason = reason
-        val sessions = donorActivation.closeBrokerAdmission().toMutableSet()
+        val drain = deadlineMillis?.let {
+            WarmupBrokerDrain(
+                it,
+                configuration.completionTimeout,
+                checkNotNull(configuration.brokerLifecycleConfiguration).operationTimeout
+            )
+        }
+        val sessions = donorActivation.closeBrokerAdmission(drain).toMutableSet()
         val recipient = activeRecipient
         val workflow = startupJob?.takeUnless { it.isCompleted || recipientFinished }
+        val finishWarmup = drain != null && recipientReadinessStarted
         if (recipient != null) {
             val sessionId = recipient.request.sessionId
             sessions += sessionId.value
-            if (runtime.completedResult(recipient) == null && recipient.terminalOutcome() == null && !recipientFinished) {
+            if (!finishWarmup && runtime.completedResult(recipient) == null &&
+                recipient.terminalOutcome() == null && !recipientFinished
+            ) {
                 observeInterruption(sessionId, reason)
             }
         }
-        workflow?.cancel(CancellationException("Warm-up broker admission closed"))
+        if (finishWarmup) recipientBrokerDrain.complete(checkNotNull(drain))
+        else workflow?.cancel(CancellationException("Warm-up broker admission closed"))
         scope.async {
             // Main startup is scheduled by the recipient cleanup path and has its own readiness.
             workflow?.join()
             if (synchronized(lock) { !recipientFinished }) finishInterruptedAttempt(reason)
             check(synchronized(lock) { recipientCleanupFailure == null }) { "Broker recipient cleanup incomplete" }
             while (donorStore.admittedSessionCount() != 0) delay(10)
+            // Detachment releases admission before the close job can finish or retain a failed resource.
+            donorActivation.awaitBrokerCloseSends()
             while (!donorActivation.awaitCleanupBarrier(configuration.completionTimeout)) delay(100)
             donorActivation.awaitBrokerCloseSends()
             sessions.toSet()
@@ -421,6 +441,7 @@ class TrafficWarmupContext internal constructor(
         brokerCleanup = null
         brokerInterruptionReason = null
         donorActivation.openBrokerAdmission()
+        delegationAdmissionOpen.set(true)
         true
     }
 
@@ -551,12 +572,14 @@ class TrafficWarmupContext internal constructor(
             activeRecipient = discovery
             activeOutbox = outbox
             activeRecipientCleanup = RetriableWarmupRecipientCleanup(
-                terminate = discovery::terminate,
+                terminate = { discovery.terminate() },
                 afterComplete = { abortRecipientSends(outbox) }
             )
         }
         observe(TrafficWarmupLifecyclePhase.DISCOVERING, sessionId = sessionId.value)
-        when (val result = runtime.discoverAndPrepare(discovery)) {
+        when (val result = runtime.discoverAndPrepare(discovery, recipientBrokerDrain) {
+            synchronized(lock) { recipientReadinessStarted = true }
+        }) {
             is WarmupDiscoveryResult.Ready -> {
                 observe(TrafficWarmupLifecyclePhase.READY, sessionId = sessionId.value)
                 synchronized(lock) { warmingStarted = TimeSource.Monotonic.markNow() }
@@ -582,7 +605,12 @@ class TrafficWarmupContext internal constructor(
     ) = coroutineScope {
         val sessionId = discovery.request.sessionId
         val failure = async { awaitWarmupFailure(discovery, readiness, outbox) }
-        val earlyFailure = withTimeoutOrNull(configuration.warmupDuration) { failure.await() }
+        val earlyFailure = withTimeoutOrNull(configuration.warmupDuration) {
+            select {
+                failure.onAwait { it }
+                recipientBrokerDrain.onAwait { null }
+            }
+        }
         if (earlyFailure != null) {
             observeInterruption(sessionId, earlyFailure)
             rollbackRecipientAndStartCold(earlyFailure)
@@ -595,11 +623,64 @@ class TrafficWarmupContext internal constructor(
             failure,
             onFailureDetected = {
                 observeInterruption(sessionId, it)
-                outbox.close()
+                if (it == BROKER_DRAINING) outbox.closeAdmission() else outbox.close()
             },
+            brokerDrain = recipientBrokerDrain,
+            canPublishFence = outbox::sendsStopped,
             finishSends = { finishRecipientSends(sessionId, outbox, it) }
         )
         applyCompletion(completion)
+    }
+
+    private suspend fun finishBrokerDrainSends(
+        sessionId: WarmupSessionId,
+        outbox: WarmupCompletionOutbox,
+        result: WarmupCompletionResult,
+        drain: WarmupBrokerDrain
+    ): WarmupCompletionResult {
+        outbox.closeAdmission()
+        val failure = try {
+            outbox.flush(drain.resultFlushDeadline.remaining().coerceAtLeast(Duration.ZERO))
+            null
+        } catch (error: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            error
+        } catch (error: WarmupResultDeliveryException) {
+            error
+        }
+        val detectedReason = result.reasonCode ?: failure?.let(::resultDeliveryFailureReason)
+        detectedReason?.let { observeInterruption(sessionId, it) }
+
+        val cleaned = withTimeoutOrNull(drain.cleanupDeadline.remaining()) {
+            if (failure == null) {
+                try {
+                    outbox.stop(Duration.INFINITE)
+                } catch (error: WarmupResultDeliveryException) {
+                    observeInterruption(sessionId, detectedReason ?: resultDeliveryFailureReason(error))
+                }
+            } else if (!outbox.sendsStopped()) {
+                outbox.abort(Duration.INFINITE, failure)
+            }
+            runtime.stopRecipientProbes()
+            true
+        }
+        val observedReason = synchronized(lock) {
+            interruption?.takeIf { it.sessionId == sessionId.value }?.reasonCode
+        }
+        val reason = result.reasonCode ?: observedReason
+        if (cleaned == true) {
+            return if (reason != null && result.reasonCode == null) WarmupCompletionResult.ColdFallback(reason)
+            else result
+        }
+        outbox.close()
+        val incomplete = (result as? WarmupCompletionResult.CleanupIncomplete)?.cleanup
+        return WarmupCompletionResult.CleanupIncomplete(
+            reason ?: "recipient_cleanup_timeout",
+            WarmupRecipientCleanupResult.Incomplete(
+                pendingAssignments = incomplete?.pendingAssignments.orEmpty(),
+                diagnostics = incomplete?.diagnostics.orEmpty() + "warm-up sender cleanup timed out"
+            )
+        )
     }
 
     private fun applyCompletion(completion: WarmupCompletionResult) {
@@ -615,6 +696,30 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun finishRecipientSends(
+        sessionId: WarmupSessionId,
+        outbox: WarmupCompletionOutbox,
+        result: WarmupCompletionResult
+    ): WarmupCompletionResult {
+        if (configuration.brokerLifecycleConfiguration == null) {
+            return finishRegularRecipientSends(sessionId, outbox, result)
+        }
+        if (recipientBrokerDrain.isCompleted) {
+            return finishBrokerDrainSends(sessionId, outbox, result, recipientBrokerDrain.await())
+        }
+        return coroutineScope {
+            val regular = async { finishRegularRecipientSends(sessionId, outbox, result) }
+            val drain = select {
+                regular.onAwait { null }
+                recipientBrokerDrain.onAwait { it }
+            }
+            if (drain == null) regular.await() else {
+                regular.cancelAndJoin()
+                finishBrokerDrainSends(sessionId, outbox, result, drain)
+            }
+        }
+    }
+
+    private suspend fun finishRegularRecipientSends(
         sessionId: WarmupSessionId,
         outbox: WarmupCompletionOutbox,
         consumerResult: WarmupCompletionResult

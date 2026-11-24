@@ -2,7 +2,9 @@ package avh.ckc.warmup
 
 import avh.ckc.warmup.protocol.WARMUP_SESSION_HEADER
 import avh.ckc.warmup.protocol.WarmupSessionId
+import avh.ckc.warmup.protocol.setWarmupDelegationId
 import java.time.Duration as JavaDuration
+import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
@@ -29,6 +31,13 @@ internal fun interface WarmupRecordSender<K, V> {
         destination: WarmupDestination,
         sessionId: WarmupSessionId
     ): WarmupSendAcknowledgement
+
+    suspend fun send(
+        record: ConsumerRecord<K, V>,
+        destination: WarmupDestination,
+        sessionId: WarmupSessionId,
+        delegationId: UUID?
+    ): WarmupSendAcknowledgement = send(record, destination, sessionId)
 }
 
 /** Copies an admitted source record and adds exactly one current warm-up session header. */
@@ -56,9 +65,16 @@ internal class KafkaWarmupRecordSender<K, V>(
         record: ConsumerRecord<K, V>,
         destination: WarmupDestination,
         sessionId: WarmupSessionId
+    ): WarmupSendAcknowledgement = send(record, destination, sessionId, null)
+
+    override suspend fun send(
+        record: ConsumerRecord<K, V>,
+        destination: WarmupDestination,
+        sessionId: WarmupSessionId,
+        delegationId: UUID?
     ): WarmupSendAcknowledgement {
         val acknowledgement = CompletableDeferred<WarmupSendAcknowledgement>()
-        val forwarded = record.copyTo(destination, sessionId)
+        val forwarded = record.copyTo(destination, sessionId, delegationId)
         runInterruptible(submissionDispatcher) {
             producer.send(forwarded) { metadata, error ->
                 when {
@@ -85,11 +101,13 @@ internal class KafkaWarmupRecordSender<K, V>(
 
     private fun ConsumerRecord<K, V>.copyTo(
         destination: WarmupDestination,
-        sessionId: WarmupSessionId
+        sessionId: WarmupSessionId,
+        delegationId: UUID?
     ): ProducerRecord<K, V> {
         val headers = RecordHeaders(headers().toArray())
         headers.remove(WARMUP_SESSION_HEADER)
         headers.add(WARMUP_SESSION_HEADER, sessionId.value.toByteArray(Charsets.UTF_8))
+        headers.setWarmupDelegationId(delegationId)
         return ProducerRecord(
             destination.topic,
             destination.partition,

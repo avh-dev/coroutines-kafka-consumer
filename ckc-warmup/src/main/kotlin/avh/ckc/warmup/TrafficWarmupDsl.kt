@@ -210,6 +210,7 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
             warmupMetrics = configuration.metrics ?: defaultWarmupMetrics(runtimeFactory.metrics),
             delegationTimeoutMillis = context.delegationTimeoutMillis(),
             inflightDelegations = context.inflightDelegations,
+            canDelegate = context::canDelegate,
             recipientShutdownTimeoutMillis = context.recipientShutdownTimeoutMillis(),
             serviceDispatcher = context.serviceDispatcher(),
             forwardingObserver = configuration.forwardingObserver

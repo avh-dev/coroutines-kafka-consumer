@@ -32,7 +32,7 @@ internal class WarmupBrokerLifecycle(
     private val configuration: TrafficWarmupBrokerLifecycleConfiguration,
     private val scope: CoroutineScope,
     private val blocking: CoroutineDispatcher,
-    private val fence: (String) -> Deferred<Set<String>>,
+    private val fence: (String, Long?) -> Deferred<Set<String>>,
     private val reopen: () -> Boolean,
     private val submit: (KafkaBrokerLifecycleLog, BrokerLifecycleEvent) -> CompletableFuture<Long> =
         KafkaBrokerLifecycleLog::submit
@@ -86,7 +86,7 @@ internal class WarmupBrokerLifecycle(
     private fun fenceUnavailable() {
         if (admissionOpen) {
             admissionOpen = false
-            fence("control_unavailable")
+            fence("control_unavailable", null)
         }
     }
 
@@ -146,7 +146,7 @@ internal class WarmupBrokerLifecycle(
             if (drain != null) {
                 if (drain !== replyTo) {
                     admissionOpen = false
-                    val cleanup = fence("broker_draining")
+                    val cleanup = fence(BROKER_DRAINING, drain.request.deadlineMillis)
                     initialAdmission.complete(false)
                     replyTo = drain
                     if (instance in drain.expected) {
@@ -233,7 +233,8 @@ internal class WarmupBrokerLifecycle(
         )
         while (System.currentTimeMillis() < request.deadlineMillis) {
             try {
-                val offset = publish(log, event)
+                val remaining = request.deadlineMillis - System.currentTimeMillis()
+                val offset = withTimeoutOrNull(remaining) { publish(log, event) } ?: return
                 logger.info(
                     "Warm-up broker lifecycle ContextDrained brokerEpoch={} drainId={} context={} advertisedBroker={} offset={}",
                     request.epoch, request.drainId, instance, broker, offset
