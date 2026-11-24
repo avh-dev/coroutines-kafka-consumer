@@ -22,6 +22,7 @@ import avh.ckc.warmup.protocol.WarmupTopicMapping
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -30,6 +31,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +82,9 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         var closeStarted = false
         var closeRetryRequested = false
         var acknowledgeClose = false
+        val brokerDrain = CompletableDeferred<WarmupBrokerDrain>()
+        var recipientEnded = false
+        var resultsEnded = false
         var preparationJob: Job? = null
         var retainedCleanupResource: S? = null
         var preparationCleanupFailureObserved = false
@@ -108,7 +114,7 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     fun accept(acceptance: SessionAccepted): WarmupControlMessage {
         rejectionReason(acceptance)?.let { return rejection(acceptance, it) }
         synchronized(lock) {
-            if (!admissionOpen) return rejection(acceptance, "broker_draining")
+            if (!admissionOpen) return rejection(acceptance, BROKER_DRAINING)
             pruneExpiredTerminalFencesLocked()
             (sessions[acceptance.sessionId] ?: retainedCleanupSessions[acceptance.sessionId])?.let { existing ->
                 return if (existing.acceptance == acceptance && existing.state !in terminalStates) {
@@ -198,16 +204,28 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     fun openBrokerAdmission() = synchronized(lock) { admissionOpen = true }
 
     /** Fences new sessions and closes delegation before returning to the lifecycle listener. */
-    fun closeBrokerAdmission(): Set<String> = synchronized(lock) {
+    fun closeBrokerAdmission(drain: WarmupBrokerDrain? = null): Set<String> = synchronized(lock) {
         admissionOpen = false
         val affected = (sessions.values.filter { it.state !in terminalStates } + retainedCleanupSessions.values).toSet()
-        affected.forEach { beginCloseLocked(it, acknowledge = it.acknowledgeClose) }
+        affected.forEach {
+            if (drain != null) {
+                if (it.recipientEnded) {
+                    it.brokerDrain.complete(drain)
+                    endResultsLocked(it)
+                }
+                else if (it.state != State.DRAINING || it.acknowledgeClose) it.brokerDrain.complete(drain)
+            }
+            beginCloseLocked(it, acknowledge = it.acknowledgeClose)
+        }
         affected.mapTo(linkedSetOf()) { it.acceptance.sessionId.value }
     }
 
     suspend fun awaitBrokerCloseSends() {
-        val jobs = synchronized(lock) { brokerCloseJobs.toList() }
-        jobs.forEach { it.join() }
+        while (true) {
+            val jobs = synchronized(lock) { brokerCloseJobs.toList() }
+            if (jobs.isEmpty()) return
+            jobs.forEach { it.join() }
+        }
     }
 
     fun replyToProbe(probe: WarmupLivenessProbe): WarmupLivenessProbe? = synchronized(lock) {
@@ -215,7 +233,8 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
         val ready = probe.envelope as? RecipientReady ?: return@synchronized null
         val answering = when (local.state) {
             State.ACTIVE -> true
-            State.DRAINING, State.CLOSED -> local.acknowledgeClose
+            State.DRAINING, State.CLOSED ->
+                !local.resultsEnded && (local.acknowledgeClose || local.brokerDrain.isCompleted)
             else -> false
         }
         if (!answering || !matches(local.acceptance, ready) || nowEpochMillis() >= probe.expiresAtEpochMillis) {
@@ -228,16 +247,12 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     fun onRecordCompleted(message: ControlRecordCompleted): WarmupResultTracker.Completion {
         val accepted = synchronized(lock) {
             val local = sessions[message.sessionId] ?: return@synchronized false
-            matchesSession(local.acceptance, message) &&
+            matchesSession(local.acceptance, message) && !local.resultsEnded &&
                 local.state in setOf(State.ACTIVE, State.DRAINING) &&
                 message.completed.recordId.topicPartition in local.acceptance.mappings
                     .map { WarmupPartitionAssignment(it.mapping).destination }
         }
-        return if (accepted) {
-            dataPlane.acceptResult(message.completed)
-        } else {
-            WarmupResultTracker.Completion.IGNORED
-        }
+        return if (accepted) dataPlane.acceptResult(message.completed) else WarmupResultTracker.Completion.IGNORED
     }
 
     /** Completion is idempotent and closes delegation before any in-flight wait begins. */
@@ -247,11 +262,14 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 ?: retainedCleanupSessions[request.sessionId]
                 ?: return@synchronized false
             if (!matchesSession(existing.acceptance, request)) return@synchronized false
-            if (existing.state in setOf(State.DRAINING, State.CLOSED) && !existing.acknowledgeClose) {
+            if (existing.resultsEnded ||
+                (existing.state in setOf(State.DRAINING, State.CLOSED) &&
+                    !existing.acknowledgeClose && !existing.brokerDrain.isCompleted)
+            ) {
                 return@synchronized false
             }
             if (existing.state == State.CLOSED) {
-                scope.launch { onDonorClosed(closedMessage(existing.acceptance)) }
+                launchBrokerCloseJobLocked { onDonorClosed(closedMessage(existing.acceptance)) }
                 return@synchronized true
             }
             beginCloseLocked(existing, acknowledge = true)
@@ -279,6 +297,13 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
                 ended.state == WarmupSessionEndState.COMPLETED
             ) {
                 return@synchronized false
+            }
+            if (ended.state == WarmupSessionEndState.COLD_FALLBACK) {
+                local.recipientEnded = true
+                if (ended.reasonCode == BROKER_DRAINING || local.brokerDrain.isCompleted) {
+                    if (local.resultsEnded) return@synchronized false
+                    endResultsLocked(local)
+                }
             }
             beginCloseLocked(local, acknowledge = false)
         }
@@ -334,7 +359,11 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
     }
 
     private fun launchCloseLocked(local: LocalSession<S>) {
-        val job = scope.launch(start = CoroutineStart.LAZY) { finishClose(local) }
+        launchBrokerCloseJobLocked { finishClose(local) }
+    }
+
+    private fun launchBrokerCloseJobLocked(block: suspend () -> Unit) {
+        val job = scope.launch(start = CoroutineStart.LAZY) { block() }
         brokerCloseJobs += job
         job.invokeOnCompletion { synchronized(lock) { brokerCloseJobs.remove(job) } }
         job.start()
@@ -356,16 +385,26 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             }
         }
         if (synchronized(lock) { local.prepared != null }) {
-            val remaining = (acceptance.expiresAtEpochMillis - nowEpochMillis()).coerceAtLeast(1).milliseconds
-            val timeout = minOf(drainTimeout, remaining)
-            try {
-                dataPlane.stopDelegatingAndAwaitInflight(acceptance.sessionId, timeout)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: WarmupInflightDrainTimeoutException) {
-                // This deadline is a session failure, not worker cancellation: still-owned source
-                // records must take their ownership-safe fallback before capacity can be released.
-                dataPlane.fail(acceptance.sessionId, error)
+            val timeout = minOf(drainTimeout, sessionTimeRemaining(local))
+            val drained = coroutineScope {
+                val inflight = async {
+                    dataPlane.awaitInflightCompletion(acceptance.sessionId)
+                    true
+                }
+                try {
+                    inflight.awaitDuringDrain(timeout, local.brokerDrain) {
+                        // A lost SessionEnded still leaves time for local fallback and ContextDrained.
+                        minOf(it.forwardingAckDeadline.remaining(), sessionTimeRemaining(local))
+                    } == true
+                } finally {
+                    inflight.cancel()
+                }
+            }
+            if (!drained) {
+                synchronized(lock) {
+                    if (local.brokerDrain.isCompleted) endResultsLocked(local)
+                    else dataPlane.fail(acceptance.sessionId, WarmupInflightDrainTimeoutException(timeout))
+                }
                 dataPlane.awaitInflightCompletion(acceptance.sessionId)
             }
             val detached = dataPlane.detachDrainedSession(acceptance.sessionId)
@@ -386,9 +425,27 @@ internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
             if (local.state != State.DRAINING) return@synchronized false
             local.state = State.CLOSED
             recordTerminalLocked(local)
-            local.acknowledgeClose
+            local.acknowledgeClose && !local.resultsEnded
         }
         if (acknowledge) onDonorClosed(closedMessage(acceptance))
+    }
+
+    private fun sessionTimeRemaining(local: LocalSession<S>): Duration =
+        (local.acceptance.expiresAtEpochMillis - nowEpochMillis()).coerceAtLeast(1).milliseconds
+
+    private fun endResultsLocked(local: LocalSession<S>) {
+        if (local.resultsEnded) return
+        local.resultsEnded = true
+        val session = local.prepared ?: return
+        val graceDeadline = TimeSource.Monotonic.markNow() + 250.milliseconds
+        session.finishResults()
+        scope.launch {
+            // Legacy v6 peers return only the destination offset. A result for a cancelled send
+            // can stay unmatched, so reserve time for fallback.
+            val drain = withTimeoutOrNull(graceDeadline.remaining()) { local.brokerDrain.await() }
+            if (drain != null) delay(minOf(graceDeadline.remaining(), drain.forwardingAckDeadline.remaining()))
+            session.stopWaitingForForwardingAcks()
+        }
     }
 
     /** Leaves cleanup dormant, or consumes one close trigger that raced the failed attempt. */

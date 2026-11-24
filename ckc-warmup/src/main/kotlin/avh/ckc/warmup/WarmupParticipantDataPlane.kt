@@ -114,6 +114,11 @@ internal class WarmupParticipantDonorLane<K, V>(
 
     override fun fail(error: Throwable) = mappingSessions.values.forEach { it.fail(error) }
 
+    override fun finishResults() = mappingSessions.values.forEach(WarmupDonorSession<K, V>::finishResults)
+
+    override fun stopWaitingForForwardingAcks() =
+        mappingSessions.values.forEach(WarmupDonorSession<K, V>::stopWaitingForForwardingAcks)
+
     override fun trySealForRemoval(): Boolean {
         val sealed = mappingSessions.values.map(WarmupDonorSession<K, V>::trySealForRemoval)
         check(sealed.all { it } || sealed.none { it }) { "Participant mapping sessions sealed inconsistently" }

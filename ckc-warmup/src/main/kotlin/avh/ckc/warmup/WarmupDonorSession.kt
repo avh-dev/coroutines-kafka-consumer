@@ -12,6 +12,10 @@ import avh.ckc.warmup.protocol.quotaPerSecond
 import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -49,7 +53,8 @@ internal class WarmupDonorSession<K, V>(
     private val maxEarlyResults: Int = 1_024,
     earlyResultTtl: Duration = delegationTimeout,
     nanoTime: () -> Long = System::nanoTime,
-    private val inflightDelegations: Semaphore = Semaphore(Int.MAX_VALUE)
+    private val inflightDelegations: Semaphore = Semaphore(Int.MAX_VALUE),
+    private val canDelegate: () -> Boolean = { true }
 ) : WarmupDonorSessionLifecycle {
     override val admissionBudgetPerSecond: Int = normalizedSessionBudget(quotaProfile.maximumQuota, quotaInterval)
     private enum class State { ADMITTED, ACTIVE, DRAINING, FAILED, CLOSED }
@@ -63,6 +68,7 @@ internal class WarmupDonorSession<K, V>(
     private val sessionLock = Any()
     private val closeLock = Any()
     private var state = State.ADMITTED
+    @Volatile private var resultsEnded = false
     private var inflight = 0
     private var inflightDrained = CompletableDeferred<Unit>().also { it.complete(Unit) }
     private var trackerClosed = false
@@ -90,7 +96,7 @@ internal class WarmupDonorSession<K, V>(
     fun tryBeginDelegation(record: ConsumerRecord<K, V>): WarmupDestination? {
         val destination = destinationResolver.destinationFor(record) ?: return null
         return synchronized(sessionLock) {
-            if (state != State.ACTIVE || !quota.tryAcquire { inflightDelegations.tryAcquire() }) {
+            if (state != State.ACTIVE || !quota.tryAcquire { canDelegate() && inflightDelegations.tryAcquire() }) {
                 return@synchronized null
             }
             if (inflight == 0) inflightDrained = CompletableDeferred()
@@ -146,36 +152,60 @@ internal class WarmupDonorSession<K, V>(
         record: ConsumerRecord<K, V>,
         destination: WarmupDestination
     ): WarmupRemoteOutcome {
+        if (resultsEnded) throw WarmupBrokerResultsEndedException()
         var acknowledged = false
-        return withTimeoutOrNull(delegationTimeout) {
-            val sendStarted = System.nanoTime()
-            val acknowledgement = try {
-                sender.send(record, destination, sessionId)
+        val delegation = tracker.register(TopicPartition(destination.topic, destination.partition))
+        try {
+            return withTimeoutOrNull(delegationTimeout) {
+                val sendStarted = System.nanoTime()
+                val acknowledgement = sendUntilResultsEnd(record, destination, delegation)
+                acknowledged = true
+                val forwarded = WarmupForwardedEvent(
+                    sessionId = sessionId,
+                    sourceTopicPartition = TopicPartition(record.topic(), record.partition()),
+                    sourceOffset = record.offset(),
+                    destinationTopicPartition = acknowledgement.topicPartition,
+                    destinationOffset = acknowledgement.offset
+                )
+                observe { observer.onForwarded(record, forwarded, System.nanoTime() - sendStarted) }
+                val recordId = WarmupRecordId(sessionId, acknowledgement.topicPartition, acknowledgement.offset)
+                val waitStarted = System.nanoTime()
+                val outcome = tracker.await(recordId, delegationTimeout, delegation)
+                observe { observer.onResult(record, outcome, System.nanoTime() - waitStarted) }
+                outcome
+            } ?: throw WarmupDelegationDeadlineException(acknowledged)
+        } finally {
+            tracker.unregister(delegation)
+        }
+    }
+
+    private suspend fun sendUntilResultsEnd(
+        record: ConsumerRecord<K, V>,
+        destination: WarmupDestination,
+        delegation: WarmupResultTracker.Delegation
+    ): WarmupSendAcknowledgement = supervisorScope {
+        val send = async(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                sender.send(record, destination, sessionId, delegation.id)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 if (error.isFatalJvmError()) throw error
                 throw WarmupSendFailedException(error)
             }
-            acknowledged = true
-            val forwarded = WarmupForwardedEvent(
-                sessionId = sessionId,
-                sourceTopicPartition = TopicPartition(record.topic(), record.partition()),
-                sourceOffset = record.offset(),
-                destinationTopicPartition = acknowledgement.topicPartition,
-                destinationOffset = acknowledgement.offset
-            )
-            observe { observer.onForwarded(record, forwarded, System.nanoTime() - sendStarted) }
-            val recordId = WarmupRecordId(
-                sessionId = sessionId,
-                topicPartition = acknowledgement.topicPartition,
-                offset = acknowledgement.offset
-            )
-            val waitStarted = System.nanoTime()
-            val outcome = tracker.await(recordId, delegationTimeout)
-            observe { observer.onResult(record, outcome, System.nanoTime() - waitStarted) }
-            outcome
-        } ?: throw WarmupDelegationDeadlineException(acknowledged)
+        }
+        try {
+            select {
+                delegation.result.onAwait {
+                    // The matched recipient result proves Kafka appended this delegation.
+                    WarmupSendAcknowledgement(it.recordId.topicPartition, it.recordId.offset)
+                }
+                send.onAwait { it }
+                tracker.forwardingAckCutoff.onAwait { throw WarmupBrokerResultsEndedException() }
+            }
+        } finally {
+            send.cancel()
+        }
     }
 
     private suspend fun applyRemoteOutcome(
@@ -254,6 +284,14 @@ internal class WarmupDonorSession<K, V>(
         if (won) tracker.fail(error)
     }
 
+    override fun finishResults() {
+        stopDelegating()
+        resultsEnded = true
+        tracker.fail(WarmupBrokerResultsEndedException(), preserveEarlyResults = true)
+    }
+
+    override fun stopWaitingForForwardingAcks() = tracker.stopWaitingForForwardingAcks()
+
     fun pendingResultCount(): Int = tracker.pendingCount()
 
     fun isActive(): Boolean = synchronized(sessionLock) { state == State.ACTIVE }
@@ -308,6 +346,8 @@ internal class WarmupDonorSession<K, V>(
         }
     }
 }
+
+private class WarmupBrokerResultsEndedException : IllegalStateException("Warm-up broker drain ended result delivery")
 
 internal class WarmupDelegationFailedException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)

@@ -1,6 +1,7 @@
 package avh.ckc.warmup.protocol
 
 import java.security.MessageDigest
+import java.util.UUID
 import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -107,6 +108,19 @@ class WarmupControlCodecTest {
                 assertArrayEquals(byteArrayOf(1), header.value())
             }
         }
+    }
+
+    @Test
+    fun `delegation correlation survives the Kafka round trip with the same v6 payload`() {
+        val completed = WarmupRecordCompleted(
+            WarmupRecordId(session, TopicPartition(mapping.warmupTopic, 0), 91), WarmupRemoteOutcome.Succeeded
+        )
+        val legacy = ControlRecordCompleted(namespace, session, recipient, donor, completed, fingerprint, 10_000)
+        val modern = legacy.copy(completed = completed.copy(delegationId = UUID(93, 41)))
+        val wire = WarmupControlCodec.producerRecord("control", modern)
+        assertArrayEquals(WarmupControlCodec.encode(legacy), wire.value())
+        assertEquals(legacy, WarmupControlCodec.decode(wire.value()))
+        assertEquals(modern, WarmupControlCodec.decode(wire.value(), wire.headers()))
     }
 
     @Test

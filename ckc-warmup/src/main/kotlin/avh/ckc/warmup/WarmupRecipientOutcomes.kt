@@ -9,6 +9,7 @@ import avh.ckc.warmup.protocol.WarmupRecordCompleted
 import avh.ckc.warmup.protocol.WarmupRecordId
 import avh.ckc.warmup.protocol.WarmupRemoteOutcome
 import avh.ckc.warmup.protocol.WarmupSessionId
+import avh.ckc.warmup.protocol.warmupDelegationId
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -110,6 +111,7 @@ internal class WarmupRecipientOutcomeMetrics<K, V>(
                 TopicPartition(record.topic(), record.partition()),
                 record.offset()
             ),
-            outcome
+            outcome,
+            record.headers().warmupDelegationId()
         )
 }

@@ -472,6 +472,277 @@ class TrafficWarmupContextIntegrationTest {
     private enum class LateResultCleanup { IMMEDIATE, RETRY, STOP_PARTICIPANT }
 
     @Test
+    fun `broker drain switches an in-progress recipient stop after DonorClosed to the broker deadline`() = runBlocking {
+        val source = unique("drain-stop-source")
+        val warmup = unique("drain-stop-destination")
+        val control = unique("drain-stop-control")
+        val lifecycle = unique("drain-stop-lifecycle")
+        val namespace = unique("drain-stop")
+        val epoch = UUID.randomUUID().toString()
+        createTopics(source, warmup, control, lifecycle)
+        val stopEntered = CompletableDeferred<Unit>()
+        val abortEntered = CompletableDeferred<Unit>()
+        val finishAbort = CompletableDeferred<Unit>()
+        val recipientContext = faultInjectionContext(namespace, control, configure = {
+            warmupDuration = 1.seconds
+            completionTimeout = 30.seconds
+            brokerLifecycle {
+                topic = lifecycle
+                kafkaProperties = kafkaConnection()
+            }
+        })
+        val participant = ControllableRecipient(
+            source, warmup, kafkaConnection(),
+            stopConsumer = {
+                stopEntered.complete(Unit)
+                awaitCancellation()
+            },
+            abortConsumer = {
+                abortEntered.complete(Unit)
+                finishAbort.await()
+                true
+            }
+        )
+        val recipient = recipientContext.register(participant)
+        val donor = stringConsumer(
+            context(namespace, control, brokerLifecycleTopic = lifecycle),
+            "records", source, warmup, unique("drain-stop-group"), CopyOnWriteArrayList()
+        )
+        val witness = startBrokerWitness(kafka.bootstrapServers, lifecycle, epoch)
+        var cli: Process? = null
+        try {
+            donor.start()
+            withTimeout(15.seconds) { donor.awaitReady() }
+            KafkaBrokerLifecycleLog(lifecycle, kafkaConnection(), 3_000).use { observer ->
+                observer.seek(0)
+                val donorInstance = (awaitLifecycle(observer) { it is BrokerLifecycleEvent.JoinConfirmed }
+                    as BrokerLifecycleEvent.JoinConfirmed).context
+                recipient.start()
+                withTimeout(15.seconds) { stopEntered.await() }
+
+                val draining = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "9000")
+                cli = draining
+                withTimeout(7.seconds) { abortEntered.await() }
+                assertFalse(participant.warmupStopped.isCompleted)
+                assertTrue(draining.isAlive)
+                finishAbort.complete(Unit)
+                val recipientDrain = awaitLifecycle(observer) {
+                    it is BrokerLifecycleEvent.ContextDrained && it.context != donorInstance
+                } as BrokerLifecycleEvent.ContextDrained
+                assertTrue(participant.warmupStopped.isCompleted)
+                val session = WarmupSessionId(recipientDrain.sessions.single())
+                assertEquals(WarmupSessionEndState.COMPLETED, sessionEndRecords(control, session).single().state)
+                val output = withContext(Dispatchers.IO) {
+                    assertTrue(draining.waitFor(10, TimeUnit.SECONDS))
+                    draining.inputStream.bufferedReader().readText()
+                }
+                assertEquals(0, draining.exitValue(), output)
+                withTimeout(2.seconds) { recipient.awaitReady() }
+            }
+        } finally {
+            finishAbort.complete(Unit)
+            cli?.destroyForcibly()
+            try {
+                recipient.stop()
+            } finally {
+                try {
+                    donor.stop()
+                } finally {
+                    witness.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `broker drain bounds a held RecordCompleted ACK after DonorClosed`() = runBlocking {
+        verifyHeldResultAckDuringBrokerDrain(drainAfterDonorClosed = false)
+    }
+
+    @Test
+    fun `broker drain takes over an existing result ACK wait after DonorClosed`() = runBlocking {
+        verifyHeldResultAckDuringBrokerDrain(drainAfterDonorClosed = true)
+    }
+
+    @Test
+    fun `broker drain preserves the result timeout when a participant stops during sender cleanup`() = runBlocking {
+        verifyHeldResultAckDuringBrokerDrain(drainAfterDonorClosed = false, stopSibling = true)
+    }
+
+    private suspend fun verifyHeldResultAckDuringBrokerDrain(
+        drainAfterDonorClosed: Boolean,
+        stopSibling: Boolean = false
+    ) {
+        val source = unique("drain-held-ack-source")
+        val warmup = unique("drain-held-ack-destination")
+        val control = unique("drain-held-ack-control")
+        val lifecycle = unique("drain-held-ack-lifecycle")
+        val namespace = unique("drain-held-ack")
+        val group = unique("drain-held-ack-group")
+        val siblingSource = unique("drain-held-ack-sibling-source")
+        val siblingWarmup = unique("drain-held-ack-sibling-warmup")
+        val siblingGroup = unique("drain-held-ack-sibling-group")
+        val epoch = UUID.randomUUID().toString()
+        createTopics(source, warmup, control, lifecycle)
+        if (stopSibling) createTopics(siblingSource, siblingWarmup)
+
+        val resultSent = CompletableDeferred<WarmupRecordId>()
+        val resultSenderStopping = CompletableDeferred<Unit>()
+        val releaseResultSender = CompletableDeferred<Unit>()
+        val resultSenderStopped = CompletableDeferred<Unit>()
+        val donorClosed = CompletableDeferred<DonorClosed>()
+        val warmupStopped = CompletableDeferred<Unit>()
+        val recipientFinished = CompletableDeferred<TrafficWarmupLifecycleEvent>()
+        val mainReady = CompletableDeferred<TrafficWarmupLifecycleEvent>()
+        val donorHandled = CopyOnWriteArrayList<String>()
+        val donorMetrics = RecordingWarmupMetrics<String, String>()
+        val recipientHandled = CopyOnWriteArrayList<String>()
+        val recipientMetrics = object : ConsumerMetrics<String, String> {
+            override fun onShutdown(durationNanos: Long, outcome: LifecycleOutcome) {
+                warmupStopped.complete(Unit)
+            }
+        }
+        val donorContext = faultInjectionContext(namespace, control, configure = {
+            brokerLifecycle {
+                topic = lifecycle
+                kafkaProperties = kafkaConnection()
+            }
+        }, send = { message ->
+            send(message).also {
+                if (message is DonorClosed) donorClosed.complete(message)
+            }
+        })
+        val recipientContext = faultInjectionContext(namespace, control, configure = {
+            warmupDuration = if (drainAfterDonorClosed) 4.seconds else 60.seconds
+            completionTimeout = 30.seconds
+            brokerLifecycle {
+                topic = lifecycle
+                kafkaProperties = kafkaConnection()
+            }
+            onLifecycleEvent { event ->
+                when (event.phase) {
+                    TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED -> recipientFinished.complete(event)
+                    TrafficWarmupLifecyclePhase.MAIN_READY -> if (event.participantId == "records") {
+                        mainReady.complete(event)
+                    }
+                    else -> Unit
+                }
+            }
+        }, send = { message ->
+            val ack = send(message)
+            if (message is ControlRecordCompleted) {
+                resultSent.complete(message.completed.recordId)
+                try {
+                    awaitCancellation()
+                } finally {
+                    resultSenderStopping.complete(Unit)
+                    if (stopSibling) withContext(NonCancellable) { releaseResultSender.await() }
+                    resultSenderStopped.complete(Unit)
+                }
+            }
+            ack
+        })
+        val donor = stringConsumer(
+            donorContext, "records", source, warmup, group, donorHandled, consumerMetrics = donorMetrics
+        )
+        val recipient = stringConsumer(
+            recipientContext, "records", source, warmup, group, recipientHandled, consumerMetrics = recipientMetrics
+        )
+        val siblingDonor = if (stopSibling) stringConsumer(
+            donorContext, "sibling", siblingSource, siblingWarmup, siblingGroup, CopyOnWriteArrayList()
+        ) else null
+        val siblingRecipient = if (stopSibling) stringConsumer(
+            recipientContext, "sibling", siblingSource, siblingWarmup, siblingGroup, CopyOnWriteArrayList()
+        ) else null
+        val donors = consumerContainer(*listOfNotNull(donor, siblingDonor).toTypedArray())
+        val recipients = consumerContainer(*listOfNotNull(recipient, siblingRecipient).toTypedArray())
+        val witness = startBrokerWitness(kafka.bootstrapServers, lifecycle, epoch)
+        var cli: Process? = null
+        try {
+            donors.start()
+            withTimeout(15.seconds) { donors.awaitReady() }
+            KafkaBrokerLifecycleLog(lifecycle, kafkaConnection(), 3_000).use { observer ->
+                observer.seek(0)
+                val donorInstance = (awaitLifecycle(observer) { it is BrokerLifecycleEvent.JoinConfirmed }
+                    as BrokerLifecycleEvent.JoinConfirmed).context
+                recipients.start()
+                awaitActiveDonorSessions(control, 1)
+                produce(source, "held", "held", StringSerializer())
+                val record = withTimeout(5.seconds) { resultSent.await() }
+                awaitFor { donorMetrics.processed.any { it.value == "held" && it.processedRemotely } }
+                if (drainAfterDonorClosed) {
+                    withTimeout(10.seconds) {
+                        donorClosed.await()
+                        warmupStopped.await()
+                    }
+                } else assertFalse(donorClosed.isCompleted)
+                assertFalse(resultSenderStopped.isCompleted)
+
+                val draining = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "9000")
+                cli = draining
+                if (siblingRecipient != null) {
+                    withTimeout(8.seconds) { resultSenderStopping.await() }
+                    assertTrue(donorClosed.isCompleted)
+                    assertTrue(warmupStopped.isCompleted)
+                    assertFalse(resultSenderStopped.isCompleted)
+                    assertFalse(mainReady.isCompleted)
+                    coroutineScope {
+                        val stop = async(start = CoroutineStart.UNDISPATCHED) { siblingRecipient.stop() }
+                        try {
+                            assertFalse(stop.isCompleted)
+                        } finally {
+                            releaseResultSender.complete(Unit)
+                        }
+                        withTimeout(5.seconds) { stop.await() }
+                    }
+                }
+                val recipientDrain = awaitLifecycle(observer) {
+                    it is BrokerLifecycleEvent.ContextDrained && it.context != donorInstance
+                } as BrokerLifecycleEvent.ContextDrained
+                assertTrue(resultSenderStopped.isCompleted)
+                assertTrue(warmupStopped.isCompleted)
+                assertEquals(setOf(record.sessionId.value), recipientDrain.sessions)
+                val output = withContext(Dispatchers.IO) {
+                    assertTrue(draining.waitFor(12, TimeUnit.SECONDS))
+                    draining.inputStream.bufferedReader().readText()
+                }
+                assertEquals(0, draining.exitValue(), output)
+                val messages = sessionControlRecords(control, record.sessionId)
+                assertEquals(
+                    listOf(record),
+                    messages.filterIsInstance<ControlRecordCompleted>().map { it.completed.recordId }
+                )
+                val closed = messages.filterIsInstance<DonorClosed>().single()
+                assertEquals(withTimeout(2.seconds) { donorClosed.await() }, closed)
+                val terminal = messages.filterIsInstance<SessionEnded>().single()
+                assertEquals(WarmupSessionEndState.COLD_FALLBACK, terminal.state)
+                assertEquals("result_delivery_timeout", terminal.reasonCode)
+                assertTrue(messages.indexOf(closed) < messages.indexOf(terminal))
+                withTimeout(10.seconds) {
+                    for (event in listOf(recipientFinished.await(), mainReady.await())) {
+                        assertEquals(terminal.sessionId.value, event.sessionId)
+                        assertEquals(terminal.reasonCode, event.reasonCode)
+                    }
+                }
+                assertEquals(listOf("held"), recipientHandled.toList())
+                assertTrue(donorHandled.isEmpty())
+            }
+        } finally {
+            releaseResultSender.complete(Unit)
+            cli?.destroyForcibly()
+            try {
+                recipients.stop()
+            } finally {
+                try {
+                    donors.stop()
+                } finally {
+                    witness.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `broker drain during COMPLETED acknowledgement preserves the recorded session outcome`() = runBlocking {
         val source = unique("broker-completed-source")
         val warmup = unique("broker-completed-destination")
@@ -512,7 +783,7 @@ class TrafficWarmupContextIntegrationTest {
             recipient.start()
             val ending = withTimeout(15.seconds) { completed.await() }
             assertEquals(WarmupSessionEndState.COMPLETED, ending.state)
-            val drain = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "10000")
+            val drain = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "5000")
             cli = drain
             val output = withContext(Dispatchers.IO) {
                 assertTrue(drain.waitFor(12, TimeUnit.SECONDS))
@@ -692,7 +963,13 @@ class TrafficWarmupContextIntegrationTest {
         }
     }
 
-    private suspend fun sessionEndRecords(controlTopic: String, sessionId: WarmupSessionId): List<SessionEnded> {
+    private suspend fun sessionEndRecords(controlTopic: String, sessionId: WarmupSessionId): List<SessionEnded> =
+        sessionControlRecords(controlTopic, sessionId).filterIsInstance<SessionEnded>()
+
+    private suspend fun sessionControlRecords(
+        controlTopic: String,
+        sessionId: WarmupSessionId
+    ): List<WarmupControlMessage> {
         val properties = consumerProperties(unique("control-audit"), ByteArrayDeserializer::class.java)
         return KafkaConsumer<String, ByteArray>(properties).use { consumer ->
             val partition = TopicPartition(controlTopic, 0)
@@ -700,12 +977,11 @@ class TrafficWarmupContextIntegrationTest {
             consumer.seekToBeginning(listOf(partition))
             val end = consumer.endOffsets(listOf(partition), JavaDuration.ofSeconds(5)).getValue(partition)
             withTimeout(5.seconds) {
-                val messages = mutableListOf<SessionEnded>()
+                val messages = mutableListOf<WarmupControlMessage>()
                 while (consumer.position(partition, JavaDuration.ofSeconds(1)) < end) {
                     consumer.poll(JavaDuration.ofMillis(100)).forEach { record ->
                         if (record.offset() < end && record.key() == sessionId.value) {
-                            val message = WarmupControlCodec.decode(record.value(), record.headers())
-                            if (message is SessionEnded) messages += message
+                            messages += WarmupControlCodec.decode(record.value(), record.headers())
                         }
                     }
                 }
@@ -742,7 +1018,9 @@ class TrafficWarmupContextIntegrationTest {
     private class ControllableRecipient(
         source: String,
         private val warmup: String,
-        override val warmupConsumerProperties: Map<String, Any?>
+        override val warmupConsumerProperties: Map<String, Any?>,
+        private val stopConsumer: suspend () -> Unit = {},
+        private val abortConsumer: suspend () -> Boolean = { false }
     ) : RegisteredTrafficWarmupParticipant {
         override val participantId = WarmupParticipantId("records")
         private val quota = WarmupMappingQuota(10)
@@ -784,7 +1062,11 @@ class TrafficWarmupContextIntegrationTest {
                 override suspend fun awaitReady() = Unit
                 override suspend fun awaitTermination() = terminated.await()
                 override suspend fun stop() {
+                    stopConsumer()
                     warmupStopped.complete(Unit)
+                }
+                override suspend fun abort(): Boolean = abortConsumer().also { stopped ->
+                    if (stopped) warmupStopped.complete(Unit)
                 }
             }
         }
@@ -1516,9 +1798,12 @@ class TrafficWarmupContextIntegrationTest {
         val group = unique("broker-drain-group")
         val epoch = UUID.randomUUID().toString()
         val donorHandled = CopyOnWriteArrayList<String>()
+        val forwarded = CopyOnWriteArrayList<TrafficWarmupForwardedEvent>()
+        val donorMetrics = RecordingWarmupMetrics<String, String>()
         val donor = stringConsumer(
-            context(namespace, control, brokerLifecycleTopic = lifecycle),
-            "records", source, warmup, group, donorHandled, unorderedWorkers = 4
+            context(namespace, control, brokerLifecycleTopic = lifecycle, delegationTimeout = 45.seconds),
+            "records", source, warmup, group, donorHandled, unorderedWorkers = 4,
+            forwarded = forwarded, consumerMetrics = donorMetrics
         )
         val entered = List(2) { CompletableDeferred<Unit>() }
         val release = List(2) { CompletableDeferred<Unit>() }
@@ -1587,14 +1872,22 @@ class TrafficWarmupContextIntegrationTest {
             assertEquals(0, draining.exitValue(), output)
             assertTrue(output.contains("status=DRAINED"), output)
             withTimeout(15.seconds) { recipients.forEach { it.awaitReady() } }
-            recipientEvents.forEach { events ->
-                val interrupted = events.single { it.phase == TrafficWarmupLifecyclePhase.WARMUP_INTERRUPTED }
-                val ready = events.single { it.phase == TrafficWarmupLifecyclePhase.MAIN_READY }
-                assertEquals("broker_draining", interrupted.reasonCode)
-                assertEquals(interrupted.sessionId, ready.sessionId)
-                assertEquals(interrupted.reasonCode, ready.reasonCode)
-                assertTrue(ready.recoveryDurationMillis != null)
+            assertEquals(listOf("local-during-drain"), donorHandled.toList())
+            assertEquals(setOf("hold-1", "hold-2"), donorMetrics.processed.filter { it.processedRemotely }.map { it.value }.toSet())
+            assertEquals(2, forwarded.size)
+            forwarded.forEach { delivery ->
+                val messages = sessionControlRecords(control, WarmupSessionId(delivery.sessionId))
+                assertEquals(listOf(delivery.recordId()), messages.filterIsInstance<ControlRecordCompleted>()
+                    .map { it.completed.recordId })
+                val terminal = messages.filterIsInstance<SessionEnded>().single()
+                assertEquals(WarmupSessionEndState.COMPLETED, terminal.state)
+                val resultIndex = messages.indexOfFirst { it is ControlRecordCompleted }
+                val closedIndex = messages.indexOfFirst { it is DonorClosed }
+                assertTrue(resultIndex < closedIndex && closedIndex < messages.indexOf(terminal))
             }
+            assertTrue(recipientEvents.all { events ->
+                events.none { it.phase == TrafficWarmupLifecyclePhase.WARMUP_INTERRUPTED }
+            })
         } finally {
             release.forEach { it.complete(Unit) }
             cli?.destroyForcibly()
@@ -1602,6 +1895,377 @@ class TrafficWarmupContextIntegrationTest {
             witness.close()
         }
     }
+
+    @Test
+    fun `broker drain delivers acknowledged records and fences the unresolved remainder before donor cleanup`() = runBlocking {
+        val source = unique("partial-drain-source")
+        val warmup = unique("partial-drain-destination")
+        val control = unique("partial-drain-control")
+        val lifecycle = unique("partial-drain-lifecycle")
+        createTopics(source, warmup, control, lifecycle)
+        val namespace = unique("partial-drain")
+        val group = unique("partial-drain-group")
+        val epoch = UUID.randomUUID().toString()
+        val resultQueued = CompletableDeferred<WarmupRecordId>()
+        val releaseResult = CompletableDeferred<Unit>()
+        val processingGate = CompletableDeferred<Unit>()
+        val releaseProcessing = CompletableDeferred<Unit>()
+        val unfinishedEntered = CompletableDeferred<Unit>()
+        val unfinishedStopped = CompletableDeferred<Unit>()
+        val fallbackStarted = CompletableDeferred<Unit>()
+        val finishFallback = CompletableDeferred<Unit>()
+        val donorHandled = CopyOnWriteArrayList<String>()
+        val recipientHandled = CopyOnWriteArrayList<String>()
+        val forwarded = CopyOnWriteArrayList<TrafficWarmupForwardedEvent>()
+        val metrics = RecordingWarmupMetrics<String, String>()
+        val recipientContext = faultInjectionContext(
+            namespace, control,
+            configure = {
+                warmupDuration = 60.seconds
+                completionTimeout = 4.seconds
+                brokerLifecycle {
+                    topic = lifecycle
+                    kafkaProperties = kafkaConnection()
+                }
+            },
+            send = { message ->
+                if (message is ControlRecordCompleted && resultQueued.complete(message.completed.recordId)) {
+                    releaseResult.await()
+                }
+                send(message)
+            }
+        )
+        val recipient = stringConsumer(
+            recipientContext, "records", source, warmup, group, recipientHandled, unorderedWorkers = 1,
+            beforeHandle = { value ->
+                when (value) {
+                    "gate" -> {
+                        processingGate.complete(Unit)
+                        releaseProcessing.await()
+                    }
+                    "unfinished" -> {
+                        unfinishedEntered.complete(Unit)
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            unfinishedStopped.complete(Unit)
+                        }
+                    }
+                }
+            }
+        )
+        val donor = stringConsumer(
+            context(
+                namespace, control, brokerLifecycleTopic = lifecycle,
+                delegationTimeout = 45.seconds, completionTimeout = 45.seconds
+            ),
+            "records", source, warmup, group, donorHandled,
+            forwarded = forwarded, consumerMetrics = metrics, unorderedWorkers = 4,
+            beforeHandle = { value ->
+                if (value == "unfinished") {
+                    fallbackStarted.complete(Unit)
+                    finishFallback.await()
+                }
+            }
+        )
+        val witness = startBrokerWitness(kafka.bootstrapServers, lifecycle, epoch)
+        var cli: Process? = null
+        try {
+            donor.start()
+            withTimeout(15.seconds) { donor.awaitReady() }
+            KafkaBrokerLifecycleLog(lifecycle, kafkaConnection(), 3_000).use { observer ->
+                observer.seek(0)
+                val donorContext = (awaitLifecycle(observer) { it is BrokerLifecycleEvent.JoinConfirmed }
+                    as BrokerLifecycleEvent.JoinConfirmed).context
+                recipient.start()
+                awaitActiveDonorSessions(control, 1)
+                val deliveries = listOf("queued-result", "gate", "queued-record", "unfinished").associateWith { value ->
+                    val count = forwarded.size
+                    val sourceRecord = produce(source, value, value, StringSerializer())
+                    awaitFor { forwarded.size == count + 1 }
+                    forwarded.single { it.sourceOffset == sourceRecord.offset() }
+                }
+                val sessionId = WarmupSessionId(deliveries.getValue("queued-result").sessionId)
+                withTimeout(5.seconds) {
+                    assertEquals(deliveries.getValue("queued-result").recordId(), resultQueued.await())
+                    processingGate.await()
+                }
+                assertEquals(listOf("queued-result"), recipientHandled.toList())
+                assertFalse(unfinishedEntered.isCompleted)
+                assertTrue(metrics.processed.isEmpty())
+
+                val draining = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "15000")
+                cli = draining
+                val accepted = linkedSetOf<String>()
+                awaitLifecycle(observer) { event ->
+                    if (event is BrokerLifecycleEvent.DrainAccepted) accepted += event.context
+                    accepted.size == 2
+                }
+                assertEquals(listOf("queued-result"), recipientHandled.toList())
+                releaseResult.complete(Unit)
+                releaseProcessing.complete(Unit)
+                withTimeout(12.seconds) {
+                    unfinishedEntered.await()
+                    fallbackStarted.await()
+                }
+                assertTrue(unfinishedStopped.isCompleted)
+                assertTrue(donorHandled.isEmpty())
+                assertTrue(draining.isAlive)
+                val recipientDrain = awaitLifecycle(observer) { it is BrokerLifecycleEvent.ContextDrained }
+                    as BrokerLifecycleEvent.ContextDrained
+                assertTrue(recipientDrain.context != donorContext)
+                assertEquals(setOf(sessionId.value), recipientDrain.sessions)
+
+                val messages = sessionControlRecords(control, sessionId)
+                val terminal = messages.filterIsInstance<SessionEnded>().single()
+                assertEquals(WarmupSessionEndState.COLD_FALLBACK, terminal.state)
+                assertEquals(BROKER_DRAINING, terminal.reasonCode)
+                val expectedRemote = setOf("queued-result", "gate", "queued-record")
+                val completed = messages.filterIsInstance<ControlRecordCompleted>()
+                assertEquals(expectedRemote.map { deliveries.getValue(it).recordId() }.toSet(),
+                    completed.map { it.completed.recordId }.toSet())
+                assertEquals(expectedRemote.size, completed.size)
+                assertEquals(expectedRemote.size, completed.mapNotNull { it.completed.delegationId }.toSet().size)
+                assertTrue(completed.all { messages.indexOf(it) < messages.indexOf(terminal) })
+                awaitFor { metrics.processed.count { it.processedRemotely } == expectedRemote.size }
+                assertEquals(expectedRemote, recipientHandled.toSet())
+                assertEquals(expectedRemote, metrics.processed.filter { it.processedRemotely }.map { it.value }.toSet())
+                assertEquals(listOf("unfinished"), metrics.warmupFallbacks.map { it.first.value() })
+
+                finishFallback.complete(Unit)
+                val donorDrain = awaitLifecycle(observer) {
+                    it is BrokerLifecycleEvent.ContextDrained && it.context == donorContext
+                } as BrokerLifecycleEvent.ContextDrained
+                assertEquals(setOf(sessionId.value), donorDrain.sessions)
+                assertEquals(listOf("unfinished"), donorHandled.toList())
+                val output = withContext(Dispatchers.IO) {
+                    assertTrue(draining.waitFor(5, TimeUnit.SECONDS), "Broker drain CLI did not exit")
+                    draining.inputStream.bufferedReader().readText()
+                }
+                assertEquals(0, draining.exitValue(), output)
+            }
+        } finally {
+            releaseResult.complete(Unit)
+            releaseProcessing.complete(Unit)
+            finishFallback.complete(Unit)
+            cli?.destroyForcibly()
+            try {
+                consumerContainer(recipient, donor).stop()
+            } finally {
+                witness.close()
+            }
+        }
+    }
+
+    private fun TrafficWarmupForwardedEvent.recordId() = WarmupRecordId(
+        WarmupSessionId(sessionId), TopicPartition(destinationTopic, destinationPartition), destinationOffset
+    )
+
+    @Test
+    fun `broker drain confirms donor cleanup when only SessionEnded publication fails`() = runBlocking {
+        val source = unique("missing-fence-source")
+        val warmup = unique("missing-fence-destination")
+        val control = unique("missing-fence-control")
+        val lifecycle = unique("missing-fence-lifecycle")
+        val namespace = unique("missing-fence")
+        val group = unique("missing-fence-group")
+        val epoch = UUID.randomUUID().toString()
+        createTopics(source, warmup, control, lifecycle)
+        val rejectedFence = CompletableDeferred<SessionEnded>()
+        val recipientEntered = CompletableDeferred<Unit>()
+        val fallbackAt = CompletableDeferred<Long>()
+        val donorHandled = CopyOnWriteArrayList<String>()
+        val recipientHandled = CopyOnWriteArrayList<String>()
+        val metrics = RecordingWarmupMetrics<String, String>()
+
+        val donor = stringConsumer(
+            context(
+                namespace, control, brokerLifecycleTopic = lifecycle,
+                completionTimeout = 45.seconds, delegationTimeout = 45.seconds
+            ),
+            "records", source, warmup, group, donorHandled, consumerMetrics = metrics,
+            beforeHandle = { fallbackAt.complete(System.currentTimeMillis()) }
+        )
+        val recipientContext = faultInjectionContext(namespace, control, configure = {
+            warmupDuration = 60.seconds
+            completionTimeout = 3.seconds
+            brokerLifecycle {
+                topic = lifecycle
+                kafkaProperties = kafkaConnection()
+            }
+        }, send = { message ->
+            if (message is SessionEnded) {
+                rejectedFence.complete(message)
+                throw KafkaTimeoutException("SessionEnded send failed before submission")
+            }
+            send(message)
+        })
+        val recipient = stringConsumer(
+            recipientContext, "records", source, warmup, group, recipientHandled,
+            beforeHandle = {
+                recipientEntered.complete(Unit)
+                awaitCancellation()
+            }
+        )
+        val witness = startBrokerWitness(kafka.bootstrapServers, lifecycle, epoch)
+        var cli: Process? = null
+        try {
+            donor.start()
+            withTimeout(15.seconds) { donor.awaitReady() }
+            KafkaBrokerLifecycleLog(lifecycle, kafkaConnection(), 3_000).use { observer ->
+                observer.seek(0)
+                val donorInstance = (awaitLifecycle(observer) { it is BrokerLifecycleEvent.JoinConfirmed }
+                    as BrokerLifecycleEvent.JoinConfirmed).context
+                recipient.start()
+                awaitActiveDonorSessions(control, 1)
+                produce(source, "held", "held", StringSerializer())
+                withTimeout(5.seconds) { recipientEntered.await() }
+                awaitFor { metrics.warmupPending.lastOrNull() == 1 }
+
+                val draining = launchBrokerLifecycleCli("drain", kafka.bootstrapServers, lifecycle, epoch, "10000")
+                cli = draining
+                val request = awaitLifecycle(observer) { it is BrokerLifecycleEvent.DrainRequested }
+                    as BrokerLifecycleEvent.DrainRequested
+                val fence = withTimeout(10.seconds) { rejectedFence.await() }
+                assertEquals(WarmupSessionEndState.COLD_FALLBACK, fence.state)
+                assertEquals(BROKER_DRAINING, fence.reasonCode)
+
+                val donorDrain = awaitLifecycle(observer) {
+                    it is BrokerLifecycleEvent.ContextDrained && it.context == donorInstance
+                } as BrokerLifecycleEvent.ContextDrained
+                assertEquals(setOf(fence.sessionId.value), donorDrain.sessions)
+                assertTrue(withTimeout(2.seconds) { fallbackAt.await() } < request.deadlineMillis)
+                assertEquals(listOf("held"), donorHandled.toList())
+                assertEquals(listOf("held"), metrics.warmupFallbacks.map { it.first.value() })
+                assertTrue(recipientHandled.isEmpty())
+                assertTrue(sessionEndRecords(control, fence.sessionId).isEmpty())
+                val output = withContext(Dispatchers.IO) {
+                    assertTrue(draining.waitFor(5, TimeUnit.SECONDS))
+                    draining.inputStream.bufferedReader().readText()
+                }
+                assertEquals(0, draining.exitValue(), output)
+                assertTrue(output.contains("status=DRAINED"), output)
+            }
+        } finally {
+            cli?.destroyForcibly()
+            try {
+                consumerContainer(recipient, donor).stop()
+            } finally {
+                witness.close()
+            }
+        }
+    }
+
+    @Test
+    fun `broker loss during broker drain releases the donor by its emergency deadline without a cleanup confirmation`() =
+        runBlocking {
+            PersistedWarmupKafka().use { temporary ->
+                temporary.start()
+                val connection = mapOf("bootstrap.servers" to temporary.bootstrapServers())
+                val source = unique("drain-loss-source")
+                val warmup = unique("drain-loss-warmup")
+                val control = unique("drain-loss-control")
+                val lifecycle = unique("drain-loss-lifecycle")
+                val namespace = unique("drain-loss")
+                val group = unique("drain-loss-group")
+                val epoch = UUID.randomUUID().toString()
+                createTopics(source)
+                createTopicsAt(connection, warmup, control, lifecycle)
+                val recipientEntered = CompletableDeferred<Unit>()
+                val recipientStopped = CompletableDeferred<Unit>()
+                val fallbackEntered = CompletableDeferred<Unit>()
+                val finishFallback = CompletableDeferred<Unit>()
+                val donorHandled = CopyOnWriteArrayList<String>()
+                val recipientHandled = CopyOnWriteArrayList<String>()
+                val metrics = RecordingWarmupMetrics<String, String>()
+                fun drainingContext() = faultInjectionContext(namespace, control, configure = {
+                    controlConsumerProperties = connection
+                    controlProducerProperties = connection
+                    warmupDuration = 60.seconds
+                    completionTimeout = 4.seconds
+                    delegationTimeout = 30.seconds
+                    donorLivenessTimeout = 4.seconds
+                    brokerLifecycle {
+                        topic = lifecycle
+                        kafkaProperties = connection
+                        operationTimeout = 1.seconds
+                    }
+                })
+                val donor = stringConsumer(
+                    drainingContext(), "records", source, warmup, group, donorHandled,
+                    consumerMetrics = metrics, warmupProperties = connection,
+                    beforeHandle = {
+                        fallbackEntered.complete(Unit)
+                        finishFallback.await()
+                    }
+                )
+                val recipient = stringConsumer(
+                    drainingContext(), "records", source, warmup, group, recipientHandled,
+                    warmupProperties = connection,
+                    beforeHandle = {
+                        recipientEntered.complete(Unit)
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            recipientStopped.complete(Unit)
+                        }
+                    }
+                )
+                val witness = startBrokerWitness(temporary.bootstrapServers(), lifecycle, epoch)
+                try {
+                    donor.start()
+                    withTimeout(15.seconds) { donor.awaitReady() }
+                    recipient.start()
+                    awaitActiveDonorSessions(control, 1, connection)
+                    produce(source, "key", "held", StringSerializer())
+                    withTimeout(5.seconds) { recipientEntered.await() }
+                    awaitFor { metrics.warmupPending.lastOrNull() == 1 }
+
+                    val drain = BrokerLifecycleEvent.DrainRequested(epoch, "loss", System.currentTimeMillis() + 10_000)
+                    KafkaBrokerLifecycleLog(lifecycle, connection, 1_000).use { observer ->
+                        observer.seek(0)
+                        observer.submit(drain).get(3, TimeUnit.SECONDS)
+                        val accepted = linkedSetOf<String>()
+                        awaitLifecycle(observer) { event ->
+                            assertFalse(event is BrokerLifecycleEvent.ContextDrained)
+                            if (event is BrokerLifecycleEvent.DrainAccepted) accepted += event.context
+                            accepted.size == 2
+                        }
+                    }
+                    withContext(Dispatchers.IO) { temporary.kill() }
+                    withTimeout(15.seconds) {
+                        recipientStopped.await()
+                        fallbackEntered.await()
+                    }
+                    assertTrue(donorHandled.isEmpty())
+                    assertTrue(recipientHandled.isEmpty())
+                    assertEquals(listOf("held"), metrics.warmupFallbacks.map { it.first.value() })
+
+                    withContext(Dispatchers.IO) { temporary.restart() }
+                    KafkaBrokerLifecycleLog(lifecycle, connection, 2_000).use { observer ->
+                        val end = observer.end(JavaDuration.ofSeconds(2))
+                        observer.seek(0)
+                        withTimeout(5.seconds) {
+                            while (observer.position(JavaDuration.ofSeconds(1)) < end) {
+                                assertTrue(observer.poll(JavaDuration.ofMillis(100)).none {
+                                    it.event is BrokerLifecycleEvent.ContextDrained
+                                })
+                                yield()
+                            }
+                        }
+                    }
+                    finishFallback.complete(Unit)
+                    awaitFor { donorHandled == listOf("held") }
+                } finally {
+                    finishFallback.complete(Unit)
+                    try {
+                        consumerContainer(recipient, donor).stop()
+                    } finally {
+                        witness.close()
+                    }
+                }
+            }
+        }
 
     @Test
     fun `surviving donor reopens only after a new broker process confirms registration with retained history`() =
@@ -1691,8 +2355,12 @@ class TrafficWarmupContextIntegrationTest {
             }
         }
 
-    private suspend fun awaitActiveDonorSessions(control: String, count: Int) = withTimeout(15.seconds) {
-        val properties = consumerProperties(unique("activation-observer"), ByteArrayDeserializer::class.java)
+    private suspend fun awaitActiveDonorSessions(
+        control: String,
+        count: Int,
+        connection: Map<String, Any?> = kafkaConnection()
+    ) = withTimeout(15.seconds) {
+        val properties = consumerProperties(unique("activation-observer"), ByteArrayDeserializer::class.java) + connection
         KafkaConsumer<String, ByteArray>(properties).use { observer ->
             val partition = TopicPartition(control, 0)
             observer.assign(listOf(partition))
@@ -1963,6 +2631,8 @@ class TrafficWarmupContextIntegrationTest {
         warmupDuration: kotlin.time.Duration = 750.milliseconds,
         brokerLifecycleTopic: String? = null,
         brokerLifecycleConnection: Map<String, Any?> = kafkaConnection(),
+        delegationTimeout: kotlin.time.Duration = 3.seconds,
+        completionTimeout: kotlin.time.Duration = 10.seconds,
         lifecycleObserver: (TrafficWarmupLifecycleEvent) -> Unit = {}
     ) = trafficWarmupContext {
         this.namespace = namespace
@@ -1973,8 +2643,8 @@ class TrafficWarmupContextIntegrationTest {
         offerWindow = 250.milliseconds
         this.participantStartTimeout = participantStartTimeout
         preparationTimeout = 3.seconds
-        completionTimeout = 10.seconds
-        delegationTimeout = 3.seconds
+        this.completionTimeout = completionTimeout
+        this.delegationTimeout = delegationTimeout
         maxDonorSessions = 4
         maxAggregateQuotaPerSecond = 1_000
         if (brokerLifecycleTopic != null) {
@@ -2063,12 +2733,13 @@ class TrafficWarmupContextIntegrationTest {
     private fun kafkaConnection(): Map<String, Any?> =
         mapOf("bootstrap.servers" to kafka.bootstrapServers)
 
-    private fun <V> produce(topic: String, key: String, value: V, serializer: org.apache.kafka.common.serialization.Serializer<V>) {
-        KafkaProducer(
-            kafkaConnection(),
-            StringSerializer(),
-            serializer
-        ).use { producer -> producer.send(ProducerRecord(topic, key, value)).get(10, TimeUnit.SECONDS) }
+    private fun <V> produce(
+        topic: String,
+        key: String,
+        value: V,
+        serializer: org.apache.kafka.common.serialization.Serializer<V>
+    ): RecordMetadata = KafkaProducer(kafkaConnection(), StringSerializer(), serializer).use { producer ->
+        producer.send(ProducerRecord(topic, key, value)).get(10, TimeUnit.SECONDS)
     }
 
     private fun <V> produceMany(
@@ -2192,6 +2863,10 @@ private class PersistedWarmupKafka : AutoCloseable {
     fun start() = kafka.start()
 
     fun bootstrapServers(): String = kafka.bootstrapServers
+
+    fun kill() {
+        docker.killContainerCmd(kafka.containerId).exec()
+    }
 
     fun restart() {
         kafka.stop()

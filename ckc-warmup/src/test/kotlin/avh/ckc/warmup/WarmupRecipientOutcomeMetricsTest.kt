@@ -8,6 +8,7 @@ import avh.ckc.warmup.protocol.WarmupRecordCompleted
 import avh.ckc.warmup.protocol.WarmupRecordId
 import avh.ckc.warmup.protocol.WarmupRemoteOutcome
 import avh.ckc.warmup.protocol.WarmupSessionId
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
@@ -15,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
@@ -22,6 +24,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
@@ -103,6 +106,39 @@ class WarmupRecipientOutcomeMetricsTest {
     }
 
     @Test
+    fun `expired flush accepts an empty outbox with idle senders`() = runBlocking {
+        val outbox = WarmupCompletionOutbox(this, senderConcurrency = 1) { error("Unexpected send") }
+        try {
+            outbox.closeAdmission()
+            assertFalse(outbox.sendsStopped())
+            outbox.flush(Duration.ZERO)
+            outbox.stop(2.seconds)
+            assertTrue(outbox.sendsStopped())
+        } finally {
+            outbox.close()
+        }
+    }
+
+    @Test
+    fun `expired flush reports recorded delivery failure after senders stop`() = runBlocking {
+        val error = IllegalStateException("result send failed")
+        val outbox = WarmupCompletionOutbox(this, senderConcurrency = 1) { throw error }
+        val lane = outbox.lane("orders")
+        try {
+            admitAndPublish(lane, completed(offset = 1))
+            withTimeout(2.seconds) {
+                while (!outbox.sendsStopped()) yield()
+            }
+            assertEquals(0, outbox.snapshot().outstanding)
+            val failure = runCatching { outbox.flush(Duration.ZERO) }.exceptionOrNull()
+            assertInstanceOf(WarmupResultDeliveryException::class.java, failure)
+            assertEquals(error, failure?.cause)
+        } finally {
+            outbox.close()
+        }
+    }
+
+    @Test
     fun `completion outbox flush waits for transport acknowledgement`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val releaseFirst = CompletableDeferred<Unit>()
@@ -121,6 +157,10 @@ class WarmupRecipientOutcomeMetricsTest {
         admitAndPublish(lane, second)
         admitAndPublish(lane, discarded)
         assertEquals(2L, outbox.processedRecords())
+        assertInstanceOf(
+            TimeoutCancellationException::class.java,
+            runCatching { outbox.flush(Duration.ZERO) }.exceptionOrNull()
+        )
 
         val flush = async { outbox.flush(2.seconds) }
         delay(50)

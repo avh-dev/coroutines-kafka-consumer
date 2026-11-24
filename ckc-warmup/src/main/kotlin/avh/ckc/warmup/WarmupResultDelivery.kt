@@ -186,6 +186,8 @@ internal class WarmupCompletionOutbox(
 
     fun processedRecords(): Long = synchronized(lock) { handledRecords }
 
+    fun sendsStopped(): Boolean = workers.all { it.isCompleted }
+
     fun lane(
         laneId: String,
         observer: WarmupResultDeliveryObserver = NoOpWarmupResultDeliveryObserver
@@ -216,9 +218,9 @@ internal class WarmupCompletionOutbox(
         publishSnapshots(snapshots)
     }
 
-    /** Waits only for work reserved before this call; later reservations do not extend the barrier. */
+    /** Waits for already reserved work. A zero timeout checks delivery without waiting for it. */
     suspend fun flush(timeout: Duration) {
-        require(timeout.isPositive()) { "Warm-up completion flush timeout must be positive" }
+        require(!timeout.isNegative()) { "Warm-up completion flush timeout must not be negative" }
         failure.get()?.let { throw it }
         val barrier = synchronized(lock) {
             failure.get()?.let { throw it }

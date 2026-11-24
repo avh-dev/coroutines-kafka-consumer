@@ -30,6 +30,7 @@ object WarmupControlCodec {
                 is DonorAccepted -> if (message.supportsLiveness) {
                     headers().add(LIVENESS_CAPABILITY, byteArrayOf(1))
                 }
+                is ControlRecordCompleted -> headers().setWarmupDelegationId(message.completed.delegationId)
                 else -> Unit
             }
         }
@@ -42,6 +43,10 @@ object WarmupControlCodec {
             val stamp = requireNotNull(probe.value())
             require(stamp.size == Long.SIZE_BYTES) { "Invalid warm-up liveness probe header" }
             return WarmupLivenessProbe(envelope, ByteBuffer.wrap(stamp).long)
+        }
+        if (envelope is ControlRecordCompleted) {
+            val delegationId = headers.warmupDelegationId() ?: return envelope
+            return envelope.copy(completed = envelope.completed.copy(delegationId = delegationId))
         }
         return if (envelope is DonorAccepted &&
             headers.lastHeader(LIVENESS_CAPABILITY)?.value()?.contentEquals(byteArrayOf(1)) == true

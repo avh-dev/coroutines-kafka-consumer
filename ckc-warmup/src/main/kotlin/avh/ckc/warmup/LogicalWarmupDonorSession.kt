@@ -149,6 +149,11 @@ internal class LogicalWarmupDonorSession(
 
     override fun fail(error: Throwable) = lanes.forEach { it.fail(error) }
 
+    override fun finishResults() = lanes.forEach(WarmupDonorSessionLifecycle::finishResults)
+
+    override fun stopWaitingForForwardingAcks() =
+        lanes.forEach(WarmupDonorSessionLifecycle::stopWaitingForForwardingAcks)
+
     override fun trySealForRemoval(): Boolean {
         // The protocol calls this only after every lane has drained. A partial seal therefore
         // indicates an invariant violation and must not be hidden as a retryable state.

@@ -96,6 +96,7 @@
 | [CORE-97](#core-97) | Extract the traffic warm-up runtime and protocol into an optional library module. | DONE |
 | [CORE-98](#core-98) | Bound concurrent donor delegations across a warm-up context. | DONE |
 | [CORE-99](#core-99) | Coordinate warm-up context drain and prove completion before temporary Kafka shutdown. | DONE |
+| [CORE-100](#core-100) | Deliver in-flight warm-up delegation results during planned Kafka drain. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -6945,3 +6946,27 @@ Fence warm-up admission, drain donor and recipient resources, and preserve the s
 Verify offsets, shutdown races, and reconnect to a new broker generation with Kafka integration tests.
 Run the broker CLI from the existing warm-up JAR with an isolated classpath.
 Passed the warm-up unit suite and seven targeted Kafka scenarios, including a killed participant, delayed ACKs, and a restart with the same log.
+
+<a id="core-100"></a>
+### CORE-100 - Deliver results during planned warm-up Kafka drain
+
+_Date: 2026-11-24_
+
+Fence donor admission at drain acceptance and keep recipient consumers and result senders running for admitted work.
+Close cleanly as soon as every selected donor confirms completion, or send one fallback fence after the result senders stop.
+Preserve accepted early results and resolve the remaining records through the source ownership check before confirming context cleanup.
+Verify message races, per-record processing and control-topic order, and emergency cleanup after broker loss.
+Passed 146 unit tests, 46 Kafka integration tests, and two scenarios without Micrometer.
+After bounding an already pending terminal acknowledgement by the broker deadline, reran the unit suite and all four broker drain scenarios.
+Bound forwarding ACK waits after the terminal fence even when an early result belongs to a cancelled delegation.
+Apply the broker deadline to recipient sender cleanup after DonorClosed, including when drain starts during an existing ACK wait.
+Passed 147 unit tests, 10 targeted Kafka integration tests, and two scenarios without Micrometer after the review fixes.
+Correlate warm-up writes and results before the forwarding ACK via an optional Kafka header with unchanged v6 payloads.
+Switch in-progress graceful and forced recipient consumer cleanup to the broker deadline when drain arrives.
+Passed 149 unit tests, 49 Kafka integration tests, and two scenarios without Micrometer.
+Reverified the unit suite and the interrupted recipient stop scenario after preserving non-cancellable cleanup of late preparation resources.
+Reserve time for the donor to finish fallback and confirm cleanup when SessionEnded is lost.
+Determine the recipient delivery outcome from outstanding results and stored transport errors when the flush window expires.
+Passed 151 unit tests, 10 targeted Kafka integration tests, and two scenarios without Micrometer after the deadline fixes.
+Record the delivery failure before awaiting sender cleanup so stopping a participant preserves the recipient session outcome.
+Reproduced the lost reason with Kafka before the fix. Passed 151 unit tests, 11 targeted Kafka tests, and two scenarios without Micrometer afterward.

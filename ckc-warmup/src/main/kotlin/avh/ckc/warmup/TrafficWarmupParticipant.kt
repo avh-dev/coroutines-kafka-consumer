@@ -47,6 +47,7 @@ internal class TrafficWarmupParticipant<K, V>(
     warmupMetrics: WarmupMetrics<K, V>,
     private val delegationTimeoutMillis: Long,
     private val inflightDelegations: Semaphore,
+    private val canDelegate: () -> Boolean,
     private val recipientShutdownTimeoutMillis: Long,
     private val serviceDispatcher: CoroutineDispatcher,
     private val forwardingObserver: (TrafficWarmupForwardedEvent) -> Unit
@@ -87,7 +88,8 @@ internal class TrafficWarmupParticipant<K, V>(
                     observer = observer,
                     pendingLaneId = mapping.mappingFingerprint,
                     supportsRemoteDiscard = { true },
-                    inflightDelegations = inflightDelegations
+                    inflightDelegations = inflightDelegations,
+                    canDelegate = canDelegate
                 )
             }
             return WarmupParticipantDonorLane(acceptance.sessionId, dataPlane, sessions)

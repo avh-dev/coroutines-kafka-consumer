@@ -19,6 +19,7 @@ import avh.ckc.warmup.protocol.WarmupRequested
 import avh.ckc.warmup.protocol.WarmupSessionEndState
 import avh.ckc.warmup.protocol.WarmupSessionId
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -49,15 +50,21 @@ internal sealed interface WarmupDiscoveryResult {
 }
 
 internal sealed interface WarmupCompletionResult {
-    data object Completed : WarmupCompletionResult
-    data class CompletedWithDiagnostics(val diagnostics: List<String>) : WarmupCompletionResult
-    data class ColdFallback(val reasonCode: String) : WarmupCompletionResult
+    val reasonCode: String?
+
+    data object Completed : WarmupCompletionResult {
+        override val reasonCode = null
+    }
+    data class CompletedWithDiagnostics(val diagnostics: List<String>) : WarmupCompletionResult {
+        override val reasonCode = null
+    }
+    data class ColdFallback(override val reasonCode: String) : WarmupCompletionResult
     data class ColdFallbackWithDiagnostics(
-        val reasonCode: String,
+        override val reasonCode: String,
         val cleanup: WarmupRecipientCleanupResult.CompleteWithDiagnostics
     ) : WarmupCompletionResult
     data class CleanupIncomplete(
-        val reasonCode: String,
+        override val reasonCode: String,
         val cleanup: WarmupRecipientCleanupResult.Incomplete
     ) : WarmupCompletionResult
 }
@@ -133,7 +140,11 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         false
     }
 
-    suspend fun discoverAndPrepare(recipient: WarmupRecipientDiscovery): WarmupDiscoveryResult {
+    suspend fun discoverAndPrepare(
+        recipient: WarmupRecipientDiscovery,
+        brokerDrain: Deferred<WarmupBrokerDrain>? = null,
+        onPublishingReadiness: () -> Unit = {}
+    ): WarmupDiscoveryResult {
         val request = recipient.request
         require(request.namespace == namespace && request.senderInstanceId == localInstanceId) {
             "Recipient request must belong to the local namespace and instance"
@@ -180,7 +191,24 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
 
             return when (val preparation = recipient.prepareConsumers()) {
                 is WarmupRecipientPreparationResult.Ready -> {
-                    preparation.messages.forEach { channel.send(it) }
+                    onPublishingReadiness()
+                    if (brokerDrain == null) {
+                        preparation.messages.forEach { channel.send(it) }
+                    } else supervisorScope {
+                        val publish = async { preparation.messages.forEach { channel.send(it) } }
+                        try {
+                            select {
+                                brokerDrain.onAwait { }
+                                publish.onAwait { }
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            if (!brokerDrain.isCompleted) throw error
+                        } finally {
+                            publish.cancel()
+                        }
+                    }
                     if (recipient.confirmReadyPublished()) {
                         WarmupDiscoveryResult.Ready(preparation.messages)
                     } else {
@@ -214,21 +242,31 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         recipient: WarmupRecipientDiscovery,
         interruption: Deferred<String>? = null,
         onFailureDetected: (String) -> Unit = {},
+        brokerDrain: Deferred<WarmupBrokerDrain>? = null,
+        canPublishFence: () -> Boolean = { true },
         finishSends: suspend (WarmupCompletionResult) -> WarmupCompletionResult = { it }
     ): WarmupCompletionResult {
         completedResult(recipient)?.let { return it }
         require(synchronized(lock) { activeRecipient === recipient }) {
             "Recipient is not the active local warm-up session"
         }
+        var observedFailure: String? = null
+        fun reportFailure(reason: String): String {
+            observedFailure?.let { return it }
+            val selected = if (brokerDrain?.isCompleted == true) BROKER_DRAINING else reason
+            observedFailure = selected
+            onFailureDetected(selected)
+            return selected
+        }
         val consumerResult = try {
             val reason = try {
-                if (interruption == null) awaitDonorCompletion(recipient)?.also(onFailureDetected)
+                if (interruption == null) awaitDonorCompletion(recipient, brokerDrain)?.let(::reportFailure)
                 else coroutineScope {
-                    val completion = async { awaitDonorCompletion(recipient) }
+                    val completion = async { awaitDonorCompletion(recipient, brokerDrain) }
                     try {
                         select {
-                            interruption.onAwait { it.also(onFailureDetected) }
-                            completion.onAwait { it?.also(onFailureDetected) }
+                            interruption.onAwait { reportFailure(it) }
+                            completion.onAwait { it?.let(::reportFailure) }
                         }
                     } finally {
                         completion.cancel()
@@ -239,7 +277,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
                 interruption?.cancelAndJoin()
             }
             if (reason == null) {
-                when (val cleanup = recipient.completeAfterDonorsClosed()) {
+                when (val cleanup = recipient.completeAfterDonorsClosed(brokerDrain)) {
                     WarmupRecipientCleanupResult.Complete -> WarmupCompletionResult.Completed
                     is WarmupRecipientCleanupResult.CompleteWithDiagnostics ->
                         WarmupCompletionResult.CompletedWithDiagnostics(cleanup.diagnostics)
@@ -247,32 +285,40 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
                         WarmupCompletionResult.CleanupIncomplete("recipient_cleanup_incomplete", cleanup)
                 }
             } else {
-                completionFallback(recipient, reason)
+                completionFallback(recipient, reason, brokerDrain)
             }
         } catch (error: CancellationException) {
             recipient.terminate()
             clearRecipient(recipient)
             throw error
         } catch (_: Exception) {
-            onFailureDetected("completion_failed")
-            completionFallback(recipient, "completion_failed")
+            val reason = reportFailure("completion_failed")
+            completionFallback(recipient, reason, brokerDrain)
         }
 
         val result = finishSends(consumerResult)
-        val failureReason = when (result) {
-            WarmupCompletionResult.Completed,
-            is WarmupCompletionResult.CompletedWithDiagnostics -> null
-            is WarmupCompletionResult.ColdFallback -> result.reasonCode
-            is WarmupCompletionResult.ColdFallbackWithDiagnostics -> result.reasonCode
-            is WarmupCompletionResult.CleanupIncomplete -> result.reasonCode
-        }
+        val failureReason = result.reasonCode
         val terminalState = if (failureReason == null) WarmupSessionEndState.COMPLETED
             else WarmupSessionEndState.COLD_FALLBACK
         // Commit the cleanup result before Kafka can accept the fence. A cancelled ACK wait must
         // report the same local outcome even if delivery of the broadcast is uncertain.
         rememberCompletion(recipient, result)
-        withTimeoutOrNull(probeInterval) {
-            publishEndedFence(recipient, terminalState, failureReason)
+        val drain = brokerDrain?.takeIf { it.isCompleted }?.await()
+        if (drain == null || canPublishFence()) {
+            if (brokerDrain == null) {
+                withTimeoutOrNull(probeInterval) { publishEndedFence(recipient, terminalState, failureReason) }
+            } else if (drain == null || drain.fenceDeadline.remaining().isPositive()) {
+                coroutineScope {
+                    val publication = async {
+                        publishEndedFence(recipient, terminalState, failureReason)
+                    }
+                    try {
+                        publication.awaitDuringDrain(probeInterval, brokerDrain) { it.fenceDeadline.remaining() }
+                    } finally {
+                        publication.cancel()
+                    }
+                }
+            }
         }
         return result
     }
@@ -281,17 +327,36 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         completedRecipient?.takeIf { it.first === recipient }?.second
     }
 
-    private suspend fun awaitDonorCompletion(recipient: WarmupRecipientDiscovery): String? {
+    private suspend fun awaitDonorCompletion(
+        recipient: WarmupRecipientDiscovery,
+        brokerDrain: Deferred<WarmupBrokerDrain>?
+    ): String? = coroutineScope {
         val remainingMillis = recipient.request.expiresAtEpochMillis - System.currentTimeMillis()
-        val completionMillis = minOf(donorCompletionTimeout.inWholeMilliseconds, remainingMillis)
-        val closed = withTimeoutOrNull(completionMillis) {
-            recipient.completionRequests().forEach { channel.send(it) }
-            while (!recipient.allDonorsClosed() && recipient.state() == WarmupRecipientDiscovery.State.DRAINING) {
-                recipientSignal.receive()
+        val normalTimeout = minOf(donorCompletionTimeout, remainingMillis.milliseconds)
+        val completion = async {
+            val requests = recipient.completionRequests().map { request -> launch { channel.send(request) } }
+            try {
+                while (!recipient.allDonorsClosed() && recipient.state() == WarmupRecipientDiscovery.State.DRAINING) {
+                    recipientSignal.receive()
+                }
+                recipient.allDonorsClosed()
+            } finally {
+                // DonorClosed can overtake the local completion request's Kafka acknowledgement.
+                requests.forEach { it.cancel() }
             }
-            recipient.allDonorsClosed()
         }
-        return when (closed) {
+        val closed = try {
+            if (brokerDrain == null) withTimeoutOrNull(normalTimeout) { completion.await() }
+            else completion.awaitDuringDrain(normalTimeout, brokerDrain) {
+                minOf(
+                    it.processingDeadline.remaining(),
+                    (recipient.request.expiresAtEpochMillis - System.currentTimeMillis()).milliseconds
+                )
+            }
+        } finally {
+            completion.cancel()
+        }
+        when (closed) {
             true -> null
             false -> WarmupInterruption.DONOR_SESSION_ENDED.reasonCode
             null -> "donor_completion_timeout"
@@ -443,9 +508,10 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
 
     private suspend fun completionFallback(
         recipient: WarmupRecipientDiscovery,
-        reasonCode: String
+        reasonCode: String,
+        drain: Deferred<WarmupBrokerDrain>? = null
     ): WarmupCompletionResult {
-        val cleanup = recipient.terminate()
+        val cleanup = recipient.terminate(drain)
         return when (cleanup) {
             WarmupRecipientCleanupResult.Complete -> WarmupCompletionResult.ColdFallback(reasonCode)
             is WarmupRecipientCleanupResult.CompleteWithDiagnostics ->
