@@ -6957,3 +6957,4 @@ Run lifecycle coordination before Kafka SIGTERM within the pod grace period.
 Route fresh final-confirmation connections to the old pod's advertised address during deletion.
 Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
 Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.
+Automate the two qualification targets with the established scale-up schedule and capture the broker and EndpointSlice evidence at impact.

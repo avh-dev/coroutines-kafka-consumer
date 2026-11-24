@@ -1,8 +1,8 @@
 schema_version: 2
 name: ckc-warmup-broker-drain-qualification-20k-local
 description: >-
-  Qualify coordinated stop and abrupt broker loss in separate manual runs under the same
-  workload. Scale after observing readiness and run the planned or abrupt action during WARMING.
+  Qualify coordinated stop and abrupt broker loss with the same 20k workload and replica schedule.
+  Stop the temporary broker while two recipients are warming, then scale again after its recovery.
 workload:
   stubs:
     error_rate_percent: 0
@@ -59,13 +59,13 @@ workload:
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
 targets:
-- name: ckc.broker-drain-qualification
+- name: ckc.broker-drain-planned
   implementation: ckc
-  placement:
+  placement: &qualification_placement
     application: worker
     stubs: controller
     generator: controller
-  application:
+  application: &qualification_application
     placement: worker
     replicas: 1
     resources:
@@ -76,7 +76,7 @@ targets:
       -XX:TargetSurvivorRatio=90 -XX:MaxTenuringThreshold=15
       -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info,jit+compilation=debug:stdout:time,uptime,level,tags
     hpa: {enabled: false}
-  runtime:
+  runtime: &qualification_runtime
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
@@ -114,6 +114,23 @@ targets:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+  workload:
+    chaos:
+    - &scale_two {at: 7m, type: deployment_scale, target: ckc-demo, params: {replicas: 2}}
+    - &scale_three {at: 7m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 3}}
+    - {at: 8m15s, type: warmup_broker_stop, target: ckc-warmup-kafka, params: {mode: planned}}
+    - &scale_four {at: 12m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 4}}
+- name: ckc.broker-drain-abrupt
+  implementation: ckc
+  placement: *qualification_placement
+  application: *qualification_application
+  runtime: *qualification_runtime
+  workload:
+    chaos:
+    - *scale_two
+    - *scale_three
+    - {at: 8m15s, type: warmup_broker_stop, target: ckc-warmup-kafka, params: {mode: abrupt}}
+    - *scale_four
 environments:
   internal-lab:
     lab:

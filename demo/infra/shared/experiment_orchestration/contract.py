@@ -40,6 +40,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.deployment_scale",
         "chaos.pod_crash",
         "chaos.pod_delete",
+        "chaos.warmup_broker_stop",
         "chaos.service_outage",
         "chaos.service_crash",
         "chaos.service_restart",
@@ -872,6 +873,8 @@ def validate_canonical_experiment(
         )
         if environment_name != "internal-lab" and environment_definition["warmup_kafka"]["enabled"]:
             raise ValueError("Dedicated warmup_kafka is currently supported only by internal-lab")
+    if "chaos.warmup_broker_stop" in needed and "coordinated_shutdown" not in environment_definition.get("warmup_kafka", {}):
+        raise ValueError("chaos.warmup_broker_stop requires warmup_kafka.coordinated_shutdown")
     if environment_name != "internal-lab" and any(
         "placement" in (target.get("application") or {}) or target.get("placement")
         for target in resolved_targets

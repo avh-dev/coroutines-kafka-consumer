@@ -500,6 +500,14 @@ class CanonicalExperimentContractTest(unittest.TestCase):
             "termination_grace_period_seconds": 85,
         }, normalized["coordinated_shutdown"])
 
+    def test_temporary_broker_chaos_requires_coordinated_shutdown(self) -> None:
+        experiment = canonical_experiment()
+        experiment["workload"]["chaos"] = [
+            {"at": "1m", "type": "warmup_broker_stop", "params": {"mode": "abrupt"}}
+        ]
+        with self.assertRaisesRegex(ValueError, "requires warmup_kafka.coordinated_shutdown"):
+            validate_canonical_experiment(experiment, self.source, environment="internal-lab")
+
     def test_warmup_kafka_rejects_wrong_namespace_and_non_internal_environment(self) -> None:
         experiment = canonical_experiment()
         experiment["environments"] = {"internal-lab": {

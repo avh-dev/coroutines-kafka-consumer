@@ -495,85 +495,6 @@ over 60 seconds, then to 300/s over 90 seconds.
 | Scenario | Actions from load start |
 | --- | --- |
 | Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod and its ephemeral data, 12:30 scale to three. |
-
-### Qualify coordinated warm-up Kafka shutdown
-
-Run the same qualification definition twice with fresh run IDs, once for planned stop and once for
-abrupt loss. Start from one ready demo pod. Scale to three and wait for both new pods to report
-`WARMING` before applying the failure action.
-
-```bash
-lab up
-lab experiment start ckc-warmup-broker-drain-qualification-20k-local.yaml
-lab experiment status
-kubectl -n ckc-perf scale deployment ckc-demo --replicas=3
-```
-
-Use the installed lab kubeconfig for the following commands. Start capturing data before stopping
-Kafka. The old pod UID and IP, EndpointSlice changes, and broker and application logs identify the
-connection used for the final confirmation.
-
-```bash
-evidence_dir=$(mktemp -d)
-broker_pod=$(kubectl -n ckc-perf get pods -l ckc.dev/component=warmup-kafka \
-  -o jsonpath='{.items[0].metadata.name}')
-kubectl -n ckc-perf get pod "${broker_pod}" -o yaml > "${evidence_dir}/broker-pod.yaml"
-mkfifo "${evidence_dir}/endpoint-events"
-kubectl -n ckc-perf get endpointslices -l kubernetes.io/service-name=ckc-warmup-kafka \
-  --watch --output-watch-events \
-  -o 'jsonpath={.type}{" "}{.object.metadata.resourceVersion}{" "}{range .object.endpoints[*]}{.targetRef.uid}{" "}{.conditions.terminating}{" "}{.addresses}{";"}{end}{"\n"}' \
-  > "${evidence_dir}/endpoint-events" &
-endpoint_watch_pid=$!
-while IFS= read -r event; do
-  printf '%s %s\n' "$(date -u +%FT%T.%NZ)" "${event}"
-done < "${evidence_dir}/endpoint-events" > "${evidence_dir}/endpoints.log" &
-endpoint_writer_pid=$!
-kubectl -n ckc-perf logs -f "${broker_pod}" -c kafka --timestamps \
-  > "${evidence_dir}/broker.log" &
-broker_watch_pid=$!
-```
-
-For planned shutdown, delete the broker pod with its configured grace period.
-
-```bash
-kubectl -n ckc-perf delete pod "${broker_pod}" --wait=false
-```
-
-Verify the old UID becomes terminating in EndpointSlice. Match `brokerEpoch` and `drainId` across
-`DrainRequested`, `DrainAccepted`, and `ContextDrained` in the old broker log. Match the
-`opening final confirmation connection` application log to the old pod IP and the same
-context ID. The final confirmation must follow the EndpointSlice transition. The CLI records the
-confirmation offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
-
-For the separate abrupt-loss run, kill only the broker process after both new application pods
-report `WARMING`.
-
-```bash
-kubectl -n ckc-perf exec "${broker_pod}" -c kafka -- \
-  bash -c 'kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"'
-```
-
-Verify that the old epoch produced no drain request and the affected recipients reached
-`MAIN_READY` through recovery. Capture the restarted broker logs and verify a new `BrokerStarted`.
-In each run, wait for the broker and all three application pods to become ready, scale to four, and
-verify the new pod receives delegated records from a surviving donor. The donor's main consumers
-must continue processing during the outage and recovery.
-
-```bash
-kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=5m
-kubectl -n ckc-perf rollout status deployment/ckc-demo --timeout=5m
-kubectl -n ckc-perf scale deployment ckc-demo --replicas=4
-```
-
-After the fourth pod reaches `MAIN_READY`, collect the application logs.
-
-```bash
-kubectl -n ckc-perf logs -l ckc.dev/component=application --all-containers --prefix \
-  --timestamps --since=15m > "${evidence_dir}/application.log"
-kill "${endpoint_watch_pid}" "${broker_watch_pid}" 2>/dev/null || true
-wait "${endpoint_writer_pid}"
-rm "${evidence_dir}/endpoint-events"
-```
 | Donor loss | 7:00 scale to two, 7:45 crash app pod #1. |
 | Recipient loss | 7:00 scale to two, 7:45 crash app pod #2. |
 | Session isolation | 7:00 scale to two, 7:30 scale to three, 8:15 crash app pod #2. |
@@ -612,6 +533,31 @@ summary, Prometheus, Loki and generated report.
    isolation, establish that both original recipient sessions were in
    warm-up at impact, then trace pod #3's original session through
    successful completion while pod #2 restarts.
+
+### Qualify coordinated warm-up Kafka shutdown
+
+Run the qualification definition once. It contains two independent targets with the same 20k
+workload, resource settings, and scale actions as the warm-up chaos experiments.
+
+```bash
+lab experiment start ckc-warmup-broker-drain-qualification-20k-local.yaml
+lab experiment status
+```
+
+Both targets start with one demo pod, scale to two at 7:00, and scale to three at 7:30. At 8:15
+`warmup_broker_stop` checks for two `WARMING` sessions before affecting the temporary broker.
+The planned target deletes the pod with its configured grace period. The abrupt target sends
+`SIGKILL` to the Kafka process. Each target scales to four at 12:30, after confirming the new
+broker is ready and has published a different epoch.
+
+Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl`.
+The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's
+advertised address, the new client connection observed after that transition, and the matching
+`ContextDrained` offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
+The abrupt target checks the previous broker exit and fresh epoch for the same pod UID.
+Use Loki and the warm-up metrics to verify the interrupted recipients reach `MAIN_READY`,
+the fourth pod receives delegated records and finishes warm-up, and the surviving donor
+continues to process main-cluster records.
 
 ## Results
 
