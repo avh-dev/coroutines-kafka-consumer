@@ -6958,3 +6958,4 @@ Route fresh final-confirmation connections to the old pod's advertised address d
 Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
 Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.
 Automate the two qualification targets with the established scale-up schedule and capture the broker and EndpointSlice evidence at impact.
+Enable coordinated shutdown in the four established warm-up chaos experiments with their existing schedules.

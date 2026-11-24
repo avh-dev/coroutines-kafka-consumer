@@ -492,9 +492,12 @@ comparison. Load ramps to 20k TPS in 25 minutes, holds for 10 minutes and
 ramps down for 10 minutes. Each topic's warm-up quota ramps from 1 to 100/s
 over 60 seconds, then to 300/s over 90 seconds.
 
+All four enable coordinated warm-up Kafka shutdown. The `kafka-loss`
+scenario exercises broker drain when it deletes the temporary broker pod.
+
 | Scenario | Actions from load start |
 | --- | --- |
-| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod and its ephemeral data, 12:30 scale to three. |
+| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod with coordinated shutdown, 12:30 scale to three. |
 | Donor loss | 7:00 scale to two, 7:45 crash app pod #1. |
 | Recipient loss | 7:00 scale to two, 7:45 crash app pod #2. |
 | Session isolation | 7:00 scale to two, 7:30 scale to three, 8:15 crash app pod #2. |

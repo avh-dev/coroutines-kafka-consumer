@@ -136,6 +136,7 @@ environments:
         resources: {cpu_per_broker: 1, memory_per_broker: 2Gi, heap_per_broker: 1Gi}
     warmup_kafka:
       enabled: true
+      coordinated_shutdown: {}
       placement: application
       heap: 512Mi
       resources:
