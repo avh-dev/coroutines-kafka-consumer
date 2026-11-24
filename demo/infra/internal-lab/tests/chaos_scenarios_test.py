@@ -64,6 +64,72 @@ class ChaosScenariosTest(unittest.TestCase):
                 path,
             )
 
+    def test_broker_stop_accepts_only_the_temporary_broker_and_an_explicit_mode(self) -> None:
+        step = {"at": "1s", "type": "warmup_broker_stop", "params": {"mode": "planned"}}
+        self.assertEqual("ckc-warmup-kafka", self.normalize([step])[0]["target"])
+        with self.assertRaisesRegex(ValueError, "must be ckc-warmup-kafka"):
+            self.normalize([step | {"target": "kafka"}])
+        with self.assertRaisesRegex(ValueError, "must be planned or abrupt"):
+            self.normalize([step | {"params": {"mode": "kill"}}])
+
+    def test_warming_guard_uses_each_sessions_latest_phase(self) -> None:
+        logs = "\n".join(
+            f"Warm-up lifecycle: phase={phase}, participantId=null, sessionId={session}, reasonCode=null"
+            for phase, session in [
+                ("WARMING", "finished"), ("WARMING", "one"), ("WARMING", "two"),
+                ("COMPLETING", "finished"), ("MAIN_READY", "null"),
+            ]
+        )
+        self.assertEqual(["one", "two"], chaos_runner.warming_sessions(logs))
+
+    def test_planned_broker_evidence_matches_new_connection_to_old_address_and_acknowledgement(self) -> None:
+        records = [
+            "broker-lifecycle offset=17 timestamp=1795461568746 "
+            "event=ContextDrained(epoch=current, drainId=drain, context=recipient, sessions=[session])"
+        ]
+        endpoint = {"observedAt": "2026-11-24T05:00:00.123Z"}
+        connection = (
+            "[pod/recipient] 2026-11-24T05:00:00.124Z Warm-up broker lifecycle opening final confirmation connection "
+            "brokerEpoch=current drainId=drain context=recipient advertisedBroker=10.12.13.14:9092"
+        )
+        self.assertEqual(connection, chaos_runner.verified_drain_connection(
+            records, connection, endpoint, "10.12.13.14:9092", "current"
+        ))
+        for stale in (
+            connection.replace("00.124Z", "00.122Z"),
+            connection.replace("13.14", "13.15"),
+            connection.replace("context=recipient", "context=replacement"),
+        ):
+            self.assertIsNone(chaos_runner.verified_drain_connection(
+                records, stale, endpoint, "10.12.13.14:9092", "current"
+            ))
+
+    def test_abrupt_stop_kills_kafka_and_requires_a_new_epoch_on_the_same_pod(self) -> None:
+        metadata = {"name": "warmup-pod", "uid": "warmup-uid"}
+        pod = {
+            "metadata": metadata,
+            "spec": {"containers": [{"name": "kafka", "env": [
+                {"name": "KAFKA_BROKER_LIFECYCLE_TOPIC", "value": "ckc.traffic-warmup.lifecycle"}
+            ]}]},
+            "status": {"podIP": "10.12.13.14"},
+        }
+        with (
+            patch.object(chaos_runner, "warmup_app_logs", return_value=""),
+            patch.object(chaos_runner, "warming_sessions", return_value=["session-1", "session-2"]),
+            patch.object(chaos_runner, "select_running_pod", return_value=metadata),
+            patch.object(chaos_runner, "await_warmup_broker", return_value=(metadata, "new-epoch")),
+            patch.object(chaos_runner, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps(pod)),
+                subprocess.CompletedProcess([], 0, "old-epoch"),
+                subprocess.CompletedProcess([], 137),
+                subprocess.CompletedProcess([], 0, "warmup-kafka-supervisor process=broker exit_status=137"),
+            ]) as run,
+        ):
+            evidence = chaos_runner.stop_warmup_broker({"mode": "abrupt"}, dry_run=False)
+        self.assertEqual("warmup-uid", evidence["nextBrokerPodUid"])
+        self.assertEqual("new-epoch", evidence["nextBrokerEpoch"])
+        self.assertIn('kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"', run.call_args_list[2].args[0])
+
     def test_pod_index_is_optional_and_normalized_for_both_actions(self) -> None:
         for action in ("pod_delete", "pod_crash"):
             with self.subTest(action=action):

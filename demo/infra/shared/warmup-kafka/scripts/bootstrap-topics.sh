@@ -5,6 +5,7 @@ set -uo pipefail
 KAFKA_BIN_DIR="${KAFKA_BIN_DIR:-/opt/kafka/bin}"
 KAFKA_BOOTSTRAP_SERVER="${KAFKA_BOOTSTRAP_SERVER:-localhost:19092}"
 KAFKA_BOOTSTRAP_TOPICS="${KAFKA_BOOTSTRAP_TOPICS:-}"
+KAFKA_BROKER_LIFECYCLE_TOPIC="${KAFKA_BROKER_LIFECYCLE_TOPIC:-}"
 KAFKA_BOOTSTRAP_TIMEOUT_SECONDS="${KAFKA_BOOTSTRAP_TIMEOUT_SECONDS:-120}"
 KAFKA_BOOTSTRAP_BACKOFF_SECONDS="${KAFKA_BOOTSTRAP_BACKOFF_SECONDS:-2}"
 KAFKA_OPERATION_TIMEOUT_SECONDS="${KAFKA_OPERATION_TIMEOUT_SECONDS:-10}"
@@ -65,6 +66,15 @@ done
 if [[ ${#topics[@]} -eq 0 ]]; then
   log error invalid_configuration "KAFKA_BOOTSTRAP_TOPICS must contain at least one topic"
   exit 2
+fi
+if [[ -n "${KAFKA_BROKER_LIFECYCLE_TOPIC}" ]]; then
+  if [[ "${KAFKA_BROKER_LIFECYCLE_TOPIC}" == "." || "${KAFKA_BROKER_LIFECYCLE_TOPIC}" == ".." ||
+    "${#KAFKA_BROKER_LIFECYCLE_TOPIC}" -gt 249 ||
+    ! "${KAFKA_BROKER_LIFECYCLE_TOPIC}" =~ ^[a-zA-Z0-9._-]+$ ||
+    -n "${seen_topics[${KAFKA_BROKER_LIFECYCLE_TOPIC}]+configured}" ]]; then
+    log error invalid_configuration "invalid or reused broker lifecycle topic"
+    exit 2
+  fi
 fi
 
 mkdir -p "$(dirname -- "${KAFKA_READY_FILE}")" "$(dirname -- "${KAFKA_CLIENT_CONFIG}")"
@@ -145,6 +155,35 @@ for topic in "${topics[@]}"; do
     exit 1
   fi
 done
+
+if [[ -n "${KAFKA_BROKER_LIFECYCLE_TOPIC}" ]]; then
+  if ! run_kafka "${KAFKA_BIN_DIR}/kafka-topics.sh" \
+    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --create --if-not-exists \
+    --topic "${KAFKA_BROKER_LIFECYCLE_TOPIC}" --partitions 1 --replication-factor 1 \
+    --config cleanup.policy=delete --config retention.ms=-1 --config retention.bytes=-1 \
+    --config message.timestamp.type=LogAppendTime; then
+    log error lifecycle_topic_creation_failed "topic=${KAFKA_BROKER_LIFECYCLE_TOPIC}"
+    exit 1
+  fi
+  if ! lifecycle_description="$(describe_topics)" ||
+      [[ "$(topic_partition_count "${lifecycle_description}" "${KAFKA_BROKER_LIFECYCLE_TOPIC}")" != 1 ]]; then
+    log error lifecycle_topic_metadata_unavailable "topic=${KAFKA_BROKER_LIFECYCLE_TOPIC}"
+    exit 1
+  fi
+  if ! lifecycle_config="$(run_kafka "${KAFKA_BIN_DIR}/kafka-configs.sh" \
+    --bootstrap-server "${KAFKA_BOOTSTRAP_SERVER}" --entity-type topics \
+    --entity-name "${KAFKA_BROKER_LIFECYCLE_TOPIC}" --describe --all)"; then
+    log error lifecycle_topic_config_unavailable "topic=${KAFKA_BROKER_LIFECYCLE_TOPIC}"
+    exit 1
+  fi
+  for expected in cleanup.policy=delete retention.ms=-1 retention.bytes=-1 message.timestamp.type=LogAppendTime; do
+    if ! awk -v expected="${expected}" '$1 == expected { found=1 } END { exit !found }' <<< "${lifecycle_config}"; then
+      log error lifecycle_topic_incompatible_retention "topic=${KAFKA_BROKER_LIFECYCLE_TOPIC} expected=${expected}"
+      exit 1
+    fi
+  done
+  log info lifecycle_topic_ready "topic=${KAFKA_BROKER_LIFECYCLE_TOPIC}"
+fi
 
 if [[ "${KAFKA_PREWARM_ENABLED}" == "true" ]]; then
   log info broker_prewarm_started "bootstrap=${KAFKA_BOOTSTRAP_SERVER}"

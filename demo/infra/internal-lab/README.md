@@ -492,9 +492,12 @@ comparison. Load ramps to 20k TPS in 25 minutes, holds for 10 minutes and
 ramps down for 10 minutes. Each topic's warm-up quota ramps from 1 to 100/s
 over 60 seconds, then to 300/s over 90 seconds.
 
+All four enable coordinated warm-up Kafka shutdown. The `kafka-loss`
+scenario exercises broker drain when it deletes the temporary broker pod.
+
 | Scenario | Actions from load start |
 | --- | --- |
-| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod and its ephemeral data, 12:30 scale to three. |
+| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod with coordinated shutdown, 12:30 scale to three. |
 | Donor loss | 7:00 scale to two, 7:45 crash app pod #1. |
 | Recipient loss | 7:00 scale to two, 7:45 crash app pod #2. |
 | Session isolation | 7:00 scale to two, 7:30 scale to three, 8:15 crash app pod #2. |
@@ -533,6 +536,31 @@ summary, Prometheus, Loki and generated report.
    isolation, establish that both original recipient sessions were in
    warm-up at impact, then trace pod #3's original session through
    successful completion while pod #2 restarts.
+
+### Qualify coordinated warm-up Kafka shutdown
+
+Run the qualification definition once. It contains two independent targets with the same 20k
+workload, resource settings, and scale actions as the warm-up chaos experiments.
+
+```bash
+lab experiment start ckc-warmup-broker-drain-qualification-20k-local.yaml
+lab experiment status
+```
+
+Both targets start with one demo pod, scale to two at 7:00, and scale to three at 7:30. At 8:15
+`warmup_broker_stop` checks for two `WARMING` sessions before affecting the temporary broker.
+The planned target deletes the pod with its configured grace period. The abrupt target sends
+`SIGKILL` to the Kafka process. Each target scales to four at 12:30, after confirming the new
+broker is ready and has published a different epoch.
+
+Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl`.
+The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's
+advertised address, the new client connection observed after that transition, and the matching
+`ContextDrained` offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
+The abrupt target checks the previous broker exit and fresh epoch for the same pod UID.
+Use Loki and the warm-up metrics to verify the interrupted recipients reach `MAIN_READY`,
+the fourth pod receives delegated records and finishes warm-up, and the surviving donor
+continues to process main-cluster records.
 
 ## Results
 

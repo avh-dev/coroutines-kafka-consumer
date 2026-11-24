@@ -15,6 +15,7 @@ from .definition import ResolvedExperiment, ResolvedTarget
 
 STUB_SERVICE_PORT = 8085
 WARMUP_KAFKA_SERVICE = "ckc-warmup-kafka"
+WARMUP_KAFKA_LIFECYCLE_TOPIC = "ckc.traffic-warmup.lifecycle"
 WARMUP_KAFKA_PORT = 9092
 DEPLOYMENT_PLAN_VERSION = 1
 GENERATED_ENV_NAMES = {
@@ -853,6 +854,19 @@ def _warmup_kafka_manifests(
         "containers": [container],
         "volumes": [{"name": "data", "emptyDir": {}}],
     }
+    shutdown = configuration.get("coordinated_shutdown")
+    if shutdown is not None:
+        container["env"].append({
+            "name": "CKC_WARMUP_POD_IP",
+            "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}},
+        })
+        container["env"].extend(_environment_entries({
+            "KAFKA_BROKER_LIFECYCLE_TOPIC": WARMUP_KAFKA_LIFECYCLE_TOPIC,
+            "KAFKA_DRAIN_TIMEOUT_SECONDS": shutdown["drain_timeout_seconds"],
+            "KAFKA_SHUTDOWN_TIMEOUT_SECONDS": shutdown["kafka_shutdown_timeout_seconds"],
+            "KAFKA_TERMINATION_GRACE_PERIOD_SECONDS": shutdown["termination_grace_period_seconds"],
+        }))
+        pod_spec["terminationGracePeriodSeconds"] = shutdown["termination_grace_period_seconds"]
     if node_selector:
         pod_spec["nodeSelector"] = dict(node_selector)
     if placement == "application" and bindings.application_tolerations:
@@ -877,6 +891,8 @@ def _warmup_kafka_manifests(
             "ports": [{"name": "kafka", "port": WARMUP_KAFKA_PORT, "targetPort": WARMUP_KAFKA_PORT}],
         },
     }
+    if shutdown is not None:
+        service["spec"]["publishNotReadyAddresses"] = True
     return [deployment, service]
 
 
@@ -949,6 +965,8 @@ def render_project_manifests(plan: Mapping[str, Any], bindings: DeploymentBindin
             "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": warmup_bootstrap,
             "TRAFFIC_WARMUP_DESTINATION_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
         })
+        if warmup_kafka.get("coordinated_shutdown") is not None:
+            computed_env["TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC"] = WARMUP_KAFKA_LIFECYCLE_TOPIC
     if bindings.kafka_ssl_endpoint_identification_algorithm is not None:
         computed_env["DEMO_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"] = bindings.kafka_ssl_endpoint_identification_algorithm
     replicas = int(values.get("replicaCount", configuration.get("replicas", 1)))

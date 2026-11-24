@@ -40,6 +40,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.deployment_scale",
         "chaos.pod_crash",
         "chaos.pod_delete",
+        "chaos.warmup_broker_stop",
         "chaos.service_outage",
         "chaos.service_crash",
         "chaos.service_restart",
@@ -224,7 +225,7 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
     allowed = {
         "enabled", "placement", "heap", "resources", "topics", "retention_ms",
         "bootstrap_timeout_seconds", "bootstrap_backoff_seconds", "operation_timeout_seconds",
-        "prewarm_timeout_seconds",
+        "prewarm_timeout_seconds", "coordinated_shutdown",
     }
     unknown = sorted(set(warmup) - allowed)
     if unknown:
@@ -303,7 +304,7 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
         if isinstance(setting, bool) or not isinstance(setting, int) or setting < 1:
             raise ValueError(f"{context}.{name} must be a positive integer")
         bounded[name] = setting
-    return {
+    result = {
         "enabled": enabled,
         "placement": placement,
         "heap": heap,
@@ -311,6 +312,30 @@ def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
         "topics": topics,
         **bounded,
     }
+    if "coordinated_shutdown" in warmup:
+        if not enabled:
+            raise ValueError(f"{context}.coordinated_shutdown requires an enabled temporary broker")
+        shutdown_context = f"{context}.coordinated_shutdown"
+        requested = require_mapping(warmup["coordinated_shutdown"], shutdown_context)
+        defaults = {
+            "drain_timeout_seconds": 50,
+            "kafka_shutdown_timeout_seconds": 30,
+            "termination_grace_period_seconds": 90,
+        }
+        if set(requested) - defaults.keys():
+            raise ValueError(f"{shutdown_context} contains unknown fields")
+        shutdown: dict[str, int] = {}
+        for name, default in defaults.items():
+            setting = requested.get(name, default)
+            minimum = 3 if name == "drain_timeout_seconds" else 1
+            if isinstance(setting, bool) or not isinstance(setting, int) or not minimum <= setting <= 999_999:
+                raise ValueError(f"{shutdown_context}.{name} must be an integer between {minimum} and 999999")
+            shutdown[name] = setting
+        required = shutdown["drain_timeout_seconds"] + shutdown["kafka_shutdown_timeout_seconds"] + 5
+        if shutdown["termination_grace_period_seconds"] < required:
+            raise ValueError(f"{shutdown_context}.termination_grace_period_seconds must be at least {required}")
+        result["coordinated_shutdown"] = shutdown
+    return result
 
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
@@ -848,6 +873,8 @@ def validate_canonical_experiment(
         )
         if environment_name != "internal-lab" and environment_definition["warmup_kafka"]["enabled"]:
             raise ValueError("Dedicated warmup_kafka is currently supported only by internal-lab")
+    if "chaos.warmup_broker_stop" in needed and "coordinated_shutdown" not in environment_definition.get("warmup_kafka", {}):
+        raise ValueError("chaos.warmup_broker_stop requires warmup_kafka.coordinated_shutdown")
     if environment_name != "internal-lab" and any(
         "placement" in (target.get("application") or {}) or target.get("placement")
         for target in resolved_targets

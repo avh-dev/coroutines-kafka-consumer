@@ -186,7 +186,7 @@ def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, 
     }
 
 
-CHAOS_INSTANT_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
+CHAOS_INSTANT_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart", "warmup_broker_stop"}
 CHAOS_DURATION_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
 CHAOS_SERVICE_TARGETS = {"kafka", "redis", "audit"}
 
@@ -274,6 +274,16 @@ def _normalize_chaos_action(
             raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
         normalized["target"] = target
         normalized["params"] = {"namespace": str(params.get("namespace", "ckc-perf")), "replicas": replicas}
+    elif step_type == "warmup_broker_stop":
+        mode = params.get("mode")
+        if mode not in ("planned", "abrupt"):
+            raise ValueError(f"{context}.params.mode must be planned or abrupt: {definition_path}")
+        if raw_step.get("target", "ckc-warmup-kafka") != "ckc-warmup-kafka":
+            raise ValueError(f"{context}.target must be ckc-warmup-kafka: {definition_path}")
+        if set(params) - {"mode"}:
+            raise ValueError(f"{context}.params only accepts mode: {definition_path}")
+        normalized["target"] = "ckc-warmup-kafka"
+        normalized["params"] = {"mode": mode}
     elif step_type in {"pod_delete", "pod_crash"}:
         target = str(raw_step.get("target", "ckc-demo")).strip()
         if not target:

@@ -127,7 +127,7 @@ image_fingerprint() {
       paths+=(demo/kafka-network-exporter)
       ;;
     warmup-kafka)
-      paths+=(demo/infra/shared/warmup-kafka)
+      paths+=(demo/infra/shared/warmup-kafka ckc-warmup/build.gradle.kts ckc-warmup/src/main)
       ;;
     *)
       echo "Unknown image service: ${service}" >&2
@@ -580,6 +580,7 @@ if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
   sync_path "${REPO_ROOT}/demo/infra/shared/warmup-kafka" "${LAB_ROOT}/docker/build/warmup-kafka"
+  GRADLE_TASKS+=(:ckc-warmup:stageWarmupBrokerCli)
 fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   GRADLE_TASKS+=(:ckc-demo:installDist)
@@ -589,6 +590,9 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${#GRADLE_TASKS[@]}" -gt 0 ]]; then
   ./gradlew "${GRADLE_TASKS[@]}"
+fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_path "${REPO_ROOT}/ckc-warmup/build/warmup-broker-cli" "${LAB_ROOT}/docker/build/warmup-kafka/cli"
 fi
 
 if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
