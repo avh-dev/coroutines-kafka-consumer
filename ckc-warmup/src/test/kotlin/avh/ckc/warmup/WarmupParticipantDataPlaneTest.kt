@@ -7,17 +7,19 @@ import avh.ckc.core.createTestConsumer
 import avh.ckc.core.processing.RecordProcessingOutcome
 import avh.ckc.core.stringSerdeProperties
 import avh.ckc.core.testRuntime
+import avh.ckc.warmup.protocol.WarmupMappingQuota
+import avh.ckc.warmup.protocol.WarmupParticipantId
 import avh.ckc.warmup.protocol.WarmupQuotaProfile
 import avh.ckc.warmup.protocol.WarmupRecordCompleted
 import avh.ckc.warmup.protocol.WarmupRecordId
 import avh.ckc.warmup.protocol.WarmupRemoteOutcome
 import avh.ckc.warmup.protocol.WarmupSessionId
+import avh.ckc.warmup.protocol.WarmupTopicMapping
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -37,47 +39,59 @@ import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.spy
 import org.mockito.kotlin.whenever
 
-class MultiSessionWarmupDataPlaneTest {
+class WarmupParticipantDataPlaneTest {
     @Test
-    fun `activation keeps admitted session registered until its state transition completes`() {
+    fun `active session cannot be detached while activation returns`() {
+        val activationCommitted = CountDownLatch(1)
+        val releaseActivation = CountDownLatch(1)
+        val session = spy(idleSession("activation-wins"))
+        doAnswer { invocation ->
+            val activated = invocation.callRealMethod()
+            activationCommitted.countDown()
+            check(releaseActivation.await(2, TimeUnit.SECONDS)) { "Timed out releasing session activation" }
+            activated
+        }.whenever(session).activate()
+
+        val plane = WarmupDonorDataPlaneFixture<String, String>(1, 10)
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(mappingFor(session), session))
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val activation = executor.submit<Boolean> { plane.store.activate(session.sessionId) }
+            assertTrue(activationCommitted.await(2, TimeUnit.SECONDS))
+            assertFalse(plane.removeDrainedSession(session.sessionId))
+            assertEquals(1, plane.store.admittedSessionCount())
+
+            releaseActivation.countDown()
+            assertTrue(activation.get(2, TimeUnit.SECONDS))
+            closeSessions(plane, session)
+        } finally {
+            releaseActivation.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `detached session cannot activate after lookup`() {
         val activationEntered = CountDownLatch(1)
         val releaseActivation = CountDownLatch(1)
-        val session = spy(idleSession("activation-removal-race"))
+        val session = spy(idleSession("detachment-wins"))
         doAnswer { invocation ->
             activationEntered.countDown()
             check(releaseActivation.await(2, TimeUnit.SECONDS)) { "Timed out releasing session activation" }
             invocation.callRealMethod()
         }.whenever(session).activate()
 
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
-        plane.admit(session)
-        val removalThread = AtomicReference<Thread>()
-        val removalStarted = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(2)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(1, 10)
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(mappingFor(session), session))
+        val executor = Executors.newSingleThreadExecutor()
         try {
-            val activation = executor.submit<Boolean> { plane.activate(session.sessionId) }
+            val activation = executor.submit<Boolean> { plane.store.activate(session.sessionId) }
             assertTrue(activationEntered.await(2, TimeUnit.SECONDS))
-            val removal = executor.submit<Boolean> {
-                removalThread.set(Thread.currentThread())
-                removalStarted.countDown()
-                plane.removeDrainedSession(session.sessionId)
-            }
-            assertTrue(removalStarted.await(2, TimeUnit.SECONDS))
-
-            val blockedDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
-            while (removalThread.get().state != Thread.State.BLOCKED && !removal.isDone) {
-                check(System.nanoTime() < blockedDeadline) { "Removal did not contend with activation" }
-                Thread.yield()
-            }
-            assertEquals(Thread.State.BLOCKED, removalThread.get().state)
+            assertTrue(plane.removeDrainedSession(session.sessionId))
+            assertEquals(0, plane.store.admittedSessionCount())
 
             releaseActivation.countDown()
-            assertTrue(activation.get(2, TimeUnit.SECONDS))
-            assertFalse(removal.get(2, TimeUnit.SECONDS))
-            assertEquals(1, plane.admittedSessionCount())
-
-            plane.stopDelegating(session.sessionId)
-            assertTrue(plane.removeDrainedSession(session.sessionId))
+            assertFalse(activation.get(2, TimeUnit.SECONDS))
         } finally {
             releaseActivation.countDown()
             executor.shutdownNow()
@@ -86,15 +100,15 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `rejected inflight removal leaves main runtime and sibling session operational`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val first = pendingSession("first-runtime", 1, firstForwarded)
         val second = pendingSession("second-runtime", 2, secondForwarded)
-        plane.admit(first)
-        plane.admit(second)
-        plane.activate(first.sessionId)
-        plane.activate(second.sessionId)
+        plane.admit(mappingFor(first), first)
+        plane.admit(mappingFor(second), second)
+        plane.store.activate(first.sessionId)
+        plane.store.activate(second.sessionId)
 
         val localHandled = CompletableDeferred<Long>()
         val allowSecond = CompletableDeferred<Unit>()
@@ -104,7 +118,7 @@ class MultiSessionWarmupDataPlaneTest {
             consumerProperties = stringSerdeProperties(),
             handler = KafkaRecordHandler { localHandled.complete(it.offset()) },
             workerConcurrency = 2,
-            interceptor = plane,
+            interceptor = plane.records,
             beforeAdmission = {
                 when (it.offset()) {
                     2L -> allowSecond.await()
@@ -122,12 +136,12 @@ class MultiSessionWarmupDataPlaneTest {
         allowSecond.complete(Unit)
         val secondEvent = secondForwarded.await()
         awaitFor(2_000) { Unit.takeIf { second.pendingResultCount() == 1 } }
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(secondEvent.completed()))
-        plane.stopDelegatingAndAwaitInflight(second.sessionId, 1.seconds)
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.store.acceptResult(secondEvent.completed()))
+        plane.store.stopDelegatingAndAwaitInflight(second.sessionId, 1.seconds)
         assertTrue(plane.removeDrainedSession(second.sessionId))
 
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(firstEvent.completed()))
-        plane.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.store.acceptResult(firstEvent.completed()))
+        plane.store.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
         assertTrue(plane.removeDrainedSession(first.sessionId))
 
         allowThird.complete(Unit)
@@ -138,7 +152,7 @@ class MultiSessionWarmupDataPlaneTest {
 
     @Test
     fun `early removal with inflight is rejected while sibling session continues`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val secondForwarded = CompletableDeferred<WarmupForwardedEvent>()
         val first = WarmupDonorSession(
@@ -163,32 +177,32 @@ class MultiSessionWarmupDataPlaneTest {
             },
             observer = forwardingObserver(secondForwarded)
         )
-        plane.admit(first)
-        plane.admit(second)
-        plane.activate(first.sessionId)
-        plane.activate(second.sessionId)
+        plane.admit(mappingFor(first), first)
+        plane.admit(mappingFor(second), second)
+        plane.store.activate(first.sessionId)
+        plane.store.activate(second.sessionId)
 
-        val firstResult = async { plane.process(record(1)) { error("fallback not expected") } }
+        val firstResult = async { plane.records.process(record(1)) { error("fallback not expected") } }
         val firstEvent = firstForwarded.await()
         assertFalse(firstResult.isCompleted)
         assertFalse(plane.removeDrainedSession(first.sessionId))
 
-        val secondResult = async { plane.process(record(2)) { error("fallback not expected") } }
+        val secondResult = async { plane.records.process(record(2)) { error("fallback not expected") } }
         val secondEvent = secondForwarded.await()
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(secondEvent.completed()))
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.store.acceptResult(secondEvent.completed()))
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, secondResult.await())
         assertFalse(firstResult.isCompleted)
 
-        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.acceptResult(firstEvent.completed()))
+        assertEquals(WarmupResultTracker.Completion.DELIVERED, plane.store.acceptResult(firstEvent.completed()))
         assertEquals(RecordProcessingOutcome.HandlerSucceededRemotely, firstResult.await())
-        plane.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
+        plane.store.stopDelegatingAndAwaitInflight(first.sessionId, 1.seconds)
         assertTrue(plane.removeDrainedSession(first.sessionId))
-        plane.close()
+        closeSessions(plane, second)
     }
 
     @Test
     fun `external timeout cancels delegation without local fallback`() {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val sent = CompletableDeferred<Unit>()
         val localCalls = AtomicInteger()
         val session = idleSession(
@@ -198,13 +212,13 @@ class MultiSessionWarmupDataPlaneTest {
                 WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), 1)
             }
         )
-        plane.admit(session)
-        plane.activate(session.sessionId)
+        plane.admit(mappingFor(session), session)
+        plane.store.activate(session.sessionId)
 
         assertThrows(TimeoutCancellationException::class.java) {
             runBlocking {
                 withTimeout(250) {
-                    plane.process(record(1)) {
+                    plane.records.process(record(1)) {
                         localCalls.incrementAndGet()
                         RecordProcessingOutcome.HandlerSucceeded
                     }
@@ -214,13 +228,13 @@ class MultiSessionWarmupDataPlaneTest {
 
         assertTrue(sent.isCompleted)
         assertEquals(0, localCalls.get())
-        runBlocking { plane.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds) }
+        runBlocking { plane.store.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds) }
         assertTrue(plane.removeDrainedSession(session.sessionId))
     }
 
     @Test
     fun `remote wait keeps the partition ordering slot occupied`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val events = CopyOnWriteArrayList<WarmupForwardedEvent>()
         val sends = AtomicInteger()
         val session = WarmupDonorSession(
@@ -245,44 +259,44 @@ class MultiSessionWarmupDataPlaneTest {
                 }
             }
         )
-        plane.admit(session)
-        plane.activate(session.sessionId)
+        plane.admit(mappingFor(session), session)
+        plane.store.activate(session.sessionId)
         val consumer = createTestConsumer(
             records = listOf(record(1), record(2)),
             consumerProperties = stringSerdeProperties(),
             handler = KafkaRecordHandler { error("local handler must not run") },
             workerConcurrency = 2,
-            interceptor = plane,
+            interceptor = plane.records,
             runtime = testRuntime(ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING)
         )
         consumer.start()
         withTimeout(2_000) { while (events.size != 1) kotlinx.coroutines.yield() }
         assertEquals(1, sends.get())
 
-        plane.acceptResult(events[0].completed())
+        plane.store.acceptResult(events[0].completed())
         withTimeout(2_000) { while (events.size != 2) kotlinx.coroutines.yield() }
-        plane.acceptResult(events[1].completed())
+        plane.store.acceptResult(events[1].completed())
 
         consumer.stop()
         assertEquals(2, sends.get())
-        plane.close()
+        closeSessions(plane, session)
     }
 
     @Test
     fun `one donor selects two active sessions fairly and delegates each record once`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val firstSends = AtomicInteger()
         val secondSends = AtomicInteger()
         val localCalls = AtomicInteger()
         val first = successfulSession("first", firstSends, plane)
         val second = successfulSession("second", secondSends, plane)
-        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(first))
-        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(second))
-        assertTrue(plane.activate(first.sessionId))
-        assertTrue(plane.activate(second.sessionId))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(mappingFor(first), first))
+        assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(mappingFor(second), second))
+        assertTrue(plane.store.activate(first.sessionId))
+        assertTrue(plane.store.activate(second.sessionId))
 
         repeat(8) { offset ->
-            val outcome = plane.process(record(offset.toLong())) {
+            val outcome = plane.records.process(record(offset.toLong())) {
                 localCalls.incrementAndGet()
                 RecordProcessingOutcome.HandlerSucceeded
             }
@@ -293,30 +307,31 @@ class MultiSessionWarmupDataPlaneTest {
         assertEquals(4, secondSends.get())
         assertEquals(8, firstSends.get() + secondSends.get())
         assertEquals(0, localCalls.get())
-        plane.close()
+        closeSessions(plane, first, second)
     }
 
     @Test
     fun `admission checks session and aggregate budget limits atomically`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 3, maxAggregateBudgetPerSecond = 10)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 3, maxAggregateBudgetPerSecond = 10)
         val candidates = List(20) { index -> idleSession("session-$index", intervalBudget = 4) }
 
         val results = candidates.map { session ->
-            async(Dispatchers.Default) { session to plane.admit(session) }
+            async(Dispatchers.Default) { session to plane.admit(mappingFor(session), session) }
         }.map { it.await() }
 
         assertEquals(2, results.count { it.second == DonorSessionAdmission.ACCEPTED })
         assertEquals(18, results.count { it.second == DonorSessionAdmission.BUDGET_LIMIT })
-        assertEquals(2, plane.admittedSessionCount())
-        assertEquals(8, plane.admittedBudgetPerSecond())
+        assertEquals(2, plane.store.admittedSessionCount())
+        assertEquals(8, plane.store.admittedBudgetPerSecond())
         results.filter { it.second != DonorSessionAdmission.ACCEPTED }
             .forEach { it.first.close() }
-        plane.close()
+        results.filter { it.second == DonorSessionAdmission.ACCEPTED }
+            .forEach { closeSessions(plane, it.first) }
     }
 
     @Test
     fun `failure in one session falls back locally and leaves sibling active`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 2, maxAggregateBudgetPerSecond = 20)
         val failedSends = AtomicInteger()
         val successfulSends = AtomicInteger()
         val localCalls = AtomicInteger()
@@ -328,16 +343,16 @@ class MultiSessionWarmupDataPlaneTest {
             }
         )
         val successful = successfulSession("healthy", successfulSends, plane)
-        plane.admit(failed)
-        plane.admit(successful)
-        plane.activate(failed.sessionId)
-        plane.activate(successful.sessionId)
+        plane.admit(mappingFor(failed), failed)
+        plane.admit(mappingFor(successful), successful)
+        plane.store.activate(failed.sessionId)
+        plane.store.activate(successful.sessionId)
 
-        val fallback = plane.process(record(1)) {
+        val fallback = plane.records.process(record(1)) {
             localCalls.incrementAndGet()
             RecordProcessingOutcome.HandlerSucceeded
         }
-        val remote = plane.process(record(2)) {
+        val remote = plane.records.process(record(2)) {
             localCalls.incrementAndGet()
             RecordProcessingOutcome.HandlerSucceeded
         }
@@ -349,12 +364,12 @@ class MultiSessionWarmupDataPlaneTest {
         assertEquals(1, localCalls.get())
         assertFalse(failed.isActive())
         assertTrue(successful.isActive())
-        plane.close()
+        closeSessions(plane, failed, successful)
     }
 
     @Test
     fun `cancellation while waiting for a result never invokes local fallback`() = runBlocking {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions = 1, maxAggregateBudgetPerSecond = 10)
         val sent = CompletableDeferred<Unit>()
         val localCalls = AtomicInteger()
         val session = idleSession(
@@ -364,10 +379,10 @@ class MultiSessionWarmupDataPlaneTest {
                 WarmupSendAcknowledgement(TopicPartition(destination.topic, destination.partition), 1)
             }
         )
-        plane.admit(session)
-        plane.activate(session.sessionId)
+        plane.admit(mappingFor(session), session)
+        plane.store.activate(session.sessionId)
         val processing = async {
-            plane.process(record(1)) {
+            plane.records.process(record(1)) {
                 localCalls.incrementAndGet()
                 RecordProcessingOutcome.HandlerSucceeded
             }
@@ -375,7 +390,7 @@ class MultiSessionWarmupDataPlaneTest {
         sent.await()
 
         processing.cancelAndJoin()
-        plane.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds)
+        plane.store.stopDelegatingAndAwaitInflight(session.sessionId, 1.seconds)
 
         assertEquals(0, localCalls.get())
         assertEquals(0, session.pendingResultCount())
@@ -383,10 +398,25 @@ class MultiSessionWarmupDataPlaneTest {
         Unit
     }
 
+    private fun mappingFor(session: WarmupDonorSession<String, String>) = WarmupTopicMapping(
+        WarmupParticipantId("source"), "source", "warmup", "source-to-warmup",
+        WarmupMappingQuota(session.admissionBudgetPerSecond)
+    )
+
+    private fun closeSessions(
+        plane: WarmupDonorDataPlaneFixture<String, String>,
+        vararg sessions: WarmupDonorSession<String, String>
+    ) {
+        sessions.forEach { session ->
+            plane.store.stopDelegating(session.sessionId)
+            assertTrue(plane.removeDrainedSession(session.sessionId))
+        }
+    }
+
     private fun successfulSession(
         id: String,
         sends: AtomicInteger,
-        plane: MultiSessionWarmupDataPlane<String, String>
+        plane: WarmupDonorDataPlaneFixture<String, String>
     ): WarmupDonorSession<String, String> {
         val sessionId = WarmupSessionId(id)
         return idleSession(
@@ -394,7 +424,7 @@ class MultiSessionWarmupDataPlaneTest {
             sender = WarmupRecordSender { _, destination, actualSessionId ->
                 val offset = sends.getAndIncrement().toLong()
                 val topicPartition = TopicPartition(destination.topic, destination.partition)
-                plane.acceptResult(
+                plane.store.acceptResult(
                     WarmupRecordCompleted(
                         WarmupRecordId(actualSessionId, topicPartition, offset),
                         WarmupRemoteOutcome.Succeeded
