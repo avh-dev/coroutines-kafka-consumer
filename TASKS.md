@@ -557,6 +557,7 @@
 | [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
 | [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
 | [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
+| [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -6994,3 +6995,11 @@ _Date: 2026-11-25_
 Bind the demo deployment setting and pass it to the shared warm-up context.
 Verified with Kafka that a saturated donor handles the next record locally while the first result is pending.
 Passed six focused demo tests.
+
+<a id="infra-367"></a>
+### INFRA-367 - Limit in-flight delegations in the recipient-loss experiment
+
+_Date: 2026-11-25_
+
+Set the shared donor context limit to 200 for the existing optilab recipient-loss target.
+Verified the generated demo Deployment receives the limit and the experiment differs only by this setting.
