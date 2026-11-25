@@ -90,6 +90,7 @@ data class DemoApplicationProperties(
         var delegationTimeoutSeconds: Long = 10,
         var maxDonorSessions: Int = 4,
         var maxAggregateQuotaPerSecond: Int = Int.MAX_VALUE,
+        var maxInflightDelegations: Int = Int.MAX_VALUE,
         var producerLingerMs: Int = 5,
         var producerBatchSize: Int = 16_384
     )

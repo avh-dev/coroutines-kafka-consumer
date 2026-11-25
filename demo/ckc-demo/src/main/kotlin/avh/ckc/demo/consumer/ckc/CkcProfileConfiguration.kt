@@ -120,7 +120,7 @@ class CkcSyncProfileConfiguration {
         )
 }
 
-private class CkcConsumerRuntime(
+internal class CkcConsumerRuntime(
     private val properties: DemoApplicationProperties,
     private val orderHandler: suspend (String?, OrderLifecycleEvent) -> Unit,
     private val batchHandler: suspend (String?, BatchLifecycleEvent) -> Unit,
@@ -219,6 +219,7 @@ private class CkcConsumerRuntime(
             delegationTimeout = warmup.delegationTimeoutSeconds.seconds
             maxDonorSessions = warmup.maxDonorSessions
             maxAggregateQuotaPerSecond = warmup.maxAggregateQuotaPerSecond
+            maxInflightDelegations = warmup.maxInflightDelegations
             onLifecycleEvent { event ->
                 log.info(
                     "Warm-up lifecycle: phase={}, participantId={}, sessionId={}, reasonCode={}, recoveryDurationMillis={}",

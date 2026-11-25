@@ -208,6 +208,7 @@
 | [DEMO-109](#demo-109) | Make demo Redis business-state retention configurable while retaining the ten-minute default. | DONE |
 | [DEMO-113](#demo-113) | Distribute Armeria stub requests across discovered pod endpoints. | DONE |
 | [DEMO-114](#demo-114) | Accept root-path stub URLs in pod-aware Armeria routing. | DONE |
+| [DEMO-115](#demo-115) | Pass the demo warm-up in-flight delegation limit to the shared context. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -6984,3 +6985,12 @@ Determine the recipient delivery outcome from outstanding results and stored tra
 Passed 151 unit tests, 10 targeted Kafka integration tests, and two scenarios without Micrometer after the deadline fixes.
 Record the delivery failure before awaiting sender cleanup so stopping a participant preserves the recipient session outcome.
 Reproduced the lost reason with Kafka before the fix. Passed 151 unit tests, 11 targeted Kafka tests, and two scenarios without Micrometer afterward.
+
+<a id="demo-115"></a>
+### DEMO-115 - Wire the warm-up in-flight delegation limit
+
+_Date: 2026-11-25_
+
+Bind the demo deployment setting and pass it to the shared warm-up context.
+Verified with Kafka that a saturated donor handles the next record locally while the first result is pending.
+Passed six focused demo tests.

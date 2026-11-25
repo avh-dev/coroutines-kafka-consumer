@@ -61,6 +61,8 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.2")
+    testImplementation("org.testcontainers:testcontainers-kafka:2.0.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     constraints {
