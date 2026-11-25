@@ -98,7 +98,7 @@
 | [CORE-99](#core-99) | Coordinate warm-up context drain and prove completion before temporary Kafka shutdown. | DONE |
 | [CORE-100](#core-100) | Deliver in-flight warm-up delegation results during planned Kafka drain. | DONE |
 | [CORE-101](#core-101) | Stagger quota windows for concurrent warm-up sessions on one donor. | DONE |
-| [CORE-102](#core-102) | Use the production logical donor store and typed lanes in warm-up data plane tests. | IN_PROGRESS |
+| [CORE-102](#core-102) | Use the production logical donor store and typed lanes in warm-up data plane tests. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7033,4 +7033,4 @@ _Date: 2026-11-25_
 
 Part of [GLOBAL-5](#global-5). Migrate warm-up tests to the logical donor store and typed participant lanes used by the DSL.
 Preserve admission, routing, drain, revoke, cancellation, session isolation, and retryable cleanup coverage.
-Kotlin production and test sources compile. Test execution and umbrella merge are pending review.
+Passed 46 focused unit tests and 14 Kafka integration scenarios. Reviewed in commit `2e8704f8`.
