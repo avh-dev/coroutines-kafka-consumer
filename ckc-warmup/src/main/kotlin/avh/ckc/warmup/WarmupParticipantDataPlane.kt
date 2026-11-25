@@ -123,9 +123,14 @@ internal class WarmupParticipantDonorLane<K, V>(
         val sealed = mappingSessions.values.map(WarmupDonorSession<K, V>::trySealForRemoval)
         check(sealed.all { it } || sealed.none { it }) { "Participant mapping sessions sealed inconsistently" }
         if (!sealed.all { it }) return false
-        check(dataPlane.remove(this)) { "Sealed participant donor lane was not installed" }
+        dataPlane.remove(this)
         return true
     }
 
-    override fun close() = mappingSessions.values.toList().asReversed().forEach(WarmupDonorSession<K, V>::close)
+    override fun close() {
+        // Late preparation can reach close before the logical store takes ownership. Release the
+        // routing slot before closing senders. Identity-based removal leaves any replacement registered.
+        check(trySealForRemoval()) { "Warm-up donor lane must stop and drain before close" }
+        mappingSessions.values.toList().asReversed().forEach(WarmupDonorSession<K, V>::close)
+    }
 }

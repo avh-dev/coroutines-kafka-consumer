@@ -722,9 +722,18 @@ class WarmupDonorActivationTest {
                 activation.pendingCleanupResourceCount().takeIf { it == 1 }
             }
 
-            assertTrue(activation.awaitCleanupBarrier(2.seconds))
-            assertEquals(2, closeAttempts.get())
-            assertEquals(0, activation.pendingCleanupResourceCount())
+            // The failed close still owns its sender, but must already have released its routing slot.
+            val replacement = WarmupParticipantDonorLane(
+                accepted.sessionId, plane.records, mapOf(mapping to session(accepted.sessionId))
+            )
+            try {
+                assertTrue(activation.awaitCleanupBarrier(2.seconds))
+                assertEquals(2, closeAttempts.get())
+                assertEquals(0, activation.pendingCleanupResourceCount())
+                assertTrue(plane.records.remove(replacement), "The retry removed the replacement lane")
+            } finally {
+                replacement.close()
+            }
         } finally {
             releasePreparation.countDown()
             releaseFirstClose.countDown()
