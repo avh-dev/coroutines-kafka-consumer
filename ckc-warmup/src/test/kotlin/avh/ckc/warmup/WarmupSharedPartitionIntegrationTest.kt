@@ -251,7 +251,7 @@ class WarmupSharedPartitionIntegrationTest {
             topology.produceSource("blocked")
             withTimeout(10_000) { firstStarted.await() }
 
-            topology.plane.stopDelegating(first.sessionId)
+            topology.plane.store.stopDelegating(first.sessionId)
             val close = async { topology.closeSession(first) }
             topology.produceSource("sibling")
             awaitFor { second.handled.takeIf { "sibling" in it } }
@@ -305,7 +305,7 @@ class WarmupSharedPartitionIntegrationTest {
             topology.produceSource("fail-session")
             awaitFor { failedRecipient.handled.takeIf { "fail-session" in it } }
 
-            topology.plane.fail(failedRecipient.sessionId, IllegalStateException("capability lost"))
+            topology.plane.store.fail(failedRecipient.sessionId, IllegalStateException("capability lost"))
             topology.awaitSourceOffset(1)
             topology.produceSource("sibling-continues")
             topology.awaitSourceOffset(2)
@@ -336,7 +336,7 @@ class WarmupSharedPartitionIntegrationTest {
         assertTrue(pair.donorMessages.any { it is WarmupCompletionRequested })
         assertTrue(pair.recipientMessages.any { it is DonorClosed })
         assertTrue(pair.donorMessages.any { it is ControlRecordCompleted })
-        assertEquals(0, pair.plane.admittedSessionCount())
+        assertEquals(0, pair.plane.store.admittedSessionCount())
         assertTrue(pair.donorMetrics.processed.single().processedRemotely)
         assertFalse(pair.donor.stateSnapshot().failed)
         pair.close()
@@ -399,7 +399,7 @@ class WarmupSharedPartitionIntegrationTest {
             assertTrue(pair.recipientMessages.any {
                 it is SessionEnded && it.state == WarmupSessionEndState.COLD_FALLBACK
             })
-            assertEquals(0, pair.plane.admittedSessionCount())
+            assertEquals(0, pair.plane.store.admittedSessionCount())
             assertFalse(cold.stateSnapshot().failed)
         } finally {
             cold.stop()
@@ -529,7 +529,7 @@ class WarmupSharedPartitionIntegrationTest {
         private val mapping = mapping(participant, sourceTopic, warmupTopic)
         private val configurationFingerprint = "configuration-${UUID.randomUUID()}"
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val plane = MultiSessionWarmupDataPlane<String, String>(2, 2_000)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(2, 2_000)
         val donorMetrics = RecordingWarmupMetrics<String, String>()
         private val donorObserver = WarmupMetricsObserver(donorMetrics)
         val localHandled = CopyOnWriteArrayList<String>()
@@ -552,13 +552,13 @@ class WarmupSharedPartitionIntegrationTest {
                 topics(sourceTopic)
                 handle { localHandled += it.value() }
             }
-            .runtimeFactory().subscribed(consumerProperties(donorGroup), plane)
+            .runtimeFactory().subscribed(consumerProperties(donorGroup), plane.records)
         private lateinit var donorTransport: WarmupControlTransport
         private lateinit var recipientTransport: WarmupControlTransport
-        val donorActivation: WarmupDonorActivation<WarmupDonorSession<String, String>>
-        private val recipientActivation: WarmupDonorActivation<WarmupDonorSession<String, String>>
-        private val donorRuntime: WarmupDiscoveryRuntime<WarmupDonorSession<String, String>>
-        private val recipientRuntime: WarmupDiscoveryRuntime<WarmupDonorSession<String, String>>
+        val donorActivation: WarmupDonorActivation<LogicalWarmupDonorSession>
+        private val recipientActivation: WarmupDonorActivation<LogicalWarmupDonorSession>
+        private val donorRuntime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>
+        private val recipientRuntime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>
         private lateinit var request: WarmupRequested
         private lateinit var recipientDiscovery: WarmupRecipientDiscovery
         val outbox: WarmupCompletionOutbox
@@ -573,20 +573,20 @@ class WarmupSharedPartitionIntegrationTest {
                 localInstanceId = donorId,
                 namespace = namespace,
                 supportedMappings = listOf(mapping),
-                dataPlane = plane,
+                dataPlane = plane.store,
                 eligibility = MainConsumerWarmupDonorEligibility(mapOf(participant to donor)),
-                preparation = WarmupDonorSessionPreparation { acceptance -> donorSession(acceptance) },
+                preparation = plane.preparation(::donorSession),
                 scope = scope,
                 onPreparationFailed = { donorTransport.send(it) },
                 onDonorClosed = { donorTransport.send(it) },
                 drainTimeout = 3.seconds
             )
-            val recipientPlane = MultiSessionWarmupDataPlane<String, String>(1, 1)
+            val recipientStore = LogicalWarmupDonorSessionStore(1, 1)
             recipientActivation = WarmupDonorActivation(
                 localInstanceId = recipientId,
                 namespace = namespace,
                 supportedMappings = emptyList(),
-                dataPlane = recipientPlane,
+                dataPlane = recipientStore,
                 eligibility = WarmupDonorEligibility { null },
                 preparation = WarmupDonorSessionPreparation { error("Recipient is not a donor") },
                 scope = scope,
@@ -818,7 +818,7 @@ class WarmupSharedPartitionIntegrationTest {
         private val delegationTimeout: kotlin.time.Duration,
         private val donorGroup: String
     ) {
-        val plane = MultiSessionWarmupDataPlane<String, String>(maxSessions, maxSessions * 1_000)
+        val plane = WarmupDonorDataPlaneFixture<String, String>(maxSessions, maxSessions * 1_000)
         val donorMetrics = RecordingWarmupMetrics<String, String>()
         private val donorObserver = WarmupMetricsObserver(donorMetrics)
         val localHandled = CopyOnWriteArrayList<String>()
@@ -836,7 +836,7 @@ class WarmupSharedPartitionIntegrationTest {
                 topics(sourceTopic)
                 handle { localHandled += it.value() }
             }
-            .runtimeFactory().subscribed(consumerProperties(donorGroup), plane)
+            .runtimeFactory().subscribed(consumerProperties(donorGroup), plane.records)
 
         suspend fun startDonor() {
             donor.start()
@@ -857,7 +857,7 @@ class WarmupSharedPartitionIntegrationTest {
                     participant to warmupRecipientParticipantRuntime<String, String>(
                         consumerProperties(unique("ignored-recipient-group")),
                         completionPublisher = {
-                            WarmupCompletionPublisher { completed -> plane.acceptResult(completed) }
+                            WarmupCompletionPublisher { completed -> plane.store.acceptResult(completed) }
                         }
                     ) {
                         processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING
@@ -905,10 +905,12 @@ class WarmupSharedPartitionIntegrationTest {
                 observer = donorObserver
             )
             try {
-                assertEquals(DonorSessionAdmission.ACCEPTED, plane.admit(session))
-                assertTrue(plane.activate(sessionId))
+                val admission = plane.admit(mapping, session)
+                if (admission != DonorSessionAdmission.ACCEPTED) session.close()
+                assertEquals(DonorSessionAdmission.ACCEPTED, admission)
+                assertTrue(plane.store.activate(sessionId))
             } catch (error: Throwable) {
-                plane.stopDelegating(sessionId)
+                plane.store.stopDelegating(sessionId)
                 runCatching { plane.removeDrainedSession(sessionId) }
                 try {
                     prepared.stop()
@@ -931,7 +933,7 @@ class WarmupSharedPartitionIntegrationTest {
         }
 
         suspend fun closeSession(recipient: Recipient) {
-            plane.stopDelegatingAndAwaitInflight(recipient.sessionId, 10.seconds)
+            plane.store.stopDelegatingAndAwaitInflight(recipient.sessionId, 10.seconds)
             assertTrue(plane.removeDrainedSession(recipient.sessionId))
             if (!recipient.stopped) {
                 recipient.prepared.stop()

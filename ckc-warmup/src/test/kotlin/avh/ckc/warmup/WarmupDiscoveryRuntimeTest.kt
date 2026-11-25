@@ -170,12 +170,12 @@ class WarmupDiscoveryRuntimeTest {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = InMemoryControlChannel(router, remoteDonor, mapping, holdCompletionAck = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val store = LogicalWarmupDonorSessionStore(1, 10)
         val activation = WarmupDonorActivation(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = listOf(mapping),
-            dataPlane = plane,
+            dataPlane = store,
             eligibility = WarmupDonorEligibility { null },
             preparation = WarmupDonorSessionPreparation { error("local donor is not selected") },
             scope = scope,
@@ -252,12 +252,12 @@ class WarmupDiscoveryRuntimeTest {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = PartialReadinessFailureChannel(router, requestedMappings)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val store = LogicalWarmupDonorSessionStore(1, 10)
         val activation = WarmupDonorActivation(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = emptyList(),
-            dataPlane = plane,
+            dataPlane = store,
             eligibility = WarmupDonorEligibility { null },
             preparation = WarmupDonorSessionPreparation { error("local donor is not selected") },
             scope = scope,
@@ -319,7 +319,7 @@ class WarmupDiscoveryRuntimeTest {
             recipientId,
             namespace,
             listOf(mapping),
-            MultiSessionWarmupDataPlane<String, String>(1, 10),
+            LogicalWarmupDonorSessionStore(1, 10),
             WarmupDonorEligibility { null },
             WarmupDonorSessionPreparation { error("local donor is not selected") },
             scope,
@@ -375,7 +375,7 @@ class WarmupDiscoveryRuntimeTest {
             recipientId,
             namespace,
             listOf(mapping),
-            MultiSessionWarmupDataPlane<String, String>(1, 10),
+            LogicalWarmupDonorSessionStore(1, 10),
             WarmupDonorEligibility { null },
             WarmupDonorSessionPreparation { error("local donor is not selected") },
             scope,
@@ -429,12 +429,12 @@ class WarmupDiscoveryRuntimeTest {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = InMemoryControlChannel(router, remoteDonor, mapping, acknowledgeCompletion = false)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val plane = MultiSessionWarmupDataPlane<String, String>(1, 10)
+        val store = LogicalWarmupDonorSessionStore(1, 10)
         val activation = WarmupDonorActivation(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = listOf(mapping),
-            dataPlane = plane,
+            dataPlane = store,
             eligibility = WarmupDonorEligibility { null },
             preparation = WarmupDonorSessionPreparation { error("local donor is not selected") },
             scope = scope,
