@@ -288,14 +288,28 @@ sessions, the main consumer, or locally handled records.
 `quotaProfile` uses the generator-style form `quota -> (duration, optional label) -> quota`.
 Equal endpoints form a hold, unequal endpoints with a non-zero duration form a linear transition,
 and `0s` performs an instantaneous change. Quotas are absolute budgets for one `quotaInterval`, may
-be zero, may increase or decrease, and hold the last value after the profile ends. The profile starts
-on the first delegation attempt and phase changes do not reset the current quota window; unused
-capacity never carries into a later window.
+be zero, may increase or decrease, and hold the last value after the profile ends. Each mapping
+starts its ramp on its first delegation attempt in an open window. Ramp transitions compare
+the current absolute budget with the quota already used in that window.
+
+The first active session for an interval establishes the donor's monotonic schedule and can
+delegate immediately. Each subsequent session takes the midpoint of the largest gap between
+reserved phases on the circle, using the lower candidate phase to break ties. For a one-second
+interval, three recipients joining in order start their windows at 0, 500, and 250 ms within
+each period. Each session reserves one phase per distinct interval across its mappings and
+starts at the first occurrence of that phase at or after activation. Other sessions joining or
+leaving preserve the existing window boundaries and budgets. Skipped windows accrue no budget.
+
+Once a window opens, a mapping can delegate its available quota in a burst for Kafka batching.
+`maxInflightDelegations` caps outstanding delegations across all mappings and sessions on
+the donor, including work waiting for Kafka acknowledgement or a recipient result. In round-robin
+order the donor checks other sessions for available quota, then processes locally when none can
+take the record. A full in-flight limit preserves the unused quota for the rest of its window.
 
 Configuration building parses and validates the string once. Fingerprints and control messages use
 only the normalized numeric initial quota and `(durationMillis, targetQuota)` phases, so whitespace
 and labels do not affect compatibility. Admission uses the largest quota anywhere in the profile.
-Every mapping in every donor session has an independent clock and quota state.
+Every mapping in every donor session retains independent ramp and quota state.
 
 ## Recipient early filtering and offsets
 

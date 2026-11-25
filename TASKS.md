@@ -97,6 +97,7 @@
 | [CORE-98](#core-98) | Bound concurrent donor delegations across a warm-up context. | DONE |
 | [CORE-99](#core-99) | Coordinate warm-up context drain and prove completion before temporary Kafka shutdown. | DONE |
 | [CORE-100](#core-100) | Deliver in-flight warm-up delegation results during planned Kafka drain. | DONE |
+| [CORE-101](#core-101) | Stagger quota windows for concurrent warm-up sessions on one donor. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7003,3 +7004,13 @@ _Date: 2026-11-25_
 
 Set the shared donor context limit to 200 for the existing optilab recipient-loss target.
 Verified the generated demo Deployment receives the limit and the experiment differs only by this setting.
+
+<a id="core-101"></a>
+### CORE-101 - Stagger donor quota windows
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Assign repeating quota window phases to concurrent recipient sessions on one donor.
+Keep mapping quotas independent and preserve the shared in-flight delegation limit.
+Verify phase boundaries, skipped windows, phase reuse after cleanup, and the shared 300-record limit with controlled clocks.
+Passed 158 unit tests, 50 Kafka scenarios plus a focused rerun of the updated two-recipient scenario, two scenarios without Micrometer, and the demo in-flight limit integration test.

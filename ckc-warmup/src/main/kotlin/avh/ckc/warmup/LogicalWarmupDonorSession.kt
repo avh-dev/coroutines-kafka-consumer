@@ -102,7 +102,8 @@ internal class LogicalWarmupDonorSessionStore(
 internal class LogicalWarmupDonorSession(
     override val sessionId: WarmupSessionId,
     override val admissionBudgetPerSecond: Int,
-    lanes: List<WarmupDonorSessionLifecycle>
+    lanes: List<WarmupDonorSessionLifecycle>,
+    private val quotaPhases: WarmupDonorQuotaPhases.Session? = null
 ) : WarmupDonorSessionLifecycle {
     private val lanes = lanes.toList()
 
@@ -115,6 +116,7 @@ internal class LogicalWarmupDonorSession(
     }
 
     override fun activate(): Boolean {
+        if (quotaPhases?.activate() == false) return false
         val activated = mutableListOf<WarmupDonorSessionLifecycle>()
         for (lane in lanes) {
             if (!lane.activate()) {
@@ -159,8 +161,13 @@ internal class LogicalWarmupDonorSession(
         // indicates an invariant violation and must not be hidden as a retryable state.
         val results = lanes.map(WarmupDonorSessionLifecycle::trySealForRemoval)
         check(results.all { it } || results.none { it }) { "Logical donor lanes sealed inconsistently" }
-        return results.all { it }
+        val sealed = results.all { it }
+        if (sealed) quotaPhases?.release()
+        return sealed
     }
 
-    override fun close() = lanes.asReversed().forEach(WarmupDonorSessionLifecycle::close)
+    override fun close() {
+        lanes.asReversed().forEach(WarmupDonorSessionLifecycle::close)
+        quotaPhases?.release()
+    }
 }

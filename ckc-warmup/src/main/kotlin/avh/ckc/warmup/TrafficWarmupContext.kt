@@ -17,6 +17,7 @@ import avh.ckc.warmup.protocol.normalizedAdmissionBudget
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -87,6 +88,7 @@ class TrafficWarmupContext internal constructor(
     private val lock = Any()
     private val instanceId = WarmupInstanceId(configuration.instanceId)
     private val namespace = WarmupControlNamespace(configuration.namespace)
+    private val donorQuotaPhases = WarmupDonorQuotaPhases()
     private val delegationAdmissionOpen = AtomicBoolean(configuration.brokerLifecycleConfiguration == null)
     internal val inflightDelegations = Semaphore(configuration.maxInflightDelegations.also {
         require(it > 0) { "maxInflightDelegations must be positive" }
@@ -462,17 +464,21 @@ class TrafficWarmupContext internal constructor(
     }
 
     private suspend fun prepareLogicalDonorSession(acceptance: SessionAccepted): LogicalWarmupDonorSession {
+        val quotaPhases = donorQuotaPhases.Session(
+            acceptance.mappings.map { it.mapping.quota.quotaIntervalMillis.milliseconds }.toSet()
+        )
         val prepared = mutableListOf<WarmupDonorSessionLifecycle>()
         try {
             acceptance.mappings.groupBy { it.mapping.participantId }.forEach { (participantId, _) ->
                 val participant = synchronized(lock) { participants[participantId]?.participant }
                     ?: error("Unknown warm-up participant ${participantId.value}")
-                prepared += participant.prepareDonorLane(acceptance)
+                prepared += participant.prepareDonorLane(acceptance, quotaPhases)
             }
             return LogicalWarmupDonorSession(
                 acceptance.sessionId,
                 acceptance.admissionBudgetPerSecond,
-                prepared
+                prepared,
+                quotaPhases
             )
         } catch (error: Throwable) {
             withContext(execution.blocking) {
