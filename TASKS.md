@@ -559,6 +559,7 @@
 | [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
 | [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
+| [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -7014,3 +7015,12 @@ Part of [GLOBAL-5](#global-5). Assign repeating quota window phases to concurren
 Keep mapping quotas independent and preserve the shared in-flight delegation limit.
 Verify phase boundaries, skipped windows, phase reuse after cleanup, and the shared 300-record limit with controlled clocks.
 Passed 158 unit tests, 50 Kafka scenarios plus a focused rerun of the updated two-recipient scenario, two scenarios without Micrometer, and the demo in-flight limit integration test.
+
+<a id="infra-368"></a>
+### INFRA-368 - Limit in-flight warm-up delegations
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Set the shared donor limit to 300 for experiment targets with traffic warm-up enabled.
+Validated all 11 experiment definitions and enabled target environments; installed and verified their profiles on optilab.
+The running experiment retains its original resolved configuration until a new run.

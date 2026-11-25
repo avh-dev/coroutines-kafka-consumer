@@ -127,6 +127,7 @@ targets:
     env:
       <<: *common_env
       TRAFFIC_WARMUP_ENABLED: true
+      TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS: 300
       TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
       TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: 1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300
       TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
