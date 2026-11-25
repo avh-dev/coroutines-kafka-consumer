@@ -99,6 +99,7 @@
 | [CORE-100](#core-100) | Deliver in-flight warm-up delegation results during planned Kafka drain. | DONE |
 | [CORE-101](#core-101) | Stagger quota windows for concurrent warm-up sessions on one donor. | DONE |
 | [CORE-102](#core-102) | Use the production logical donor store and typed lanes in warm-up data plane tests. | DONE |
+| [CORE-103](#core-103) | Extract the lifecycle of a single warm-up recipient attempt. | IN_PROGRESS |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
@@ -7044,3 +7045,12 @@ _Date: 2026-11-25_
 Part of [GLOBAL-5](#global-5). Deregister a lane when its donor preparation loses the cancellation race.
 Preserve retryable resource cleanup and isolate a replacement lane from cleanup retries for the previous lane.
 Passed all 40 focused unit tests. Reviewed in commit `d1a25af2`.
+
+<a id="core-103"></a>
+### CORE-103 - Extract the warm-up recipient attempt
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Move discovery, result delivery, interruption, terminal outcome, broker-drain deadlines, and retryable cleanup into the recipient attempt.
+Keep participant registration, main runtimes, donor coordination, and shared resources in the context.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo. Focused test execution and umbrella merge are pending.
