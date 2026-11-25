@@ -1046,7 +1046,10 @@ class TrafficWarmupContextIntegrationTest {
             whenever(mainConsumer.runtimeControl).thenReturn(runtimeControl)
         }
 
-        override fun prepareDonorLane(acceptance: SessionAccepted): WarmupDonorSessionLifecycle =
+        override fun prepareDonorLane(
+            acceptance: SessionAccepted,
+            quotaPhases: WarmupDonorQuotaPhases.Session
+        ): WarmupDonorSessionLifecycle =
             error("The recipient is never selected as a donor in this test")
 
         override suspend fun prepareRecipient(
@@ -1642,21 +1645,28 @@ class TrafficWarmupContextIntegrationTest {
         createTopics(source, warmup, control)
         val namespace = unique("multi-recipient")
         val group = unique("multi-recipient-group")
-        val donorHandled = CopyOnWriteArrayList<String>()
+        val forwarded = CopyOnWriteArrayList<TrafficWarmupForwardedEvent>()
         val firstHandled = CopyOnWriteArrayList<String>()
         val secondHandled = CopyOnWriteArrayList<String>()
-        val firstWarming = CompletableDeferred<Unit>()
-        val secondWarming = CompletableDeferred<Unit>()
-        val donor = stringConsumer(context(namespace, control), "records", source, warmup, group, donorHandled)
+        val firstWarming = CompletableDeferred<String>()
+        val secondWarming = CompletableDeferred<String>()
+        val donor = stringConsumer(
+            context(namespace, control), "records", source, warmup, group, CopyOnWriteArrayList(),
+            forwarded = forwarded
+        )
         val first = stringConsumer(
-            context(namespace, control, lifecycleObserver = { event ->
-                if (event.phase == TrafficWarmupLifecyclePhase.WARMING) firstWarming.complete(Unit)
+            context(namespace, control, warmupDuration = 6.seconds, lifecycleObserver = { event ->
+                if (event.phase == TrafficWarmupLifecyclePhase.WARMING) {
+                    firstWarming.complete(checkNotNull(event.sessionId))
+                }
             }),
             "records", source, warmup, group, firstHandled
         )
         val second = stringConsumer(
-            context(namespace, control, lifecycleObserver = { event ->
-                if (event.phase == TrafficWarmupLifecyclePhase.WARMING) secondWarming.complete(Unit)
+            context(namespace, control, warmupDuration = 6.seconds, lifecycleObserver = { event ->
+                if (event.phase == TrafficWarmupLifecyclePhase.WARMING) {
+                    secondWarming.complete(checkNotNull(event.sessionId))
+                }
             }),
             "records", source, warmup, group, secondHandled
         )
@@ -1664,17 +1674,24 @@ class TrafficWarmupContextIntegrationTest {
             donor.start()
             withTimeout(10.seconds) { donor.awaitReady() }
             listOf(launch { first.start() }, launch { second.start() }).joinAll()
-            withTimeout(10.seconds) {
-                firstWarming.await()
-                secondWarming.await()
+            val recipientSessions = withTimeout(10.seconds) {
+                setOf(firstWarming.await(), secondWarming.await())
             }
-            repeat(12) { index -> produce(source, "key-$index", "value-$index", StringSerializer()) }
+            assertEquals(2, recipientSessions.size)
+            // Keep sending across the phase boundaries and verify the donor serves both live sessions.
+            withTimeout(4.seconds) {
+                var index = 0
+                while (forwarded.map { it.sessionId }.toSet() != recipientSessions) {
+                    produce(source, "key-$index", "value-$index", StringSerializer())
+                    index++
+                    delay(125.milliseconds)
+                }
+            }
+            awaitFor { firstHandled.isNotEmpty() && secondHandled.isNotEmpty() }
             withTimeout(15.seconds) {
                 first.awaitReady()
                 second.awaitReady()
             }
-            awaitFor { firstHandled.isNotEmpty() && secondHandled.isNotEmpty() }
-            assertTrue(donorHandled.isEmpty())
         } finally {
             val failures = listOf(second, first, donor).mapNotNull { consumer ->
                 runCatching { consumer.stop() }.exceptionOrNull()

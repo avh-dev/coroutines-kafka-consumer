@@ -54,7 +54,8 @@ internal class WarmupDonorSession<K, V>(
     earlyResultTtl: Duration = delegationTimeout,
     nanoTime: () -> Long = System::nanoTime,
     private val inflightDelegations: Semaphore = Semaphore(Int.MAX_VALUE),
-    private val canDelegate: () -> Boolean = { true }
+    private val canDelegate: () -> Boolean = { true },
+    private val firstQuotaWindowStart: (() -> Long)? = null
 ) : WarmupDonorSessionLifecycle {
     override val admissionBudgetPerSecond: Int = normalizedSessionBudget(quotaProfile.maximumQuota, quotaInterval)
     private enum class State { ADMITTED, ACTIVE, DRAINING, FAILED, CLOSED }
@@ -89,6 +90,7 @@ internal class WarmupDonorSession<K, V>(
 
     override fun activate(): Boolean = synchronized(sessionLock) {
         if (state != State.ADMITTED) return@synchronized false
+        firstQuotaWindowStart?.let { quota.startAt(it()) }
         state = State.ACTIVE
         true
     }

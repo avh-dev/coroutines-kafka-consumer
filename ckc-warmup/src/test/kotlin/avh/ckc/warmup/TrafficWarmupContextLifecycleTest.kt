@@ -170,7 +170,10 @@ class TrafficWarmupContextLifecycleTest {
             whenever(mainConsumer.runtimeControl).thenReturn(runtimeControl)
         }
 
-        override fun prepareDonorLane(acceptance: SessionAccepted): WarmupDonorSessionLifecycle =
+        override fun prepareDonorLane(
+            acceptance: SessionAccepted,
+            quotaPhases: WarmupDonorQuotaPhases.Session
+        ): WarmupDonorSessionLifecycle =
             error("Protocol initialization must fail before donor preparation")
 
         override suspend fun prepareRecipient(

@@ -4,37 +4,45 @@ import avh.ckc.warmup.protocol.WarmupQuotaProfile
 import kotlin.time.Duration
 
 /**
- * Atomic interval quota with no carry-over of unused capacity.
- *
- * The first acquisition attempt starts both the first quota window and [profile]. Each later window
- * starts lazily on the first attempt after [interval] elapsed. Profile transitions never reset the
- * current window: its already used budget is compared with the profile's current absolute quota.
- * Unused capacity is discarded when a new window begins.
+ * Atomic mapping quota tied to fixed window boundaries. The ramp starts on the first attempt in an
+ * open window and its current absolute quota is compared with that window's already used budget.
  */
 internal class IntervalQuota(
     private val profile: WarmupQuotaProfile,
-    private val interval: Duration,
+    interval: Duration,
     private val nanoTime: () -> Long = System::nanoTime
 ) {
     private val intervalNanos = interval.inWholeNanoseconds
-    private var profileStartedAt = Long.MIN_VALUE
-    private var windowStartedAt = Long.MIN_VALUE
+    private var windowEpoch: Long? = null
+    private var profileStartedAt: Long? = null
+    private var currentWindow = -1L
     private var used = 0
 
     init {
         require(interval.isPositive()) { "Warm-up quota interval must be > 0" }
     }
 
+    @Synchronized
+    fun startAt(firstWindowStart: Long) {
+        check(windowEpoch == null) { "Warm-up quota windows already started" }
+        windowEpoch = firstWindowStart
+    }
+
     /** Consumes quota only after the caller also reserves capacity for an eligible record. */
     @Synchronized
     fun tryAcquire(tryReserve: () -> Boolean = { true }): Boolean {
         val now = nanoTime()
-        if (profileStartedAt == Long.MIN_VALUE || now < profileStartedAt) profileStartedAt = now
-        if (windowStartedAt == Long.MIN_VALUE || now < windowStartedAt || now - windowStartedAt >= intervalNanos) {
-            windowStartedAt = now
+        val firstWindow = windowEpoch ?: now.also { windowEpoch = it }
+        val elapsed = now - firstWindow
+        if (elapsed < 0) return false
+        val window = elapsed / intervalNanos
+        if (currentWindow != window) {
+            currentWindow = window
             used = 0
         }
-        if (used >= profile.quotaAt(now - profileStartedAt)) return false
+        val profileStart = profileStartedAt ?: now.also { profileStartedAt = it }
+        val profileElapsed = now - profileStart
+        if (used >= profile.quotaAt(profileElapsed)) return false
         if (!tryReserve()) return false
         used++
         return true

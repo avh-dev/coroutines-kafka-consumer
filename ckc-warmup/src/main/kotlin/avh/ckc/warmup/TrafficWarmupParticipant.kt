@@ -22,7 +22,10 @@ internal interface RegisteredTrafficWarmupParticipant {
     val warmupConsumerProperties: Map<String, Any?>
     val mainConsumer: CoroutinesKafkaConsumer<*, *>
 
-    fun prepareDonorLane(acceptance: SessionAccepted): WarmupDonorSessionLifecycle
+    fun prepareDonorLane(
+        acceptance: SessionAccepted,
+        quotaPhases: WarmupDonorQuotaPhases.Session
+    ): WarmupDonorSessionLifecycle
     suspend fun prepareRecipient(
         sessionId: WarmupSessionId,
         start: WarmupDestinationStart,
@@ -65,7 +68,10 @@ internal class TrafficWarmupParticipant<K, V>(
         }
     }
 
-    override fun prepareDonorLane(acceptance: SessionAccepted): WarmupDonorSessionLifecycle {
+    override fun prepareDonorLane(
+        acceptance: SessionAccepted,
+        quotaPhases: WarmupDonorQuotaPhases.Session
+    ): WarmupDonorSessionLifecycle {
         val selected = acceptance.mappings.filter { it.mapping.participantId == participantId }
         require(selected.isNotEmpty()) { "Donor acceptance contains no mappings for ${participantId.value}" }
         val sessions = linkedMapOf<WarmupTopicMapping, WarmupDonorSession<K, V>>()
@@ -73,10 +79,12 @@ internal class TrafficWarmupParticipant<K, V>(
             selected.forEach { donorMapping ->
                 val mapping = mappings.single { it == donorMapping.mapping }
                 val quota = mapping.quota
+                val interval = quota.quotaIntervalMillis.milliseconds
                 sessions[mapping] = WarmupDonorSession(
                     sessionId = acceptance.sessionId,
                     quotaProfile = quota.profile,
-                    quotaInterval = quota.quotaIntervalMillis.milliseconds,
+                    quotaInterval = interval,
+                    firstQuotaWindowStart = { quotaPhases.firstWindowStart(interval) },
                     delegationTimeout = delegationTimeoutMillis.milliseconds,
                     destinationResolver = WarmupDestinationResolver { record ->
                         if (record.topic() == mapping.sourceTopic) WarmupDestination(mapping.warmupTopic) else null

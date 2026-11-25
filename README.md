@@ -190,6 +190,17 @@ val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
 Provision the control topic and a single-partition destination topic before starting the consumer.
 Instances that share a namespace use the same participant IDs and mappings.
 
+A donor staggers quota windows for concurrent recipient sessions that use the same
+`quotaInterval`. For a one-second interval, the first three recipients get window starts
+at 0, 500, and 250 ms within each second of the donor's schedule. The first can delegate
+immediately. Each mapping can send its available quota as a batch once its window opens.
+Mappings retain their own quota profiles and share a session's phase only when their
+intervals match. Unused quota expires at the next window boundary.
+
+The mapping quota limits how many records can be delegated per interval.
+`maxInflightDelegations` limits how many delegations the donor can have outstanding at once,
+including when it serves a single recipient whose results stop arriving.
+
 `maxInflightDelegations` accepts values from `1` to `Int.MAX_VALUE` and defaults to `Int.MAX_VALUE`.
 Each `TrafficWarmupContext` has its own limit shared by all its donor sessions, participants, and source topics.
 A delegation holds a place from admission before the Kafka send through the producer ACK, the recipient result,
