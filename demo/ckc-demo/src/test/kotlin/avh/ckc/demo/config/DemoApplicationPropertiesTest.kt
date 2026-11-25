@@ -56,6 +56,7 @@ class DemoApplicationPropertiesTest {
         assertEquals(1_000, properties.trafficWarmup.mappings.cauldronEvents.quotaIntervalMs)
         assertEquals(90, properties.trafficWarmup.durationSeconds)
         assertEquals(4, properties.trafficWarmup.maxDonorSessions)
+        assertEquals(Int.MAX_VALUE, properties.trafficWarmup.maxInflightDelegations)
         assertEquals(5, properties.trafficWarmup.producerLingerMs)
         assertEquals(16_384, properties.trafficWarmup.producerBatchSize)
         assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)

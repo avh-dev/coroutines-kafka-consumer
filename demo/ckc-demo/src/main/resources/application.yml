@@ -222,6 +222,7 @@ demo:
     delegation-timeout-seconds: ${TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS:10}
     max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
     max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
+    max-inflight-delegations: ${TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS:2147483647}
     producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
     producer-batch-size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
   consumers:
