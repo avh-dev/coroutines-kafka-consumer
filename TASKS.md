@@ -102,7 +102,7 @@
 | [CORE-103](#core-103) | Extract the lifecycle of a single warm-up recipient attempt. | DONE |
 | [CORE-104](#core-104) | Simplify the warm-up control transport and broker lifecycle. | DONE |
 | [CORE-105](#core-105) | Define and document the warm-up public API. | DONE |
-| [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | IN_PROGRESS |
+| [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | DONE |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
