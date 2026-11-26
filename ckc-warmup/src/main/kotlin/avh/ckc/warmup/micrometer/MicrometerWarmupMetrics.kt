@@ -10,6 +10,7 @@ import avh.ckc.warmup.WarmupResultMetricOutcome
 import java.util.concurrent.TimeUnit
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
+/** Maps warm-up callbacks to meters under the participant consumer binding. */
 internal class MicrometerWarmupMetrics<K, V>(
     private val binding: MicrometerConsumerMeterBinding
 ) : WarmupMetrics<K, V> {

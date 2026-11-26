@@ -20,11 +20,13 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.header.internals.RecordHeaders
 
+/** Coordinates of an append to the warm-up destination. */
 internal data class WarmupSendAcknowledgement(
     val topicPartition: TopicPartition,
     val offset: Long
 )
 
+/** Forwards one record with the recipient session and optional delegation correlation information. */
 internal fun interface WarmupRecordSender<K, V> {
     suspend fun send(
         record: ConsumerRecord<K, V>,

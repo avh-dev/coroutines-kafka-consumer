@@ -159,7 +159,11 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         this.handler = KafkaRecordHandler(handler)
     }
 
-    /** Configures one extension to assemble this consumer and any associated runtimes. */
+    /**
+     * Registers the single runtime extension for this builder. It receives a factory snapshot and
+     * the main Kafka properties at build time. Return the main consumer and attach any coordinating
+     * lifecycle before it starts. The extension owns auxiliary runtimes and their cleanup.
+     */
     fun extendRuntime(
         extension: (ConsumerRuntimeFactory<K, V>, Map<String, Any?>) -> CoroutinesKafkaConsumer<K, V>
     ) {
@@ -171,9 +175,10 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
         runtimeExtension?.invoke(runtimeFactory(), consumerProperties.toMap())
             ?: buildSubscribed(consumerProperties, localRecordInterceptor())
 
-    /** Captures the handler and processing policies for subscribed and explicitly assigned runtimes. */
+    /** Captures a snapshot of the subscription, handler, metrics, and policies for extension runtime creation. */
     fun runtimeFactory(): ConsumerRuntimeFactory<K, V> = snapshot().RuntimeFactory()
 
+    /** Assembles runtimes from the private, captured builder snapshot. */
     private inner class RuntimeFactory : ConsumerRuntimeFactory<K, V> {
         override val subscribedTopics: List<String>? = topics?.toList()
         override val metrics: ConsumerMetrics<K, V> = this@CoroutinesKafkaConsumerBuilder.metrics

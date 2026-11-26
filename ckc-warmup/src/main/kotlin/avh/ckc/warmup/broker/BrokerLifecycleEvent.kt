@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 
+/** Journal entries that establish broker epochs, context membership, and drain progress. */
 internal sealed interface BrokerLifecycleEvent {
     val epoch: String
 

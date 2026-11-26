@@ -14,6 +14,7 @@ import org.apache.kafka.clients.consumer.Consumer
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 
+/** Publishes one mapping result after terminal recipient processing. */
 internal fun interface WarmupCompletionPublisher {
     /** Enqueues a terminal recipient result without blocking the processing worker. */
     fun publish(completed: WarmupRecordCompleted)

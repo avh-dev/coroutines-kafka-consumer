@@ -34,8 +34,10 @@ internal interface WarmupResultAdmission {
     fun release(record: ConsumerRecord<*, *>)
 }
 
+/** Mapping-local admission and terminal publication over the shared result outbox. */
 internal interface WarmupResultLane : WarmupCompletionPublisher, WarmupResultAdmission
 
+/** Observes outbox capacity, delivery failures, and drain for one mapping. */
 internal interface WarmupResultDeliveryObserver {
     fun onStateChanged(
         version: Long,
@@ -49,6 +51,7 @@ internal interface WarmupResultDeliveryObserver {
     fun onDrain(durationNanos: Long, outcome: LifecycleOutcome) = Unit
 }
 
+/** Default observer for a mapping with no result delivery metrics. */
 private object NoOpWarmupResultDeliveryObserver : WarmupResultDeliveryObserver
 
 /** Serializes aggregate publication so a delayed callback cannot overwrite a newer gauge value. */
@@ -105,6 +108,7 @@ internal class WarmupResultDeliveryMetricsObserver<K, V>(
     }
 }
 
+/** Outbox key that matches a queued terminal result to its reservation. */
 private data class WarmupResultCoordinate(val topic: String, val partition: Int, val offset: Long)
 
 /**
@@ -542,6 +546,7 @@ internal class WarmupCompletionOutbox(
     }
 }
 
+/** Current per-mapping counts for recipient result delivery and admission pressure. */
 internal data class WarmupResultDeliverySnapshot(
     val outstanding: Int,
     val queued: Int,
@@ -549,9 +554,11 @@ internal data class WarmupResultDeliverySnapshot(
     val admissionLimitedLanes: Int
 )
 
+/** Reports a failed terminal-result pipeline to the recipient attempt. */
 internal open class WarmupResultDeliveryException(message: String, cause: Throwable? = null) :
     IllegalStateException(message, cause)
 
+/** Preserves producer cancellation as a delivery failure for the attempt. */
 internal class WarmupCompletionOutboxCancelledException(cause: Throwable) :
     WarmupResultDeliveryException("Warm-up completion outbox worker was cancelled before drain", cause)
 

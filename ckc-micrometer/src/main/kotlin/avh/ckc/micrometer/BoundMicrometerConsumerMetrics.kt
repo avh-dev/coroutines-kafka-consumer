@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
+/** Owns the meters and native client bindings for a single consumer runtime ID. */
 internal class BoundMicrometerConsumerMetrics<K, V>(
     private val schema: MicrometerConsumerMetricsSchema,
     private val consumerId: String,

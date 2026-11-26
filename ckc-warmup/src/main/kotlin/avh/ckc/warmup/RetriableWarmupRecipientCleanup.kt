@@ -28,6 +28,7 @@ internal class RetriableWarmupRecipientCleanup(
     }
 }
 
+/** Reports a cleanup attempt that still owns prepared recipient resources. */
 internal class WarmupRecipientCleanupIncompleteException(
     val result: WarmupRecipientCleanupResult.Incomplete
 ) : IllegalStateException(

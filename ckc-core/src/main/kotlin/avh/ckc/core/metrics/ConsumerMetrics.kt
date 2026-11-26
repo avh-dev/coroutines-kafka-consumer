@@ -8,10 +8,11 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
  *
  * Implementations are expected to be non-blocking and safe to call from multiple coroutine contexts:
  * poll loops, worker coroutines, and shutdown paths can invoke callbacks concurrently. All methods have no-op
- * defaults so consumers can implement only the signals they export.
+ * defaults so consumers can implement only the signals they export. Keep callbacks exception-free.
+ * Callback exceptions can propagate into the core runtime.
  */
 interface ConsumerMetrics<K, V> {
-    /** Exposes an optional metrics backend binding to a library extension. */
+    /** Returns the requested backend binding when supported, or `null`. Wrappers can delegate this lookup. */
     fun <T : Any> unwrap(type: Class<T>): T? = null
 
     /**
@@ -92,8 +93,10 @@ interface ConsumerMetrics<K, V> {
     /**
      * Records a successful source outcome and identifies whether this consumer ran the handler.
      * The compatibility overload remains the audit seam for implementations that need both local
-     * and remotely confirmed success; metric adapters may suppress ordinary processing series for
-     * [processedRemotely] callbacks.
+     * and remotely confirmed success. When [processedRemotely] is true, durations describe the
+     * source-side lifecycle including delegation, in milliseconds for end-to-end latency and
+     * nanoseconds for processing. Adapters can use the flag to avoid counting recipient handler
+     * execution again in ordinary processing series.
      */
     fun onRecordProcessed(
         key: K?,

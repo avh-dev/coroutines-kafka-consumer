@@ -1,5 +1,6 @@
 package avh.ckc.warmup.broker
 
+/** A broker lifecycle event with its journal offset and Kafka timestamp. */
 internal data class BrokerLifecycleRecord(val offset: Long, val event: BrokerLifecycleEvent, val timestamp: Long = 0)
 
 /** Replays a contiguous lifecycle log. A fresh Started establishes a new membership history. */

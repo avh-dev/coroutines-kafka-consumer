@@ -38,6 +38,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.common.TopicPartition
 import org.slf4j.LoggerFactory
 
+/** Captures the destination partition and exact offset for starting one recipient runtime. */
 internal data class WarmupDestinationStart(
     val assignment: WarmupPartitionAssignment,
     val offset: Long
@@ -52,6 +53,7 @@ internal fun interface WarmupDestinationMetadata {
     suspend fun endOffsets(mapping: WarmupTopicMapping): Map<Int, Long>
 }
 
+/** Represents a prepared mapping runtime that the recipient session must stop or abort. */
 internal interface PreparedWarmupRecipientConsumer {
     val assignment: WarmupPartitionAssignment
     val startOffset: Long
@@ -62,6 +64,7 @@ internal interface PreparedWarmupRecipientConsumer {
     suspend fun abort(): Boolean = false
 }
 
+/** Builds the recipient runtime for a captured destination offset. */
 internal fun interface WarmupRecipientConsumerPreparation {
     suspend fun prepare(
         sessionId: WarmupSessionId,
@@ -69,11 +72,13 @@ internal fun interface WarmupRecipientConsumerPreparation {
     ): PreparedWarmupRecipientConsumer
 }
 
+/** Result of selecting donors with complete coverage for the recipient mappings. */
 internal sealed interface WarmupRecipientSelection {
     data class Accepted(val messages: List<SessionAccepted>) : WarmupRecipientSelection
     data class ColdFallback(val reasonCode: String) : WarmupRecipientSelection
 }
 
+/** Readiness publications or the cleanup result of failed recipient preparation. */
 internal sealed interface WarmupRecipientPreparationResult {
     data class Ready(val messages: List<RecipientReady>) : WarmupRecipientPreparationResult
     data class ColdFallback(
@@ -82,6 +87,7 @@ internal sealed interface WarmupRecipientPreparationResult {
     ) : WarmupRecipientPreparationResult
 }
 
+/** Result of stopping mapping runtimes, including assignments retained for retry. */
 internal sealed interface WarmupRecipientCleanupResult {
     data object Complete : WarmupRecipientCleanupResult
     data class CompleteWithDiagnostics(val diagnostics: List<String>) : WarmupRecipientCleanupResult
@@ -91,9 +97,11 @@ internal sealed interface WarmupRecipientCleanupResult {
     ) : WarmupRecipientCleanupResult
 }
 
+/** Rejects late preparation once recipient cleanup has claimed ownership. */
 private class WarmupRecipientPreparationStoppedException :
     IllegalStateException("Warm-up recipient preparation was stopped")
 
+/** Associates a failed metadata lookup with its mapping for local diagnostics. */
 private class WarmupMetadataLookupException(
     mapping: WarmupTopicMapping,
     cause: Throwable

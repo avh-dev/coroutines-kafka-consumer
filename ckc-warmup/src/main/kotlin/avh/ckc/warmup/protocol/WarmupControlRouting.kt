@@ -1,11 +1,13 @@
 package avh.ckc.warmup.protocol
 
+/** A decoded control message paired with its Kafka log offset. */
 internal data class WarmupControlRecord(val offset: Long, val message: WarmupControlMessage) {
     init {
         require(offset >= 0) { "Control offset must not be negative" }
     }
 }
 
+/** Consumes a routed control record in dispatch order. */
 internal fun interface WarmupControlMessageHandler {
     suspend fun onMessage(record: WarmupControlRecord)
 }

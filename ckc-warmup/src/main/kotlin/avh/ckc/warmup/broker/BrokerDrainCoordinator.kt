@@ -5,8 +5,10 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import org.apache.kafka.common.errors.TimeoutException
 
+/** Supervisor verdict for a bounded drain attempt. */
 internal enum class BrokerDrainStatus { DRAINED, TIMED_OUT, CONTROL_UNAVAILABLE }
 
+/** Combines the supervisor verdict with the journal drain state and diagnostics. */
 internal data class BrokerDrainResult(
     val status: BrokerDrainStatus,
     val epoch: String,
@@ -14,6 +16,7 @@ internal data class BrokerDrainResult(
     val detail: String? = null
 )
 
+/** Requests or resumes a drain and verifies the frozen participant roster through the broker journal. */
 internal class BrokerDrainCoordinator(
     private val log: KafkaBrokerLifecycleLog,
     private val epoch: String,

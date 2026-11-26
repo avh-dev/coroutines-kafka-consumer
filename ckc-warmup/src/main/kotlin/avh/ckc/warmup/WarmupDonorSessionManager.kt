@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** Creates the owned donor resources for one accepted logical session. */
 internal fun interface WarmupDonorSessionPreparation<S : WarmupDonorSessionLifecycle> {
     suspend fun prepare(acceptance: SessionAccepted): S
 }
