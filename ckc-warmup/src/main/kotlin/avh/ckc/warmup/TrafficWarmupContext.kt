@@ -92,7 +92,7 @@ class TrafficWarmupContext internal constructor(
 
     private lateinit var transport: WarmupControlChannel
     private lateinit var donorStore: LogicalWarmupDonorSessionStore
-    private lateinit var donorActivation: WarmupDonorActivation<LogicalWarmupDonorSession>
+    private lateinit var donorSessionManager: WarmupDonorSessionManager<LogicalWarmupDonorSession>
     private lateinit var runtime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>
 
     init {
@@ -243,8 +243,8 @@ class TrafficWarmupContext internal constructor(
             recordFailure(error)
         }
         try {
-            if (::donorActivation.isInitialized) {
-                donorActivation.onParticipantUnavailable(state.participant.participantId)
+            if (::donorSessionManager.isInitialized) {
+                donorSessionManager.onParticipantUnavailable(state.participant.participantId)
             }
         } catch (error: Throwable) {
             recordFailure(error)
@@ -336,7 +336,7 @@ class TrafficWarmupContext internal constructor(
         val eligibility = MainConsumerWarmupDonorEligibility(
             registered.associate { it.participantId to it.mainConsumer }
         )
-        val newDonorActivation = WarmupDonorActivation(
+        val newDonorSessionManager = WarmupDonorSessionManager(
             localInstanceId = instanceId,
             namespace = namespace,
             supportedMappings = mappings,
@@ -356,7 +356,7 @@ class TrafficWarmupContext internal constructor(
             newRouter,
             newTransport,
             StatelessWarmupDonorDiscovery(instanceId, namespace, mappings, eligibility),
-            newDonorActivation,
+            newDonorSessionManager,
             configuration.offerWindow,
             configuration.preparationTimeout,
             configuration.completionTimeout,
@@ -365,7 +365,7 @@ class TrafficWarmupContext internal constructor(
         )
         transport = newTransport
         donorStore = newDonorStore
-        donorActivation = newDonorActivation
+        donorSessionManager = newDonorSessionManager
         runtime = newRuntime
         configuration.brokerLifecycleConfiguration?.let { broker ->
             brokerControlReady = scope.async(start = CoroutineStart.LAZY) { newRuntime.startControl() }
@@ -387,16 +387,16 @@ class TrafficWarmupContext internal constructor(
                 checkNotNull(configuration.brokerLifecycleConfiguration).operationTimeout
             )
         }
-        val sessions = donorActivation.closeBrokerAdmission(drain).toMutableSet()
+        val sessions = donorSessionManager.closeBrokerAdmission(drain).toMutableSet()
         val fence = recipient.fenceBrokerAdmission(reason, drain)
         fence.sessionId?.let(sessions::add)
         scope.async {
             recipient.awaitBrokerCleanup(fence)
             while (donorStore.admittedSessionCount() != 0) delay(10)
             // Detachment releases admission before the close job can finish or retain a failed resource.
-            donorActivation.awaitBrokerCloseSends()
-            while (!donorActivation.awaitCleanupBarrier(configuration.completionTimeout)) delay(100)
-            donorActivation.awaitBrokerCloseSends()
+            donorSessionManager.awaitBrokerCloseSends()
+            while (!donorSessionManager.awaitCleanupBarrier(configuration.completionTimeout)) delay(100)
+            donorSessionManager.awaitBrokerCloseSends()
             sessions.toSet()
         }.also { brokerCleanup = it }
     }
@@ -408,7 +408,7 @@ class TrafficWarmupContext internal constructor(
         ) return@synchronized false
         brokerCleanup = null
         recipientAttempt?.recordBrokerInterruption(null)
-        donorActivation.openBrokerAdmission()
+        donorSessionManager.openBrokerAdmission()
         delegationAdmissionOpen.set(true)
         true
     }
@@ -519,8 +519,8 @@ class TrafficWarmupContext internal constructor(
                 )
             } finally {
                 val unexpectedlyUnavailable = synchronized(lock) { !state.stopRequested }
-                if (unexpectedlyUnavailable && ::donorActivation.isInitialized) {
-                    donorActivation.onParticipantUnavailable(state.participant.participantId)
+                if (unexpectedlyUnavailable && ::donorSessionManager.isInitialized) {
+                    donorSessionManager.onParticipantUnavailable(state.participant.participantId)
                 }
             }
         }
@@ -553,8 +553,8 @@ class TrafficWarmupContext internal constructor(
             synchronized(lock) { sharedClosed = false }
             error("Warm-up donor sessions did not drain before context shutdown")
         }
-        val donorCleanupComplete = !::donorActivation.isInitialized ||
-            donorActivation.awaitCleanupBarrier(configuration.completionTimeout)
+        val donorCleanupComplete = !::donorSessionManager.isInitialized ||
+            donorSessionManager.awaitCleanupBarrier(configuration.completionTimeout)
         if (!donorCleanupComplete) {
             synchronized(lock) { sharedClosed = false }
             error("Warm-up donor resource cleanup did not complete before context shutdown")

@@ -171,7 +171,6 @@ internal class WarmupControlTransport(
     private var pollJob: Job? = null
     private var dispatchJob: Job? = null
     @Volatile private var initialBoundary: Long? = null
-    @Volatile private var expectedTopicIdentity: String? = null
 
     override fun initialOffsetBoundary(): Long? = initialBoundary
 
@@ -260,23 +259,25 @@ internal class WarmupControlTransport(
 
     private suspend fun pollLoop() {
         var activeConsumer = requireNotNull(consumer)
-        val cursor = WarmupControlCursor()
+        val read = WarmupControlReadState()
         while (currentCoroutineContext().isActive && !stopping.get()) {
             try {
-                pollControlTopic(activeConsumer, cursor)
+                pollControlTopic(activeConsumer, read)
                 return
-            } catch (recreated: WarmupControlTopicRecreatedException) {
-                if (stopping.get()) return
-                expectedTopicIdentity = recreated.currentIdentity
-                cursor.nextOffset = null
-                consumer = null
-                replaceProducerAfterTopicRecreation()
-                delay(configuration.recoveryRetryBackoff)
-                activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
             } catch (recovery: WarmupControlRecoveryRequiredException) {
                 if (stopping.get()) return
-                log.warn("Warm-up control consumer requires a bounded replacement", recovery)
-                consumer = null
+                when (recovery) {
+                    is WarmupControlTopicRecreatedException -> {
+                        read.expectedTopicIdentity = recovery.currentIdentity
+                        read.nextOffset = null
+                        consumer = null
+                        replaceProducerAfterTopicRecreation()
+                    }
+                    else -> {
+                        log.warn("Warm-up control consumer requires a bounded replacement", recovery)
+                        consumer = null
+                    }
+                }
                 delay(configuration.recoveryRetryBackoff)
                 activeConsumer = consumerFactory(consumerProperties()).also { consumer = it }
             }
@@ -285,158 +286,182 @@ internal class WarmupControlTransport(
 
     private suspend fun pollControlTopic(
         activeConsumer: Consumer<String, ByteArray>,
-        cursor: WarmupControlCursor
+        read: WarmupControlReadState
     ) {
-        var assignmentState: WarmupControlAssignmentState? = null
         try {
-            val metadata = activeConsumer.partitionsFor(
-                configuration.topic,
-                JavaDuration.ofMillis(configuration.metadataTimeout.inWholeMilliseconds)
-            )
-            check(metadata.size == 1 && metadata.single().partition() == 0) {
-                "Warm-up control topic must expose exactly partition 0"
-            }
-            assignmentState = awaitingAssignment()
-            activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
-                override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) {
-                    (assignmentState as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
-                    assignmentState = awaitingAssignment()
-                }
-
-                override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
-                    try {
-                        initializeAssignedPartition(partitions)
-                    } catch (error: Throwable) {
-                        if (error.isFatalJvmError()) throw error
-                        assignmentState = WarmupControlAssignmentState.CallbackFailed(error)
-                    }
-                }
-
-                private fun initializeAssignedPartition(partitions: Collection<TopicPartition>) {
-                    check(partitions.size == 1) { "Warm-up control topic must have exactly one partition" }
-                    val partition = partitions.single()
-                    check(partition.topic() == configuration.topic && partition.partition() == 0) {
-                        "Warm-up control topic must use partition 0"
-                    }
-                    val awaiting = assignmentState as? WarmupControlAssignmentState.Awaiting
-                        ?: awaitingAssignment()
-                    val currentTopicIdentity = withinAssignmentDeadline(
-                        awaiting,
-                        "checking the assigned control topic identity"
-                    ) { timeout ->
-                        topicIdentity.read(configuration.topic, timeout.toMillis().milliseconds)
-                    }
-                    if (!readiness.isCompleted) {
-                        expectedTopicIdentity = currentTopicIdentity
-                        val end = withinAssignmentDeadline(awaiting, "reading the initial log end") { timeout ->
-                            activeConsumer.endOffsets(partitions.toSet(), timeout).getValue(partition)
-                        }
-                        activeConsumer.seek(partition, end)
-                        withinAssignmentDeadline(awaiting, "initializing the initial position") { timeout ->
-                            activeConsumer.position(partition, timeout)
-                        }
-                        cursor.nextOffset = end
-                        initialBoundary = end - 1
-                        readiness.complete(Unit)
-                    } else {
-                        val expectedIdentity = requireNotNull(expectedTopicIdentity)
-                        if (currentTopicIdentity != expectedIdentity) {
-                            assignmentState = WarmupControlAssignmentState.TopicRecreated(
-                                expectedIdentity,
-                                currentTopicIdentity
-                            )
-                            return
-                        }
-                        cursor.nextOffset?.let { activeConsumer.seek(partition, it) }
-                        withinAssignmentDeadline(awaiting, "initializing the replacement position") { timeout ->
-                            activeConsumer.position(partition, timeout).also { cursor.nextOffset = it }
-                        }
-                    }
-                    assignmentState = activeAssignment()
-                }
-            })
+            subscribe(activeConsumer, read)
             while (currentCoroutineContext().isActive && !stopping.get()) {
-                val records = try {
-                    activeConsumer.poll(JavaDuration.ofMillis(configuration.pollTimeout.inWholeMilliseconds))
-                } catch (wakeup: WakeupException) {
-                    if (stopping.get()) break else throw wakeup
-                } catch (error: Exception) {
-                    when (val pollFailure = classifyPollFailure(error)) {
-                        is WarmupControlPollFailure.Temporary -> {
-                            log.warn(
-                                "Warm-up control poll is temporarily unavailable; keeping the current consumer " +
-                                    "and continuing to poll (reason={})",
-                                pollFailure.reason,
-                                error
-                            )
-                            ConsumerRecords.empty()
-                        }
-                        is WarmupControlPollFailure.Terminal -> {
-                            throw error
-                        }
-                    }
-                }
-                (assignmentState as? WarmupControlAssignmentState.TopicRecreated)?.let { recreated ->
-                    throw WarmupControlTopicRecreatedException(
-                        recreated.previousIdentity,
-                        recreated.currentIdentity
-                    )
-                }
-                (assignmentState as? WarmupControlAssignmentState.CallbackFailed)?.let { failed ->
-                    throw failed.error
-                }
-                records.forEach { record ->
-                    cursor.nextOffset = maxOf(cursor.nextOffset ?: 0L, record.offset() + 1)
-                    val message = try {
-                        WarmupControlCodec.decode(record.value(), record.headers()).also { decoded ->
-                            require(record.key() == decoded.sessionId.value) {
-                                "Control record key does not match its session"
-                            }
-                        }
-                    } catch (error: Exception) {
-                        enqueue(DispatchItem.Invalid(record.key(), error))
-                        return@forEach
-                    }
-                    if (message.namespace == configuration.namespace) {
-                        enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
-                    }
-                }
-                val now = nanoTime()
-                when (val state = requireNotNull(assignmentState)) {
-                    is WarmupControlAssignmentState.Awaiting -> {
-                        if (now >= state.deadlineNanos) {
-                            throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout)
-                        }
-                    }
-                    is WarmupControlAssignmentState.Active -> {
-                        state.identityCheck?.takeIf { it.isCompleted }?.let {
-                            state.identityCheck = null
-                            when (val check = it.await()) {
-                                WarmupControlTopicIdentityCheck.Unavailable -> Unit
-                                is WarmupControlTopicIdentityCheck.Terminal -> throw check.error
-                                is WarmupControlTopicIdentityCheck.Available -> {
-                                    val expected = requireNotNull(expectedTopicIdentity)
-                                    if (check.identity != expected) {
-                                        throw WarmupControlTopicRecreatedException(expected, check.identity)
-                                    }
-                                }
-                            }
-                            state.nextIdentityCheckNanos = now +
-                                configuration.topicIdentityCheckInterval.inWholeNanoseconds
-                        }
-                        if (state.identityCheck == null && now >= state.nextIdentityCheckNanos) {
-                            state.identityCheck = scope.async { checkTopicIdentity() }
-                        }
-                    }
-                    is WarmupControlAssignmentState.TopicRecreated -> error("Topic recreation must be handled first")
-                    is WarmupControlAssignmentState.CallbackFailed -> error("Callback failure must be handled first")
-                }
+                val records = pollControlRecords(activeConsumer) ?: break
+                checkAssignmentCallback(read)
+                dispatchReadRecords(read, records)
+                checkAssignmentAndSentinel(read)
             }
         } finally {
-            (assignmentState as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
+            (read.assignment as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
             withContext(NonCancellable + dispatcher) {
                 runCatching { activeConsumer.close(closeDuration()) }
             }
+            read.assignment = null
+        }
+    }
+
+    private fun subscribe(activeConsumer: Consumer<String, ByteArray>, read: WarmupControlReadState) {
+        val metadata = activeConsumer.partitionsFor(
+            configuration.topic,
+            JavaDuration.ofMillis(configuration.metadataTimeout.inWholeMilliseconds)
+        )
+        check(metadata.size == 1 && metadata.single().partition() == 0) {
+            "Warm-up control topic must expose exactly partition 0"
+        }
+        read.assignment = awaitingAssignment()
+        activeConsumer.subscribe(listOf(configuration.topic), object : ConsumerRebalanceListener {
+            override fun onPartitionsRevoked(partitions: Collection<TopicPartition>) {
+                (read.assignment as? WarmupControlAssignmentState.Active)?.identityCheck?.cancel()
+                read.assignment = awaitingAssignment()
+            }
+
+            override fun onPartitionsAssigned(partitions: Collection<TopicPartition>) {
+                try {
+                    initializeAssignedPartition(activeConsumer, read, partitions)
+                } catch (error: Throwable) {
+                    if (error.isFatalJvmError()) throw error
+                    // Kafka can wrap errors escaping the listener. The poll loop sees this cause directly.
+                    read.assignment = WarmupControlAssignmentState.CallbackFailed(error)
+                }
+            }
+        })
+    }
+
+    private fun initializeAssignedPartition(
+        activeConsumer: Consumer<String, ByteArray>,
+        read: WarmupControlReadState,
+        partitions: Collection<TopicPartition>
+    ) {
+        check(partitions.size == 1) { "Warm-up control topic must have exactly one partition" }
+        val partition = partitions.single()
+        check(partition.topic() == configuration.topic && partition.partition() == 0) {
+            "Warm-up control topic must use partition 0"
+        }
+        val awaiting = read.assignment as? WarmupControlAssignmentState.Awaiting ?: awaitingAssignment()
+        val currentTopicIdentity = withinAssignmentDeadline(
+            awaiting,
+            "checking the assigned control topic identity"
+        ) { timeout ->
+            topicIdentity.read(configuration.topic, timeout.toMillis().milliseconds)
+        }
+        if (!readiness.isCompleted) {
+            read.expectedTopicIdentity = currentTopicIdentity
+            val end = withinAssignmentDeadline(awaiting, "reading the initial log end") { timeout ->
+                activeConsumer.endOffsets(partitions.toSet(), timeout).getValue(partition)
+            }
+            activeConsumer.seek(partition, end)
+            withinAssignmentDeadline(awaiting, "initializing the initial position") { timeout ->
+                activeConsumer.position(partition, timeout)
+            }
+            read.nextOffset = end
+            initialBoundary = end - 1
+            readiness.complete(Unit)
+        } else {
+            val expectedIdentity = requireNotNull(read.expectedTopicIdentity)
+            if (currentTopicIdentity != expectedIdentity) {
+                read.assignment = WarmupControlAssignmentState.TopicRecreated(expectedIdentity, currentTopicIdentity)
+                return
+            }
+            // Resume the cursor only on the same topic ID. A new generation starts with no cursor.
+            read.nextOffset?.let { activeConsumer.seek(partition, it) }
+            withinAssignmentDeadline(awaiting, "initializing the replacement position") { timeout ->
+                activeConsumer.position(partition, timeout).also { read.nextOffset = it }
+            }
+        }
+        read.assignment = activeAssignment()
+    }
+
+    private fun pollControlRecords(activeConsumer: Consumer<String, ByteArray>): ConsumerRecords<String, ByteArray>? =
+        try {
+            activeConsumer.poll(JavaDuration.ofMillis(configuration.pollTimeout.inWholeMilliseconds))
+        } catch (wakeup: WakeupException) {
+            if (stopping.get()) null else throw wakeup
+        } catch (error: Exception) {
+            when (val pollFailure = classifyPollFailure(error)) {
+                is WarmupControlPollFailure.Temporary -> {
+                    log.warn(
+                        "Warm-up control poll is temporarily unavailable; keeping the current consumer " +
+                            "and continuing to poll (reason={})",
+                        pollFailure.reason,
+                        error
+                    )
+                    ConsumerRecords.empty()
+                }
+                is WarmupControlPollFailure.Terminal -> throw error
+            }
+        }
+
+    private fun checkAssignmentCallback(read: WarmupControlReadState) {
+        when (val assignment = requireNotNull(read.assignment)) {
+            is WarmupControlAssignmentState.TopicRecreated ->
+                throw WarmupControlTopicRecreatedException(assignment.previousIdentity, assignment.currentIdentity)
+            is WarmupControlAssignmentState.CallbackFailed -> throw assignment.error
+            is WarmupControlAssignmentState.Active, is WarmupControlAssignmentState.Awaiting -> Unit
+        }
+    }
+
+    private fun dispatchReadRecords(
+        read: WarmupControlReadState,
+        records: ConsumerRecords<String, ByteArray>
+    ) {
+        records.forEach { record ->
+            read.nextOffset = maxOf(read.nextOffset ?: 0L, record.offset() + 1)
+            val message = try {
+                WarmupControlCodec.decode(record.value(), record.headers()).also { decoded ->
+                    require(record.key() == decoded.sessionId.value) {
+                        "Control record key does not match its session"
+                    }
+                }
+            } catch (error: Exception) {
+                enqueue(DispatchItem.Invalid(record.key(), error))
+                return@forEach
+            }
+            if (message.namespace == configuration.namespace) {
+                enqueue(DispatchItem.Record(WarmupControlRecord(record.offset(), message)))
+            }
+        }
+    }
+
+    private suspend fun checkAssignmentAndSentinel(read: WarmupControlReadState) {
+        val now = nanoTime()
+        when (val assignment = requireNotNull(read.assignment)) {
+            is WarmupControlAssignmentState.Awaiting -> {
+                if (now >= assignment.deadlineNanos) {
+                    throw WarmupControlAssignmentTimeoutException(configuration.assignmentTimeout)
+                }
+            }
+            is WarmupControlAssignmentState.Active -> checkSentinel(read, assignment, now)
+            is WarmupControlAssignmentState.TopicRecreated -> error("Topic recreation must be handled first")
+            is WarmupControlAssignmentState.CallbackFailed -> error("Callback failure must be handled first")
+        }
+    }
+
+    private suspend fun checkSentinel(
+        read: WarmupControlReadState,
+        assignment: WarmupControlAssignmentState.Active,
+        now: Long
+    ) {
+        assignment.identityCheck?.takeIf { it.isCompleted }?.let {
+            assignment.identityCheck = null
+            when (val check = it.await()) {
+                WarmupControlTopicIdentityCheck.Unavailable -> Unit
+                is WarmupControlTopicIdentityCheck.Terminal -> throw check.error
+                is WarmupControlTopicIdentityCheck.Available -> {
+                    val expected = requireNotNull(read.expectedTopicIdentity)
+                    if (check.identity != expected) {
+                        throw WarmupControlTopicRecreatedException(expected, check.identity)
+                    }
+                }
+            }
+            assignment.nextIdentityCheckNanos = now + configuration.topicIdentityCheckInterval.inWholeNanoseconds
+        }
+        if (assignment.identityCheck == null && now >= assignment.nextIdentityCheckNanos) {
+            assignment.identityCheck = scope.async { checkTopicIdentity() }
         }
     }
 
@@ -631,7 +656,15 @@ internal interface WarmupControlTopicIdentity : AutoCloseable {
     override fun close() = Unit
 }
 
-private class WarmupControlCursor(var nextOffset: Long? = null)
+/**
+ * Poll-loop state carried across control consumer replacements. Assignment and its pending topic
+ * identity sentinel belong to the current consumer. The cursor is valid for one topic ID.
+ */
+private class WarmupControlReadState {
+    var assignment: WarmupControlAssignmentState? = null
+    var nextOffset: Long? = null
+    var expectedTopicIdentity: String? = null
+}
 
 internal class KafkaWarmupControlTopicIdentity(
     properties: Map<String, Any?>,

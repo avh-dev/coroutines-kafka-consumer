@@ -43,11 +43,11 @@ internal fun interface WarmupDonorSessionPreparation<S : WarmupDonorSessionLifec
 }
 
 /**
- * Owns only locally accepted donor sessions. [RecipientReady] may race preparation: readiness is
- * remembered under [lock], but the data plane is activated only after the matching prepared
- * session is installed. Cancellation wins the same lock and makes every late resource close.
+ * Owns the protocol state of locally accepted logical donor sessions. [RecipientReady] may race
+ * preparation, so readiness is recorded under [lock] and activation requires the prepared
+ * session to be installed. Cancellation uses the same lock and sends late resources to cleanup.
  */
-internal class WarmupDonorActivation<S : WarmupDonorSessionLifecycle>(
+internal class WarmupDonorSessionManager<S : WarmupDonorSessionLifecycle>(
     private val localInstanceId: WarmupInstanceId,
     private val namespace: WarmupControlNamespace,
     supportedMappings: Collection<WarmupTopicMapping>,

@@ -57,7 +57,10 @@ internal class WarmupParticipantDataPlane<K, V> : AdmittedRecordInterceptor<K, V
     }
 }
 
-/** One typed participant lane inside a logical donor session. */
+/**
+ * Routes records for one participant within a [LogicalWarmupDonorSession]. Each source mapping
+ * has its own [WarmupDonorSession]. A lane remains registered until its mapping sessions seal.
+ */
 internal class WarmupParticipantDonorLane<K, V>(
     override val sessionId: WarmupSessionId,
     private val dataPlane: WarmupParticipantDataPlane<K, V>,

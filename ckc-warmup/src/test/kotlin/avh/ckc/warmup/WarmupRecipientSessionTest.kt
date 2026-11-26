@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-class WarmupRecipientDiscoveryTest {
+class WarmupRecipientSessionTest {
     private val namespace = WarmupControlNamespace("global5-shared-partition-v6-test")
     private val recipient = WarmupInstanceId("recipient")
     private val donor = WarmupInstanceId("donor")
@@ -98,7 +98,7 @@ class WarmupRecipientDiscoveryTest {
             result
         )
         assertTrue(stopped.isEmpty())
-        assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, discovery.state())
+        assertEquals(WarmupRecipientSession.State.COLD_FALLBACK, discovery.state())
     }
 
     @Test
@@ -213,7 +213,7 @@ class WarmupRecipientDiscoveryTest {
         assertFalse(preparation.isCompleted)
         releaseStop.complete(Unit)
         assertThrows(CancellationException::class.java) { runBlocking { preparation.await() } }
-        assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, discovery.state())
+        assertEquals(WarmupRecipientSession.State.COLD_FALLBACK, discovery.state())
     }
 
     @Test
@@ -360,7 +360,7 @@ class WarmupRecipientDiscoveryTest {
         },
         preparationTimeout: kotlin.time.Duration = 2.seconds,
         diagnosticObserver: ((String) -> Unit)? = null
-    ) = WarmupRecipientDiscovery(
+    ) = WarmupRecipientSession(
         request(),
         metadata,
         preparation,

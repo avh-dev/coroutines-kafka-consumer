@@ -71,7 +71,7 @@ internal class WarmupRecipientAttempt(
     private val protocolRuntime get() = checkNotNull(runtime)
     private var terminalOutcome: Outcome? = null
     private var workflow: Job? = null
-    private var activeRecipient: WarmupRecipientDiscovery? = null
+    private var activeRecipient: WarmupRecipientSession? = null
     private var activeOutbox: WarmupCompletionOutbox? = null
     private var warmingStarted: TimeSource.Monotonic.ValueTimeMark? = null
     private var interruption: Interruption? = null
@@ -187,7 +187,7 @@ internal class WarmupRecipientAttempt(
             configurationFingerprint = configurationFingerprint(mappings),
             expiresAtEpochMillis = expiresAt
         )
-        lateinit var discovery: WarmupRecipientDiscovery
+        lateinit var discovery: WarmupRecipientSession
         val outbox = WarmupCompletionOutbox(scope, 1_024) { completed ->
             val donor = requireNotNull(discovery.donorFor(completed.recordId.topicPartition)) {
                 "No selected donor owns ${completed.recordId.topicPartition}"
@@ -205,7 +205,7 @@ internal class WarmupRecipientAttempt(
             )
         }
         val participantById = participants.associateBy(RegisteredTrafficWarmupParticipant::participantId)
-        discovery = WarmupRecipientDiscovery(
+        discovery = WarmupRecipientSession(
             request,
             KafkaWarmupDestinationMetadata(
                 participantById.mapValues { (_, participant) -> participant.warmupConsumerProperties },
@@ -250,7 +250,7 @@ internal class WarmupRecipientAttempt(
     }
 
     private suspend fun runPreparedWarmup(
-        discovery: WarmupRecipientDiscovery,
+        discovery: WarmupRecipientSession,
         readiness: List<RecipientReady>,
         outbox: WarmupCompletionOutbox
     ) = coroutineScope {
@@ -409,7 +409,7 @@ internal class WarmupRecipientAttempt(
     }
 
     private suspend fun awaitWarmupFailure(
-        discovery: WarmupRecipientDiscovery,
+        discovery: WarmupRecipientSession,
         readiness: List<RecipientReady>,
         outbox: WarmupCompletionOutbox
     ): String = coroutineScope {

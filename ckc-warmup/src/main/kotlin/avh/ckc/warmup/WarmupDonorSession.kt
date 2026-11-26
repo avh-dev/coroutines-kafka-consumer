@@ -27,7 +27,7 @@ internal fun interface WarmupDestinationResolver<K, V> {
 }
 
 /**
- * One isolated donor session with its own quota, inflight drain, result tracker, and deadline.
+ * One mapping session in a [WarmupParticipantDonorLane] with its own quota, drain, result tracker, and deadline.
  *
  * [sessionLock] protects [state], [inflight], and [inflightDrained]. Result waiters have a separate
  * lock inside [WarmupResultTracker]: `inflight` counts every delegation from successful admission

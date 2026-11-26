@@ -98,7 +98,11 @@ internal class LogicalWarmupDonorSessionStore(
     internal fun admittedBudgetPerSecond(): Int = synchronized(lock) { aggregateBudgetPerSecond }
 }
 
-/** One protocol session whose lanes retain their concrete record types. */
+/**
+ * Owns one logical donor session identified by the recipient's protocol session ID. Each
+ * [WarmupParticipantDonorLane] serves one typed participant, and each [WarmupDonorSession] inside
+ * a lane handles one topic mapping with its own quota and in-flight results.
+ */
 internal class LogicalWarmupDonorSession(
     override val sessionId: WarmupSessionId,
     override val admissionBudgetPerSecond: Int,

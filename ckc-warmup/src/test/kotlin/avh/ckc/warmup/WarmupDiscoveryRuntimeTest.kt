@@ -86,7 +86,7 @@ class WarmupDiscoveryRuntimeTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = LogicalWarmupDonorSessionStore(2, 20)
         val ownership = setOf(WarmupSourcePartition(0, 1))
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             remoteDonor, namespace, listOf(mapping), store, WarmupDonorEligibility { ownership },
             WarmupDonorSessionPreparation { acceptance ->
                 val lane = object : WarmupDonorSessionLifecycle {
@@ -131,7 +131,7 @@ class WarmupDiscoveryRuntimeTest {
             )
             dispatch(ready)
             withTimeout(2.seconds) {
-                while (activation.state(acceptance.sessionId) != WarmupDonorActivation.State.ACTIVE) delay(10)
+                while (activation.state(acceptance.sessionId) != WarmupDonorSessionManager.State.ACTIVE) delay(10)
             }
             return ready
         }
@@ -171,7 +171,7 @@ class WarmupDiscoveryRuntimeTest {
         val channel = InMemoryControlChannel(router, remoteDonor, mapping, holdCompletionAck = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = LogicalWarmupDonorSessionStore(1, 10)
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = listOf(mapping),
@@ -187,14 +187,14 @@ class WarmupDiscoveryRuntimeTest {
             router = router,
             channel = channel,
             donorDiscovery = StatelessWarmupDonorDiscovery(recipientId, namespace, emptyList()) { null },
-            donorActivation = activation,
+            donorSessionManager = activation,
             offerCollectionWindow = 1.milliseconds,
             donorAcceptanceTimeout = 1.seconds,
             scope = scope
         )
         val request = request()
         val stopped = AtomicInteger()
-        val recipient = WarmupRecipientDiscovery(
+        val recipient = WarmupRecipientSession(
             request = request,
             metadata = WarmupDestinationMetadata { mapOf(0 to 42L) },
             consumerPreparation = WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
@@ -253,7 +253,7 @@ class WarmupDiscoveryRuntimeTest {
         val channel = PartialReadinessFailureChannel(router, requestedMappings)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = LogicalWarmupDonorSessionStore(1, 10)
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = emptyList(),
@@ -275,7 +275,7 @@ class WarmupDiscoveryRuntimeTest {
         )
         val releaseStop = kotlinx.coroutines.CompletableDeferred<Unit>()
         val stopped = mutableListOf<String>()
-        val recipient = WarmupRecipientDiscovery(
+        val recipient = WarmupRecipientSession(
             request,
             WarmupDestinationMetadata { mapOf(0 to 0L) },
             WarmupRecipientConsumerPreparation { _, start ->
@@ -315,7 +315,7 @@ class WarmupDiscoveryRuntimeTest {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = InMemoryControlChannel(router, remoteDonor, mapping)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             recipientId,
             namespace,
             listOf(mapping),
@@ -332,7 +332,7 @@ class WarmupDiscoveryRuntimeTest {
         )
         val request = request()
         val stopped = AtomicInteger()
-        val recipient = WarmupRecipientDiscovery(
+        val recipient = WarmupRecipientSession(
             request,
             WarmupDestinationMetadata { mapOf(0 to 0L) },
             WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
@@ -371,7 +371,7 @@ class WarmupDiscoveryRuntimeTest {
         val router = WarmupControlRouter(recipientId, namespace)
         val channel = InMemoryControlChannel(router, remoteDonor, mapping)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             recipientId,
             namespace,
             listOf(mapping),
@@ -388,7 +388,7 @@ class WarmupDiscoveryRuntimeTest {
         )
         val termination = kotlinx.coroutines.CompletableDeferred<Unit>()
         val stopped = AtomicInteger()
-        val recipient = WarmupRecipientDiscovery(
+        val recipient = WarmupRecipientSession(
             request(),
             WarmupDestinationMetadata { mapOf(0 to 0L) },
             WarmupRecipientConsumerPreparation { _, start ->
@@ -430,7 +430,7 @@ class WarmupDiscoveryRuntimeTest {
         val channel = InMemoryControlChannel(router, remoteDonor, mapping, acknowledgeCompletion = false)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = LogicalWarmupDonorSessionStore(1, 10)
-        val activation = WarmupDonorActivation(
+        val activation = WarmupDonorSessionManager(
             localInstanceId = recipientId,
             namespace = namespace,
             supportedMappings = listOf(mapping),
@@ -446,7 +446,7 @@ class WarmupDiscoveryRuntimeTest {
             activation, 1.milliseconds, 1.seconds, 10.milliseconds, scope = scope
         )
         val stopped = AtomicInteger()
-        val recipient = WarmupRecipientDiscovery(
+        val recipient = WarmupRecipientSession(
             request(),
             WarmupDestinationMetadata { mapOf(0 to 0L) },
             WarmupRecipientConsumerPreparation { _, start -> readyConsumer(start, stopped) },
@@ -460,7 +460,7 @@ class WarmupDiscoveryRuntimeTest {
         val fallback = assertInstanceOf(WarmupCompletionResult.ColdFallback::class.java, result)
         assertEquals("donor_completion_timeout", fallback.reasonCode)
         assertEquals(1, stopped.get())
-        assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, recipient.state())
+        assertEquals(WarmupRecipientSession.State.COLD_FALLBACK, recipient.state())
         assertTrue(channel.sent[channel.sent.lastIndex - 1] is WarmupCompletionRequested)
         assertTrue(channel.sent.last() is SessionEnded)
         runtime.stop()
