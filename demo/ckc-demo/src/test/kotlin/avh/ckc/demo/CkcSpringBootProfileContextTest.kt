@@ -31,6 +31,7 @@ import kotlin.test.assertTrue
         "demo.kafka.enabled=false",
         "SERVER_PORT=0",
         "KAFKA_ENABLED=false",
+        "TRAFFIC_WARMUP_ENABLED=false",
         "thread-stats.metrics.category-order-prefix-enabled=true",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
@@ -55,6 +56,8 @@ class CkcSpringBootProfileContextTest(
         consumerRegistry.consumerNames.forEach { consumerName ->
             assertFalse(consumerRegistry.isRunning(consumerName))
         }
+        assertFalse(applicationContext.getBean(CkcConsumerProperties::class.java).warmup.enabled)
+        assertTrue(meterRegistry.find("demo.ckc.warmup.pending").gauges().isEmpty())
     }
 
     @Test

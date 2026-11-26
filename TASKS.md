@@ -220,6 +220,7 @@
 | [DEMO-113](#demo-113) | Distribute Armeria stub requests across discovered pod endpoints. | DONE |
 | [DEMO-114](#demo-114) | Accept root-path stub URLs in pod-aware Armeria routing. | DONE |
 | [DEMO-115](#demo-115) | Pass the demo warm-up in-flight delegation limit to the shared context. | DONE |
+| [DEMO-116](#demo-116) | Enable traffic warm-up in the Spring Boot demo profile. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -7137,3 +7138,16 @@ Passed 21 lab sync unit tests with `python3 -m unittest discover -s demo/infra/i
 Review fixes retain terminal readiness failures in Actuator, distinguish stop cancellation from terminal drain timeout, and preserve main readiness when a waiting event arrives late.
 Passed 65 starter tests and 116 demo tests with the review fixes. Kafka regressions cover incomplete recipient cleanup under REPORT_ONLY, a named stop drain timeout under EXIT_PROCESS, and a normal stop during warming.
 Passed 159 unit tests and 53 integration scenarios, including two without Micrometer, with `./gradlew :ckc-warmup:check`.
+
+<a id="demo-116"></a>
+### DEMO-116 - Enable warm-up in the Spring Boot demo profile
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Bind the three demo consumers to one starter-managed warm-up context.
+Preserve the existing `TRAFFIC_WARMUP_*` settings for broker lifecycle, Kafka connections, quotas, and forwarding.
+Share lifecycle and offset logs and recipient metrics across demo profiles. Keep CUSTOM metrics and audit successful remote source records and recipient discards.
+Passed 119 demo tests, including binding, audit, and shared event coverage, with `./gradlew :ckc-demo:test :ckc-spring-boot-starter:test`. The 65 starter tests remained up-to-date.
+Keep the custom audit binding active with CKC meters disabled. A Kafka integration test starts two demo applications and verifies one successful audit entry for each of the confirmed source and destination offsets and no CKC consumer meters.
+Passed 120 demo tests after the review fix. The 65 starter tests remained up-to-date.
+Preserve the custom audit binding after Spring binds `CKC_METRICS_ENABLED=false` from the system environment. The two-application Kafka test reproduced the missing source audit before the fix and passed with the revised binding.

@@ -10,6 +10,7 @@ import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
+import avh.ckc.demo.consumer.logWarmupForwarded
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logFailed
 import avh.ckc.demo.logHandedOff
@@ -25,7 +26,6 @@ import avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
 import avh.ckc.demo.serialization.OrderLifecycleEventDeserializer
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
 import avh.ckc.warmup.TrafficWarmupContext
-import avh.ckc.warmup.TrafficWarmupForwardedEvent
 import avh.ckc.warmup.trafficWarmup
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -36,11 +36,8 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
-import org.slf4j.LoggerFactory
 
 object DemoConsumers {
-    private val log = LoggerFactory.getLogger(DemoConsumers::class.java)
-
     data class TrafficWarmup(
         val context: TrafficWarmupContext,
         val consumerProperties: Map<String, Any?>,
@@ -296,20 +293,7 @@ object DemoConsumers {
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to valueSerializer
             )
-            onForwarded(::logForwarded)
+            onForwarded(::logWarmupForwarded)
         }
-    }
-
-    private fun logForwarded(event: TrafficWarmupForwardedEvent) {
-        log.info(
-            "Warm-up record forwarded: sessionId={}, source={}-{}@{}, destination={}-{}@{}",
-            event.sessionId,
-            event.sourceTopic,
-            event.sourcePartition,
-            event.sourceOffset,
-            event.destinationTopic,
-            event.destinationPartition,
-            event.destinationOffset
-        )
     }
 }

@@ -3,13 +3,12 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.ConsumerContainer
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.warmup.TrafficWarmupLifecyclePhase
-import avh.ckc.warmup.trafficWarmupContext
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.config.kafkaConnectionProperties
 import avh.ckc.demo.config.kafkaConsumerProperties
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.consumer.DemoProcessingDispatcherFactory
+import avh.ckc.demo.consumer.recordWarmupLifecycle
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
@@ -19,20 +18,18 @@ import avh.ckc.demo.service.cauldron.SyncCauldronTelemetryService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SyncOrderLifecycleService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
-import io.micrometer.core.instrument.Gauge
+import avh.ckc.warmup.trafficWarmupContext
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
-import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -131,7 +128,6 @@ internal class CkcConsumerRuntime(
     private val processingDispatcher: CoroutineDispatcher,
     private val meterRegistry: MeterRegistry
 ) : SmartLifecycle {
-    private val log = LoggerFactory.getLogger(javaClass)
     private var lifecycle: CkcConsumersLifecycle? = null
 
     override fun start() {
@@ -220,39 +216,7 @@ internal class CkcConsumerRuntime(
             maxDonorSessions = warmup.maxDonorSessions
             maxAggregateQuotaPerSecond = warmup.maxAggregateQuotaPerSecond
             maxInflightDelegations = warmup.maxInflightDelegations
-            onLifecycleEvent { event ->
-                log.info(
-                    "Warm-up lifecycle: phase={}, participantId={}, sessionId={}, reasonCode={}, recoveryDurationMillis={}",
-                    event.phase,
-                    event.participantId,
-                    event.sessionId,
-                    event.reasonCode,
-                    event.recoveryDurationMillis
-                )
-                if (event.phase == TrafficWarmupLifecyclePhase.RECIPIENT_FINISHED) {
-                    val outcome = when (event.reasonCode) {
-                        null -> "success"
-                        "incomplete_donor_coverage", "participant_stopped" -> "skipped"
-                        "donor_acceptance_timeout", "donor_completion_timeout", "donor_liveness_timeout",
-                        "participant_start_timeout", "metadata_timeout",
-                        "consumer_preparation_timeout", "result_delivery_timeout",
-                        "recipient_cleanup_timeout" -> "timeout"
-                        else -> "error"
-                    }
-                    // One immutable sample per recipient attempt, including restarts of the same pod.
-                    val attempt = event.sessionId ?: UUID.randomUUID().toString()
-                    Gauge.builder("demo.warmup.recipient.records", event) { (it.processedRecords ?: 0).toDouble() }
-                        .tags("outcome", outcome, "attempt", attempt)
-                        .strongReference(true)
-                        .register(meterRegistry)
-                    event.durationMillis?.let {
-                        Gauge.builder("demo.warmup.recipient.duration.seconds", event) { (it.durationMillis ?: 0) / 1000.0 }
-                            .tags("outcome", outcome, "attempt", attempt)
-                            .strongReference(true)
-                            .register(meterRegistry)
-                    }
-                }
-            }
+            onLifecycleEvent { event -> recordWarmupLifecycle(event, meterRegistry) }
         }
         return DemoConsumers.TrafficWarmup(
             context = context,
