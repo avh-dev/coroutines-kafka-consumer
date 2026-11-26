@@ -7054,7 +7054,8 @@ _Date: 2026-11-25_
 
 Part of [GLOBAL-5](#global-5). Move discovery, result delivery, interruption, terminal outcome, broker-drain deadlines, and retryable cleanup into the recipient attempt.
 Keep participant registration, main runtimes, donor coordination, and shared resources in the context.
-Compiled warm-up production and test sources, the Spring Boot starter, and demo. Functional tests remain pending.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo.
+Verified the recipient lifecycle with the CORE-104 run at `2ac3dc25`: 66 focused unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer passed.
 
 <a id="core-104"></a>
 ### CORE-104 - Simplify control and broker lifecycle
@@ -7063,4 +7064,5 @@ _Date: 2026-11-26_
 
 Part of [GLOBAL-5](#global-5). Make control read state and broker connection state explicit and name the donor and recipient session owners.
 Preserve client replacement, protocol deadlines, callback failure handling, and resource ownership.
-Compiled warm-up production and test sources, the Spring Boot starter, and demo. Focused tests await a run.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo.
+Passed 66 focused unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer. Reviewed in commit `2ac3dc25`.
