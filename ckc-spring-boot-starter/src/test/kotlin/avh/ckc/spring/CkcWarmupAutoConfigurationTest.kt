@@ -3,6 +3,8 @@ package avh.ckc.spring
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
+import avh.ckc.warmup.TrafficWarmupLifecycleEvent
+import avh.ckc.warmup.TrafficWarmupLifecyclePhase
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.util.concurrent.CopyOnWriteArrayList
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -18,9 +20,25 @@ import org.springframework.boot.test.context.assertj.AssertableApplicationContex
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 
 class CkcWarmupAutoConfigurationTest {
+    @Test
+    fun `a late waiting event cannot replace main readiness`() {
+        val context = CkcWarmupContext(
+            "shared",
+            CkcWarmupProperties.Context(namespace = "test", controlTopic = "control", controlCluster = "control"),
+            mapOf("control" to CkcConsumerProperties.Cluster(linkedMapOf("bootstrap.servers" to "localhost:19093"))),
+            ApplicationEventPublisher { }
+        )
+
+        context.recordPhase(TrafficWarmupLifecycleEvent(TrafficWarmupLifecyclePhase.MAIN_READY, "orders"))
+        context.recordPhase(TrafficWarmupLifecycleEvent(TrafficWarmupLifecyclePhase.WAITING_FOR_PARTICIPANTS, "orders"))
+
+        assertThat(context.snapshot("orders")).isEqualTo(CkcWarmupStateSnapshot("shared", "MAIN_READY", true))
+    }
+
     @Test
     fun `disabled warmup ignores an unknown context`() {
         val events = WarmupTestEvents()
@@ -151,10 +169,17 @@ internal class WarmupTestTopics(private val prefix: String) {
     }.toTypedArray()
 }
 
-internal class WarmupTestEvents {
+internal class WarmupTestEvents(
+    private val beforeProcessed: suspend (ConsumerRecord<String, String>) -> Unit = {}
+) {
     val lifecycle = CopyOnWriteArrayList<CkcWarmupLifecycleEvent>()
     val forwarded = CopyOnWriteArrayList<CkcWarmupForwardedEvent>()
     val processed = CopyOnWriteArrayList<ConsumerRecord<String, String>>()
+
+    suspend fun process(record: ConsumerRecord<String, String>) {
+        beforeProcessed(record)
+        processed += record
+    }
 
     @EventListener
     fun onLifecycle(event: CkcWarmupLifecycleEvent) {
@@ -190,14 +215,14 @@ internal class WarmupTestConfiguration {
     @CkcKafkaConsumer(name = "orders")
     class Orders(private val events: WarmupTestEvents) : CkcConsumer<String, String> {
         override suspend fun process(record: ConsumerRecord<String, String>) {
-            events.processed += record
+            events.process(record)
         }
     }
 
     @CkcKafkaConsumer(name = "batches")
     class Batches(private val events: WarmupTestEvents) : CkcConsumer<String, String> {
         override suspend fun process(record: ConsumerRecord<String, String>) {
-            events.processed += record
+            events.process(record)
         }
     }
 }

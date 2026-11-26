@@ -120,13 +120,17 @@ internal class CkcWarmupContext(
         }
     }
 
-    private fun recordPhase(event: TrafficWarmupLifecycleEvent) {
+    fun recordPhase(event: TrafficWarmupLifecycleEvent) {
         val participant = event.participantId
         if (participant == null) {
             contextPhase = event.phase
         } else {
             participantPhases.compute(participant) { _, previous ->
-                if (previous == TrafficWarmupLifecyclePhase.PARTICIPANT_STOPPED) previous else event.phase
+                when {
+                    previous == TrafficWarmupLifecyclePhase.PARTICIPANT_STOPPED -> previous
+                    event.phase == TrafficWarmupLifecyclePhase.WAITING_FOR_PARTICIPANTS && previous != null -> previous
+                    else -> event.phase
+                }
             }
         }
     }

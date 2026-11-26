@@ -27,7 +27,7 @@ private class CkcHealthIndicator(
     override fun health(): Health {
         val consumers = lifecycle.consumerStateSnapshots()
         val failedConsumers = consumers
-            .filter { it.runtime.failed }
+            .filter { it.failed }
             .map { it.name }
         val unavailableAutoStartupConsumers = consumers
             .filter { it.autoStartup && !it.running }
@@ -66,11 +66,14 @@ private class CkcHealthIndicator(
             "metrics" to metrics,
             "runtime" to runtime.details()
         ).apply {
+            terminalFailure?.let {
+                put("terminalFailure", mapOf("class" to it.javaClass.name, "message" to it.message))
+            }
             warmup?.let {
                 put("warmup", mapOf(
                     "context" to it.context,
                     "phase" to it.phase,
-                    "mainReady" to (it.mainReady && running && !runtime.failed && !runtime.stopped)
+                    "mainReady" to (it.mainReady && running && !failed && !runtime.stopped)
                 ))
             }
         }

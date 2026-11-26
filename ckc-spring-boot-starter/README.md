@@ -247,8 +247,9 @@ non-blocking, and free of calls back into lifecycle operations. Consumers use th
 Actuator adds `warmup` details to each participating consumer, including `context`, `phase`, and
 `mainReady`. The phase reaches `MAIN_READY` after the main runtime obtains Kafka assignment and
 positions, whether it warms successfully or falls back to cold startup. Use `mainReady` for startup
-readiness and `running` to see whether the starter has requested start. The aggregate health status
-keeps its existing semantics.
+readiness and `running` to see whether the starter has requested start. Terminal failures appear
+in `failedConsumers` and set health to `DOWN`, including failures before the main runtime starts.
+The consumer's `terminalFailure` details contain the exception class and message observed by the starter.
 
 ## Configuration Reference
 

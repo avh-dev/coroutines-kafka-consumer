@@ -89,6 +89,9 @@ class TrafficWarmupContext internal constructor(
         var stopCompleted = false
     }
 
+    private class ParticipantStoppedBeforeMainReady :
+        CancellationException("Consumer stopped before main readiness")
+
     private val log = LoggerFactory.getLogger(javaClass)
     private val lock = Any()
     private val instanceId = WarmupInstanceId(configuration.instanceId)
@@ -168,8 +171,12 @@ class TrafficWarmupContext internal constructor(
             override suspend fun awaitReady() = state.ready.await()
             override suspend fun stop() = requestStop(state)
             override suspend fun awaitTermination() {
-                state.ready.await()
-                if (synchronized(lock) { state.mainRuntimeOwned }) participant.awaitMainTermination()
+                try {
+                    state.ready.await()
+                } catch (_: ParticipantStoppedBeforeMainReady) {
+                    // Stop cancels readiness and still terminates the prepared main runtime.
+                }
+                participant.awaitMainTermination()
             }
             override fun isStopComplete(): Boolean = synchronized(lock) { state.stopCompleted }
         }
@@ -248,7 +255,7 @@ class TrafficWarmupContext internal constructor(
             workflow = recipientAttempt?.pendingWorkflow()
             launchFinished = state.mainLaunchFinished
             if (!state.ready.isCompleted) {
-                state.ready.completeExceptionally(CancellationException("Consumer stopped before main readiness"))
+                state.ready.completeExceptionally(ParticipantStoppedBeforeMainReady())
             }
         }
         if (!ownsAttempt) {

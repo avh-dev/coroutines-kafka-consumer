@@ -7134,3 +7134,6 @@ Publish lifecycle and confirmed forwarding events through Spring. Expose per-par
 Include starter sources in the demo image fingerprint and verify that a starter-only change invalidates it.
 Verified 62 starter tests, including four Kafka scenarios across separate main, control, and destination brokers, and 116 demo tests with `./gradlew :ckc-spring-boot-starter:test :ckc-demo:test`.
 Passed 21 lab sync unit tests with `python3 -m unittest discover -s demo/infra/internal-lab/tests -p update_lab_sync_test.py`.
+Review fixes retain terminal readiness failures in Actuator, distinguish stop cancellation from terminal drain timeout, and preserve main readiness when a waiting event arrives late.
+Passed 65 starter tests and 116 demo tests with the review fixes. Kafka regressions cover incomplete recipient cleanup under REPORT_ONLY, a named stop drain timeout under EXIT_PROCESS, and a normal stop during warming.
+Passed 159 unit tests and 53 integration scenarios, including two without Micrometer, with `./gradlew :ckc-warmup:check`.

@@ -5,8 +5,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.admin.NewTopic
@@ -16,6 +22,8 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.StringSerializer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.boot.actuate.health.HealthIndicator
+import org.springframework.boot.actuate.health.Status
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.testcontainers.junit.jupiter.Container
@@ -141,8 +149,113 @@ class CkcWarmupKafkaTest {
                     assertThat(recipient.lifecycle.map { it.event.reasonCode }).contains("participant_stopped")
                     assertMainReady(context, recipient, "batches")
                     assertThat(exited.get()).isZero()
+                    val health = context.getBean("ckcHealthIndicator", HealthIndicator::class.java)
+                    assertThat(health.health().details["failedConsumers"]).isEqualTo(emptyList<String>())
                 }
         }
+    }
+
+    @Test
+    fun `report only reports incomplete recipient cleanup as down before main starts`() {
+        val topics = createTopics()
+        val donor = WarmupTestEvents()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val recipient = WarmupTestEvents { record ->
+            if (record.topic() == topics.warmupOrders) {
+                entered.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+            }
+        }
+
+        kafkaRunner(topics, donor, "donor").run { donorContext ->
+            assertColdStartup(donorContext, donor)
+            kafkaRunner(topics, recipient, "cleanup-timeout")
+                .withPropertyValues(
+                    "ckc.lifecycle.terminal-failure-action=REPORT_ONLY",
+                    "ckc.warmup.contexts.shared.warmup-duration=8s",
+                    "ckc.warmup.contexts.shared.completion-timeout=2s",
+                    "ckc.warmup.contexts.shared.delegation-timeout=30s"
+                )
+                .run { context ->
+                    try {
+                        await { recipient.lifecycle.any { it.event.phase == TrafficWarmupLifecyclePhase.WARMING } }
+                        withProducer { producer ->
+                            runBlocking {
+                                withTimeout(6_000) {
+                                    while (!entered.isCompleted) {
+                                        produce(producer, topics.orders, "hold")
+                                        delay(150)
+                                    }
+                                }
+                            }
+                        }
+
+                        val health = context.getBean("ckcHealthIndicator", HealthIndicator::class.java)
+                        await {
+                            val failed = health.health().details["failedConsumers"] as List<*>
+                            failed.containsAll(listOf("orders", "batches"))
+                        }
+                        assertThat(health.health().status).isEqualTo(Status.DOWN)
+                        assertThat(context.isActive).isTrue()
+                        val details = context.consumerDetails("orders")
+                        val failure = details["terminalFailure"] as Map<*, *>
+                        assertThat(failure["message"] as String)
+                            .contains("Warm-up cleanup incomplete", "recipient_consumer_forced_cleanup_timeout")
+                        val mainRuntime = details["runtime"] as Map<*, *>
+                        assertThat(mainRuntime["started"]).isEqualTo(false)
+                        assertThat(mainRuntime["failed"]).isEqualTo(false)
+                        assertThat(warmupState(context, "orders")["mainReady"]).isEqualTo(false)
+                    } finally {
+                        release.complete(Unit)
+                    }
+                }
+        }
+    }
+
+    @Test
+    fun `main shutdown drain timeout invokes the exit handler after a named stop`() {
+        val topics = createTopics()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val exited = CompletableDeferred<Int>()
+        val events = WarmupTestEvents { record ->
+            if (record.topic() == topics.orders) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        kafkaRunner(topics, events, "drain-timeout")
+            .withPropertyValues(
+                "ckc.warmup.enabled=false",
+                "ckc.consumers.orders.shutdown-drain-timeout=500ms"
+            )
+            .withBean(CkcTerminalFailureExitHandler::class.java, { CkcTerminalFailureExitHandler { exited.complete(it) } })
+            .withBean(CkcTerminalFailureHaltHandler::class.java, { CkcTerminalFailureHaltHandler { } })
+            .run { context ->
+                val registry = context.getBean(CkcConsumerRegistry::class.java)
+                val health = context.getBean("ckcHealthIndicator", HealthIndicator::class.java)
+                runBlocking {
+                    try {
+                        withProducer { producer -> produce(producer, topics.orders, "hold-main") }
+                        withTimeout(10_000) { entered.await() }
+
+                        val stop = async(Dispatchers.IO) { runCatching { registry.stop("orders") } }
+                        try {
+                            withTimeout(10_000) {
+                                while (health.health().status != Status.DOWN) delay(25)
+                            }
+                        } finally {
+                            release.complete(Unit)
+                        }
+                        val shutdownError = stop.await().exceptionOrNull() as CkcConsumersShutdownException
+                        assertThat(shutdownError.failures["orders"]).isInstanceOf(TimeoutCancellationException::class.java)
+                        assertThat(withTimeout(10_000) { exited.await() }).isEqualTo(1)
+                    } finally {
+                        release.complete(Unit)
+                    }
+                }
+            }
     }
 
     @Test
