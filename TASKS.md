@@ -7164,3 +7164,5 @@ Require cold donor readiness, successful recipient readiness, and one-to-one aud
 Publish the proof with the report and evidence archives. Delivery totals count original Kafka records, and warm-up destination records are checked against the forwarding proof.
 Passed 244 internal-lab tests, 162 shared tests, 35 audit and packet-analysis tests, and 97 AWS adapter tests. The scale-up executor also passed a dry run with the resolved scenario.
 Updated optilab and verified the installed experiment, helpers, and dry-run behavior. The live scale-up remains a separate operator command.
+Live run `20261126T180803Z` passed qualification with 600 order, 589 batch, and 587 cauldron forwarding pairs verified by the audit.
+Match both starter and DSL consumer IDs in topic dashboards and report queries. Verified the corrected queries against the saved run and rebuilt its evidence bundle with the existing Prometheus data.
