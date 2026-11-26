@@ -115,7 +115,7 @@ image_fingerprint() {
 
   case "${service}" in
     demo)
-      paths+=(ckc-core ckc-warmup demo/ckc-demo-contracts demo/ckc-demo)
+      paths+=(ckc-core ckc-warmup ckc-spring-boot-starter demo/ckc-demo-contracts demo/ckc-demo)
       ;;
     demo-stubs)
       paths+=(demo/ckc-demo-stubs)

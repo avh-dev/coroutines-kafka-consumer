@@ -548,6 +548,9 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.consumers.*.max-tracked-offsets-per-partition")
             .contains("ckc.metrics.micrometer.kafka-client-metrics-enabled")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
+            .contains("ckc.warmup.enabled")
+            .contains("ckc.warmup.contexts.*.max-inflight-delegations")
+            .contains("ckc.consumers.*.warmup.mappings[].quota-profile")
             .contains("ckc.consumers.*.retry-schema")
     }
 
@@ -705,8 +708,7 @@ class CkcSpringBootAutoConfigurationTest {
                 val meters = context.getBean(SimpleMeterRegistry::class.java).meters.map { it.id.name }
                 assertThat(meters).contains("testapp.ckc.recovery.active")
                 assertThat(meters).noneMatch { ".warmup." in it }
-                assertThat(javaClass.classLoader.getResource("avh/ckc/warmup/TrafficWarmupDslKt.class"))
-                    .isNull()
+                assertThat(context.getBean(CkcConsumerProperties::class.java).warmup.enabled).isFalse()
             }
     }
 

@@ -25,6 +25,7 @@ val coroutinesVersion = "1.9.0"
 
 dependencies {
     api(project(":ckc-core"))
+    api(project(":ckc-warmup"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
@@ -37,6 +38,8 @@ dependencies {
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-actuator")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.2")
+    testImplementation("org.testcontainers:testcontainers-kafka:2.0.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     constraints {

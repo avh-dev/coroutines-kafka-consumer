@@ -39,6 +39,7 @@ class CkcConsumersLifecycle internal constructor(
     private val jointContainerLazy = lazy { containerBinding(consumerRuntimes) }
     private val jointContainer: ContainerBinding by jointContainerLazy
     private val runningConsumerNames = linkedSetOf<String>()
+    private val terminalFailures = mutableMapOf<String, Throwable>()
     private val lifecycleObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val stopObservers = mutableMapOf<String, Job>()
     private val terminalFailureCoordinator by lazy {
@@ -183,7 +184,9 @@ class CkcConsumersLifecycle internal constructor(
                     processingDispatcher = runtime.processingDispatcher,
                     retrySchema = runtime.retrySchema,
                     metrics = runtime.metrics,
-                    runtime = runtime.consumer.stateSnapshot()
+                    runtime = runtime.consumer.stateSnapshot(),
+                    warmup = runtime.warmup?.snapshot(),
+                    terminalFailure = terminalFailures[runtime.name]
                 )
             }
         }
@@ -205,6 +208,9 @@ class CkcConsumersLifecycle internal constructor(
             try {
                 runtime.consumer.awaitTermination()
             } catch (failure: Throwable) {
+                synchronized(this@CkcConsumersLifecycle) {
+                    terminalFailures.putIfAbsent(runtime.name, failure)
+                }
                 if (shutdownRequested) return@launch
                 logger.severe("CKC consumer '${runtime.name}' reached terminal failure: ${failure.message}")
                 if (properties.lifecycle.terminalFailureAction == CkcConsumerProperties.TerminalFailureAction.EXIT_PROCESS &&
@@ -440,5 +446,9 @@ internal data class CkcConsumerStateSnapshot(
     val processingDispatcher: String,
     val retrySchema: String?,
     val metrics: String,
-    val runtime: avh.ckc.core.ConsumerStateSnapshot
-)
+    val runtime: avh.ckc.core.ConsumerStateSnapshot,
+    val warmup: CkcWarmupStateSnapshot?,
+    val terminalFailure: Throwable?
+) {
+    val failed: Boolean get() = runtime.failed || terminalFailure != null
+}

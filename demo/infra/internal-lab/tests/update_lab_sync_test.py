@@ -94,6 +94,12 @@ class UpdateLabSyncTest(unittest.TestCase):
         self.assertIn("Migrated locale-dependent lab fingerprints", script)
         self.assertIn('record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"', script)
 
+    def test_demo_image_fingerprint_includes_spring_boot_starter(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+        fingerprint = script.split("image_fingerprint() {", 1)[1]
+        demo_case = fingerprint.split("    demo)", 1)[1].split(";;", 1)[0]
+        self.assertIn("ckc-spring-boot-starter", demo_case)
+
     def test_update_uses_runtime_user_and_no_privileged_package_install(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
 

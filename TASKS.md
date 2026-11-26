@@ -107,6 +107,7 @@
 | [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | DONE |
 | [CORE-109](#core-109) | Group warm-up implementation files and component tests by responsibility. | DONE |
 | [CORE-110](#core-110) | Move the optional Micrometer adapter into `ckc-core`. | DONE |
+| [CORE-111](#core-111) | Configure traffic warm-up through the Spring Boot starter. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7122,3 +7123,17 @@ Passed 565 tests with `./gradlew :ckc-core:test :ckc-warmup:test :ckc-spring-boo
 Exclude Micrometer from the standard core Kafka integration test runtime and assert its absence while testing record processing.
 Passed 238 unit tests and 24 Kafka scenarios in one `./gradlew :ckc-core:check` run.
 Passed 51 scenarios with `:ckc-warmup:integrationTest` and two with `:ckc-warmup:integrationTestWithoutMicrometer`. Passed all 20 lab sync unit tests.
+
+<a id="core-111"></a>
+### CORE-111 - Configure warm-up in the Spring Boot starter
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Bind opt-in named contexts, independent Kafka connections, and typed participant mappings through the existing starter.
+Publish lifecycle and confirmed forwarding events through Spring. Expose per-participant warm-up phase and main subscription readiness in Actuator.
+Include starter sources in the demo image fingerprint and verify that a starter-only change invalidates it.
+Verified 62 starter tests, including four Kafka scenarios across separate main, control, and destination brokers, and 116 demo tests with `./gradlew :ckc-spring-boot-starter:test :ckc-demo:test`.
+Passed 21 lab sync unit tests with `python3 -m unittest discover -s demo/infra/internal-lab/tests -p update_lab_sync_test.py`.
+Review fixes retain terminal readiness failures in Actuator, distinguish stop cancellation from terminal drain timeout, and preserve main readiness when a waiting event arrives late.
+Passed 65 starter tests and 116 demo tests with the review fixes. Kafka regressions cover incomplete recipient cleanup under REPORT_ONLY, a named stop drain timeout under EXIT_PROCESS, and a normal stop during warming.
+Passed 159 unit tests and 53 integration scenarios, including two without Micrometer, with `./gradlew :ckc-warmup:check`.
