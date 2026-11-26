@@ -100,6 +100,7 @@
 | [CORE-101](#core-101) | Stagger quota windows for concurrent warm-up sessions on one donor. | DONE |
 | [CORE-102](#core-102) | Use the production logical donor store and typed lanes in warm-up data plane tests. | DONE |
 | [CORE-103](#core-103) | Extract the lifecycle of a single warm-up recipient attempt. | DONE |
+| [CORE-104](#core-104) | Simplify the warm-up control transport and broker lifecycle. | IN_PROGRESS |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
@@ -7054,3 +7055,12 @@ _Date: 2026-11-25_
 Part of [GLOBAL-5](#global-5). Move discovery, result delivery, interruption, terminal outcome, broker-drain deadlines, and retryable cleanup into the recipient attempt.
 Keep participant registration, main runtimes, donor coordination, and shared resources in the context.
 Compiled warm-up production and test sources, the Spring Boot starter, and demo. Functional tests remain pending.
+
+<a id="core-104"></a>
+### CORE-104 - Simplify control and broker lifecycle
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Make control read state and broker connection state explicit and name the donor and recipient session owners.
+Preserve client replacement, protocol deadlines, callback failure handling, and resource ownership.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo. Focused tests await a run.

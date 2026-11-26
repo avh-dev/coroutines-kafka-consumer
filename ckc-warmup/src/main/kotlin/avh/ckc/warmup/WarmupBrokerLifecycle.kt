@@ -2,6 +2,7 @@ package avh.ckc.warmup
 
 import avh.ckc.warmup.broker.BrokerLifecycleEvent
 import avh.ckc.warmup.broker.BrokerLifecycleJournal
+import avh.ckc.warmup.broker.BrokerLifecycleRecord
 import avh.ckc.warmup.broker.KafkaBrokerLifecycleLog
 import java.time.Duration as JavaDuration
 import java.util.UUID
@@ -28,6 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 
+/** Follows the broker journal and coordinates admission and drain for this context. */
 internal class WarmupBrokerLifecycle(
     private val configuration: TrafficWarmupBrokerLifecycleConfiguration,
     private val scope: CoroutineScope,
@@ -94,21 +96,55 @@ internal class WarmupBrokerLifecycle(
         val timeout = JavaDuration.ofMillis(configuration.operationTimeout.inWholeMilliseconds)
         val metadata = runInterruptible(blocking) { log.metadata(timeout) }
         val floor = runInterruptible(blocking) { log.beginning(timeout).also(log::seek) }
-        var replayEnd = runInterruptible(blocking) { log.end(timeout) }
-        var verified = TimeSource.Monotonic.markNow()
-        val journal = BrokerLifecycleJournal()
-        var observedEpoch: String? = null
-        var registration: BrokerLifecycleEvent.Joined? = null
-        var registrationOffset: Long? = null
-        var confirmed = false
-        var registeredAt = TimeSource.Monotonic.markNow()
-        var replyTo: BrokerLifecycleJournal.Drain? = null
-        var response: Job? = null
-        var acceptance: Job? = null
-        var leaveOffset: Long? = null
+        val replayEnd = runInterruptible(blocking) { log.end(timeout) }
+        BrokerConnection(log, timeout, metadata, floor, replayEnd, this).follow()
+    }
 
-        while (isActive) {
-            val records = runInterruptible(blocking) { log.poll(JavaDuration.ofMillis(150)) }
+    /**
+     * Holds the journal cursor and observed epoch for one watcher connection. Drain replies use
+     * independent connections, but their jobs belong to the scope of this watcher connection.
+     */
+    private inner class BrokerConnection(
+        private val log: KafkaBrokerLifecycleLog,
+        private val timeout: JavaDuration,
+        private val metadata: KafkaBrokerLifecycleLog.Metadata,
+        private val floor: Long,
+        private var replayEnd: Long,
+        private val connectionScope: CoroutineScope
+    ) {
+        private var verified = TimeSource.Monotonic.markNow()
+        private val journal = BrokerLifecycleJournal()
+        private var observedEpoch: String? = null
+        private var registration: BrokerLifecycleEvent.Joined? = null
+        private var registrationOffset: Long? = null
+        private var confirmed = false
+        private var registeredAt = TimeSource.Monotonic.markNow()
+        private var replyTo: BrokerLifecycleJournal.Drain? = null
+        private var response: Job? = null
+        private var acceptance: Job? = null
+        private var leaveOffset: Long? = null
+
+        suspend fun follow() {
+            while (connectionScope.isActive) {
+                val records = runInterruptible(blocking) { log.poll(JavaDuration.ofMillis(150)) }
+                readRecords(records)
+                val nextOffset = journal.nextOffset ?: floor
+                verifyJournal(nextOffset)
+                if (nextOffset < replayEnd) continue
+
+                val epoch = journal.epoch
+                observeEpoch(epoch)
+                val drain = journal.drain
+                if (drain != null) {
+                    handleDrain(drain)
+                } else if (epoch != null && !leaving.isCompleted) {
+                    if (registerOrReopen(epoch)) continue
+                }
+                if (leaving.isCompleted && handleExit(epoch, nextOffset)) return
+            }
+        }
+
+        private fun readRecords(records: List<BrokerLifecycleRecord>) {
             for (record in records) {
                 journal.accept(record)
                 val joined = registration ?: continue
@@ -118,105 +154,111 @@ internal class WarmupBrokerLifecycle(
                     record.offset > (registrationOffset ?: Long.MAX_VALUE)
                 ) confirmed = true
             }
-            val nextOffset = journal.nextOffset ?: floor
-            if (verified.elapsedNow() >= 1.seconds) {
-                runInterruptible(blocking) {
-                    check(log.topicId(timeout) == metadata.topicId) { "Warm-up lifecycle topic was recreated" }
-                    replayEnd = log.end(timeout)
-                    check(nextOffset <= replayEnd) { "Warm-up lifecycle journal was truncated" }
-                    check(log.position(timeout) <= nextOffset) { "Warm-up lifecycle journal has an unreadable tail" }
-                }
-                verified = TimeSource.Monotonic.markNow()
-            }
-            if (nextOffset < replayEnd) continue
+        }
 
-            val epoch = journal.epoch
-            if (epoch != observedEpoch) {
-                if (observedEpoch != null) fenceUnavailable()
-                observedEpoch = epoch
-                registration = null
-                registrationOffset = null
-                confirmed = false
-                replyTo = null
-                response?.cancel()
-                acceptance?.cancel()
-                leaveOffset = null
+        private suspend fun verifyJournal(nextOffset: Long) {
+            if (verified.elapsedNow() < 1.seconds) return
+            runInterruptible(blocking) {
+                check(log.topicId(timeout) == metadata.topicId) { "Warm-up lifecycle topic was recreated" }
+                replayEnd = log.end(timeout)
+                check(nextOffset <= replayEnd) { "Warm-up lifecycle journal was truncated" }
+                check(log.position(timeout) <= nextOffset) { "Warm-up lifecycle journal has an unreadable tail" }
             }
-            val drain = journal.drain
-            if (drain != null) {
-                if (drain !== replyTo) {
-                    admissionOpen = false
-                    val cleanup = fence(BROKER_DRAINING, drain.request.deadlineMillis)
-                    initialAdmission.complete(false)
-                    replyTo = drain
-                    if (instance in drain.expected) {
-                        val request = drain.request
-                        val acceptedSubmitted = CompletableDeferred<Unit>()
-                        val acknowledgementConnection = configuration.kafkaProperties +
-                            ("bootstrap.servers" to metadata.advertisedBroker)
-                        acceptance = launch {
-                            withReportLog(acknowledgementConnection) { sender ->
-                                try {
-                                    val accepted = BrokerLifecycleEvent.DrainAccepted(request.epoch, request.drainId, instance)
-                                    val confirmation = runInterruptible(blocking) { submit(sender, accepted) }
-                                    acceptedSubmitted.complete(Unit)
-                                    confirmation.await()
-                                } catch (error: CancellationException) {
-                                    throw error
-                                } catch (error: Exception) {
-                                    logger.warn("Could not publish warm-up broker drain acceptance", error)
-                                } finally {
-                                    acceptedSubmitted.complete(Unit)
-                                }
-                            }
-                        }
-                        val acceptanceJob = checkNotNull(acceptance)
-                        response = launch {
-                            val sessions = try {
-                                cleanup.await()
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (error: Exception) {
-                                logger.warn("Warm-up broker drain cleanup incomplete for instance {}", instance, error)
-                                return@launch
-                            }
-                            acceptedSubmitted.await()
-                            // The final confirmation has its own connection to this broker.
-                            withTimeoutOrNull(250.milliseconds) { acceptanceJob.join() }
-                            acceptanceJob.cancelAndJoin()
-                            withReportLog(acknowledgementConnection) { sender ->
-                                report(sender, request, sessions, metadata.advertisedBroker)
-                            }
-                        }
+            verified = TimeSource.Monotonic.markNow()
+        }
+
+        private fun observeEpoch(epoch: String?) {
+            if (epoch == observedEpoch) return
+            if (observedEpoch != null) fenceUnavailable()
+            observedEpoch = epoch
+            registration = null
+            registrationOffset = null
+            confirmed = false
+            replyTo = null
+            response?.cancel()
+            acceptance?.cancel()
+            leaveOffset = null
+        }
+
+        /** Returns true when the loop should poll for confirmation of a submitted registration. */
+        private suspend fun registerOrReopen(epoch: String): Boolean {
+            if (confirmed) {
+                if (!admissionOpen && reopen()) {
+                    admissionOpen = true
+                    initialAdmission.complete(true)
+                }
+                return false
+            }
+            val previous = registration
+            if (previous != null && registeredAt.elapsedNow() < 2.seconds) return false
+            val joined = previous ?: BrokerLifecycleEvent.Joined(epoch, instance, UUID.randomUUID().toString())
+            registration = joined
+            // Keep the original offset when resending the same registration nonce.
+            val appended = publish(log, joined)
+            if (registrationOffset == null) registrationOffset = appended
+            registeredAt = TimeSource.Monotonic.markNow()
+            return true
+        }
+
+        private fun handleDrain(drain: BrokerLifecycleJournal.Drain) {
+            if (drain === replyTo) return
+            admissionOpen = false
+            val cleanup = fence(BROKER_DRAINING, drain.request.deadlineMillis)
+            initialAdmission.complete(false)
+            replyTo = drain
+            if (instance !in drain.expected) return
+
+            val request = drain.request
+            val acceptedSubmitted = CompletableDeferred<Unit>()
+            val acknowledgementConnection = configuration.kafkaProperties +
+                ("bootstrap.servers" to metadata.advertisedBroker)
+            val acceptanceJob = connectionScope.launch {
+                withReportLog(acknowledgementConnection) { sender ->
+                    try {
+                        val accepted = BrokerLifecycleEvent.DrainAccepted(request.epoch, request.drainId, instance)
+                        val confirmation = runInterruptible(blocking) { submit(sender, accepted) }
+                        acceptedSubmitted.complete(Unit)
+                        confirmation.await()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        logger.warn("Could not publish warm-up broker drain acceptance", error)
+                    } finally {
+                        acceptedSubmitted.complete(Unit)
                     }
                 }
-            } else if (epoch != null && !leaving.isCompleted) {
-                if (confirmed) {
-                    if (!admissionOpen && reopen()) {
-                        admissionOpen = true
-                        initialAdmission.complete(true)
-                    }
-                } else if (registration == null || registeredAt.elapsedNow() >= 2.seconds) {
-                    val joined = registration ?: BrokerLifecycleEvent.Joined(epoch, instance, UUID.randomUUID().toString())
-                    registration = joined
-                    // Keep the original offset when resending the same registration nonce.
-                    val appended = publish(log, joined)
-                    if (registrationOffset == null) registrationOffset = appended
-                    registeredAt = TimeSource.Monotonic.markNow()
-                    continue
+            }
+            acceptance = acceptanceJob
+            response = connectionScope.launch {
+                val sessions = try {
+                    cleanup.await()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    logger.warn("Warm-up broker drain cleanup incomplete for instance {}", instance, error)
+                    return@launch
+                }
+                acceptedSubmitted.await()
+                // The final confirmation has its own connection to this broker.
+                withTimeoutOrNull(250.milliseconds) { acceptanceJob.join() }
+                acceptanceJob.cancelAndJoin()
+                withReportLog(acknowledgementConnection) { sender ->
+                    report(sender, request, sessions, metadata.advertisedBroker)
                 }
             }
+        }
 
-            if (leaving.isCompleted) {
-                if (epoch == null) error("Warm-up lifecycle epoch unavailable during context exit")
-                if (leaveOffset == null) {
-                    leaveOffset = publish(log, BrokerLifecycleEvent.Left(epoch, instance))
-                } else if (nextOffset > leaveOffset) {
-                    response?.join()
-                    acceptance?.cancel()
-                    return@coroutineScope
-                }
+        private suspend fun handleExit(epoch: String?, nextOffset: Long): Boolean {
+            checkNotNull(epoch) { "Warm-up lifecycle epoch unavailable during context exit" }
+            val exitingAt = leaveOffset
+            if (exitingAt == null) {
+                leaveOffset = publish(log, BrokerLifecycleEvent.Left(epoch, instance))
+                return false
             }
+            if (nextOffset <= exitingAt) return false
+            response?.join()
+            acceptance?.cancel()
+            return true
         }
     }
 

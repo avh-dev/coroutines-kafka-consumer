@@ -104,7 +104,7 @@ private class WarmupMetadataLookupException(
  * coverage. Preparation captures every destination end before readiness and publishes no readiness
  * until every independently owned consumer reports its explicit assignment and position ready.
  */
-internal class WarmupRecipientDiscovery(
+internal class WarmupRecipientSession(
     internal val request: WarmupRequested,
     private val metadata: WarmupDestinationMetadata,
     private val consumerPreparation: WarmupRecipientConsumerPreparation,

@@ -78,7 +78,7 @@ internal enum class WarmupInterruption(val reasonCode: String) {
 /**
  * Connects the tail-started control transport to stateless donor offers and one local recipient.
  * It is not a coordinator in the protocol sense: it owns no namespace table and dispatches only
- * the local recipient session plus donor sessions admitted by [WarmupDonorActivation].
+ * the local recipient session plus donor sessions admitted by [WarmupDonorSessionManager].
  */
 internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val localInstanceId: WarmupInstanceId,
@@ -86,7 +86,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     router: WarmupControlRouter,
     private val channel: WarmupControlChannel,
     private val donorDiscovery: StatelessWarmupDonorDiscovery,
-    private val donorActivation: WarmupDonorActivation<S>,
+    private val donorSessionManager: WarmupDonorSessionManager<S>,
     private val offerCollectionWindow: Duration,
     private val donorAcceptanceTimeout: Duration,
     private val donorCompletionTimeout: Duration = donorAcceptanceTimeout,
@@ -97,8 +97,8 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val recipientSignal = Channel<Unit>(Channel.CONFLATED)
     private val recipientInterruptionSignal = Channel<Unit>(Channel.CONFLATED)
     private val registration = router.register(this)
-    private var activeRecipient: WarmupRecipientDiscovery? = null
-    private var completedRecipient: Pair<WarmupRecipientDiscovery, WarmupCompletionResult>? = null
+    private var activeRecipient: WarmupRecipientSession? = null
+    private var completedRecipient: Pair<WarmupRecipientSession, WarmupCompletionResult>? = null
     private val probeInterval = donorLivenessTimeout / 3
     @Volatile private var donorLiveness: WarmupDonorLiveness? = null
     @Volatile private var controlFailure: Throwable? = null
@@ -116,7 +116,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     private val probeReplyWorkers = List(2) {
         scope.launch(start = CoroutineStart.LAZY) {
             for (probe in probesToReply) {
-                val reply = donorActivation.replyToProbe(probe) ?: continue
+                val reply = donorSessionManager.replyToProbe(probe) ?: continue
                 try {
                     withTimeoutOrNull(probeInterval) { channel.send(reply) }
                 } catch (cancelled: CancellationException) {
@@ -141,7 +141,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     }
 
     suspend fun discoverAndPrepare(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         brokerDrain: Deferred<WarmupBrokerDrain>? = null,
         onPublishingReadiness: () -> Unit = {}
     ): WarmupDiscoveryResult {
@@ -175,7 +175,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
             val admitted = if (acceptanceMillis > 0) {
                 withTimeoutOrNull(acceptanceMillis) {
                     while (!recipient.allDonorsAccepted() &&
-                        recipient.state() == WarmupRecipientDiscovery.State.ADMITTING_DONORS
+                        recipient.state() == WarmupRecipientSession.State.ADMITTING_DONORS
                     ) {
                         recipientSignal.receive()
                     }
@@ -226,7 +226,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         } finally {
             synchronized(lock) {
                 if (activeRecipient === recipient && recipient.state() !in
-                    setOf(WarmupRecipientDiscovery.State.READY, WarmupRecipientDiscovery.State.DRAINING)
+                    setOf(WarmupRecipientSession.State.READY, WarmupRecipientSession.State.DRAINING)
                 ) {
                     activeRecipient = null
                 }
@@ -239,7 +239,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
      * Repeated calls reuse the recorded result. Incomplete cleanup retains resources for shutdown.
      */
     suspend fun completeWarmup(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         interruption: Deferred<String>? = null,
         onFailureDetected: (String) -> Unit = {},
         brokerDrain: Deferred<WarmupBrokerDrain>? = null,
@@ -323,12 +323,12 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         return result
     }
 
-    fun completedResult(recipient: WarmupRecipientDiscovery): WarmupCompletionResult? = synchronized(lock) {
+    fun completedResult(recipient: WarmupRecipientSession): WarmupCompletionResult? = synchronized(lock) {
         completedRecipient?.takeIf { it.first === recipient }?.second
     }
 
     private suspend fun awaitDonorCompletion(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         brokerDrain: Deferred<WarmupBrokerDrain>?
     ): String? = coroutineScope {
         val remainingMillis = recipient.request.expiresAtEpochMillis - System.currentTimeMillis()
@@ -336,7 +336,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         val completion = async {
             val requests = recipient.completionRequests().map { request -> launch { channel.send(request) } }
             try {
-                while (!recipient.allDonorsClosed() && recipient.state() == WarmupRecipientDiscovery.State.DRAINING) {
+                while (!recipient.allDonorsClosed() && recipient.state() == WarmupRecipientSession.State.DRAINING) {
                     recipientSignal.receive()
                 }
                 recipient.allDonorsClosed()
@@ -364,12 +364,12 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     }
 
     /** Rolls back a prepared recipient and gives its best-effort fence a bounded send window. */
-    suspend fun abortWarmup(recipient: WarmupRecipientDiscovery, reasonCode: String): WarmupDiscoveryResult =
+    suspend fun abortWarmup(recipient: WarmupRecipientSession, reasonCode: String): WarmupDiscoveryResult =
         fallback(recipient, reasonCode, fenceTimeout = probeInterval)
 
     /** An absent round trip may indicate either donor loss or a control-path outage. */
     suspend fun awaitWarmupInterruption(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         readiness: List<RecipientReady>
     ): WarmupInterruption {
         val liveness = WarmupDonorLiveness(
@@ -380,7 +380,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         return try {
             supervisorScope {
                 val controlInterruption = async {
-                    while (recipient.state() != WarmupRecipientDiscovery.State.COLD_FALLBACK) {
+                    while (recipient.state() != WarmupRecipientSession.State.COLD_FALLBACK) {
                         recipientInterruptionSignal.receive()
                     }
                     WarmupInterruption.DONOR_SESSION_ENDED
@@ -421,18 +421,18 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         val message = record.message
         if (message.namespace != namespace) return
         when (message) {
-            is WarmupRequested -> if (donorActivation.isAdmissionOpen()) {
+            is WarmupRequested -> if (donorSessionManager.isAdmissionOpen()) {
                 donorDiscovery.offer(message, System.currentTimeMillis())?.let { channel.send(it) }
             }
-            is SessionAccepted -> if (message.targetInstanceId == localInstanceId && donorActivation.isAdmissionOpen()) {
-                val response = donorActivation.accept(message)
+            is SessionAccepted -> if (message.targetInstanceId == localInstanceId && donorSessionManager.isAdmissionOpen()) {
+                val response = donorSessionManager.accept(message)
                 channel.send(response)
-                if (response is DonorAccepted) donorActivation.startPreparation(message.sessionId)
+                if (response is DonorAccepted) donorSessionManager.startPreparation(message.sessionId)
             }
-            is RecipientReady -> donorActivation.onRecipientReady(message)
-            is ControlRecordCompleted -> donorActivation.onRecordCompleted(message)
-            is WarmupCompletionRequested -> donorActivation.onCompletionRequested(message)
-            is SessionEnded -> donorActivation.onSessionEnded(message)
+            is RecipientReady -> donorSessionManager.onRecipientReady(message)
+            is ControlRecordCompleted -> donorSessionManager.onRecordCompleted(message)
+            is WarmupCompletionRequested -> donorSessionManager.onCompletionRequested(message)
+            is SessionEnded -> donorSessionManager.onSessionEnded(message)
             is DonorOffered -> withRecipient(message.sessionId) { it.onOffer(message) }
             is DonorAccepted -> withRecipient(message.sessionId) { it.onDonorAccepted(message) }
             is SessionRejected -> withRecipient(message.sessionId) {
@@ -477,13 +477,13 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         probeReplyWorkers.forEach { it.cancel() }
     }
 
-    private fun withRecipient(sessionId: WarmupSessionId, action: (WarmupRecipientDiscovery) -> Boolean) {
+    private fun withRecipient(sessionId: WarmupSessionId, action: (WarmupRecipientSession) -> Boolean) {
         val recipient = synchronized(lock) { activeRecipient }
         if (recipient?.request?.sessionId == sessionId && action(recipient)) recipientSignal.trySend(Unit)
     }
 
     private suspend fun fallback(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         reasonCode: String,
         knownCleanup: WarmupRecipientCleanupResult? = null,
         fenceTimeout: Duration? = null
@@ -507,7 +507,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     }
 
     private suspend fun completionFallback(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         reasonCode: String,
         drain: Deferred<WarmupBrokerDrain>? = null
     ): WarmupCompletionResult {
@@ -522,7 +522,7 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
     }
 
     private suspend fun publishEndedFence(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         state: WarmupSessionEndState,
         reasonCode: String?
     ) {
@@ -546,14 +546,14 @@ internal class WarmupDiscoveryRuntime<S : WarmupDonorSessionLifecycle>(
         }
     }
 
-    private fun clearRecipient(recipient: WarmupRecipientDiscovery) {
+    private fun clearRecipient(recipient: WarmupRecipientSession) {
         synchronized(lock) {
             if (activeRecipient === recipient) activeRecipient = null
         }
     }
 
     private fun rememberCompletion(
-        recipient: WarmupRecipientDiscovery,
+        recipient: WarmupRecipientSession,
         result: WarmupCompletionResult
     ) {
         synchronized(lock) {

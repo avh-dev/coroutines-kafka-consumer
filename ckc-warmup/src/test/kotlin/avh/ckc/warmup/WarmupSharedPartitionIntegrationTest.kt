@@ -386,7 +386,7 @@ class WarmupSharedPartitionIntegrationTest {
         val fallback = pair.discover()
 
         assertInstanceOf(WarmupDiscoveryResult.ColdFallback::class.java, fallback)
-        awaitFor { pair.donorActivation.state(pair.sessionId)?.takeIf { it == WarmupDonorActivation.State.CLOSED } }
+        awaitFor { pair.donorSessionManager.state(pair.sessionId)?.takeIf { it == WarmupDonorSessionManager.State.CLOSED } }
         val coldHandled = CopyOnWriteArrayList<String>()
         val cold = pair.coldMainConsumer(coldHandled)
         try {
@@ -451,7 +451,7 @@ class WarmupSharedPartitionIntegrationTest {
             normalizedAdmissionBudget(listOf(valid, invalid)), "configuration", now + 20_000
         )
         val prepared = CopyOnWriteArrayList<WarmupDestinationStart>()
-        val discovery = WarmupRecipientDiscovery(
+        val discovery = WarmupRecipientSession(
             request,
             KafkaWarmupDestinationMetadata(
                 mapOf(participant to mapOf("bootstrap.servers" to kafka.bootstrapServers)),
@@ -483,7 +483,7 @@ class WarmupSharedPartitionIntegrationTest {
         val result = discovery.prepareConsumers()
 
         assertInstanceOf(WarmupRecipientPreparationResult.ColdFallback::class.java, result)
-        assertEquals(WarmupRecipientDiscovery.State.COLD_FALLBACK, discovery.state())
+        assertEquals(WarmupRecipientSession.State.COLD_FALLBACK, discovery.state())
         assertTrue(prepared.isEmpty())
     }
 
@@ -555,12 +555,12 @@ class WarmupSharedPartitionIntegrationTest {
             .runtimeFactory().subscribed(consumerProperties(donorGroup), plane.records)
         private lateinit var donorTransport: WarmupControlTransport
         private lateinit var recipientTransport: WarmupControlTransport
-        val donorActivation: WarmupDonorActivation<LogicalWarmupDonorSession>
-        private val recipientActivation: WarmupDonorActivation<LogicalWarmupDonorSession>
+        val donorSessionManager: WarmupDonorSessionManager<LogicalWarmupDonorSession>
+        private val recipientActivation: WarmupDonorSessionManager<LogicalWarmupDonorSession>
         private val donorRuntime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>
         private val recipientRuntime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>
         private lateinit var request: WarmupRequested
-        private lateinit var recipientDiscovery: WarmupRecipientDiscovery
+        private lateinit var recipientSession: WarmupRecipientSession
         val outbox: WarmupCompletionOutbox
         private val resultLane: WarmupResultLane
         private var donorControlStartAttempted = false
@@ -569,7 +569,7 @@ class WarmupSharedPartitionIntegrationTest {
         private var closed = false
 
         init {
-            donorActivation = WarmupDonorActivation(
+            donorSessionManager = WarmupDonorSessionManager(
                 localInstanceId = donorId,
                 namespace = namespace,
                 supportedMappings = listOf(mapping),
@@ -582,7 +582,7 @@ class WarmupSharedPartitionIntegrationTest {
                 drainTimeout = 3.seconds
             )
             val recipientStore = LogicalWarmupDonorSessionStore(1, 1)
-            recipientActivation = WarmupDonorActivation(
+            recipientActivation = WarmupDonorSessionManager(
                 localInstanceId = recipientId,
                 namespace = namespace,
                 supportedMappings = emptyList(),
@@ -606,7 +606,7 @@ class WarmupSharedPartitionIntegrationTest {
                     listOf(mapping),
                     MainConsumerWarmupDonorEligibility(mapOf(participant to donor))
                 ),
-                donorActivation,
+                donorSessionManager,
                 150.milliseconds,
                 5.seconds,
                 5.seconds,
@@ -650,7 +650,7 @@ class WarmupSharedPartitionIntegrationTest {
         }
 
         suspend fun discover(): WarmupDiscoveryResult {
-            check(!::recipientDiscovery.isInitialized) { "Protocol discovery already started" }
+            check(!::recipientSession.isInitialized) { "Protocol discovery already started" }
             val now = System.currentTimeMillis()
             request = WarmupRequested(
                 namespace = namespace,
@@ -679,7 +679,7 @@ class WarmupSharedPartitionIntegrationTest {
                     }
                 )
             )
-            recipientDiscovery = WarmupRecipientDiscovery(
+            recipientSession = WarmupRecipientSession(
                 request,
                 KafkaWarmupDestinationMetadata(
                     mapOf(participant to mapOf("bootstrap.servers" to kafka.bootstrapServers)),
@@ -688,11 +688,11 @@ class WarmupSharedPartitionIntegrationTest {
                 preparation,
                 5.seconds
             )
-            return recipientRuntime.discoverAndPrepare(recipientDiscovery)
+            return recipientRuntime.discoverAndPrepare(recipientSession)
         }
 
         suspend fun complete(): WarmupCompletionResult {
-            val result = recipientRuntime.completeWarmup(recipientDiscovery, finishSends = { result ->
+            val result = recipientRuntime.completeWarmup(recipientSession, finishSends = { result ->
                 if (result == WarmupCompletionResult.Completed ||
                     result is WarmupCompletionResult.CompletedWithDiagnostics
                 ) {
@@ -740,9 +740,9 @@ class WarmupSharedPartitionIntegrationTest {
                 }
             }
 
-            if (::recipientDiscovery.isInitialized && !completed) {
+            if (::recipientSession.isInitialized && !completed) {
                 cleanup("recipient discovery") {
-                    when (val result = recipientDiscovery.terminate()) {
+                    when (val result = recipientSession.terminate()) {
                         WarmupRecipientCleanupResult.Complete -> Unit
                         is WarmupRecipientCleanupResult.CompleteWithDiagnostics -> error(
                             "Recipient cleanup completed with diagnostics: ${result.diagnostics.joinToString()}"
