@@ -55,6 +55,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
         assertNull(javaClass.classLoader.getResource("avh/ckc/warmup/TrafficWarmupDslKt.class"))
+        assertNull(javaClass.classLoader.getResource("io/micrometer/core/instrument/MeterRegistry.class"))
         val topic = "ckc-it-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)

@@ -136,11 +136,25 @@ tasks.test {
     }
 }
 
+val integrationTestRuntimeClasspath = configurations.resolvable("integrationTestRuntimeClasspath") {
+    val testRuntime = configurations.testRuntimeClasspath.get()
+    extendsFrom(testRuntime)
+    attributes {
+        fun <T : Any> copyAttribute(key: Attribute<T>) {
+            attribute(key, requireNotNull(testRuntime.attributes.getAttribute(key)))
+        }
+        testRuntime.attributes.keySet().forEach { copyAttribute(it) }
+    }
+    exclude(group = "io.micrometer")
+}
+
 val integrationTest = tasks.register<Test>("integrationTest") {
-    description = "Runs integration tests against real dependencies"
+    description = "Runs Kafka integration tests without Micrometer"
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
+    classpath = files(sourceSets.test.get().output, sourceSets.main.get().output, integrationTestRuntimeClasspath)
+    // JUnit resolves candidate classes before applying tags. Adapter tests require Micrometer.
+    exclude("avh/ckc/core/metrics/micrometer/**")
     shouldRunAfter(tasks.test)
     useJUnitPlatform {
         includeTags("integration")

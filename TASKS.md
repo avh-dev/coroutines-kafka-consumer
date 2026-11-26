@@ -7119,5 +7119,6 @@ Part of [GLOBAL-5](#global-5). Move the adapter to `avh.ckc.core.metrics.microme
 Keep Micrometer optional for core and warm-up. The Spring Boot starter keeps its runtime dependency.
 Decide whether to bind warm-up metrics based on the presence of `MeterRegistry`, and verify the registry, prefix, and tags through a delegated consumer metrics wrapper.
 Passed 565 tests with `./gradlew :ckc-core:test :ckc-warmup:test :ckc-spring-boot-starter:test :ckc-demo:test`.
-Passed 24 scenarios with `:ckc-core:integrationTest` after filtering Micrometer jars from its test runtime via a temporary Gradle init script.
+Exclude Micrometer from the standard core Kafka integration test runtime and assert its absence while testing record processing.
+Passed 238 unit tests and 24 Kafka scenarios in one `./gradlew :ckc-core:check` run.
 Passed 51 scenarios with `:ckc-warmup:integrationTest` and two with `:ckc-warmup:integrationTestWithoutMicrometer`. Passed all 20 lab sync unit tests.
