@@ -99,6 +99,7 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 The consumer profiles expose demo-only switches for consumer experiments:
 
 - `TRAFFIC_WARMUP_ENABLED=true` enables traffic warm-up in `ckc`, `ckc-sync`, and `ckc-spring-boot`. The starter profile registers order, batch, and cauldron consumers in one context. It uses the existing `TRAFFIC_WARMUP_*` settings for control and destination Kafka, broker lifecycle, per-topic quotas, and the shared in-flight delegation limit.
+- In `ckc-spring-boot`, `CKC_METRICS_ENABLED=false` disables CKC consumer meters. Audit callbacks remain active when `AUDIT_LOG_ENABLED=true`.
 
 - `EXPERIMENT_TARGET_NAME` overrides the human-readable `profile` tag on `ckc.demo.consumer.profile.info`; the active Spring profile remains available as `spring_profile`.
 - Shared `KAFKA_CONSUMER_FETCH_MIN_BYTES`, `KAFKA_CONSUMER_FETCH_MAX_WAIT_MS`, `KAFKA_CONSUMER_MAX_POLL_RECORDS`, `KAFKA_CONSUMER_FETCH_MAX_BYTES`, and `KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES` settings can be overridden per topic with the `ORDER_`, `BATCH_`, or `TELEMETRY_` prefix.

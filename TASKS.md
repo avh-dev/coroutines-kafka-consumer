@@ -7148,3 +7148,5 @@ Part of [GLOBAL-5](#global-5). Bind the three demo consumers to one starter-mana
 Preserve the existing `TRAFFIC_WARMUP_*` settings for broker lifecycle, Kafka connections, quotas, and forwarding.
 Share lifecycle and offset logs and recipient metrics across demo profiles. Keep CUSTOM metrics and audit successful remote source records and recipient discards.
 Passed 119 demo tests, including binding, audit, and shared event coverage, with `./gradlew :ckc-demo:test :ckc-spring-boot-starter:test`. The 65 starter tests remained up-to-date.
+Keep the custom audit binding active with CKC meters disabled. A Kafka integration test starts two demo applications and verifies one successful audit entry for each of the confirmed source and destination offsets and no CKC consumer meters.
+Passed 120 demo tests after the review fix. The 65 starter tests remained up-to-date.

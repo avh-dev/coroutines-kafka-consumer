@@ -28,6 +28,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
 import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -97,7 +98,9 @@ class CauldronTelemetryCkcSpringBootConsumer(
 
 @Profile("ckc-spring-boot")
 @Configuration(proxyBeanMethods = false)
-class CkcSpringBootMetricsConfiguration {
+class CkcSpringBootMetricsConfiguration(
+    @Value("\${CKC_METRICS_ENABLED:true}") private val micrometerEnabled: Boolean
+) {
     @Bean
     @CkcConsumerMetrics(consumer = "order-events")
     fun orderConsumerMetrics(
@@ -105,10 +108,7 @@ class CkcSpringBootMetricsConfiguration {
         ckcProperties: CkcConsumerProperties,
         properties: DemoApplicationProperties
     ): ConsumerMetrics<String, OrderLifecycleEvent> =
-        micrometerConsumerMetrics<String, OrderLifecycleEvent>(demoMicrometerSchema(meterRegistry, ckcProperties)) {
-            consumerId = "order-events"
-            recordDrivenTagExtractors = orderEventRecordTags()
-        }.withAudit(properties.audit)
+        consumerMetrics("order-events", meterRegistry, ckcProperties, properties.audit, ::orderEventRecordTags)
 
     @Bean
     @CkcConsumerMetrics(consumer = "batch-events")
@@ -117,10 +117,7 @@ class CkcSpringBootMetricsConfiguration {
         ckcProperties: CkcConsumerProperties,
         properties: DemoApplicationProperties
     ): ConsumerMetrics<String, BatchLifecycleEvent> =
-        micrometerConsumerMetrics<String, BatchLifecycleEvent>(demoMicrometerSchema(meterRegistry, ckcProperties)) {
-            consumerId = "batch-events"
-            recordDrivenTagExtractors = batchEventRecordTags()
-        }.withAudit(properties.audit)
+        consumerMetrics("batch-events", meterRegistry, ckcProperties, properties.audit, ::batchEventRecordTags)
 
     @Bean
     @CkcConsumerMetrics(consumer = "cauldron-events")
@@ -129,10 +126,26 @@ class CkcSpringBootMetricsConfiguration {
         ckcProperties: CkcConsumerProperties,
         properties: DemoApplicationProperties
     ): ConsumerMetrics<String, CauldronTelemetryEvent> =
-        micrometerConsumerMetrics<String, CauldronTelemetryEvent>(demoMicrometerSchema(meterRegistry, ckcProperties)) {
-            consumerId = "cauldron-events"
-            recordDrivenTagExtractors = cauldronEventRecordTags()
-        }.withAudit(properties.audit)
+        consumerMetrics("cauldron-events", meterRegistry, ckcProperties, properties.audit, ::cauldronEventRecordTags)
+
+    private fun <V> consumerMetrics(
+        name: String,
+        meterRegistry: MeterRegistry,
+        ckcProperties: CkcConsumerProperties,
+        audit: DemoApplicationProperties.Audit,
+        recordTags: () -> RecordDrivenTagExtractors<String, V>
+    ): ConsumerMetrics<String, V> {
+        @Suppress("UNCHECKED_CAST")
+        val delegate = if (micrometerEnabled) {
+            micrometerConsumerMetrics<String, V>(demoMicrometerSchema(meterRegistry, ckcProperties)) {
+                consumerId = name
+                recordDrivenTagExtractors = recordTags()
+            }
+        } else {
+            ConsumerMetrics.NOOP as ConsumerMetrics<String, V>
+        }
+        return if (audit.enabled) delegate.withAudit(audit) else delegate
+    }
 
     fun orderEventRecordTags(): RecordDrivenTagExtractors<String, OrderLifecycleEvent> =
         recordDrivenTagExtractors {
