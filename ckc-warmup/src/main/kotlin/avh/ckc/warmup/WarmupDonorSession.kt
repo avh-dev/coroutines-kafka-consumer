@@ -22,6 +22,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.slf4j.LoggerFactory
 
+/** Selects a mapping destination for records a donor session is eligible to forward. */
 internal fun interface WarmupDestinationResolver<K, V> {
     fun destinationFor(record: ConsumerRecord<K, V>): WarmupDestination?
 }
@@ -349,20 +350,26 @@ internal class WarmupDonorSession<K, V>(
     }
 }
 
+/** Releases a forwarding wait when broker drain closes the result path. */
 private class WarmupBrokerResultsEndedException : IllegalStateException("Warm-up broker drain ended result delivery")
 
+/** Carries a delegation failure into session-wide result handling. */
 internal class WarmupDelegationFailedException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
 
+/** Indicates that in-flight delegations outlived the donor drain budget. */
 internal class WarmupInflightDrainTimeoutException(timeout: Duration) :
     IllegalStateException("Warm-up in-flight drain exceeded $timeout")
 
+/** Distinguishes send and result paths when the shared delegation deadline expires. */
 internal class WarmupDelegationDeadlineException(val acknowledged: Boolean) :
     IllegalStateException("Warm-up delegation deadline expired")
 
+/** Preserves a producer failure so the donor can select its local fallback reason. */
 internal class WarmupSendFailedException(cause: Throwable) :
     IllegalStateException("Warm-up record send failed", cause)
 
+/** Signals a remote result incompatible with the source processing policy. */
 internal class InvalidWarmupRemoteOutcomeException(message: String) : IllegalStateException(message)
 
 private fun normalizedSessionBudget(intervalBudget: Int, quotaInterval: Duration): Int {

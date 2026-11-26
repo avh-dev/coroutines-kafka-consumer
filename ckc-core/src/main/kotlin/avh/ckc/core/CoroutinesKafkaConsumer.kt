@@ -334,6 +334,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
+    /** Requests one startup. With a managed lifecycle, main runtime startup can be deferred. */
     fun start() {
         managedLifecycle?.let {
             it.start()
@@ -366,7 +367,7 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         }
     }
 
-    /** Waits until every poll loop has established its first Kafka assignment and initial positions. */
+    /** Waits for the main runtime's first Kafka assignments and positions, through any attached lifecycle. */
     suspend fun awaitReady() {
         managedLifecycle?.let {
             it.awaitReady()
@@ -410,6 +411,11 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         stopDeferred ?: shutdownScope.launchStopSequence().also { stopDeferred = it }
     }
 
+    /**
+     * Requests cleanup for this consumer, including any attached lifecycle. Calling before start
+     * releases resources without starting the consumer. If an extension reports incomplete
+     * cleanup or the caller is cancelled, use a later call to wait for or retry cleanup.
+     */
     suspend fun stop() {
         managedLifecycle?.let {
             it.stop()
@@ -435,7 +441,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         failure.get()?.let { throw it }
     }
 
-    /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
+    /**
+     * Waits for normal termination or rethrows the terminal failure. Failure can be reported
+     * before runtime cleanup has finished. Use [awaitShutdownCompletion] to wait for that sequence.
+     */
     suspend fun awaitTermination() {
         managedLifecycle?.let {
             it.awaitTermination()
@@ -455,7 +464,10 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         managedLifecycle = lifecycle
     }
 
-    /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
+    /**
+     * Waits for the underlying runtime's shutdown sequence and resource release attempts.
+     * [isStopComplete] includes cleanup by an attached lifecycle.
+     */
     suspend fun awaitShutdownCompletion() {
         shutdownCompletion.await()
     }

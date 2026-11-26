@@ -5,6 +5,7 @@ import avh.ckc.warmup.protocol.WarmupSessionId
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 
+/** Kafka destination selected for one delegated source record. */
 internal data class WarmupDestination(val topic: String, val partition: Int = 0) {
     init {
         require(topic.isNotBlank()) { "Warm-up destination topic must not be blank" }
@@ -12,6 +13,7 @@ internal data class WarmupDestination(val topic: String, val partition: Int = 0)
     }
 }
 
+/** Source and destination coordinates used by internal forwarding observers. */
 internal data class WarmupForwardedEvent(
     val sessionId: WarmupSessionId,
     val sourceTopicPartition: TopicPartition,

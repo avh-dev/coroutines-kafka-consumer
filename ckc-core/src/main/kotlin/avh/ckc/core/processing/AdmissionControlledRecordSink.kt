@@ -3,6 +3,7 @@ package avh.ckc.core.processing
 import avh.ckc.core.extension.RecordAdmission
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
+/** Transfers admission reservations to the processing queue only after acceptance. */
 internal class AdmissionControlledRecordSink<K, V>(
     private val delegate: PolledRecordSink<K, V>,
     private val processedRecordTracker: ProcessedRecordTracker,

@@ -2,10 +2,11 @@ package avh.ckc.warmup.protocol
 
 import org.apache.kafka.common.TopicPartition
 
-const val WARMUP_CONTROL_PROTOCOL_VERSION = 6
+internal const val WARMUP_CONTROL_PROTOCOL_VERSION = 6
 
+/** Routing boundary for compatible peers sharing one control topic. */
 @JvmInline
-value class WarmupControlNamespace(val value: String) {
+internal value class WarmupControlNamespace(val value: String) {
     init {
         require(value.isNotBlank()) { "Control namespace must not be blank" }
         require(value.length <= 255) { "Control namespace must be at most 255 characters" }
@@ -13,7 +14,8 @@ value class WarmupControlNamespace(val value: String) {
     }
 }
 
-sealed interface WarmupControlMessage {
+/** Common envelope for routing and validating control records. */
+internal sealed interface WarmupControlMessage {
     val protocolVersion: Int
     val namespace: WarmupControlNamespace
     val sessionId: WarmupSessionId
@@ -24,7 +26,7 @@ sealed interface WarmupControlMessage {
 }
 
 /** Immutable per-mapping quota carried by every offer and acceptance. */
-data class WarmupMappingQuota(
+internal data class WarmupMappingQuota(
     val profile: WarmupQuotaProfile,
     val quotaIntervalMillis: Long = 1_000
 ) {
@@ -54,7 +56,8 @@ internal fun normalizedAdmissionBudget(mappings: Collection<WarmupTopicMapping>)
     return total.toInt()
 }
 
-data class WarmupTopicMapping(
+/** Identifies a participant mapping and the quota required for donor admission. */
+internal data class WarmupTopicMapping(
     val participantId: WarmupParticipantId,
     val sourceTopic: String,
     val warmupTopic: String,
@@ -68,14 +71,16 @@ data class WarmupTopicMapping(
     }
 }
 
-data class WarmupSourcePartition(val partition: Int, val ownershipGeneration: Long) {
+/** A source partition and the generation of the ownership offered by a donor. */
+internal data class WarmupSourcePartition(val partition: Int, val ownershipGeneration: Long) {
     init {
         require(partition >= 0) { "Source partition must not be negative" }
         require(ownershipGeneration > 0) { "Ownership generation must be positive" }
     }
 }
 
-data class WarmupDonorMapping(
+/** Mapping and source ownership a donor offers or agrees to serve. */
+internal data class WarmupDonorMapping(
     val mapping: WarmupTopicMapping,
     val sourcePartitions: Set<WarmupSourcePartition>
 ) {
@@ -87,18 +92,20 @@ data class WarmupDonorMapping(
     }
 }
 
-data class WarmupPartitionAssignment(
+/** Maps recipient readiness to partition zero of a warm-up topic. */
+internal data class WarmupPartitionAssignment(
     val mapping: WarmupTopicMapping,
     val warmupPartition: Int = 0
 ) {
     init {
-        require(warmupPartition == 0) { "GLOBAL-5 warm-up topics must use partition 0" }
+        require(warmupPartition == 0) { "Warm-up destinations must use partition 0" }
     }
 
     val destination: TopicPartition get() = TopicPartition(mapping.warmupTopic, warmupPartition)
 }
 
-data class WarmupRequested(
+/** Requests offers for a complete set of mappings before the offer deadline. */
+internal data class WarmupRequested(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -122,7 +129,8 @@ data class WarmupRequested(
 
 }
 
-data class DonorOffered(
+/** Advertises eligible mappings and ownership without reserving donor capacity. */
+internal data class DonorOffered(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -138,7 +146,8 @@ data class DonorOffered(
     }
 }
 
-data class SessionAccepted(
+/** Selects a donor and requests that it prepare the agreed mappings. */
+internal data class SessionAccepted(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -157,7 +166,8 @@ data class SessionAccepted(
 
 }
 
-data class DonorAccepted(
+/** Confirms the donor reserved local capacity for the accepted mappings. */
+internal data class DonorAccepted(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -177,7 +187,8 @@ data class DonorAccepted(
 
 }
 
-data class SessionRejected(
+/** Informs a peer that a session could not begin or continue. */
+internal data class SessionRejected(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -193,7 +204,8 @@ data class SessionRejected(
     }
 }
 
-data class RecipientReady(
+/** Signals that prepared destination consumers can receive delegated records. */
+internal data class RecipientReady(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -209,7 +221,8 @@ data class RecipientReady(
     }
 }
 
-data class ControlRecordCompleted(
+/** Carries one terminal recipient result to its selected donor. */
+internal data class ControlRecordCompleted(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -225,7 +238,8 @@ data class ControlRecordCompleted(
     }
 }
 
-data class WarmupCompletionRequested(
+/** Closes donor admission to this recipient and requests drain of existing delegations. */
+internal data class WarmupCompletionRequested(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -239,7 +253,8 @@ data class WarmupCompletionRequested(
     }
 }
 
-data class DonorClosed(
+/** Confirms a donor drained and released the resources for this session. */
+internal data class DonorClosed(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,
@@ -254,7 +269,7 @@ data class DonorClosed(
 }
 
 /** The matching v6 readiness or admission envelope carries the probe timestamp in a Kafka header. */
-data class WarmupLivenessProbe(
+internal data class WarmupLivenessProbe(
     val envelope: WarmupControlMessage,
     val sentAtNanos: Long
 ) : WarmupControlMessage by envelope {
@@ -266,9 +281,11 @@ data class WarmupLivenessProbe(
     }
 }
 
-enum class WarmupSessionEndState { COMPLETED, FAILED, COLD_FALLBACK }
+/** Terminal outcome carried by the recipient fence. */
+internal enum class WarmupSessionEndState { COMPLETED, FAILED, COLD_FALLBACK }
 
-data class SessionEnded(
+/** Fences a recipient session after completion, failure, or cold fallback. */
+internal data class SessionEnded(
     override val namespace: WarmupControlNamespace,
     override val sessionId: WarmupSessionId,
     override val senderInstanceId: WarmupInstanceId,

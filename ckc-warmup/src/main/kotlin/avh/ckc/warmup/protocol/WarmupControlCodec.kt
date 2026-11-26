@@ -10,8 +10,8 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.header.Headers
 
-/** Bounded binary codec for the incompatible, namespace-scoped GLOBAL-5 control protocol. */
-object WarmupControlCodec {
+/** Bounded binary codec for the versioned, namespace-scoped warm-up control protocol. */
+internal object WarmupControlCodec {
     private const val MAGIC = 0x434B5457
     private const val MAX_MESSAGE_BYTES = 1024 * 1024
     private const val MAX_STRING_BYTES = 4096
@@ -368,6 +368,7 @@ object WarmupControlCodec {
     private const val DISCARD_LIFECYCLE = 6
 }
 
+/** Enforces the control payload limit while encoding, before the buffer grows further. */
 private class SizeLimitedByteArrayOutputStream(private val maximumSize: Int) : ByteArrayOutputStream() {
     override fun write(value: Int) {
         requireCapacity(1)

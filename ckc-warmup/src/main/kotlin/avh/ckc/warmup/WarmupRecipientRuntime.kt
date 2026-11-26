@@ -23,6 +23,7 @@ internal fun warmupRecipientClientId(sessionId: WarmupSessionId, start: WarmupDe
         UUID.nameUUIDFromBytes(connectionIdentity.toByteArray(Charsets.UTF_8))
 }
 
+/** Adapts a fixed-assignment core runtime to the recipient session lifecycle. */
 internal class CoroutinesPreparedWarmupRecipientConsumer(
     start: WarmupDestinationStart,
     private val runtime: CoroutinesKafkaConsumer<*, *>
@@ -62,9 +63,11 @@ internal suspend fun abortWarmupRecipientRuntime(runtime: CoroutinesKafkaConsume
     return runtime.runtimeControl.isShutdownComplete()
 }
 
+/** Signals that the recipient runtime still owns work after bounded cleanup. */
 internal class WarmupRecipientCleanupTimeoutException :
     IllegalStateException("Warm-up recipient consumer cleanup deadline expired")
 
+/** Reports a recipient runtime failure after its resources were released. */
 internal class WarmupRecipientConsumerStoppedWithFailureException(cause: Throwable) :
     IllegalStateException("Warm-up recipient consumer stopped with a terminal failure", cause)
 

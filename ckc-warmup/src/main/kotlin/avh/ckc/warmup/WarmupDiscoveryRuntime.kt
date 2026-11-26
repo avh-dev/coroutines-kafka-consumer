@@ -36,6 +36,7 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** Recipient startup result, including whether cleanup retained resources. */
 internal sealed interface WarmupDiscoveryResult {
     data class Ready(val messages: List<RecipientReady>) : WarmupDiscoveryResult
     data class ColdFallback(val reasonCode: String) : WarmupDiscoveryResult
@@ -49,6 +50,7 @@ internal sealed interface WarmupDiscoveryResult {
     ) : WarmupDiscoveryResult
 }
 
+/** Recipient completion result after donor drain, consumer stop, and result delivery. */
 internal sealed interface WarmupCompletionResult {
     val reasonCode: String?
 
@@ -69,6 +71,7 @@ internal sealed interface WarmupCompletionResult {
     ) : WarmupCompletionResult
 }
 
+/** Recipient runtime signals that can interrupt an active warm-up period. */
 internal enum class WarmupInterruption(val reasonCode: String) {
     DONOR_SESSION_ENDED("donor_session_ended"),
     RECIPIENT_CONSUMER_TERMINATED("recipient_consumer_terminated"),

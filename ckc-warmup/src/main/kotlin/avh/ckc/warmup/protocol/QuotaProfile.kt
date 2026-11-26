@@ -1,7 +1,7 @@
 package avh.ckc.warmup.protocol
 
 /** One normalized transition in a mapping quota profile. Labels are intentionally discarded. */
-data class WarmupQuotaPhase(
+internal data class WarmupQuotaPhase(
     val durationMillis: Long,
     val targetQuota: Int
 ) {
@@ -15,7 +15,7 @@ data class WarmupQuotaPhase(
 }
 
 /** Immutable numeric form used by quota evaluation, fingerprints, and the control protocol. */
-data class WarmupQuotaProfile(
+internal data class WarmupQuotaProfile(
     val initialQuota: Int,
     val phases: List<WarmupQuotaPhase>
 ) {

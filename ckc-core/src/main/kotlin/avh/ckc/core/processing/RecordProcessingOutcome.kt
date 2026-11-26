@@ -6,6 +6,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 
 /** Semantic result of one record after admission to a processing runtime. */
 sealed interface RecordProcessingOutcome {
+    /** The local handler completed successfully. */
     data object HandlerSucceeded : RecordProcessingOutcome
 
     /** An external processor ran the handler and reported success. */
@@ -14,6 +15,7 @@ sealed interface RecordProcessingOutcome {
     /** The handler exhausted retries and the configured failure handler completed. */
     data class HandlerFailed(val error: Throwable) : RecordProcessingOutcome
 
+    /** The configured processing policy completed the record by discarding it. */
     data class PolicyDiscarded(val reason: RecordDropReason) : RecordProcessingOutcome
 
     /** The record remains non-terminal and may be replayed by another owner. */
@@ -26,7 +28,11 @@ sealed interface RecordProcessingOutcome {
  * The local pipeline checks ownership again before processing.
  */
 fun interface AdmittedRecordInterceptor<K, V> {
-    /** The local callback is valid for the duration of this invocation. */
+    /**
+     * Runs in the record's processing coroutine and occupies its ordering slot until the returned
+     * outcome is known. The local callback is valid only during this invocation. Call it at most
+     * once and return its outcome if used. Propagate cancellation so ownership handoff can proceed.
+     */
     suspend fun process(
         record: ConsumerRecord<K, V>,
         processLocally: suspend () -> RecordProcessingOutcome

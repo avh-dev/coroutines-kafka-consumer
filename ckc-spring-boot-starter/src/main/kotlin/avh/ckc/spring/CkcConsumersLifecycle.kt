@@ -20,8 +20,10 @@ import org.springframework.context.SmartLifecycle
 /**
  * Spring-managed lifecycle and registry implementation for starter-managed CKC consumers.
  *
- * Consumers configured with `auto-startup: true` start with the application context;
- * manual consumers are registered here and can be controlled through [CkcConsumerRegistry].
+ * Consumers configured with `auto-startup: true` start with the application context. Manual
+ * consumers can be controlled through [CkcConsumerRegistry]. Spring and named stops wait up to
+ * the configured shutdown timeout. The core container owns cleanup beyond that wait and retries
+ * incomplete participants. Starter-owned dispatchers close after destruction and cleanup.
  */
 class CkcConsumersLifecycle internal constructor(
     private val applicationContext: ApplicationContext,
@@ -374,7 +376,11 @@ data class CkcConsumerLifecycleFailure(
     val error: Throwable
 )
 
-/** Aggregates observed failures, incomplete cleanup, and an optional Spring wait timeout. */
+/**
+ * Reports the outcome of a Spring wait for consumer shutdown. [lifecycleFailures] lists observed
+ * participant errors. [unfinishedConsumerNames] identifies consumers whose cleanup was still
+ * incomplete. [timedOut] indicates that the Spring waiting budget expired.
+ */
 class CkcConsumersShutdownException internal constructor(
     val lifecycleFailures: List<CkcConsumerLifecycleFailure>,
     val unfinishedConsumerNames: Set<String>,
@@ -391,6 +397,7 @@ class CkcConsumersShutdownException internal constructor(
         if (timedOut) append("; Spring shutdown wait timed out")
     }
 ) {
+    /** Observed errors indexed by Spring consumer name. */
     val failures: Map<String, Throwable> = lifecycleFailures.associate { it.consumerName to it.error }
 
     init {
@@ -398,11 +405,13 @@ class CkcConsumersShutdownException internal constructor(
     }
 }
 
+/** Maps each core container index back to its Spring consumer name. */
 private data class ContainerBinding(
     val names: List<String>,
     val container: ConsumerContainer
 )
 
+/** Snapshot of one Spring stop wait, including unfinished participant cleanup. */
 private data class ContainerShutdownResult(
     val failures: List<CkcConsumerLifecycleFailure>,
     val unfinishedConsumerNames: Set<String>,

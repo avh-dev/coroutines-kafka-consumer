@@ -30,10 +30,20 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 
 /**
- * Registers typed participants and owns only the optional protocol lifecycle.
+ * Coordinates one recipient attempt for the consumers registered through [trafficWarmup] and
+ * keeps the shared transport available to serve donor sessions afterward.
  *
- * Each consumer retains its own main-runtime lifecycle. The context temporarily coordinates a
- * single all-or-cold recipient attempt and remains available afterward only to serve donor sessions.
+ * Build all participants before the first start. Use individual consumer operations or
+ * [avh.ckc.core.ConsumerContainer] for heterogeneous participants. Startup waits for every
+ * registered participant, and readiness means that the participant's main runtime has its
+ * Kafka assignment and positions. A cold fallback starts the main runtime after recipient cleanup.
+ *
+ * Stopping one participant during the attempt interrupts warm-up and allows other requested
+ * participants to start cold after cleanup, or preserves an outcome already selected. Individual
+ * stop waits for its own runtime startup handoff and cleanup. Shared resources close after all
+ * participants stop. Stop before start permanently stops that participant. If a stop is cancelled
+ * or reports incomplete cleanup, call stop again. Container stop keeps cleanup running if the
+ * waiting caller is cancelled.
  */
 class TrafficWarmupContext internal constructor(
     private val configuration: TrafficWarmupContextConfiguration,

@@ -59,6 +59,7 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.slf4j.LoggerFactory
 
+/** Resolved client settings and timing budgets for one control transport. */
 internal class WarmupControlTransportConfiguration(
     val instanceId: WarmupInstanceId,
     val namespace: WarmupControlNamespace,
@@ -108,6 +109,7 @@ internal class WarmupControlTransportConfiguration(
     }
 }
 
+/** Handles a malformed control record on the dispatch coroutine after its offset has advanced. */
 internal fun interface WarmupInvalidControlRecordHandler {
     fun onInvalidRecord(key: String?, error: Throwable)
 
@@ -118,12 +120,15 @@ internal fun interface WarmupInvalidControlRecordHandler {
     }
 }
 
+/** Terminates dispatch when the configured invalid-record policy rejects a record. */
 internal class InvalidWarmupControlRecordException(key: String?, cause: Throwable) :
     IllegalArgumentException("Invalid warm-up control record with key ${key ?: "<null>"}", cause)
 
+/** Distinguishes the transport send deadline from cancellation by a caller. */
 internal class WarmupControlSendTimeoutException(timeout: Duration) :
     IllegalStateException("Warm-up control send exceeded $timeout")
 
+/** Lifecycle and record transport used by the warm-up discovery runtime. */
 internal interface WarmupControlChannel {
     fun start()
     suspend fun awaitReady()
@@ -597,10 +602,12 @@ internal class WarmupControlTransport(
     )
 }
 
+/** Moves the poll loop through its bounded Kafka client replacement path. */
 private open class WarmupControlRecoveryRequiredException(
     message: String
 ) : IllegalStateException(message)
 
+/** Indicates that an assignment did not establish a usable position in time. */
 private class WarmupControlAssignmentTimeoutException(
     timeout: Duration,
     operation: String = "waiting for assignment",
@@ -614,6 +621,7 @@ private class WarmupControlAssignmentTimeoutException(
     }
 }
 
+/** Preserves a retryable assignment metadata failure across the Kafka callback. */
 private class WarmupControlMetadataUnavailableException(operation: String, cause: Throwable) :
     WarmupControlRecoveryRequiredException(
         "Warm-up control metadata is temporarily unavailable while $operation"
@@ -637,12 +645,14 @@ private sealed interface WarmupControlAssignmentState {
     data class CallbackFailed(val error: Throwable) : WarmupControlAssignmentState
 }
 
+/** Result of a periodic metadata sentinel for the assigned control topic. */
 private sealed interface WarmupControlTopicIdentityCheck {
     data class Available(val identity: String) : WarmupControlTopicIdentityCheck
     data class Terminal(val error: Throwable) : WarmupControlTopicIdentityCheck
     data object Unavailable : WarmupControlTopicIdentityCheck
 }
 
+/** Classifies failures for transport diagnostics and consumer replacement decisions. */
 private enum class WarmupControlPollFailureReason {
     TIMEOUT,
     RETRIABLE,
@@ -651,6 +661,7 @@ private enum class WarmupControlPollFailureReason {
     OTHER
 }
 
+/** Reads a Kafka topic identity through metadata independently of consumer polling. */
 internal interface WarmupControlTopicIdentity : AutoCloseable {
     fun read(topic: String, timeout: Duration): String
     override fun close() = Unit
@@ -666,6 +677,7 @@ private class WarmupControlReadState {
     var expectedTopicIdentity: String? = null
 }
 
+/** Uses a dedicated Admin client for assignment and sentinel topic ID checks. */
 internal class KafkaWarmupControlTopicIdentity(
     properties: Map<String, Any?>,
     private val closeTimeout: Duration
@@ -687,6 +699,7 @@ internal class KafkaWarmupControlTopicIdentity(
     )
 }
 
+/** Carries the topic ID that invalidates the previous cursor and producer. */
 private class WarmupControlTopicRecreatedException(
     previousIdentity: String,
     val currentIdentity: String
@@ -694,6 +707,7 @@ private class WarmupControlTopicRecreatedException(
     "Warm-up control topic identity changed from $previousIdentity to $currentIdentity"
 )
 
+/** Separates transient poll errors that retain the consumer from terminal poll failures. */
 private sealed interface WarmupControlPollFailure {
     val reason: WarmupControlPollFailureReason
 

@@ -16,6 +16,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
+/** The payload-independent operations that the context needs from one typed participant. */
 internal interface RegisteredTrafficWarmupParticipant {
     val participantId: WarmupParticipantId
     val mappings: List<WarmupTopicMapping>
@@ -37,6 +38,7 @@ internal interface RegisteredTrafficWarmupParticipant {
     suspend fun awaitMainTermination()
 }
 
+/** Owns the typed main runtime and builds its mapping-local donor and recipient resources. */
 internal class TrafficWarmupParticipant<K, V>(
     override val participantId: WarmupParticipantId,
     override val mappings: List<WarmupTopicMapping>,

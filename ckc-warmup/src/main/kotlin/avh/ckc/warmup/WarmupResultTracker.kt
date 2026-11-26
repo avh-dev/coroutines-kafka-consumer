@@ -12,9 +12,11 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.kafka.common.TopicPartition
 
+/** Signals that an acknowledged delegation outlived its result wait. */
 internal class WarmupResultTimeoutException(recordId: WarmupRecordId) :
     IllegalStateException("Timed out waiting for warm-up result $recordId")
 
+/** Bounds the storage of results waiting for a forwarding acknowledgement. */
 internal class WarmupEarlyResultOverflowException(limit: Int) :
     IllegalStateException("Warm-up early-result limit $limit exceeded")
 

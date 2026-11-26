@@ -39,4 +39,5 @@ internal interface WarmupDonorSessionStore<S : WarmupDonorSessionLifecycle> {
     fun detachDrainedSession(sessionId: WarmupSessionId): S?
 }
 
+/** Outcome of reserving capacity in the logical donor session store. */
 internal enum class DonorSessionAdmission { ACCEPTED, DUPLICATE, SESSION_LIMIT, BUDGET_LIMIT }

@@ -17,8 +17,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Lifecycle phase in which one [ConsumerContainer] participant failed. */
 enum class ConsumerContainerPhase {
+    /** A participant rejected the start request. */
     START,
+    /** A started participant failed to become ready. */
     READINESS,
+    /** A participant reported failure or incomplete cleanup during stop. */
     STOP
 }
 
@@ -34,6 +37,7 @@ class ConsumerContainerException internal constructor(
     message: String,
     failures: List<ConsumerContainerFailure>
 ) : IllegalStateException(message, failures.firstOrNull()?.error) {
+    /** Failures in participant order, also exposed as the cause and suppressed exceptions. */
     val failures: List<ConsumerContainerFailure> = failures.toList()
 
     init {
@@ -43,13 +47,23 @@ class ConsumerContainerException internal constructor(
 
 /** Payload-independent lifecycle seam used to include library adapters in a [ConsumerContainer]. */
 interface ConsumerContainerParticipant {
+    /** Requests startup without waiting for Kafka readiness. */
     fun start()
+
+    /** Waits for readiness or reports why startup failed. */
     suspend fun awaitReady()
+
+    /** Requests resource cleanup. A later invocation can retry incomplete work. */
     suspend fun stop()
+
+    /** Reports whether the participant has finished cleanup, including after an error from stop. */
     fun isStopComplete(): Boolean
 }
 
-/** Latest stop state of one fixed container participant. */
+/**
+ * Latest stop state by zero-based [participantIndex]. [stopInProgress] indicates an active cleanup
+ * attempt. [failure] is absent until a failure is observed and may be present when [stopComplete] is true.
+ */
 data class ConsumerContainerParticipantStatus(
     val participantIndex: Int,
     val stopComplete: Boolean,
@@ -57,7 +71,10 @@ data class ConsumerContainerParticipantStatus(
     val failure: Throwable?
 )
 
-/** Read-only stop state that remains available while a container-owned attempt is still running. */
+/**
+ * Read-only stop state in composition order. [fatalFailure] is the first fatal participant error,
+ * or `null` if none was reported. Available while a container-owned cleanup attempt is still running.
+ */
 data class ConsumerContainerStatus(
     val participants: List<ConsumerContainerParticipantStatus>,
     val fatalFailure: Throwable?
@@ -79,6 +96,7 @@ class ConsumerContainer internal constructor(
     participantLifecycles: List<ConsumerContainerParticipant>,
     private val beforeIncompleteAttemptCleanup: () -> Unit = {}
 ) {
+    /** State of collective startup and cleanup, protected by the container lock. */
     private enum class State {
         NEW,
         STARTED,
@@ -87,6 +105,7 @@ class ConsumerContainer internal constructor(
         STOPPED
     }
 
+    /** Tracks the shared stop attempt and its last outcome for one participant. */
     private class ParticipantState(
         val index: Int,
         val lifecycle: ConsumerContainerParticipant
@@ -97,6 +116,7 @@ class ConsumerContainer internal constructor(
         var stopAttempt: Deferred<StopOutcome>? = null
     }
 
+    /** Whether cleanup released ownership, independently of the error it reported. */
     private data class StopOutcome(
         val participant: ParticipantState,
         val error: Throwable?,

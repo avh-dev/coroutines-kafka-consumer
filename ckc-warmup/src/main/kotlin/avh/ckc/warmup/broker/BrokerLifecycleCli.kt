@@ -6,8 +6,17 @@ import java.time.Duration
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
-/** Entry point used by the temporary broker supervisor. */
+/**
+ * Standalone JVM entry point for a temporary warm-up broker supervisor. Uses the dedicated Kafka
+ * journal to advertise a broker epoch and request coordinated drain.
+ */
 object BrokerLifecycleCli {
+    /**
+     * Accepts `serve <bootstrap> <topic> <epoch> <budget-ms> <ready-file>` or
+     * `drain <bootstrap> <topic> <epoch> <budget-ms>`. Serve writes the readiness file
+     * after publishing the epoch. Drain exits with 0 on confirmation, 1 on timeout, or 2
+     * when the journal is unavailable. Invalid arguments also exit with 2.
+     */
     @JvmStatic
     fun main(args: Array<String>) {
         if (args.size !in 5..6 || args[0] !in setOf("serve", "drain") ||

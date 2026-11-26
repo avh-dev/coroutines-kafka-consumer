@@ -5,6 +5,7 @@ import avh.ckc.warmup.protocol.WARMUP_SESSION_HEADER
 import avh.ckc.warmup.protocol.WarmupSessionId
 import org.apache.kafka.clients.consumer.ConsumerRecord
 
+/** Filters foreign session records and reserves result capacity for accepted records. */
 internal class WarmupRecipientAdmission<K, V>(
     sessionId: WarmupSessionId,
     private val resultAdmission: WarmupResultAdmission? = null
