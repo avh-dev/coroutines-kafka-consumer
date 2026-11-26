@@ -104,7 +104,7 @@
 | [CORE-105](#core-105) | Define and document the warm-up public API. | DONE |
 | [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | DONE |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
-| [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | IN_PROGRESS |
+| [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
