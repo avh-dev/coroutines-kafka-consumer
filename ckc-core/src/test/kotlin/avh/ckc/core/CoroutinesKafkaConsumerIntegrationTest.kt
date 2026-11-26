@@ -284,7 +284,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then consumer processes produced record`() = runBlocking {
+    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then consumer processes produced record`() = runBlocking<Unit> {
         val topic = "FRESHNESS_FIRST_DROP_OLDEST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)

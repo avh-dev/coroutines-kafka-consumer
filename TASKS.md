@@ -104,6 +104,7 @@
 | [CORE-105](#core-105) | Define and document the warm-up public API. | DONE |
 | [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | DONE |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
+| [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | IN_PROGRESS |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7087,3 +7088,12 @@ Part of [GLOBAL-5](#global-5). Group context integration and donor manager tests
 Discover scenarios without Micrometer by their existing JUnit tag.
 Matched all 31 context and 27 donor manager methods and their tags against the original suites and verified their JUnit reports.
 Passed 159 warm-up unit tests, 51 Kafka integration scenarios, and both tagged scenarios without Micrometer.
+
+<a id="core-108"></a>
+### CORE-108 - Restore offset tracker and Kafka test coverage
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Restore experimental tracker test compilation against the shared core fixtures.
+Make the existing freshness-first Kafka scenario discoverable by JUnit.
+Passed 31 experimental unit tests and 24 core Kafka integration scenarios, including the restored freshness-first scenario.
