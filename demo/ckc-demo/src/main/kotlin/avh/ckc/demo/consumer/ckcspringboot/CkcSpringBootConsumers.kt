@@ -174,6 +174,22 @@ class CkcSpringBootMetricsConfiguration {
     ): ConsumerMetrics<K, V> {
         val delegate = this
         return object : ConsumerMetrics<K, V> by delegate {
+            override fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> =
+                delegate.runtimeBinding(bindingId).withAudit(audit)
+
+            override fun onRecordProcessed(
+                key: K?,
+                value: V?,
+                record: ConsumerRecord<K, V>,
+                endToEndLatencyMillis: Long,
+                durationNanos: Long,
+                processedRemotely: Boolean
+            ) {
+                delegate.onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos, processedRemotely)
+                // Local and recipient handlers already log success. A delegated source bypasses the handler.
+                if (processedRemotely) logProcessed(record, audit)
+            }
+
             override fun onRetry(key: K?, value: V?, record: ConsumerRecord<K, V>, attempt: Int, error: Throwable) {
                 delegate.onRetry(key, value, record, attempt, error)
                 logRetryAttempt(record, audit)

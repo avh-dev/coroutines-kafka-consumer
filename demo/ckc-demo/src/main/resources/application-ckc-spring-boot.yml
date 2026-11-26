@@ -50,8 +50,56 @@ ckc:
         max.poll.interval.ms: ${KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS:300000}
         fetch.max.bytes: ${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}
         max.partition.fetch.bytes: ${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}
+    warmup-control:
+      kafka-properties:
+        bootstrap.servers: ${TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        security.protocol: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+        ssl.truststore.type: PEM
+        ssl.truststore.certificates: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+        ssl.endpoint.identification.algorithm: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+    warmup-destination:
+      kafka-properties:
+        bootstrap.servers: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        security.protocol: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+        ssl.truststore.type: PEM
+        ssl.truststore.certificates: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+        ssl.endpoint.identification.algorithm: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+  warmup:
+    enabled: ${TRAFFIC_WARMUP_ENABLED:false}
+    contexts:
+      demo:
+        instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:demo}}
+        namespace: ${TRAFFIC_WARMUP_NAMESPACE:global5-shared-partition-v6-local}
+        control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v6.control}
+        control-cluster: warmup-control
+        broker-lifecycle:
+          topic: ${TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC:}
+          cluster: warmup-destination
+        warmup-duration: ${TRAFFIC_WARMUP_DURATION_SECONDS:90}s
+        offer-window: ${TRAFFIC_WARMUP_OFFER_WINDOW_MS:2000}ms
+        participant-start-timeout: ${TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS:15}s
+        preparation-timeout: ${TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS:15}s
+        completion-timeout: ${TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS:30}s
+        delegation-timeout: ${TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS:10}s
+        max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
+        max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
+        max-inflight-delegations: ${TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS:2147483647}
   consumers:
     order-events:
+      warmup:
+        context: demo
+        destination-cluster: warmup-destination
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: avh.ckc.demo.serialization.OrderLifecycleEventSerializer
+        producer-properties:
+          acks: all
+          linger.ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+          batch.size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
+        mappings:
+          - source-topic: ${ORDER_EVENTS_TOPIC:order.events.v1}
+            warmup-topic: ckc.traffic-warmup.v6.order.events
+            quota-profile: ${TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE:10}
+            quota-interval: ${TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS:1000}ms
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${ORDER_EVENTS_TOPIC:order.events.v1}
@@ -71,6 +119,20 @@ ckc:
         fetch.max.bytes: ${ORDER_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
         max.partition.fetch.bytes: ${ORDER_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     batch-events:
+      warmup:
+        context: demo
+        destination-cluster: warmup-destination
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: avh.ckc.demo.serialization.BatchLifecycleEventSerializer
+        producer-properties:
+          acks: all
+          linger.ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+          batch.size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
+        mappings:
+          - source-topic: ${BATCH_EVENTS_TOPIC:batch.events.v1}
+            warmup-topic: ckc.traffic-warmup.v6.batch.events
+            quota-profile: ${TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE:10}
+            quota-interval: ${TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS:1000}ms
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${BATCH_EVENTS_TOPIC:batch.events.v1}
@@ -90,6 +152,20 @@ ckc:
         fetch.max.bytes: ${BATCH_KAFKA_CONSUMER_FETCH_MAX_BYTES:${KAFKA_CONSUMER_FETCH_MAX_BYTES:52428800}}
         max.partition.fetch.bytes: ${BATCH_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:${KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES:1048576}}
     cauldron-events:
+      warmup:
+        context: demo
+        destination-cluster: warmup-destination
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: avh.ckc.demo.serialization.CauldronTelemetryEventSerializer
+        producer-properties:
+          acks: all
+          linger.ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+          batch.size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
+        mappings:
+          - source-topic: ${CAULDRON_EVENTS_TOPIC:cauldron.events.v1}
+            warmup-topic: ckc.traffic-warmup.v6.cauldron.events
+            quota-profile: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE:10}
+            quota-interval: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS:1000}ms
       auto-startup: ${KAFKA_ENABLED:false}
       topics:
         - ${CAULDRON_EVENTS_TOPIC:cauldron.events.v1}
