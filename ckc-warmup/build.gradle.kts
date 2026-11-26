@@ -104,7 +104,8 @@ val integrationTestWithoutMicrometer = tasks.register<Test>("integrationTestWith
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = files(sourceSets.test.get().output, sourceSets.main.get().output, testRuntimeWithoutMicrometer)
-    include("**/TrafficWarmupContextIntegrationTest.class")
+    // JUnit resolves candidate classes before applying tags. Adapter-specific tests require Micrometer.
+    exclude("avh/ckc/warmup/micrometer/**")
     shouldRunAfter(tasks.test, integrationTest)
     useJUnitPlatform {
         includeTags("without-micrometer")

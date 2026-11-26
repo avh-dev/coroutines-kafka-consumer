@@ -102,6 +102,7 @@
 | [CORE-103](#core-103) | Extract the lifecycle of a single warm-up recipient attempt. | DONE |
 | [CORE-104](#core-104) | Simplify the warm-up control transport and broker lifecycle. | DONE |
 | [CORE-105](#core-105) | Define and document the warm-up public API. | DONE |
+| [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | IN_PROGRESS |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
@@ -7076,3 +7077,13 @@ _Date: 2026-11-26_
 Part of [GLOBAL-5](#global-5). Keep wire types internal and document the DSL, lifecycle, callbacks, and extension contracts.
 Verify that the broker supervisor CLI remains independently runnable and that warm-up can run without Micrometer.
 Passed 449 unit tests across the four library modules, 4 standalone broker CLI integration scenarios, and 2 scenarios without Micrometer. Demo compiles against the narrowed API.
+
+<a id="core-106"></a>
+### CORE-106 - Split warm-up test suites
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Group context integration and donor manager tests by lifecycle responsibility, sharing only setup and cleanup.
+Discover scenarios without Micrometer by their existing JUnit tag.
+Matched all 31 context and 27 donor manager methods and their tags against the original suites and verified their JUnit reports.
+Passed 159 warm-up unit tests, 51 Kafka integration scenarios, and both tagged scenarios without Micrometer.
