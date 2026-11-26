@@ -32,6 +32,8 @@ import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ApplicationListener
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.PayloadApplicationEvent
+import org.springframework.core.env.StandardEnvironment
+import org.springframework.core.env.SystemEnvironmentPropertySource
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.KafkaContainer
@@ -115,6 +117,13 @@ class CkcSpringBootWarmupAuditIntegrationTest {
         SpringApplicationBuilder(DemoApplication::class.java)
             .profiles("ckc-spring-boot")
             .web(WebApplicationType.NONE)
+            .environment(StandardEnvironment().apply {
+                val name = StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME
+                propertySources.replace(
+                    name,
+                    SystemEnvironmentPropertySource(name, mapOf("CKC_METRICS_ENABLED" to "false"))
+                )
+            })
             .listeners(events)
             .run(
                 "--KAFKA_ENABLED=true",
@@ -125,7 +134,6 @@ class CkcSpringBootWarmupAuditIntegrationTest {
                 "--TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS=${kafka.bootstrapServers}",
                 "--TRAFFIC_WARMUP_OFFER_WINDOW_MS=1000",
                 "--TRAFFIC_WARMUP_DURATION_SECONDS=12",
-                "--CKC_METRICS_ENABLED=false",
                 "--AUDIT_LOG_ENABLED=true",
                 "--demo.audit.enabled=\${AUDIT_LOG_ENABLED}",
                 "--demo.consumers.processing-enabled=false",

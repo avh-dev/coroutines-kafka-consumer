@@ -11,8 +11,7 @@ ckc:
       include-key: ${CKC_MDC_INCLUDE_KEY:false}
       max-key-length: ${CKC_MDC_MAX_KEY_LENGTH:128}
   metrics:
-    # Keep the custom binding active for audit callbacks.
-    enabled: true
+    enabled: ${CKC_METRICS_ENABLED:true}
     implementation: CUSTOM
     micrometer:
       kafka-client-metrics-enabled: ${KAFKA_CLIENT_METRICS_ENABLED:false}

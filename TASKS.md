@@ -7150,3 +7150,4 @@ Share lifecycle and offset logs and recipient metrics across demo profiles. Keep
 Passed 119 demo tests, including binding, audit, and shared event coverage, with `./gradlew :ckc-demo:test :ckc-spring-boot-starter:test`. The 65 starter tests remained up-to-date.
 Keep the custom audit binding active with CKC meters disabled. A Kafka integration test starts two demo applications and verifies one successful audit entry for each of the confirmed source and destination offsets and no CKC consumer meters.
 Passed 120 demo tests after the review fix. The 65 starter tests remained up-to-date.
+Preserve the custom audit binding after Spring binds `CKC_METRICS_ENABLED=false` from the system environment. The two-application Kafka test reproduced the missing source audit before the fix and passed with the revised binding.

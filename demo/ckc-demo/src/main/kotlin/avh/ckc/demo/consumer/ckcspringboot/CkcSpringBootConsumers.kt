@@ -29,9 +29,12 @@ import io.micrometer.core.instrument.Tag
 import kotlinx.coroutines.delay
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.beans.factory.config.BeanPostProcessor
+import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import org.springframework.core.env.Environment
 
 @Profile("ckc-spring-boot")
 @CkcKafkaConsumer(name = "order-events")
@@ -101,6 +104,24 @@ class CauldronTelemetryCkcSpringBootConsumer(
 class CkcSpringBootMetricsConfiguration(
     @Value("\${CKC_METRICS_ENABLED:true}") private val micrometerEnabled: Boolean
 ) {
+    companion object {
+        @Bean
+        @JvmStatic
+        fun retainCkcAuditBinding(environment: Environment): BeanPostProcessor = object : BeanPostProcessor {
+            override fun postProcessAfterInitialization(bean: Any, beanName: String): Any {
+                if (bean is CkcConsumerProperties && !bean.metrics.enabled &&
+                    bean.metrics.implementation == CkcConsumerProperties.MetricsImplementation.CUSTOM &&
+                    !environment.getProperty("CKC_METRICS_ENABLED", Boolean::class.java, true)
+                ) {
+                    // System environment binding maps CKC_METRICS_ENABLED to the starter switch.
+                    bean.metrics.enabled = Binder.get(environment).bind("demo.audit.enabled", Boolean::class.java)
+                        .orElse(DemoApplicationProperties.Audit().enabled)
+                }
+                return bean
+            }
+        }
+    }
+
     @Bean
     @CkcConsumerMetrics(consumer = "order-events")
     fun orderConsumerMetrics(
