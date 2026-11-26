@@ -1167,6 +1167,16 @@ def analyze_experiment(
             or ""
         )
         warnings: list[str] = []
+        qualification = None
+        if target.get("verify_warmup_scale_up"):
+            qualification = audit.get("warmup_scale_up") or {"status": "unavailable"}
+            if qualification.get("status") != "passed":
+                warnings.append(
+                    "Warm-up scale-up verification failed: "
+                    + str(qualification.get("error") or "required audit evidence is unavailable")
+                )
+            if target.get("exit_code"):
+                status = {**status, **(target.get("run_status") or {})}
         start = parse_instant(metadata.get("started_at") or target.get("started_at"))
         network_counters = {"status": "unavailable", "source": "nftables via Prometheus"}
         measurements = {name: None for name in STANDARD_MEASUREMENTS}
@@ -1407,6 +1417,8 @@ def analyze_experiment(
                 budget = {}
             resource_windows.append({**window, "resource_budget": budget})
         warmup = {"enabled": traffic_warmup, "broker_enabled": broker_enabled, "broker_config": warmup_broker}
+        if qualification is not None:
+            warmup["scale_up"] = qualification
         if warmup_settings:
             warmup["settings"] = warmup_settings
         try:

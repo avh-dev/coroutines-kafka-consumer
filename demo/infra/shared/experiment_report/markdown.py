@@ -315,6 +315,17 @@ def render_warmup_and_resources(
             *[value(outcome.get(key), 0) for key in ("records", "errors", "timeouts")],
         ]
         lines.extend(["| " + " | ".join(cells) + " |", ""])
+        qualification = outcome.get("scale_up")
+        if qualification:
+            lines.extend([f"Controlled scale-up verification **{escaped(qualification['status'])}**", ""])
+            processed = qualification.get("processed_by_participant", {})
+            if processed:
+                lines.extend([
+                    "| Participant | Confirmed delegated records |",
+                    "| --- | ---: |",
+                    *[f"| {escaped(participant)} | {number(count, 0)} |" for participant, count in processed.items()],
+                    "",
+                ])
     return lines
 
 
@@ -1057,7 +1068,7 @@ def render_markdown(report: ExperimentReport) -> str:
         maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
         return f"{kind}, {number(minimum, 0)}–{number(maximum, 0)} pods"
 
-    ckc_profiles = {"ckc", "ckc-sync"}
+    ckc_profiles = {"ckc", "ckc-sync", "ckc-spring-boot"}
 
     def warmup_status(target: TargetReport) -> str:
         if target.configuration.get("profile") not in ckc_profiles:

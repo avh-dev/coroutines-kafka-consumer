@@ -274,6 +274,13 @@ def _normalize_chaos_action(
             raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
         normalized["target"] = target
         normalized["params"] = {"namespace": str(params.get("namespace", "ckc-perf")), "replicas": replicas}
+        verify_warmup = params.get("verify_warmup", False)
+        if not isinstance(verify_warmup, bool):
+            raise ValueError(f"{context}.params.verify_warmup must be boolean: {definition_path}")
+        if verify_warmup:
+            if not allow_sequence or replicas != 2:
+                raise ValueError(f"{context}.params.verify_warmup requires a top-level scale to 2 replicas: {definition_path}")
+            normalized["params"]["verifyWarmup"] = True
     elif step_type == "warmup_broker_stop":
         mode = params.get("mode")
         if mode not in ("planned", "abrupt"):

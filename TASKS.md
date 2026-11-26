@@ -571,6 +571,7 @@
 | [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
+| [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up with a controlled local scale-up. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -7151,3 +7152,15 @@ Passed 119 demo tests, including binding, audit, and shared event coverage, with
 Keep the custom audit binding active with CKC meters disabled. A Kafka integration test starts two demo applications and verifies one successful audit entry for each of the confirmed source and destination offsets and no CKC consumer meters.
 Passed 120 demo tests after the review fix. The 65 starter tests remained up-to-date.
 Preserve the custom audit binding after Spring binds `CKC_METRICS_ENABLED=false` from the system environment. The two-application Kafka test reproduced the missing source audit before the fix and passed with the revised binding.
+
+<a id="infra-369"></a>
+### INFRA-369 - Qualify Spring Boot starter warm-up with local scale-up
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Add a short controlled one-to-two pod experiment with evidence for all three starter mappings.
+Enable the dedicated warm-up Kafka for the starter profile and keep the main Kafka on PLAINTEXT for qualification.
+Require cold donor readiness, successful recipient readiness, and one-to-one audit matching for the forwarded offsets of all three participants.
+Publish the proof with the report and evidence archives. Delivery totals count original Kafka records, and warm-up destination records are checked against the forwarding proof.
+Passed 244 internal-lab tests, 162 shared tests, 35 audit and packet-analysis tests, and 97 AWS adapter tests. The scale-up executor also passed a dry run with the resolved scenario.
+Updated optilab and verified the installed experiment, helpers, and dry-run behavior. The live scale-up remains a separate operator command.

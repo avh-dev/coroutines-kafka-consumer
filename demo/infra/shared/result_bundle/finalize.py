@@ -406,6 +406,7 @@ def build_diagnostics(result_root: Path, destination: Path, replacements: dict[s
         diagnostics = run_dir / "diagnostics"
         copy_portable(diagnostics / "kafka-metadata.json", target / "kafka-metadata.json", replacements)
         copy_portable(diagnostics / "stubs-preparation.json", target / "stubs-preparation.json", replacements)
+        copy_portable(diagnostics / "warmup-scale-up.json", target / "warmup-scale-up.json", replacements)
         copy_portable_tree(diagnostics / "thread-stats", target / "thread-stats", replacements)
         copy_portable_tree(diagnostics / "tcpdump", target / "tcpdump", replacements)
         copy_portable_tree(diagnostics / "pcap-analysis", target / "pcap-analysis", replacements)
@@ -485,6 +486,7 @@ def build_audit(
                 source = audit / name
                 if source.is_file():
                     copy_portable(source, target / name, replacements)
+            copy_portable(run_dir / "diagnostics" / "warmup-scale-up.json", target / "warmup-scale-up.json", replacements)
             copy_compressed_audit_log(audit, target / "audit.log.gz")
             summary = audit / "summary.yaml"
             if summary.is_file():

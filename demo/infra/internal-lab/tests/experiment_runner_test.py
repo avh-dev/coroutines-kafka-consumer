@@ -630,6 +630,41 @@ class ExperimentRunnerTest(unittest.TestCase):
             self.assertEqual(["quiesce", "release", "analyze"], events)
             self.assertEqual(0, summary["exit_code"])
 
+    def test_warmup_qualification_failure_overrides_successful_load_execution(self) -> None:
+        repository = Path(__file__).resolve().parents[4]
+        experiment = repository / "demo/infra/experiments/ckc-spring-boot-warmup-scale-up-local.yaml"
+        for has_audit in (True, False):
+            with self.subTest(has_audit=has_audit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                audit = root / "run-a" / "audit"
+                audit.mkdir(parents=True)
+                if has_audit:
+                    (audit / "audit-run-a.log").write_text("P|1|0|1|1|1|order-a\n", encoding="utf-8")
+                target_result = {
+                    "target": "ckc-spring-boot", "name": "ckc-spring-boot", "resolved_test_path": str(experiment),
+                    "run_dir": str(audit.parent), "audit_dir": str(audit), "interrupted": False,
+                    "exit_code": 0, "run_status": {"status": "completed"}, "env": {"AUDIT_LOG_ENABLED": "true"},
+                }
+
+                with (
+                    patch.object(RUNNER, "run_one", return_value=target_result),
+                    patch.object(RUNNER, "prepare_experiment_runtime"),
+                    patch.object(RUNNER, "ensure_application_quiesced", return_value={"status": "clean"}),
+                    patch.object(RUNNER, "change_performance_policy"),
+                    patch.object(RUNNER, "analyze_one", return_value={"exit_code": 2}) as analyze,
+                    patch.object(RUNNER, "notify"),
+                ):
+                    summary = RUNNER.run_experiment(
+                        experiment, root / "run-target.sh", root, root / "results", "set-a", {}, None
+                    )
+
+                self.assertEqual(2 if has_audit else 1, summary["exit_code"])
+                self.assertEqual(int(has_audit), analyze.call_count)
+                target, = summary["targets"]
+                self.assertTrue(target["verify_warmup_scale_up"])
+                self.assertEqual("failed", target["run_status"]["status"])
+                self.assertEqual(1, target["exit_code"])
+
     def test_failed_application_quiesce_aborts_before_audit_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

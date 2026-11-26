@@ -9,8 +9,9 @@ import math
 import struct
 import sys
 import tempfile
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import BinaryIO, Callable, NamedTuple, TextIO
@@ -1250,6 +1251,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-dir")
     parser.add_argument("--glob", default="*.log.gz")
     parser.add_argument("--metadata-file")
+    parser.add_argument("--warmup-scale-up-evidence", help="Require successful two-pod warm-up and reconcile forwarded offsets.")
     parser.add_argument(
         "--sla-profile-file",
         help="Resolved JSON SLA profile containing optional latency.rules definitions.",
@@ -1661,7 +1663,7 @@ def load_measurement_windows(path_value: str | None) -> tuple[MeasurementWindow,
     return tuple(windows)
 
 
-def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
+def aggregate_stats(accumulator: AuditAccumulator, excluded_topics: frozenset[int] = frozenset()) -> AuditStats:
     aggregate = AuditStats(
         open_record_ttl_ms=accumulator.open_record_ttl_ms,
         latency_sla_rules=accumulator.latency_sla_rules,
@@ -1693,7 +1695,9 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
         "unexpected_terminal_outcomes",
         "e2e_invalid_negative",
     )
-    for stats in accumulator.by_topic.values():
+    for topic_id, stats in accumulator.by_topic.items():
+        if topic_id in excluded_topics:
+            continue
         for field_name in scalar_fields:
             setattr(aggregate, field_name, getattr(aggregate, field_name) + getattr(stats, field_name))
         for reason, count in stats.dropped_by_reason.items():
@@ -1730,7 +1734,7 @@ def aggregate_stats(accumulator: AuditAccumulator) -> AuditStats:
     return aggregate
 
 
-def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
+def audit_summary(accumulator: AuditAccumulator, excluded_topics: frozenset[int] = frozenset()) -> dict[str, object]:
     return {
         "records_read": accumulator.record_count,
         "delivery_matching": {
@@ -1741,10 +1745,11 @@ def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
                 else None
             ),
         },
-        "totals": stats_summary(aggregate_stats(accumulator)),
+        "totals": stats_summary(aggregate_stats(accumulator, excluded_topics)),
         "topics": {
             TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
             for topic_id, topic_stats in accumulator.by_topic.items()
+            if topic_id not in excluded_topics
         },
     }
 
@@ -1752,24 +1757,105 @@ def audit_summary(accumulator: AuditAccumulator) -> dict[str, object]:
 def summary_document(
     accumulator: AuditAccumulator | MultiWindowAuditAccumulator,
     metadata: dict[str, object],
+    excluded_topics: frozenset[int] = frozenset(),
 ) -> dict[str, object]:
     if isinstance(accumulator, MultiWindowAuditAccumulator):
-        audit = audit_summary(accumulator.complete)
+        audit = audit_summary(accumulator.complete, excluded_topics)
         audit["measurement_windows"] = [
             {
                 "name": window.name,
                 "published_from_ms": window.published_from_ms,
                 "published_until_ms": window.published_until_ms,
-                **audit_summary(window_accumulator),
+                **audit_summary(window_accumulator, excluded_topics),
             }
             for window, window_accumulator in accumulator.windows
         ]
     else:
-        audit = audit_summary(accumulator)
+        audit = audit_summary(accumulator, excluded_topics)
     document: dict[str, object] = {"audit": audit}
     if metadata:
         document = {"test": metadata, **document}
     return document
+
+
+def qualify_warmup_delivery(
+    evidence: dict,
+    run_id: str,
+    input_files: list[str],
+    totals: dict,
+    mappings: dict[str, tuple[str, str, int, int]],
+) -> dict:
+    if evidence.get("status") != "passed":
+        raise ValueError(evidence.get("error") or "Warm-up scale-up evidence did not pass")
+    if not run_id or evidence.get("runId") != run_id:
+        raise ValueError("Warm-up scale-up evidence belongs to a different run")
+    if (
+        totals["missing_terminal"] or totals["failed"] or totals["conflicting_terminal_outcomes"]
+        or any(totals["duplicates"].values()) or any(totals["without_publish"].values())
+    ):
+        raise ValueError(
+            f"Source delivery failed: missing_terminal={totals['missing_terminal']}, failed={totals['failed']}, "
+            f"duplicates={totals['duplicates']}, without_publish={totals['without_publish']}, "
+            f"conflicting_terminal_outcomes={totals['conflicting_terminal_outcomes']}"
+        )
+
+    scale_at_ms = int(datetime.fromisoformat(evidence["scaleAt"].replace("Z", "+00:00")).timestamp() * 1000)
+    offsets = evidence["offsets"]
+    pairs: dict[RecordKey, RecordKey] = {}
+    destinations: set[RecordKey] = set()
+    destination_topic_ids = {mapping[3] for mapping in mappings.values()}
+    by_participant: dict[str, int] = {}
+    for participant, (_, _, source_id, destination_id) in mappings.items():
+        records = offsets.get(participant)
+        if not records:
+            raise ValueError(f"No forwarded offsets for {participant}")
+        for pair in records:
+            source = RecordKey(source_id, *pair["source"])
+            destination = RecordKey(destination_id, *pair["destination"])
+            if source in pairs or destination in destinations:
+                raise ValueError(f"Repeated forwarding coordinates for {participant}: {source} to {destination}")
+            pairs[source] = destination
+            destinations.add(destination)
+        by_participant[participant] = len(records)
+
+    donor_processed_before_scale: Counter[int] = Counter()
+    matching: dict[RecordKey, list[tuple[str, str]]] = {key: [] for key in pairs.keys() | destinations}
+    for path in input_files:
+        with open_text(Path(path)) as lines:
+            for line in lines:
+                if not line.strip() or line.startswith("S|"):
+                    continue
+                record = parse_record(line)
+                if record.record_type not in {"P", "C", "D", "F"}:
+                    continue
+                if record.key in matching:
+                    matching[record.key].append((record.record_type, record.message_key))
+                elif record.key.topic_id in destination_topic_ids:
+                    raise ValueError(f"Warm-up audit entry has no matching forwarding event: {record.key}")
+                if record.record_type == "C" and record.audit_timestamp_ms < scale_at_ms:
+                    donor_processed_before_scale[record.key.topic_id] += 1
+
+    for source, destination in pairs.items():
+        destination_rows = matching[destination]
+        if len(destination_rows) == 1:
+            terminal, key = destination_rows[0]
+            if terminal == "C" and sorted(matching[source]) == [("C", key), ("P", key)]:
+                continue
+        raise ValueError(
+            f"Forwarding audit mismatch for {source} to {destination}: "
+            f"source={matching[source]}, destination={destination_rows}"
+        )
+    for participant, (_, _, source_id, _) in mappings.items():
+        if not donor_processed_before_scale[source_id]:
+            raise ValueError(f"No main records processed before scale-up for {participant}")
+
+    return {
+        "status": "passed",
+        "session": evidence["session"],
+        "donor": evidence["donor"]["pod"],
+        "recipient": evidence["recipient"]["pod"],
+        "processed_by_participant": by_participant,
+    }
 
 
 def yaml_scalar(value: object) -> str:
@@ -1870,8 +1956,25 @@ def main() -> int:
     if args.require_records and accumulator.record_count == 0:
         raise ValueError("no audit records were read")
 
-    print_yaml(summary_document(accumulator, load_metadata(args.metadata_file)))
-    return 0
+    metadata = load_metadata(args.metadata_file)
+    if not args.warmup_scale_up_evidence:
+        print_yaml(summary_document(accumulator, metadata))
+        return 0
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from experiment_orchestration.warmup_scale_up import FAILED_EXIT_CODE, MAPPINGS
+
+    excluded_topics = frozenset(mapping[3] for mapping in MAPPINGS.values())
+    document = summary_document(accumulator, metadata, excluded_topics)
+    try:
+        evidence = json.loads(Path(args.warmup_scale_up_evidence).read_text(encoding="utf-8"))
+        qualification = qualify_warmup_delivery(evidence, metadata.get("run_id", ""), args.input_file, document["audit"]["totals"], MAPPINGS)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        qualification = {"status": "failed", "error": str(error)}
+        print(f"Warm-up scale-up qualification failed: {error}", file=sys.stderr, flush=True)
+    document["audit"]["warmup_scale_up"] = qualification
+    print_yaml(document)
+    return 0 if qualification["status"] == "passed" else FAILED_EXIT_CODE
 
 
 if __name__ == "__main__":

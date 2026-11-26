@@ -16,6 +16,10 @@ from .dashboard import metric_names_from_dashboard, parse_instant
 
 
 WARMUP_METRICS = {
+    "demo_ckc_warmup_delegated_total",
+    "demo_ckc_warmup_fallback_total",
+    "demo_ckc_warmup_pending",
+    "demo_ckc_warmup_result_total",
     "demo_warmup_recipient_records",
     "demo_warmup_recipient_duration_seconds",
 }
