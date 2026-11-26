@@ -5,6 +5,7 @@ import avh.ckc.warmup.protocol.WarmupParticipantId
 import avh.ckc.warmup.protocol.WarmupQuotaPhase
 import avh.ckc.warmup.protocol.WarmupQuotaProfile
 import avh.ckc.warmup.protocol.WarmupQuotaProfileParser
+import avh.ckc.warmup.runtime.mappingFingerprint
 import org.apache.kafka.clients.CommonClientConfigs
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals

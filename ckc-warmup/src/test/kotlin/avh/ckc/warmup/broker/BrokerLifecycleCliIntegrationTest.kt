@@ -7,7 +7,6 @@ import avh.ckc.warmup.broker.BrokerLifecycleEvent.Joined
 import avh.ckc.warmup.broker.BrokerLifecycleEvent.Left
 import avh.ckc.warmup.broker.BrokerLifecycleEvent.Started
 import avh.ckc.warmup.TrafficWarmupBrokerLifecycleConfiguration
-import avh.ckc.warmup.WarmupBrokerLifecycle
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path

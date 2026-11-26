@@ -105,6 +105,7 @@
 | [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | DONE |
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | DONE |
+| [CORE-109](#core-109) | Group warm-up implementation files and component tests by responsibility. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7097,3 +7098,13 @@ _Date: 2026-11-26_
 Part of [GLOBAL-5](#global-5). Restore experimental tracker test compilation against the shared core fixtures.
 Make the existing freshness-first Kafka scenario discoverable by JUnit.
 Passed 31 experimental unit tests and 24 core Kafka integration scenarios, including the restored freshness-first scenario.
+
+<a id="core-109"></a>
+### CORE-109 - Reorganize warm-up implementation packages
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Move warm-up implementation files and component tests into donor, recipient, data plane, runtime, Kafka, and broker packages.
+Keep public entry points, end-to-end scenarios, and shared test fixtures in the root packages.
+Capture expected background exceptions in two control transport tests so they do not affect subsequent coroutine tests.
+Matched the executed scenarios before and after the move. All 159 unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer passed. Demo and starter compiled.

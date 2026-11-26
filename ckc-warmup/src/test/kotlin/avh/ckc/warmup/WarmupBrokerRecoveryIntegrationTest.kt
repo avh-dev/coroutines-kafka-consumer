@@ -4,6 +4,7 @@ import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.warmup.broker.BROKER_DRAINING
 import avh.ckc.warmup.broker.BrokerLifecycleEvent
 import avh.ckc.warmup.broker.KafkaBrokerLifecycleLog
 import avh.ckc.warmup.broker.launchBrokerLifecycleCli
