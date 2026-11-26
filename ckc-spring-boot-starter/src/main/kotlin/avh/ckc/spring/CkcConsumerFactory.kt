@@ -13,7 +13,8 @@ internal fun buildConsumer(
     consumerName: String,
     consumerBean: CkcConsumer<Any?, Any?>,
     consumerProperties: CkcConsumerProperties.Consumer,
-    clusterProperties: Map<String, String>
+    clusterProperties: Map<String, String>,
+    warmup: CkcWarmupParticipant?
 ): avh.ckc.core.CoroutinesKafkaConsumer<Any?, Any?> {
 
     val metrics = consumerMetrics(applicationContext, properties, consumerName)
@@ -39,6 +40,7 @@ internal fun buildConsumer(
         recordProcessingContext = recordProcessingContext(properties, consumerName, consumerProperties)
         onProcessingFailure { record, reason -> consumerBean.handleFailure(record, reason) }
         configureSubscription(consumerName, consumerProperties)
+        warmup?.configure(this)
         handle { record -> consumerBean.process(record) }
     }
 }

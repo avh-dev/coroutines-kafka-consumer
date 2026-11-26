@@ -5,6 +5,7 @@ import avh.ckc.core.ConsumerContainerException
 import avh.ckc.core.ConsumerContainerParticipant
 import avh.ckc.core.ConsumerContainerPhase
 import avh.ckc.core.consumerContainer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -183,7 +184,8 @@ class CkcConsumersLifecycle internal constructor(
                     processingDispatcher = runtime.processingDispatcher,
                     retrySchema = runtime.retrySchema,
                     metrics = runtime.metrics,
-                    runtime = runtime.consumer.stateSnapshot()
+                    runtime = runtime.consumer.stateSnapshot(),
+                    warmup = runtime.warmup?.snapshot()
                 )
             }
         }
@@ -204,6 +206,9 @@ class CkcConsumersLifecycle internal constructor(
         lifecycleObserverScope.launch {
             try {
                 runtime.consumer.awaitTermination()
+            } catch (_: CancellationException) {
+                // A participant stopped before main readiness cancels the readiness wait.
+                return@launch
             } catch (failure: Throwable) {
                 if (shutdownRequested) return@launch
                 logger.severe("CKC consumer '${runtime.name}' reached terminal failure: ${failure.message}")
@@ -440,5 +445,6 @@ internal data class CkcConsumerStateSnapshot(
     val processingDispatcher: String,
     val retrySchema: String?,
     val metrics: String,
-    val runtime: avh.ckc.core.ConsumerStateSnapshot
+    val runtime: avh.ckc.core.ConsumerStateSnapshot,
+    val warmup: CkcWarmupStateSnapshot?
 )

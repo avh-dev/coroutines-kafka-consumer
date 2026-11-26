@@ -65,7 +65,15 @@ private class CkcHealthIndicator(
             "retrySchema" to retrySchema,
             "metrics" to metrics,
             "runtime" to runtime.details()
-        )
+        ).apply {
+            warmup?.let {
+                put("warmup", mapOf(
+                    "context" to it.context,
+                    "phase" to it.phase,
+                    "mainReady" to (it.mainReady && running && !runtime.failed && !runtime.stopped)
+                ))
+            }
+        }
 
     private fun avh.ckc.core.ConsumerStateSnapshot.details(): Map<String, Any?> =
         linkedMapOf(

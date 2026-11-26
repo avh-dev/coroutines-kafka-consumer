@@ -146,7 +146,8 @@ val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
 
 Supply the main Kafka bootstrap servers, group ID, and deserializers in `kafkaProperties`.
 Call `consumer.start()` and use the suspending `consumer.stop()` during shutdown.
-The base Spring Boot starter and Micrometer adapter also work without the warm-up JAR.
+The Spring Boot starter ships with optional warm-up configuration, disabled by default.
+See the [starter warm-up example](ckc-spring-boot-starter/README.md#traffic-warm-up).
 
 ### Consumer with traffic warm-up
 
