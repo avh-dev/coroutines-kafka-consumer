@@ -1,14 +1,12 @@
-# CKC Micrometer
+# Micrometer metrics
 
-CKC does not force a particular observability backend on applications. The core library only calls
-methods on an implementation of the
-[`ConsumerMetrics`](../ckc-core/src/main/kotlin/avh/ckc/core/metrics/ConsumerMetrics.kt)
-interface supplied when a consumer is created. By default, CKC uses a no-op implementation that does
-nothing.
+The adapter in `avh.ckc.core.metrics.micrometer` exports consumer callbacks as Micrometer meters.
+The consumer DSL accepts a [`ConsumerMetrics`](src/main/kotlin/avh/ckc/core/metrics/ConsumerMetrics.kt)
+implementation and uses a no-op implementation by default.
 
-The `ckc-micrometer` module lets applications export those consumer metric events as Micrometer
-meters: polls, record processing, retries, commits, backpressure pauses and resumes, dropped
-records, failures, and live runtime gauges.
+Add `io.micrometer:micrometer-core` to your application dependencies to use the adapter.
+Core and traffic warm-up can run without Micrometer. The Spring Boot starter brings Micrometer
+as a runtime dependency.
 
 ## Contents
 
@@ -25,6 +23,11 @@ Create one `MicrometerConsumerMetricsSchema` instance per metric family configur
 `ConsumerMetrics` instance per CKC consumer, and pass that metrics instance to the consumer DSL:
 
 ```kotlin
+import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+
 val meterRegistry = SimpleMeterRegistry()
 
 val ckcMetricsSchema = MicrometerConsumerMetricsSchema(
@@ -418,6 +421,9 @@ val metrics = micrometerConsumerMetrics<String, OrderEvent>(ckcMetricsSchema) {
 - `consumerId`: logical CKC consumer id. It sets the value of the `consumer_id` tag and defaults to
   `default`.
 - `recordDrivenTagExtractors`: optional per-consumer extractors for record-driven custom tags.
+
+When wrapping `ConsumerMetrics` for audit logging, delegate `unwrap(type)` to the wrapped metrics.
+Traffic warm-up uses that lookup to register meters with the same registry, prefix, and consumer tags.
 
 `recordDrivenTags(...)` declares allowed custom record tag keys and defaults:
 

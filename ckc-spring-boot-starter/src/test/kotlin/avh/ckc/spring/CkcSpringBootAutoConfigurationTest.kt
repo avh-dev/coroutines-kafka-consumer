@@ -2,8 +2,8 @@ package avh.ckc.spring
 
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.recordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers

@@ -3,6 +3,11 @@ package avh.ckc.demo.consumer.ckcspringboot
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordMetricTagDefinition
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.logDropped
 import avh.ckc.demo.logHandedOff
@@ -15,11 +20,6 @@ import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.service.batch.SuspendBatchLifecycleService
 import avh.ckc.demo.service.cauldron.SuspendCauldronTelemetryService
 import avh.ckc.demo.service.order.SuspendOrderLifecycleService
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.RecordMetricTagDefinition
-import avh.ckc.micrometer.micrometerConsumerMetrics
-import avh.ckc.micrometer.recordDrivenTagExtractors
 import avh.ckc.spring.CkcConsumer
 import avh.ckc.spring.CkcConsumerMetrics
 import avh.ckc.spring.CkcConsumerProperties

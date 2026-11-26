@@ -26,6 +26,7 @@ java {
 val coroutinesVersion = "1.9.0"
 val kafkaVersion = "3.4.0"
 val slf4jVersion = "2.0.12"
+val micrometerVersion = "1.15.0"
 val junitVersion = "5.10.2"
 val mockitoVersion = "5.12.0"
 val mockitoKotlinVersion = "5.3.1"
@@ -38,11 +39,14 @@ dependencies {
     api("org.slf4j:slf4j-api")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("com.github.luben:zstd-jni:1.5.6-9")
+    compileOnly("io.micrometer:micrometer-core:$micrometerVersion")
 
     testFixturesImplementation(kotlin("test-junit5"))
     testFixturesImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     testFixturesImplementation("org.mockito.kotlin:mockito-kotlin:$mockitoKotlinVersion")
 
+    testImplementation("io.micrometer:micrometer-core:$micrometerVersion")
+    testImplementation("io.micrometer:micrometer-registry-prometheus:$micrometerVersion")
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
     testImplementation(testFixtures(project(":ckc-core")))
@@ -132,11 +136,25 @@ tasks.test {
     }
 }
 
+val integrationTestRuntimeClasspath = configurations.resolvable("integrationTestRuntimeClasspath") {
+    val testRuntime = configurations.testRuntimeClasspath.get()
+    extendsFrom(testRuntime)
+    attributes {
+        fun <T : Any> copyAttribute(key: Attribute<T>) {
+            attribute(key, requireNotNull(testRuntime.attributes.getAttribute(key)))
+        }
+        testRuntime.attributes.keySet().forEach { copyAttribute(it) }
+    }
+    exclude(group = "io.micrometer")
+}
+
 val integrationTest = tasks.register<Test>("integrationTest") {
-    description = "Runs integration tests against real dependencies"
+    description = "Runs Kafka integration tests without Micrometer"
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
+    classpath = files(sourceSets.test.get().output, sourceSets.main.get().output, integrationTestRuntimeClasspath)
+    // JUnit resolves candidate classes before applying tags. Adapter tests require Micrometer.
+    exclude("avh/ckc/core/metrics/micrometer/**")
     shouldRunAfter(tasks.test)
     useJUnitPlatform {
         includeTags("integration")

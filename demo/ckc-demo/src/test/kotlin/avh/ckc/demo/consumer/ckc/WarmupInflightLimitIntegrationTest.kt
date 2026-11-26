@@ -1,11 +1,11 @@
 package avh.ckc.demo.consumer.ckc
 
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.OrderLifecycleEvent
 import avh.ckc.demo.serialization.OrderLifecycleEventSerializer
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test

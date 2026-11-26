@@ -115,9 +115,8 @@ do not provide that application-level guarantee.
 
 ## Modules
 
-- `ckc-core` contains the consumer runtime and public Kotlin DSL.
+- `ckc-core` contains the consumer runtime, public Kotlin DSL, and optional [Micrometer adapter](ckc-core/README.md).
 - `ckc-warmup` contains the opt-in traffic warm-up DSL, runtime, and v6 protocol.
-- `ckc-micrometer` adapts CKC metrics to Micrometer.
 - `ckc-spring-boot-starter` wires CKC consumers into Spring Boot applications.
 - `demo/ckc-demo-contracts` contains shared demo protobuf contracts and serialization helpers.
 - `demo/ckc-demo` is a Spring Boot demo application used for functional checks and implementation comparisons.

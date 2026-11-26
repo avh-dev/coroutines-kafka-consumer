@@ -106,6 +106,7 @@
 | [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
 | [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | DONE |
 | [CORE-109](#core-109) | Group warm-up implementation files and component tests by responsibility. | DONE |
+| [CORE-110](#core-110) | Move the optional Micrometer adapter into `ckc-core`. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7108,3 +7109,16 @@ Part of [GLOBAL-5](#global-5). Move warm-up implementation files and component t
 Keep public entry points, end-to-end scenarios, and shared test fixtures in the root packages.
 Capture expected background exceptions in two control transport tests so they do not affect subsequent coroutine tests.
 Matched the executed scenarios before and after the move. All 159 unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer passed. Demo and starter compiled.
+
+<a id="core-110"></a>
+### CORE-110 - Move the optional Micrometer adapter into core
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Move the adapter to `avh.ckc.core.metrics.micrometer` and remove the standalone artifact.
+Keep Micrometer optional for core and warm-up. The Spring Boot starter keeps its runtime dependency.
+Decide whether to bind warm-up metrics based on the presence of `MeterRegistry`, and verify the registry, prefix, and tags through a delegated consumer metrics wrapper.
+Passed 565 tests with `./gradlew :ckc-core:test :ckc-warmup:test :ckc-spring-boot-starter:test :ckc-demo:test`.
+Exclude Micrometer from the standard core Kafka integration test runtime and assert its absence while testing record processing.
+Passed 238 unit tests and 24 Kafka scenarios in one `./gradlew :ckc-core:check` run.
+Passed 51 scenarios with `:ckc-warmup:integrationTest` and two with `:ckc-warmup:integrationTestWithoutMicrometer`. Passed all 20 lab sync unit tests.

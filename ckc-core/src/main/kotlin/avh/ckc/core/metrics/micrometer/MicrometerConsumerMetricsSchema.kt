@@ -1,4 +1,4 @@
-package avh.ckc.micrometer
+package avh.ckc.core.metrics.micrometer
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import io.micrometer.core.instrument.Counter

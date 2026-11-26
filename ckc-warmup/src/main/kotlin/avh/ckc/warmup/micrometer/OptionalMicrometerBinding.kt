@@ -3,10 +3,10 @@ package avh.ckc.warmup.micrometer
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.warmup.WarmupMetrics
 
-private val micrometerBindingAvailable: Boolean by lazy {
+private val micrometerAvailable: Boolean by lazy {
     try {
         Class.forName(
-            "avh.ckc.micrometer.MicrometerConsumerMeterBinding",
+            "io.micrometer.core.instrument.MeterRegistry",
             false,
             WarmupMetrics::class.java.classLoader
         )
@@ -17,4 +17,4 @@ private val micrometerBindingAvailable: Boolean by lazy {
 }
 
 internal fun <K, V> micrometerWarmupMetrics(metrics: ConsumerMetrics<K, V>): WarmupMetrics<K, V>? =
-    if (micrometerBindingAvailable) MicrometerWarmupMetrics.bind(metrics) else null
+    if (micrometerAvailable) MicrometerWarmupMetrics.bind(metrics) else null

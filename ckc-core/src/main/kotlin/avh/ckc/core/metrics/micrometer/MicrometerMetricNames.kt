@@ -1,4 +1,4 @@
-package avh.ckc.micrometer
+package avh.ckc.core.metrics.micrometer
 
 internal class MicrometerMetricNames(metricPrefix: String) {
     private val metricPrefix = "$metricPrefix.ckc"

@@ -615,7 +615,6 @@ manifest, and Compose validation needed for the change. The initial command fami
 
 ```bash
 ./gradlew :ckc-core:test
-./gradlew :ckc-micrometer:test
 ./gradlew :ckc-demo:test
 ```
 
