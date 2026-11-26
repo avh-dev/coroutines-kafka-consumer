@@ -6,6 +6,12 @@ import avh.ckc.core.ProcessingMode
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.warmup.dataplane.WarmupCompletionOutbox
+import avh.ckc.warmup.dataplane.WarmupResultLane
+import avh.ckc.warmup.donor.WarmupDonorQuotaPhases
+import avh.ckc.warmup.donor.WarmupDonorSessionLifecycle
+import avh.ckc.warmup.kafka.WarmupControlChannel
+import avh.ckc.warmup.kafka.WarmupControlTransport
 import avh.ckc.warmup.protocol.SessionAccepted
 import avh.ckc.warmup.protocol.SessionEnded
 import avh.ckc.warmup.protocol.WarmupControlCodec
@@ -21,6 +27,10 @@ import avh.ckc.warmup.protocol.WarmupRequested
 import avh.ckc.warmup.protocol.WarmupSessionId
 import avh.ckc.warmup.protocol.WarmupTopicMapping
 import avh.ckc.warmup.protocol.normalizedAdmissionBudget
+import avh.ckc.warmup.recipient.PreparedWarmupRecipientConsumer
+import avh.ckc.warmup.recipient.WarmupDestinationStart
+import avh.ckc.warmup.runtime.RegisteredTrafficWarmupParticipant
+import avh.ckc.warmup.runtime.mappingFingerprint
 import java.time.Duration as JavaDuration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
