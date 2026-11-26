@@ -243,6 +243,17 @@ session and fails the target if verification or delivery fails. The evidence bun
 `warmup-scale-up.json` alongside the lifecycle logs, metrics, and report. The audit archive also
 contains the offset mapping and raw audit log.
 
+For a load comparison through the starter, run:
+
+```bash
+lab experiment start ckc-spring-boot-sequential-warmup-scale-up-20k-local.yaml
+```
+
+This runs a cold and a warm target for 45 minutes each. Both repeat the sequential
+1-to-4 pod autoscaling workload and ramp to 20,000 TPS with stubs on the controller.
+The warm target uses the existing 150-second two-stage quota and a dedicated warm-up
+Kafka. Both targets use PLAINTEXT on main Kafka.
+
 Inspect or control it from any later shell in the same checkout:
 
 ```bash

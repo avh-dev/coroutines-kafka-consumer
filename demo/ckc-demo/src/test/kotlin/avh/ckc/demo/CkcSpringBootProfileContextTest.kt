@@ -1,5 +1,6 @@
 package avh.ckc.demo
 
+import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.demo.ml.eta.ArmeriaSuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
@@ -24,6 +25,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @SpringBootTest(
@@ -32,6 +34,9 @@ import kotlin.test.assertTrue
         "SERVER_PORT=0",
         "KAFKA_ENABLED=false",
         "TRAFFIC_WARMUP_ENABLED=false",
+        "TELEMETRY_PROCESSING_MODE=AT_LEAST_ONCE_NO_ORDERING",
+        "FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS=0",
+        "CKC_TELEMETRY_FRESHNESS_MAX_RECORD_AGE=",
         "thread-stats.metrics.category-order-prefix-enabled=true",
         "spring.autoconfigure.exclude=com.linecorp.armeria.spring.ArmeriaAutoConfiguration," +
                 "com.linecorp.armeria.spring.actuate.ArmeriaSpringActuatorAutoConfiguration"
@@ -114,6 +119,15 @@ class CkcSpringBootProfileContextTest(
         assertEquals("local", ckcProperties.defaultCluster)
         assertEquals("default", ckcProperties.defaultRetrySchema)
         assertEquals("workers", ckcProperties.defaultProcessingDispatcher)
+    }
+
+    @Test
+    fun `unordered telemetry starts with the planner settings and no freshness limit`() {
+        val telemetry = applicationContext.getBean(CkcConsumerProperties::class.java)
+            .consumers.getValue("cauldron-events")
+        assertEquals(ProcessingMode.AT_LEAST_ONCE_NO_ORDERING, telemetry.processingMode)
+        assertNull(telemetry.freshnessMaxRecordAge)
+        assertTrue("cauldron-events" in consumerRegistry.consumerNames)
     }
 
     @Test

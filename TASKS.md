@@ -571,7 +571,7 @@
 | [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
-| [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up with a controlled local scale-up. | DONE |
+| [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -7166,3 +7166,5 @@ Passed 244 internal-lab tests, 162 shared tests, 35 audit and packet-analysis te
 Updated optilab and verified the installed experiment, helpers, and dry-run behavior. The live scale-up remains a separate operator command.
 Live run `20261126T180803Z` passed qualification with 600 order, 589 batch, and 587 cauldron forwarding pairs verified by the audit.
 Match both starter and DSL consumer IDs in topic dashboards and report queries. Verified the corrected queries against the saved run and rebuilt its evidence bundle with the existing Prometheus data.
+Add the Spring Boot port of the sequential 20k cold/warm comparison, retaining its workload, autoscaling, resource sizing, and quota profile. Use PLAINTEXT for main Kafka and omit the freshness cap in unordered telemetry mode.
+Passed the 75 planner and contract tests and all 121 demo tests. The CLI dry-run validated the new experiment from the GLOBAL-5 worktree using the task checkout's entrypoint.
