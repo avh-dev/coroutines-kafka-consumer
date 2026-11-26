@@ -1,8 +1,8 @@
 package avh.ckc.demo.service
 
 import avh.ckc.core.metrics.RecordDropReason
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.micrometerConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlin.test.Test
 import kotlin.test.assertEquals

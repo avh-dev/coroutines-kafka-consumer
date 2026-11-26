@@ -1,12 +1,12 @@
 package avh.ckc.demo
 
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.demo.ml.eta.SuspendArcaneEtaModelClient
 import avh.ckc.demo.ml.eta.SyncArcaneEtaModelClient
 import avh.ckc.demo.ml.flavour.SuspendOrderFlavourModelClient
 import avh.ckc.demo.ml.flavour.SyncOrderFlavourModelClient
 import avh.ckc.demo.consumer.DemoProcessingDispatcher
 import avh.ckc.demo.service.DemoRecordMetrics
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import io.micrometer.core.instrument.MeterRegistry
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext

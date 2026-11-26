@@ -4,7 +4,6 @@ import org.gradle.api.tasks.Sync
 val publishedArtifactNames = mapOf(
     "ckc-core" to "coroutines-kafka-consumer-core",
     "ckc-warmup" to "coroutines-kafka-consumer-warmup",
-    "ckc-micrometer" to "coroutines-kafka-consumer-micrometer",
     "ckc-spring-boot-starter" to "coroutines-kafka-consumer-spring-boot-starter",
     "ckc-experiments" to "coroutines-kafka-consumer-experiments",
     "ckc-demo-contracts" to "coroutines-kafka-consumer-demo-contracts",

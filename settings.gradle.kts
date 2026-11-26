@@ -2,7 +2,6 @@ rootProject.name = "coroutines-kafka-consumer"
 
 include(":ckc-core")
 include(":ckc-warmup")
-include(":ckc-micrometer")
 include(":ckc-spring-boot-starter")
 include(":ckc-experiments")
 include(":ckc-demo-contracts")

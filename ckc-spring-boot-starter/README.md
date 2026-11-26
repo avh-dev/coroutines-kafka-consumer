@@ -262,8 +262,8 @@ Record-driven Micrometer tag schemas are declared in configuration. The per-reco
 lives in Spring beans annotated with `@CkcMicrometerRecordTags`:
 
 ```kotlin
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.recordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import avh.ckc.spring.CkcMicrometerRecordTags
 
 @Bean

@@ -3,13 +3,13 @@ package avh.ckc.demo.consumer.ckc
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
 import avh.ckc.demo.DemoTopics
 import avh.ckc.demo.config.DemoApplicationProperties
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.micrometerConsumerMetrics
 import avh.ckc.warmup.trafficWarmupContext
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent

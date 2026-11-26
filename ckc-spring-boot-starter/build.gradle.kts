@@ -25,7 +25,6 @@ val coroutinesVersion = "1.9.0"
 
 dependencies {
     api(project(":ckc-core"))
-    implementation(project(":ckc-micrometer"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")

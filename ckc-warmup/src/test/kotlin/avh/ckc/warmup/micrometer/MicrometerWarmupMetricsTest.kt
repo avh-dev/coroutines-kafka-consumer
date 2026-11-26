@@ -1,8 +1,9 @@
 package avh.ckc.warmup.micrometer
 
+import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.micrometerConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
 import avh.ckc.warmup.WarmupFallbackReason
 import avh.ckc.warmup.WarmupResultDeliveryFailureReason
 import avh.ckc.warmup.WarmupResultMetricOutcome
@@ -36,13 +37,14 @@ class MicrometerWarmupMetricsTest {
     }
 
     @Test
-    fun `warmup metrics expose transport outcomes fallback and aggregate pending`() {
+    fun `warmup metrics use the binding exposed through a consumer metrics wrapper`() {
         val registry = SimpleMeterRegistry()
         val baseMetrics = micrometerConsumerMetrics<String, String>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         ) { consumerId = "orders-consumer" }
         assertTrue(registry.meters.none { ".warmup." in it.id.name })
-        val metrics = defaultWarmupMetrics(baseMetrics)
+        val wrappedMetrics = object : ConsumerMetrics<String, String> by baseMetrics {}
+        val metrics = defaultWarmupMetrics(wrappedMetrics)
         val record = ConsumerRecord("orders", 0, 0L, "key", "value")
 
         metrics.onWarmupDelegated(record, 10)
@@ -54,7 +56,7 @@ class MicrometerWarmupMetricsTest {
         metrics.onWarmupResultDeliveryFailure(WarmupResultDeliveryFailureReason.TIMEOUT)
         metrics.onWarmupResultDrain(30, LifecycleOutcome.SUCCESS)
 
-        assertEquals(1.0, registry.get("test.ckc.warmup.delegated").counter().count())
+        assertEquals(1.0, registry.get("test.ckc.warmup.delegated").tags("consumer_id", "orders-consumer", "topic", "orders").counter().count())
         assertEquals(1L, registry.get("test.ckc.warmup.send.duration").timer().count())
         assertEquals(1.0, registry.get("test.ckc.warmup.result").tag("outcome", "succeeded").counter().count())
         assertEquals(1L, registry.get("test.ckc.warmup.result.wait.duration").timer().count())

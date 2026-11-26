@@ -1,4 +1,4 @@
-package avh.ckc.micrometer
+package avh.ckc.core.metrics.micrometer
 
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerMetrics

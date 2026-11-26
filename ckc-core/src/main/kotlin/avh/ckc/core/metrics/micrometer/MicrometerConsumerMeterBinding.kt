@@ -1,4 +1,4 @@
-package avh.ckc.micrometer
+package avh.ckc.core.metrics.micrometer
 
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.Timer

@@ -26,6 +26,7 @@ java {
 val coroutinesVersion = "1.9.0"
 val kafkaVersion = "3.4.0"
 val slf4jVersion = "2.0.12"
+val micrometerVersion = "1.15.0"
 val junitVersion = "5.10.2"
 val mockitoVersion = "5.12.0"
 val mockitoKotlinVersion = "5.3.1"
@@ -38,11 +39,14 @@ dependencies {
     api("org.slf4j:slf4j-api")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("com.github.luben:zstd-jni:1.5.6-9")
+    compileOnly("io.micrometer:micrometer-core:$micrometerVersion")
 
     testFixturesImplementation(kotlin("test-junit5"))
     testFixturesImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     testFixturesImplementation("org.mockito.kotlin:mockito-kotlin:$mockitoKotlinVersion")
 
+    testImplementation("io.micrometer:micrometer-core:$micrometerVersion")
+    testImplementation("io.micrometer:micrometer-registry-prometheus:$micrometerVersion")
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
     testImplementation(testFixtures(project(":ckc-core")))

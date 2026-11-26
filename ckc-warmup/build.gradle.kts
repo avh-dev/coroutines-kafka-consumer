@@ -31,12 +31,10 @@ dependencies {
     add(brokerCliImplementation.name, kotlin("stdlib"))
     add(brokerCliImplementation.name, "org.apache.kafka:kafka-clients:3.4.0")
 
-    compileOnly(project(":ckc-micrometer"))
     compileOnly("io.micrometer:micrometer-core:1.15.0")
 
     testImplementation(testFixtures(project(":ckc-core")))
     testImplementation(kotlin("test-junit5"))
-    testImplementation(project(":ckc-micrometer"))
     testImplementation("io.micrometer:micrometer-core:1.15.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
@@ -95,12 +93,11 @@ val testRuntimeWithoutMicrometer = configurations.resolvable("testRuntimeWithout
         }
         testRuntime.attributes.keySet().forEach { copyAttribute(it) }
     }
-    exclude(group = project.group.toString(), module = "ckc-micrometer")
     exclude(group = "io.micrometer")
 }
 
 val integrationTestWithoutMicrometer = tasks.register<Test>("integrationTestWithoutMicrometer") {
-    description = "Runs Kafka warm-up scenarios without the Micrometer adapter or Micrometer libraries"
+    description = "Runs Kafka warm-up scenarios without the Micrometer libraries"
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = files(sourceSets.test.get().output, sourceSets.main.get().output, testRuntimeWithoutMicrometer)

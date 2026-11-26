@@ -1,4 +1,4 @@
-package avh.ckc.micrometer
+package avh.ckc.core.metrics.micrometer
 
 import io.micrometer.core.instrument.Tag
 import org.apache.kafka.clients.consumer.ConsumerRecord

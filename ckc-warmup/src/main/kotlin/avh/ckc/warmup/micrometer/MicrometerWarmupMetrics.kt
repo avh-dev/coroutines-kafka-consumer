@@ -2,7 +2,7 @@ package avh.ckc.warmup.micrometer
 
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.micrometer.MicrometerConsumerMeterBinding
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMeterBinding
 import avh.ckc.warmup.WarmupFallbackReason
 import avh.ckc.warmup.WarmupMetrics
 import avh.ckc.warmup.WarmupResultDeliveryFailureReason
