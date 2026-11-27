@@ -464,22 +464,46 @@ def delete_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | Non
     return details
 
 
-def warmup_app_logs(run_id: str, marker: str) -> str:
-    selector = '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id=' + json.dumps(run_id) + '}'
-    end = time.time_ns()
+def loki_log_lines(query: str, start: int, end: int) -> str:
     payload = http_json("http://127.0.0.1:3100", "/loki/api/v1/query_range", {
-        "query": f"{selector} |= {json.dumps(marker)}",
-        "start": str(end - 240_000_000_000),
+        "query": query,
+        "start": str(start),
         "end": str(end),
         "limit": "1000",
         "direction": "backward",
     }, timeout=5)
-    records = [
+    records = {
         (int(timestamp), line)
         for stream in payload["data"]["result"]
         for timestamp, line in stream["values"]
-    ]
-    return "\n".join(line for _, line in sorted(set(records)))
+    }
+    return "\n".join(line for _, line in sorted(records))
+
+
+def warmup_app_logs(run_id: str, marker: str) -> str:
+    selector = '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id=' + json.dumps(run_id) + '}'
+    end = time.time_ns()
+    return loki_log_lines(f"{selector} |= {json.dumps(marker)}", end - 240_000_000_000, end)
+
+
+def warmup_broker_logs(run_id: str, pod_name: str, impact_ns: int) -> list[str]:
+    selector = (
+        '{namespace="ckc-perf",app="ckc-warmup-kafka",container="kafka",'
+        f'run_id={json.dumps(run_id)},pod={json.dumps(pod_name)}}}'
+    )
+    query = f'{selector} |~ "broker-lifecycle |warmup-kafka-supervisor "'
+    return broker_stop_lines(loki_log_lines(query, impact_ns, time.time_ns()))
+
+
+def proves_abrupt_broker_stop(lines: list[str], epoch: str) -> bool:
+    if any(f"event=DrainRequested(epoch={epoch}," in line for line in lines):
+        return False
+    # The supervisor writes the process exit, then the stop marker for that broker epoch.
+    return any(
+        before.endswith("warmup-kafka-supervisor process=broker exit_status=137")
+        and f"event=KafkaStopped brokerEpoch={epoch} " in after
+        for before, after in zip(lines, lines[1:])
+    )
 
 
 def warming_sessions(logs: str) -> list[str]:
@@ -585,19 +609,21 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
         "warmingSessions": sessions, "recoveryTimeoutSeconds": recovery_timeout,
     }
     if mode == "abrupt":
+        details["impactAt"] = utc_iso()
+        impact_ns = time.time_ns()
         result = run([
             *exec_in_broker, "bash", "-c", 'kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"',
         ], check=False)
         details["execExitCode"] = result.returncode
         restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
-        previous = run([*kubectl, "logs", name, "-c", "kafka", "--previous", "--timestamps"], capture_output=True)
         details["nextBrokerEpoch"] = next_epoch
         details["nextBrokerPodUid"] = restarted["uid"]
-        details["brokerEvents"] = broker_stop_lines(previous.stdout)
+        # A failed container restart can rotate the original exit out of kubectl logs --previous.
+        lines = warmup_broker_logs(run_id, name, impact_ns)
+        details["brokerEvents"] = lines
         log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
-        if (restarted["uid"] != uid or "process=broker exit_status=137" not in previous.stdout or
-            f"event=DrainRequested(epoch={epoch}," in previous.stdout):
-            raise RuntimeError("Kafka restart did not prove abrupt loss of the previous generation")
+        if restarted["uid"] != uid or not proves_abrupt_broker_stop(lines, epoch):
+            raise RuntimeError(f"Kafka restart did not prove abrupt loss of broker epoch {epoch}")
         return details
 
     details["beforeDeletion"] = broker_endpoint(kubectl, uid)

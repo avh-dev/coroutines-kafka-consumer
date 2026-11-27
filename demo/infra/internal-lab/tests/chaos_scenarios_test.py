@@ -203,21 +203,37 @@ class ChaosScenariosTest(unittest.TestCase):
             ]}]},
             "status": {"podIP": "10.12.13.14"},
         }
+        broker_events = [
+            "warmup-kafka-supervisor process=broker exit_status=137",
+            "warmup-kafka-supervisor event=KafkaStopped brokerEpoch=old-epoch pid=10",
+            "warmup-kafka-supervisor process=bootstrap exit_status=1",
+            "warmup-kafka-supervisor event=KafkaSIGTERM brokerEpoch=failed-epoch pid=10",
+            "warmup-kafka-supervisor event=KafkaStopped brokerEpoch=failed-epoch pid=10",
+            "broker-lifecycle event=BrokerStarted brokerEpoch=new-epoch offset=244",
+        ]
         with (
             patch.dict(os.environ, {"TEST_RUN_ID": "run-366"}),
             patch.object(chaos_runner, "warmup_app_logs", return_value=""),
             patch.object(chaos_runner, "warming_sessions", return_value=["session-1", "session-2"]),
             patch.object(chaos_runner, "select_running_pod", return_value=metadata),
             patch.object(chaos_runner, "await_warmup_broker", return_value=(metadata, "new-epoch")) as await_broker,
+            patch.object(chaos_runner, "warmup_broker_logs", return_value=broker_events) as broker_logs,
             patch.object(chaos_runner, "run", side_effect=[
                 subprocess.CompletedProcess([], 0, json.dumps(pod)),
                 subprocess.CompletedProcess([], 0, "old-epoch"),
-                subprocess.CompletedProcess([], 137),
-                subprocess.CompletedProcess([], 0, "warmup-kafka-supervisor process=broker exit_status=137"),
+                subprocess.CompletedProcess([], 0),
             ]) as run,
         ):
             evidence = chaos_runner.stop_warmup_broker({"mode": "abrupt", "recoveryTimeoutSeconds": 360}, dry_run=False)
         self.assertEqual(360, await_broker.call_args.args[-1])
+        self.assertEqual(("run-366", "warmup-pod"), broker_logs.call_args.args[:2])
+        self.assertEqual(broker_events, evidence["brokerEvents"])
+        self.assertFalse(chaos_runner.proves_abrupt_broker_stop(broker_events, "failed-epoch"))
+        self.assertFalse(chaos_runner.proves_abrupt_broker_stop(broker_events[2:], "old-epoch"))
+        self.assertFalse(chaos_runner.proves_abrupt_broker_stop(
+            ["broker-lifecycle event=DrainRequested(epoch=old-epoch, drainId=drain)", *broker_events],
+            "old-epoch",
+        ))
         self.assertEqual(360, evidence["recoveryTimeoutSeconds"])
         self.assertEqual("warmup-uid", evidence["nextBrokerPodUid"])
         self.assertEqual("new-epoch", evidence["nextBrokerEpoch"])

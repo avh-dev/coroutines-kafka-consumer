@@ -6983,6 +6983,8 @@ Passed 245 internal-lab tests and validated the qualification launch command in 
 Live experiment 20261127T134756Z passed planned shutdown. Abrupt recovery exceeded the fixed 210-second wait and published a new broker epoch about 16 seconds after the timeout.
 Split the qualification into separate planned and abrupt experiments with top-level workload and chaos schedules. Both use a 360-second recovery timeout before the fourth pod may start.
 Passed 94 orchestration tests and 245 internal-lab tests. Updated optilab and verified both installed chaos plans in dry-run mode.
+Abrupt run 20261127T180246Z recovered within 360 seconds but a failed intermediate bootstrap replaced the previous container log. Verify the original Kafka exit and stopped epoch in run- and pod-scoped Loki logs.
+Replayed the retained Loki query for the failed run and confirmed evidence for the original SIGKILL and the fresh epoch. Passed all 245 internal-lab tests.
 
 <a id="core-100"></a>
 ### CORE-100 - Deliver results during planned warm-up Kafka drain

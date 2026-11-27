@@ -584,7 +584,8 @@ Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl
 The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's
 advertised address, the new client connection observed after that transition, and the matching
 `ContextDrained` offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
-The abrupt target checks the previous broker exit and fresh epoch for the same pod UID.
+The abrupt target checks the killed epoch's exit in Loki and a fresh epoch for the same pod UID,
+including when an intermediate restart failed.
 Use Loki and the warm-up metrics to verify the interrupted recipients reach `MAIN_READY`,
 the fourth pod receives delegated records and finishes warm-up, and the surviving donor
 continues to process main-cluster records.
