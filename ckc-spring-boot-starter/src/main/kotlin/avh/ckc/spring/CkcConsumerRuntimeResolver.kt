@@ -21,7 +21,8 @@ internal data class NamedConsumerRuntime(
     val processingDispatcher: String,
     val retrySchema: String?,
     val metrics: String,
-    val consumer: ManagedCkcConsumer
+    val consumer: ManagedCkcConsumer,
+    val warmup: CkcWarmupParticipant? = null
 )
 
 internal interface ManagedCkcConsumer {
@@ -29,6 +30,7 @@ internal interface ManagedCkcConsumer {
     suspend fun stop()
     suspend fun awaitTermination()
     suspend fun awaitShutdownCompletion()
+    fun isStopComplete(): Boolean
     fun stateSnapshot(): ConsumerStateSnapshot
 }
 
@@ -39,6 +41,7 @@ private class CoreManagedCkcConsumer(
     override suspend fun stop() = delegate.stop()
     override suspend fun awaitTermination() = delegate.awaitTermination()
     override suspend fun awaitShutdownCompletion() = delegate.awaitShutdownCompletion()
+    override fun isStopComplete(): Boolean = delegate.isStopComplete()
     override fun stateSnapshot(): ConsumerStateSnapshot = delegate.stateSnapshot()
 }
 
@@ -69,6 +72,7 @@ internal fun resolveConsumerRuntimes(
         }
 
     validateConsumerSet(properties, annotatedConsumers)
+    val warmupParticipants = resolveWarmupParticipants(properties, applicationContext)
 
     return annotatedConsumers.map { annotatedConsumer ->
         val consumerName = annotatedConsumer.consumerName
@@ -78,6 +82,22 @@ internal fun resolveConsumerRuntimes(
         val resolvedCluster = resolveCluster(properties, consumerName, consumerProperties)
         val kafkaProperties = consumerProperties.kafkaProperties(resolvedCluster.kafkaProperties)
         validateConsumerProperties(properties, consumerName, consumerProperties, kafkaProperties)
+        val warmup = warmupParticipants[consumerName]
+        val consumer = try {
+            buildConsumer(
+                applicationContext,
+                dispatcherRegistry,
+                properties,
+                consumerName,
+                consumerBean,
+                consumerProperties,
+                resolvedCluster.kafkaProperties,
+                warmup
+            )
+        } catch (error: IllegalArgumentException) {
+            if (warmup == null) throw error
+            throw IllegalArgumentException("Invalid configuration for CKC consumer '$consumerName': ${error.message}", error)
+        }
         NamedConsumerRuntime(
             name = consumerName,
             autoStartup = consumerProperties.autoStartup,
@@ -93,17 +113,8 @@ internal fun resolveConsumerRuntimes(
             processingDispatcher = resolvedProcessingDispatcherName(properties, consumerProperties),
             retrySchema = resolvedRetrySchemaName(properties, consumerProperties.retrySchema),
             metrics = resolvedMetricsDescription(properties, consumerName),
-            consumer = CoreManagedCkcConsumer(
-                buildConsumer(
-                    applicationContext,
-                    dispatcherRegistry,
-                    properties,
-                    consumerName,
-                    consumerBean,
-                    consumerProperties,
-                    resolvedCluster.kafkaProperties
-                )
-            )
+            consumer = CoreManagedCkcConsumer(consumer),
+            warmup = warmup
         )
     }
         .also { runtimes ->

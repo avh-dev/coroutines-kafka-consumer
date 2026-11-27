@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import importlib.util
 import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +26,29 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ExperimentRunnerTest(unittest.TestCase):
+    def test_experiment_lock_rejects_concurrent_shared_stub_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = RUNNER.acquire_experiment_lock(root)
+            try:
+                with self.assertRaisesRegex(ValueError, "another experiment runner is active"):
+                    RUNNER.acquire_experiment_lock(root)
+            finally:
+                fcntl.flock(first.fileno(), fcntl.LOCK_UN)
+                first.close()
+
+    def test_experiments_starting_in_the_same_second_use_separate_result_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.object(RUNNER, "datetime") as clock:
+            clock.now.return_value = datetime(2026, 11, 22, tzinfo=timezone.utc)
+            root = Path(directory)
+            first = RUNNER.create_experiment_result_dir(root)
+            (first / "summary.json").write_text("first result", encoding="utf-8")
+            second = RUNNER.create_experiment_result_dir(root)
+
+            self.assertEqual("20261122T000000Z", first.name)
+            self.assertEqual("20261122T000000Z-2", second.name)
+            self.assertEqual("first result", (first / "summary.json").read_text(encoding="utf-8"))
+
     def test_jvm_options_starting_with_a_dash_use_equals_form(self) -> None:
         expected = ["--demo-java-tool-options=-XX:+UseSerialGC -Xmx768m"]
 
@@ -134,6 +159,25 @@ class ExperimentRunnerTest(unittest.TestCase):
             RUNNER.STOP_REQUESTED.clear()
             RUNNER.FAILURE_NOTIFICATION_CONTEXT.clear()
             RUNNER.FAILURE_NOTIFICATION_CONTEXT.update(context)
+
+    def test_managed_stop_during_target_launch_leaves_process_available_for_cleanup(self) -> None:
+        child = object()
+
+        def launch(*_args, **_kwargs):
+            RUNNER.request_managed_stop(2, None)
+            return child
+
+        RUNNER.STOP_REQUESTED.clear()
+        try:
+            with (
+                patch.object(RUNNER, "TARGET_PROCESS_ACTIVE", False),
+                patch.dict(RUNNER.FAILURE_NOTIFICATION_CONTEXT, {"experiment": "comparison"}),
+                patch.object(RUNNER.subprocess, "Popen", side_effect=launch),
+            ):
+                self.assertIs(child, RUNNER.start_target_process(["stub target"], {}))
+                self.assertTrue(RUNNER.STOP_REQUESTED.is_set())
+        finally:
+            RUNNER.STOP_REQUESTED.clear()
 
     def test_application_cleanup_reports_verified_idle_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -585,6 +629,41 @@ class ExperimentRunnerTest(unittest.TestCase):
 
             self.assertEqual(["quiesce", "release", "analyze"], events)
             self.assertEqual(0, summary["exit_code"])
+
+    def test_warmup_qualification_failure_overrides_successful_load_execution(self) -> None:
+        repository = Path(__file__).resolve().parents[4]
+        experiment = repository / "demo/infra/experiments/ckc-spring-boot-warmup-scale-up-local.yaml"
+        for has_audit in (True, False):
+            with self.subTest(has_audit=has_audit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                audit = root / "run-a" / "audit"
+                audit.mkdir(parents=True)
+                if has_audit:
+                    (audit / "audit-run-a.log").write_text("P|1|0|1|1|1|order-a\n", encoding="utf-8")
+                target_result = {
+                    "target": "ckc-spring-boot", "name": "ckc-spring-boot", "resolved_test_path": str(experiment),
+                    "run_dir": str(audit.parent), "audit_dir": str(audit), "interrupted": False,
+                    "exit_code": 0, "run_status": {"status": "completed"}, "env": {"AUDIT_LOG_ENABLED": "true"},
+                }
+
+                with (
+                    patch.object(RUNNER, "run_one", return_value=target_result),
+                    patch.object(RUNNER, "prepare_experiment_runtime"),
+                    patch.object(RUNNER, "ensure_application_quiesced", return_value={"status": "clean"}),
+                    patch.object(RUNNER, "change_performance_policy"),
+                    patch.object(RUNNER, "analyze_one", return_value={"exit_code": 2}) as analyze,
+                    patch.object(RUNNER, "notify"),
+                ):
+                    summary = RUNNER.run_experiment(
+                        experiment, root / "run-target.sh", root, root / "results", "set-a", {}, None
+                    )
+
+                self.assertEqual(2 if has_audit else 1, summary["exit_code"])
+                self.assertEqual(int(has_audit), analyze.call_count)
+                target, = summary["targets"]
+                self.assertTrue(target["verify_warmup_scale_up"])
+                self.assertEqual("failed", target["run_status"]["status"])
+                self.assertEqual(1, target["exit_code"])
 
     def test_failed_application_quiesce_aborts_before_audit_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

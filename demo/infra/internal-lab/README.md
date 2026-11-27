@@ -71,6 +71,12 @@ For a split topology, bootstrap also derives the interface used to reach the
 other node from that route and persists it as k3s `flannel-iface`. This keeps
 cross-node pod traffic on the configured lab addresses even when a management
 or Wi-Fi interface owns the host's default route.
+
+Set `network.redis_address` to a controller IPv4 address reachable from the
+application node to route Redis over a separate link. On OptiLab, set it to
+`10.77.0.1` to use USB Ethernet. If omitted, Redis uses the controller's
+`lab_address`. Run `lab up` to apply a change to the Kubernetes endpoint.
+
 `bootstrap` prepares the controller first, transfers its k3s join token without
 printing it, and then joins the worker. The operator key remains usable on both
 hosts, while a dedicated runtime key permits controller-to-worker operations as
@@ -147,36 +153,135 @@ Maven repository; if the agent is absent there, Gradle resolves it from the
 configured Maven repositories. Updating the lab never builds the neighboring
 Thread Stats checkout.
 
+### Optional warm-up Kafka transport
+
+An internal-lab experiment can request an experiment-scoped warm-up Kafka independently of the
+main Kafka cluster:
+
+```yaml
+environments:
+  internal-lab:
+    lab: {profile: installed}
+    warmup_kafka:
+      enabled: true
+      placement: application
+      topics:
+        - ckc.traffic-warmup.v6.control
+        - ckc.traffic-warmup.v6.order.events
+        - ckc.traffic-warmup.v6.batch.events
+        - ckc.traffic-warmup.v6.cauldron.events
+```
+
+The lab builds `ckc-perf/warmup-kafka:latest` locally and imports it into every k3s image store.
+The generated `ckc-warmup-kafka` Deployment contains one broker/bootstrap container and one stable
+Service. Its data is intentionally ephemeral. Every container start creates missing topics with one
+partition and replication factor one; incompatible existing partition counts keep the pod unready.
+Main, control, and destination Kafka settings remain separate, and the main Kafka is not modified.
+Deleting a topic from a live broker requires a container restart; continuous repair is intentionally
+outside the internal-lab contract.
+
+Preparation waits up to 120 seconds for the optional transport, then deploys applications even if
+it is still unavailable so they can cold-start. Application workloads stop before the transport;
+cleanup deletes the labeled Deployment, Service, and pods and independently verifies their absence.
+Environment evidence records the image, base version, placement, resources, configured topic list,
+current topic metadata, and ready/available replicas. Broker and bootstrap diagnostics are
+available in the normal pod log evidence.
+
+Before a lab qualification, validate the image locally:
+
+```bash
+docker build -t ckc-perf/warmup-kafka:latest demo/infra/shared/warmup-kafka
+demo/infra/shared/warmup-kafka/tests/container-lifecycle-test.sh \
+  ckc-perf/warmup-kafka:latest
+```
+
+Then update the installed lab and start the selected experiment explicitly:
+
+```bash
+lab up
+lab experiment start \
+  demo/infra/experiments/ckc-shared-partition-warmup-transport-qualification.yaml
+```
+
+The lifecycle script verifies initial topic preparation without relying on the external Service
+address, the external metadata path, restart with retained data, readiness rejection for an
+incompatible topic, automatic topic restoration after full data-volume loss, and container
+termination when the broker exits after bootstrap. The application-level donor/recipient recovery after full
+loss is additionally covered by CORE-83 real-Kafka integration tests; INFRA-324 supplies repeatable
+lab experiment scenarios and comparison analysis.
+
 The runtime user belongs to the Docker group and owns the lab files. Its only
 passwordless sudo permissions are three exact no-argument helpers: image import,
 CPU performance acquisition, and CPU policy restoration. Arbitrary `docker`,
 `k3s`, shell, and wildcard sudo rules are deliberately not granted. Bootstrap
 does not change the active CPU policy.
 
-## Manage an experiment
+## Manage experiments
 
-Start one experiment from the repository checkout. The command updates the lab
-first and returns after the user service has started; closing the terminal does
-not stop the run.
+Pass one or more YAML files from the `demo/infra/experiments` catalog in launch
+order. The CLI validates the whole list, updates the lab, and submits one
+request to the controller's user service. You can close the terminal once the
+command returns. Each experiment saves its own artifacts and report. The
+service launches the next file only after the current experiment finishes
+cleanup and returns exit code zero.
 
 ```bash
-demo/infra/internal-lab/scripts/lab.sh experiment start \
-  demo/infra/experiments/smoke.yaml
+lab experiment start smoke.yaml ckc-spring-boot-smoke.yaml
 ```
+
+To qualify traffic warm-up through the starter with a controlled one-to-two pod scale-up:
+
+```bash
+lab experiment start ckc-spring-boot-warmup-scale-up-local.yaml
+```
+
+The target uses PLAINTEXT on the main Kafka, a dedicated warm-up Kafka, and a steady workload
+with audit enabled. The scale step verifies that the original pod cold-started all three consumers,
+then adds one replica. The new pod must finish a warm recipient session and reach `MAIN_READY`
+for all three consumers. The audit analyzer reconciles the source and destination offsets for that
+session and fails the target if verification or delivery fails. The evidence bundle contains
+`warmup-scale-up.json` alongside the lifecycle logs, metrics, and report. The audit archive also
+contains the offset mapping and raw audit log.
+
+For a load comparison through the starter, run:
+
+```bash
+lab experiment start ckc-spring-boot-sequential-warmup-scale-up-20k-local.yaml
+```
+
+This runs a cold and a warm target for 45 minutes each. Both repeat the sequential
+1-to-4 pod autoscaling workload and ramp to 20,000 TPS with stubs on the controller.
+The warm target uses the existing 150-second two-stage quota and a dedicated warm-up
+Kafka. Both targets use PLAINTEXT on main Kafka, preserve key ordering for orders and batches,
+and replace queued telemetry records by key without an age cutoff.
 
 Inspect or control it from any later shell in the same checkout:
 
 ```bash
-demo/infra/internal-lab/scripts/lab.sh experiment status
-demo/infra/internal-lab/scripts/lab.sh experiment logs
-demo/infra/internal-lab/scripts/lab.sh experiment logs --follow
-demo/infra/internal-lab/scripts/lab.sh experiment stop
+lab experiment status
+lab experiment status --json
+lab experiment logs --follow
+lab experiment stop
 ```
 
-`start` refuses a second concurrent experiment, and `lab.sh up` refuses to
-replace runtime files while an experiment is active. Add `--no-update` only when
-the installed runtime is already known to match the checkout. `status --json`
-provides a machine-readable view of the current or most recent request.
+`start` refuses a second concurrent request, and `lab up` refuses to replace
+runtime files while the service is active. Add `--no-update` when the installed
+runtime matches the checkout. `stop` cancels the entire queue and asks the
+current experiment to stop gracefully. The controller serializes cancellation
+with each launch. A failed or cancelled queue keeps all previous results and
+leaves the remaining files marked `not_started`. The managed service log
+marks the start and exit of each experiment.
+
+If the installed lab predates queue support, run `lab up` to update the
+experiment service before using the new control commands.
+
+`status` shows the number of successful experiments, the current experiment
+and target positions, and the outcome of each position after completion.
+`status --json` includes the ordered `queue.experiments` list. Each entry
+includes its state, `exit_code`, and `run_id`, which identifies its directory
+under `results/experiments`. Both fields are `null` for entries that never
+started. The top-level `result` includes service cleanup failures, while each
+entry keeps the experiment runner's outcome.
 
 The orchestrator atomically maintains
 `/opt/ckc-lab/state/experiment/progress.json`. Human-readable `status` shows the
@@ -218,10 +323,23 @@ they are not SLA misses. A run with such samples is unsuitable for a cross-node
 E2E conclusion and should be repeated after synchronization is healthy.
 
 After the final target drains, the runner deletes the application HPA and scales
-both `ckc-demo` and `ckc-demo-stubs` to zero. This cleanup also runs after a
+the target-owned `ckc-demo` workloads to zero. This cleanup also runs after a
 failed or explicitly stopped experiment and before its terminal notification.
-The Deployment objects remain available for inspection, while Kafka, Redis,
-Prometheus, Loki, and Grafana stay online for result analysis and the next run.
+The lab-scoped `ckc-demo-stubs` deployment remains running across targets and
+experiments. Every target reapplies and verifies its complete REST configuration;
+each new stub process is prewarmed once before an application target starts.
+Kafka, Redis, Prometheus, Loki, and Grafana likewise stay online for result
+analysis and the next run.
+
+Stub preparation calls all three business endpoints with bounded concurrency and
+an internal prewarm header that bypasses configured artificial delay and failure
+injection. `/status` exposes a process UUID, process start time, the effective
+settings, and a normalized SHA-256 content version. Target diagnostics preserve
+those values together with the container image digest and measured prewarm rate.
+The runner reapplies the full settings document even when the content version is
+unchanged, and refuses a second concurrent experiment because the stubs are a
+shared mutable lab dependency. Shared stub logs are archived from each target's
+own time window.
 
 The shared adapter and lifecycle commands read the local lab configuration and
 use bounded non-interactive SSH commands to `ckc-lab` on the configured controller. The scripts under
@@ -366,12 +484,111 @@ workload:
   - at: 20m
     type: pod_crash
     target: ckc-demo
+    params:
+      pod_index: 2
 ```
 
 The sequence runs independently of the absolute-time scheduler, so the pod
 crash above is applied while replica churn continues. Detailed cycle and step
 events remain in experiment evidence, while the planned workload diagram shows
 the sequence as one interval rather than expanding every repetition.
+
+For `pod_crash` and `pod_delete`, `params.pod_index` selects a pod from the
+matches in the requested namespace at execution time. Indices start at 1.
+Pods in the `Running` phase are ordered by creation timestamp and then by
+name, including NotReady pods and excluding pods being deleted. An index
+outside the available range fails the step. When the index is omitted, the
+runner selects a Ready running pod at random. The completion event records
+`podIndex`, `podName`, `podUid`, and `impactAt` (when the action was sent).
+
+## Warm-up chaos experiments
+
+Each command starts a separate single-target experiment. Run one at a time.
+
+```bash
+lab experiment start ckc-warmup-chaos-kafka-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-donor-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-recipient-loss-20k-local.yaml
+lab experiment start ckc-warmup-chaos-session-isolation-20k-local.yaml
+```
+
+All four start with one CKC replica and HPA disabled. They use the same lab,
+topic processing modes and 45-minute workload as the INFRA-361 profile
+comparison. Load ramps to 20k TPS in 25 minutes, holds for 10 minutes and
+ramps down for 10 minutes. Each topic's warm-up quota ramps from 1 to 100/s
+over 60 seconds, then to 300/s over 90 seconds.
+
+All four enable coordinated warm-up Kafka shutdown. The `kafka-loss`
+scenario exercises broker drain when it deletes the temporary broker pod.
+
+| Scenario | Actions from load start |
+| --- | --- |
+| Warm-up Kafka loss | 7:00 scale to two, 7:45 delete the warm-up broker pod with coordinated shutdown, 12:30 scale to three. |
+| Donor loss | 7:00 scale to two, 7:45 crash app pod #1. |
+| Recipient loss | 7:00 scale to two, 7:45 crash app pod #2. |
+| Session isolation | 7:00 scale to two, 7:30 scale to three, 8:15 crash app pod #2. |
+
+In reference run `20261122T145548Z`, Prometheus recorded the second and third
+container starts at +6:56 and +12:28. Loki recorded the second pod in
+`WARMING` from about +7:11 to +9:44. The schedules use these observations
+as estimates. Kubernetes handles replacements at the configured replica
+counts. A JVM crash normally restarts the container in the same pod, so
+distinguish incarnations by container start time and warm-up session ID,
+as well as pod name and UID.
+
+For manual verification, use the run's `experiment-events.jsonl`, audit
+summary, Prometheus, Loki and generated report.
+
+1. Match the completed chaos event's `podIndex`, `podName`, `podUid` and
+   `impactAt` to the intended pod and its observed disruption. In Loki, use
+   `run_id` and `pod` with `|= "Warm-up lifecycle"` to follow the session from
+   `WARMING` through completion or interruption. A scenario is unconfirmed
+   if evidence does not place the disruption inside the intended warm-up.
+2. Verify `AT_LEAST_ONCE_NO_ORDERING` for all three topics in the resolved
+   target. Check `missing_terminal`, `without_publish` and processing
+   failures, and account for duplicates against the at-least-once contract.
+   Check latency against the 2-second limits and compare processed TPS and
+   lag before the failure, through recovery and on the plateau. Check CPU,
+   memory and container restarts for both the application and warm-up Kafka.
+3. For Kafka loss, confirm that the new broker pod logged
+   `broker_prewarm_completed` and `topics_ready` before the third app pod
+   started its session. Confirm that the new session processed warm-up
+   records, logged `RECIPIENT_FINISHED` with no fallback reason and reached
+   `MAIN_READY`.
+4. For donor loss, confirm that pod #1 was serving as donor while pod #2
+   was warming, and that processing recovered after the restart. For
+   recipient loss, match the interruption to pod #2's active session and
+   verify recovery after Kubernetes restarts the workload. For session
+   isolation, establish that both original recipient sessions were in
+   warm-up at impact, then trace pod #3's original session through
+   successful completion while pod #2 restarts.
+
+### Qualify coordinated warm-up Kafka shutdown
+
+Run the two qualification experiments in one queue or start either YAML on its own.
+Both define the same 20k workload, resource settings, and scale actions at experiment level.
+
+```bash
+lab experiment start ckc-warmup-broker-drain-planned-20k-local.yaml ckc-warmup-broker-drain-abrupt-20k-local.yaml
+lab experiment status
+```
+
+Each experiment starts with one demo pod, scales to two at 7:00, and scales to three at 7:30.
+At 8:15, `warmup_broker_stop` checks for two `WARMING` sessions in the run's Loki lifecycle logs.
+The planned experiment deletes the broker pod with its configured grace period. The abrupt
+experiment sends `SIGKILL` to the Kafka process. Both set `recovery_timeout_seconds` to 360
+and require a ready broker with a new epoch before scaling to four. The scale step is scheduled
+at 12:30 and runs when recovery completes if that time has already passed.
+
+Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl`.
+The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's
+advertised address, the new client connection observed after that transition, and the matching
+`ContextDrained` offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
+The abrupt target checks the killed epoch's exit in Loki and a fresh epoch for the same pod UID,
+including when an intermediate restart failed.
+Use Loki and the warm-up metrics to verify the interrupted recipients reach `MAIN_READY`,
+the fourth pod receives delegated records and finishes warm-up, and the surviving donor
+continues to process main-cluster records.
 
 ## Results
 

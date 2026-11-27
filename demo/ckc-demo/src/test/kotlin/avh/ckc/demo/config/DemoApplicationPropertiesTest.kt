@@ -46,6 +46,19 @@ class DemoApplicationPropertiesTest {
         assertEquals(5170, properties.audit.port)
         assertEquals("local", properties.audit.runId)
         assertEquals("demo", properties.audit.writerId)
+        assertEquals(false, properties.trafficWarmup.enabled)
+        assertEquals("demo", properties.trafficWarmup.instanceId)
+        assertEquals("global5-shared-partition-v6-local", properties.trafficWarmup.namespace)
+        assertEquals("ckc.traffic-warmup.v6.control", properties.trafficWarmup.controlTopic)
+        assertEquals("localhost:9092", properties.trafficWarmup.controlKafka.bootstrapServers)
+        assertEquals("localhost:9092", properties.trafficWarmup.destinationKafka.bootstrapServers)
+        assertEquals("10", properties.trafficWarmup.mappings.orderEvents.quotaProfile)
+        assertEquals(1_000, properties.trafficWarmup.mappings.cauldronEvents.quotaIntervalMs)
+        assertEquals(90, properties.trafficWarmup.durationSeconds)
+        assertEquals(4, properties.trafficWarmup.maxDonorSessions)
+        assertEquals(Int.MAX_VALUE, properties.trafficWarmup.maxInflightDelegations)
+        assertEquals(5, properties.trafficWarmup.producerLingerMs)
+        assertEquals(16_384, properties.trafficWarmup.producerBatchSize)
         assertEquals("http://127.0.0.1:18080", properties.model.baseUrl)
         assertEquals("", properties.model.etaBaseUrl)
         assertEquals("", properties.model.flavourBaseUrl)
@@ -95,6 +108,30 @@ class DemoApplicationPropertiesTest {
                 "demo.audit.port" to "5511",
                 "demo.audit.run-id" to "run-9",
                 "demo.audit.writer-id" to "demo-pod-1",
+                "demo.traffic-warmup.enabled" to "true",
+                "demo.traffic-warmup.instance-id" to "pod-7",
+                "demo.traffic-warmup.namespace" to "global5-v6-test",
+                "demo.traffic-warmup.control-topic" to "warmup.control.test",
+                "demo.traffic-warmup.control-kafka.bootstrap-servers" to "control-kafka:9092",
+                "demo.traffic-warmup.control-kafka.security-protocol" to "SSL",
+                "demo.traffic-warmup.destination-kafka.bootstrap-servers" to "destination-kafka:9092",
+                "demo.traffic-warmup.destination-kafka.security-protocol" to "SASL_SSL",
+                "demo.traffic-warmup.mappings.order-events.quota-profile" to "2 -> (45s, order ramp) -> 12",
+                "demo.traffic-warmup.mappings.order-events.quota-interval-ms" to "2000",
+                "demo.traffic-warmup.mappings.batch-events.quota-profile" to "3 -> (46s) -> 23",
+                "demo.traffic-warmup.mappings.batch-events.quota-interval-ms" to "3000",
+                "demo.traffic-warmup.mappings.cauldron-events.quota-profile" to "4 -> (47s) -> 34",
+                "demo.traffic-warmup.mappings.cauldron-events.quota-interval-ms" to "4000",
+                "demo.traffic-warmup.duration-seconds" to "80",
+                "demo.traffic-warmup.offer-window-ms" to "1500",
+                "demo.traffic-warmup.participant-start-timeout-seconds" to "11",
+                "demo.traffic-warmup.preparation-timeout-seconds" to "12",
+                "demo.traffic-warmup.completion-timeout-seconds" to "13",
+                "demo.traffic-warmup.delegation-timeout-seconds" to "14",
+                "demo.traffic-warmup.max-donor-sessions" to "3",
+                "demo.traffic-warmup.max-aggregate-quota-per-second" to "250",
+                "demo.traffic-warmup.producer-linger-ms" to "9",
+                "demo.traffic-warmup.producer-batch-size" to "32768",
                 "demo.model.base-url" to "http://models.example",
                 "demo.model.eta-base-url" to "http://eta.example",
                 "demo.model.flavour-base-url" to "http://flavour.example",
@@ -143,6 +180,36 @@ class DemoApplicationPropertiesTest {
         assertEquals(5511, properties.audit.port)
         assertEquals("run-9", properties.audit.runId)
         assertEquals("demo-pod-1", properties.audit.writerId)
+        assertEquals(true, properties.trafficWarmup.enabled)
+        assertEquals("pod-7", properties.trafficWarmup.instanceId)
+        assertEquals("global5-v6-test", properties.trafficWarmup.namespace)
+        assertEquals("warmup.control.test", properties.trafficWarmup.controlTopic)
+        assertEquals("control-kafka:9092", properties.trafficWarmup.controlKafka.bootstrapServers)
+        assertEquals("SSL", properties.trafficWarmup.controlKafka.securityProtocol)
+        assertEquals("destination-kafka:9092", properties.trafficWarmup.destinationKafka.bootstrapServers)
+        assertEquals("SASL_SSL", properties.trafficWarmup.destinationKafka.securityProtocol)
+        with(properties.trafficWarmup.mappings.orderEvents) {
+            assertEquals("2 -> (45s, order ramp) -> 12", quotaProfile)
+            assertEquals(2_000, quotaIntervalMs)
+        }
+        with(properties.trafficWarmup.mappings.batchEvents) {
+            assertEquals("3 -> (46s) -> 23", quotaProfile)
+            assertEquals(3_000, quotaIntervalMs)
+        }
+        with(properties.trafficWarmup.mappings.cauldronEvents) {
+            assertEquals("4 -> (47s) -> 34", quotaProfile)
+            assertEquals(4_000, quotaIntervalMs)
+        }
+        assertEquals(80, properties.trafficWarmup.durationSeconds)
+        assertEquals(1_500, properties.trafficWarmup.offerWindowMs)
+        assertEquals(11, properties.trafficWarmup.participantStartTimeoutSeconds)
+        assertEquals(12, properties.trafficWarmup.preparationTimeoutSeconds)
+        assertEquals(13, properties.trafficWarmup.completionTimeoutSeconds)
+        assertEquals(14, properties.trafficWarmup.delegationTimeoutSeconds)
+        assertEquals(3, properties.trafficWarmup.maxDonorSessions)
+        assertEquals(250, properties.trafficWarmup.maxAggregateQuotaPerSecond)
+        assertEquals(9, properties.trafficWarmup.producerLingerMs)
+        assertEquals(32_768, properties.trafficWarmup.producerBatchSize)
         assertEquals("http://models.example", properties.model.baseUrl)
         assertEquals("http://eta.example", properties.model.etaBaseUrl)
         assertEquals("http://flavour.example", properties.model.flavourBaseUrl)

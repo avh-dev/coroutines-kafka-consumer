@@ -186,7 +186,7 @@ def stub_settings_from_definition(stubs: dict[str, Any], definition_path: Path, 
     }
 
 
-CHAOS_INSTANT_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
+CHAOS_INSTANT_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart", "warmup_broker_stop"}
 CHAOS_DURATION_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
 CHAOS_SERVICE_TARGETS = {"kafka", "redis", "audit"}
 
@@ -274,6 +274,26 @@ def _normalize_chaos_action(
             raise ValueError(f"{context}.params.replicas must be a positive integer: {definition_path}")
         normalized["target"] = target
         normalized["params"] = {"namespace": str(params.get("namespace", "ckc-perf")), "replicas": replicas}
+        verify_warmup = params.get("verify_warmup", False)
+        if not isinstance(verify_warmup, bool):
+            raise ValueError(f"{context}.params.verify_warmup must be boolean: {definition_path}")
+        if verify_warmup:
+            if not allow_sequence or replicas != 2:
+                raise ValueError(f"{context}.params.verify_warmup requires a top-level scale to 2 replicas: {definition_path}")
+            normalized["params"]["verifyWarmup"] = True
+    elif step_type == "warmup_broker_stop":
+        mode = params.get("mode")
+        if mode not in ("planned", "abrupt"):
+            raise ValueError(f"{context}.params.mode must be planned or abrupt: {definition_path}")
+        if raw_step.get("target", "ckc-warmup-kafka") != "ckc-warmup-kafka":
+            raise ValueError(f"{context}.target must be ckc-warmup-kafka: {definition_path}")
+        if set(params) - {"mode", "recovery_timeout_seconds"}:
+            raise ValueError(f"{context}.params only accepts mode and recovery_timeout_seconds: {definition_path}")
+        recovery_timeout = params.get("recovery_timeout_seconds", 210)
+        if isinstance(recovery_timeout, bool) or not isinstance(recovery_timeout, int) or recovery_timeout <= 0:
+            raise ValueError(f"{context}.params.recovery_timeout_seconds must be a positive integer: {definition_path}")
+        normalized["target"] = "ckc-warmup-kafka"
+        normalized["params"] = {"mode": mode, "recoveryTimeoutSeconds": recovery_timeout}
     elif step_type in {"pod_delete", "pod_crash"}:
         target = str(raw_step.get("target", "ckc-demo")).strip()
         if not target:
@@ -283,6 +303,11 @@ def _normalize_chaos_action(
             "namespace": str(params.get("namespace", "ckc-perf")),
             "selector": str(params.get("selector", "ckc.dev/component=application")),
         }
+        if "pod_index" in params:
+            pod_index = params["pod_index"]
+            if isinstance(pod_index, bool) or not isinstance(pod_index, int) or pod_index <= 0:
+                raise ValueError(f"{context}.params.pod_index must be a positive integer: {definition_path}")
+            normalized["params"]["podIndex"] = pod_index
         if step_type == "pod_crash" and "endpoint" in params:
             normalized["params"]["endpoint"] = str(params["endpoint"])
     elif step_type == "stubs_degradation":

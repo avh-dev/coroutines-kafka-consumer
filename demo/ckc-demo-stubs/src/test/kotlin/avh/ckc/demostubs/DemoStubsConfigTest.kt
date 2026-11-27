@@ -89,4 +89,41 @@ class DemoStubsConfigTest {
         assertEquals(listOf("p50", "p999", "p100"), settings.eta.buckets.map { it.name })
         assertEquals(60_000, settings.eta.buckets.last().delayMillis)
     }
+
+    @Test
+    fun `settings version ignores percentile map order`() {
+        val first = DemoStubsSettings(
+            eta = ModelLatencySettings(linkedMapOf("p90" to 10, "p100" to 20)),
+            flavour = ModelLatencySettings(linkedMapOf("p95" to 30, "p100" to 40)),
+            registry = ModelLatencySettings(linkedMapOf("p99" to 2, "p100" to 3)),
+            errorRatePercent = 7
+        )
+        val reordered = first.copy(
+            eta = ModelLatencySettings(linkedMapOf("p100" to 20, "p90" to 10)),
+            flavour = ModelLatencySettings(linkedMapOf("p100" to 40, "p95" to 30)),
+            registry = ModelLatencySettings(linkedMapOf("p100" to 3, "p99" to 2))
+        )
+
+        assertEquals(settingsVersion(first), settingsVersion(reordered))
+        assertEquals(64, settingsVersion(first).length)
+    }
+
+    @Test
+    fun `status serializes the complete effective baseline settings`() {
+        val json = Json { encodeDefaults = true }
+        val settings = DemoStubsSettings(
+            eta = ModelLatencySettings(mapOf("p100" to 10)),
+            flavour = ModelLatencySettings(mapOf("p100" to 20)),
+            errorRatePercent = 0
+        )
+
+        val encoded = json.encodeToString(
+            DemoStubsStatus.serializer(),
+            DemoStubsStatus("process-1", "2026-01-01T00:00:00Z", settingsVersion(settings), settings)
+        )
+        val decoded = json.decodeFromString<DemoStubsStatus>(encoded)
+
+        assertEquals(ModelLatencySettings.registryBaseline(), decoded.settings.registry)
+        kotlin.test.assertTrue(encoded.contains("\"registry\""))
+    }
 }

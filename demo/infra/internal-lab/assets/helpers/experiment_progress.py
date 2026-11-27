@@ -23,9 +23,10 @@ def load_document(path: Path) -> dict[str, Any]:
 
 
 class ProgressWriter:
-    def __init__(self, path: Path, experiment: str = ""):
+    def __init__(self, path: Path, experiment: str = "", *, experiment_set_id: str | None = None):
         self.path = path
         self.experiment = experiment
+        self.experiment_set_id = experiment_set_id
 
     def update(
         self,
@@ -49,6 +50,8 @@ class ProgressWriter:
             "step_started_at": step_started_at or now,
             "updated_at": now,
         })
+        if self.experiment_set_id is not None:
+            document["experiment_set_id"] = self.experiment_set_id
         if status == "active":
             document.pop("ended_at", None)
         else:

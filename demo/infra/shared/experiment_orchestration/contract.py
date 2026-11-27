@@ -40,6 +40,7 @@ KNOWN_ENVIRONMENT_CAPABILITIES: dict[str, frozenset[str]] = {
         "chaos.deployment_scale",
         "chaos.pod_crash",
         "chaos.pod_delete",
+        "chaos.warmup_broker_stop",
         "chaos.service_outage",
         "chaos.service_crash",
         "chaos.service_restart",
@@ -216,6 +217,125 @@ def normalize_internal_lab_kafka(value: Any) -> dict[str, Any]:
             "heap_per_broker": heap_per_broker,
         },
     }
+
+
+def normalize_warmup_kafka(value: Any) -> dict[str, Any]:
+    context = "Experiment environment.warmup_kafka"
+    warmup = require_mapping(value, context)
+    allowed = {
+        "enabled", "placement", "heap", "resources", "topics", "retention_ms",
+        "bootstrap_timeout_seconds", "bootstrap_backoff_seconds", "operation_timeout_seconds",
+        "prewarm_timeout_seconds", "coordinated_shutdown",
+    }
+    unknown = sorted(set(warmup) - allowed)
+    if unknown:
+        raise ValueError(f"{context} contains unknown fields: {', '.join(unknown)}")
+
+    enabled = warmup.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError(f"{context}.enabled must be boolean")
+    configured_topics = warmup.get("topics", [])
+    if not isinstance(configured_topics, list) or (enabled and not configured_topics):
+        raise ValueError(f"{context}.topics must be a non-empty list when enabled")
+    topics: list[str] = []
+    seen: set[str] = set()
+    for configured in configured_topics:
+        if not isinstance(configured, str):
+            raise ValueError(f"{context}.topics entries must be strings")
+        topic = configured.strip()
+        if (
+            len(topic) > 249
+            or not re.fullmatch(r"ckc\.traffic-warmup\.v6\.[a-zA-Z0-9._-]+", topic)
+        ):
+            raise ValueError(f"{context}.topics names must use the ckc.traffic-warmup.v6 namespace")
+        if topic not in seen:
+            topics.append(topic)
+            seen.add(topic)
+
+    placement = str(warmup.get("placement") or "application").strip()
+    if placement not in {"application", "support"}:
+        raise ValueError(f"{context}.placement must be application or support")
+    memory_pattern = re.compile(r"([1-9][0-9]*)(Mi|Gi)")
+    heap = str(warmup.get("heap") or "512Mi")
+    if not memory_pattern.fullmatch(heap):
+        raise ValueError(f"{context}.heap must use Mi or Gi, for example 512Mi")
+    defaults = {
+        "requests": {"cpu": "500m", "memory": "768Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    resources = require_mapping(warmup.get("resources") or {}, f"{context}.resources")
+    unknown_resources = sorted(set(resources) - set(defaults))
+    if unknown_resources:
+        raise ValueError(f"{context}.resources contains unknown fields: {', '.join(unknown_resources)}")
+    normalized_resources: dict[str, dict[str, str]] = {}
+    for group, group_defaults in defaults.items():
+        settings = require_mapping(resources.get(group) or {}, f"{context}.resources.{group}")
+        unknown_settings = sorted(set(settings) - {"cpu", "memory"})
+        if unknown_settings:
+            raise ValueError(
+                f"{context}.resources.{group} contains unknown fields: {', '.join(unknown_settings)}"
+            )
+        cpu = str(settings.get("cpu") or group_defaults["cpu"])
+        if not re.fullmatch(r"(?:[1-9][0-9]*m|[1-9][0-9]*(?:\.[0-9]+)?)", cpu):
+            raise ValueError(f"{context}.resources.{group}.cpu must be a positive Kubernetes CPU quantity")
+        memory = str(settings.get("memory") or group_defaults["memory"])
+        if not memory_pattern.fullmatch(memory):
+            raise ValueError(f"{context}.resources.{group}.memory must use Mi or Gi")
+        normalized_resources[group] = {"cpu": cpu, "memory": memory}
+
+    def memory_mib(quantity: str) -> int:
+        match = memory_pattern.fullmatch(quantity)
+        assert match is not None
+        return int(match.group(1)) * (1024 if match.group(2) == "Gi" else 1)
+
+    if memory_mib(heap) > memory_mib(normalized_resources["limits"]["memory"]):
+        raise ValueError(f"{context}.heap must not exceed the memory limit")
+
+    bounded_defaults = {
+        "retention_ms": 600_000,
+        "bootstrap_timeout_seconds": 120,
+        "bootstrap_backoff_seconds": 2,
+        "operation_timeout_seconds": 10,
+        "prewarm_timeout_seconds": 180,
+    }
+    bounded: dict[str, int] = {}
+    for name, default in bounded_defaults.items():
+        setting = warmup.get(name, default)
+        if isinstance(setting, bool) or not isinstance(setting, int) or setting < 1:
+            raise ValueError(f"{context}.{name} must be a positive integer")
+        bounded[name] = setting
+    result = {
+        "enabled": enabled,
+        "placement": placement,
+        "heap": heap,
+        "resources": normalized_resources,
+        "topics": topics,
+        **bounded,
+    }
+    if "coordinated_shutdown" in warmup:
+        if not enabled:
+            raise ValueError(f"{context}.coordinated_shutdown requires an enabled temporary broker")
+        shutdown_context = f"{context}.coordinated_shutdown"
+        requested = require_mapping(warmup["coordinated_shutdown"], shutdown_context)
+        defaults = {
+            "drain_timeout_seconds": 50,
+            "kafka_shutdown_timeout_seconds": 30,
+            "termination_grace_period_seconds": 90,
+        }
+        if set(requested) - defaults.keys():
+            raise ValueError(f"{shutdown_context} contains unknown fields")
+        shutdown: dict[str, int] = {}
+        for name, default in defaults.items():
+            setting = requested.get(name, default)
+            minimum = 3 if name == "drain_timeout_seconds" else 1
+            if isinstance(setting, bool) or not isinstance(setting, int) or not minimum <= setting <= 999_999:
+                raise ValueError(f"{shutdown_context}.{name} must be an integer between {minimum} and 999999")
+            shutdown[name] = setting
+        required = shutdown["drain_timeout_seconds"] + shutdown["kafka_shutdown_timeout_seconds"] + 5
+        if shutdown["termination_grace_period_seconds"] < required:
+            raise ValueError(f"{shutdown_context}.termination_grace_period_seconds must be at least {required}")
+        result["coordinated_shutdown"] = shutdown
+    return result
 
 
 def canonical_workload(experiment: Mapping[str, Any], source: Path) -> dict[str, Any]:
@@ -747,6 +867,14 @@ def validate_canonical_experiment(
     environment_name, environment_definition, available = select_environment(
         experiment, environment, capabilities, needed
     )
+    if "warmup_kafka" in environment_definition:
+        environment_definition["warmup_kafka"] = normalize_warmup_kafka(
+            environment_definition["warmup_kafka"]
+        )
+        if environment_name != "internal-lab" and environment_definition["warmup_kafka"]["enabled"]:
+            raise ValueError("Dedicated warmup_kafka is currently supported only by internal-lab")
+    if "chaos.warmup_broker_stop" in needed and "coordinated_shutdown" not in environment_definition.get("warmup_kafka", {}):
+        raise ValueError("chaos.warmup_broker_stop requires warmup_kafka.coordinated_shutdown")
     if environment_name != "internal-lab" and any(
         "placement" in (target.get("application") or {}) or target.get("placement")
         for target in resolved_targets

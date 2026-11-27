@@ -1,13 +1,13 @@
 package avh.ckc.demo.config
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
+import avh.ckc.core.metrics.micrometer.recordDrivenTags
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import avh.ckc.demo.proto.BatchLifecycleEvent
 import avh.ckc.demo.proto.CauldronTelemetryEvent
 import avh.ckc.demo.proto.OrderLifecycleEvent
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.micrometerConsumerMetrics
-import avh.ckc.micrometer.recordDrivenTags
-import avh.ckc.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.annotation.Qualifier

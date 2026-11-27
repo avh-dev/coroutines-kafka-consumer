@@ -63,6 +63,14 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_ckc_dev_profile]
             target_label: profile
 
+      - job_name: ckc-warmup-kafka-state
+        static_configs:
+          - targets: [ckc-warmup-kafka-state.ckc-perf.svc.cluster.local:8080]
+        metric_relabel_configs:
+          - source_labels: [pod]
+            regex: ckc-warmup-kafka-[a-z0-9]+-[a-z0-9]+
+            action: keep
+
       - job_name: kubernetes-cadvisor
         scheme: https
         authorization:

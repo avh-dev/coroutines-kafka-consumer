@@ -26,6 +26,7 @@ from experiment_report.analyze import (  # noqa: E402
     parse_load_profile,
     peak_telemetry_fleet_size,
     requested_pod_capacity,
+    resolved_environment_topologies,
 )
 from experiment_report.generate import generate_experiment_reports  # noqa: E402
 from experiment_report.markdown import (  # noqa: E402
@@ -1914,9 +1915,64 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn('data-flow="load-to-kafka" d="M375 455 H405 V420 H440"', svg)
             self.assertIn('data-flow="kafka-to-application" d="M795 420 H855 V450 H920"', svg)
             self.assertIn('data-flow="application-to-redis" d="M920 550 H855 V610 H795"', svg)
-            self.assertIn('data-flow="application-to-stubs" d="M1065 650 V687.5 H410 V667.5 H375"', svg)
+            self.assertIn('data-flow="application-to-stubs" d="M1065 570 V687.5 H410 V667.5 H375"', svg)
             self.assertNotIn("All shown components share this physical host", svg)
             self.assertIn("direct 1 Gbit/s full-duplex Ethernet link", markdown)
+
+    def test_warmup_kafka_topology_uses_selected_targets_and_broker_placement(self) -> None:
+        environment = {
+            "cluster_name": "optilab",
+            "kafka": {"mode": "docker"},
+            "workloads": {"application": ["optilab2"]},
+            "java": {"application": "21.0.12"},
+        }
+        configuration = {
+            "hpa": {"enabled": True, "min_replicas": 1, "max_replicas": 4},
+            "resources": {"requests": {"cpu": "950m"}, "limits": {"memory": "1280Mi"}},
+        }
+        warm = SimpleNamespace(
+            name="ckc.warm", configuration=configuration,
+            warmup={"broker_enabled": True, "broker_config": {"placement": "application"}},
+        )
+        cold = SimpleNamespace(name="ckc.cold", configuration=configuration, warmup={"broker_enabled": False})
+        report = SimpleNamespace(environment=environment, test_definition={}, targets=[cold, warm])
+        svg = svg_renderer.environment_topology_svg(report)
+        self.assertNotIn("CPU HPA", svg)
+        self.assertNotIn("950m", svg)
+        self.assertNotIn("1280Mi", svg)
+        self.assertIn("Java 21.0.12", svg)
+
+        namespace = "{http://www.w3.org/2000/svg}"
+
+        def cards(svg: str) -> list[ET.Element]:
+            return [
+                element for element in ET.fromstring(svg).iter(f"{namespace}rect")
+                if element.get("data-service-card") == "warmup-kafka"
+            ]
+
+        self.assertIn("Enabled for selected targets", svg)
+        broker, = cards(svg)
+        self.assertEqual("920", broker.get("x"))
+        self.assertEqual("6 4", broker.get("stroke-dasharray"))
+
+        svg = svg_renderer.environment_topology_svg(report, target_names=[warm.name])
+        broker, = cards(svg)
+        self.assertNotIn("stroke-dasharray", broker.attrib)
+        self.assertEqual([], cards(svg_renderer.environment_topology_svg(report, target_names=[cold.name])))
+
+        warm.warmup["broker_config"]["placement"] = "support"
+        broker, = cards(svg_renderer.environment_topology_svg(report))
+        self.assertEqual("65", broker.get("x"))
+        single_host = {**environment, "workloads": {"application": ["optilab"]}}
+        broker, = cards(svg_renderer.environment_topology_svg(report, single_host))
+        self.assertEqual("445", broker.get("x"))
+
+        different_java = {**environment, "java": {"application": "25.0.1"}}
+        topology, = resolved_environment_topologies([(cold.name, environment), (warm.name, different_java)])
+        svg = svg_renderer.environment_topology_svg(report, topology["environment"], topology["targets"])
+        self.assertNotIn("Java 21.0.12", svg)
+        self.assertNotIn("Java 25.0.1", svg)
+        self.assertEqual("21.0.12", environment["java"]["application"])
 
     def test_report_groups_targets_by_actual_application_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2322,6 +2378,92 @@ class ExperimentReportTest(unittest.TestCase):
             self.assertIn("Load producer batch.size", markdown)
             self.assertIn("effective values after shared defaults and per-topic overrides", markdown)
 
+    def test_warmup_requests_use_actual_elapsed_time_for_each_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary_path = self.fixture(root)
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            experiment = summary["experiments"][0]
+            target_a = experiment["targets"][0]
+            run_a = Path(target_a["run_dir"])
+            run_b = run_a.with_name("run-b")
+            shutil.copytree(run_a, run_b)
+            experiment["targets"].append({**target_a, "name": "target-b", "run_dir": str(run_b)})
+            resolved_path = Path(experiment["resolved_test_path"])
+            definition = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+            resolved_experiment = root / "resolved-experiment.yaml"
+            experiment["resolved_experiment_path"] = str(resolved_experiment)
+            self.write_yaml(resolved_experiment, {"targets": [
+                {"name": target_a["name"], "runtime": {"env": {"TRAFFIC_WARMUP_ENABLED": False}}},
+                {"name": "target-b", "runtime": {"env": {
+                    "TRAFFIC_WARMUP_ENABLED": True,
+                    "TRAFFIC_WARMUP_DURATION_SECONDS": "150",
+                    "TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE": "1 -> 300",
+                    "TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE": "2 -> 200",
+                    "TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE": "3 -> 100",
+                    "TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE": "32768",
+                }}},
+            ]})
+            definition["deployment"] = {
+                "warmup_kafka": {"enabled": True, "resources": {"requests": {"cpu": "500m", "memory": "768Mi"}}},
+            }
+            self.write_yaml(resolved_path, definition)
+            for run_dir, preparation, end in (
+                (run_a, "2026-08-07T09:58:00Z", "2026-08-07T10:02:00Z"),
+                (run_b, "2026-08-07T10:03:00Z", "2026-08-07T10:09:00Z"),
+            ):
+                metadata_path = run_dir / "run-metadata.json"
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["orchestration_started_at"] = preparation
+                metadata["run_plan"]["topics"].extend([{"name": "batch"}, {"name": "telemetry"}])
+                self.write_json(metadata_path, metadata)
+                status = {"status": "completed", "ended_at": end}
+                self.write_json(run_dir / "run-status.json", status)
+            self.write_json(summary_path, summary)
+
+            with (
+                patch("experiment_report.analyze.collect_standard_measurements", return_value={}),
+                patch("experiment_report.analyze.collect_target_application_resources", return_value={}),
+                patch("experiment_report.analyze.broker_usage", return_value={"used_cpu": None, "average_memory": 256}),
+                patch("experiment_report.analyze.warmup_summary", return_value={}),
+            ):
+                outputs = generate_experiment_reports(summary_path, root / "lab")
+
+            model = yaml.safe_load((outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8"))
+            first, second = model["targets"]
+            self.assertIs(first["warmup"]["enabled"], False)
+            self.assertIs(second["warmup"]["enabled"], True)
+            self.assertEqual(240, first["full_target_budget"]["duration_seconds"])
+            self.assertEqual(360, second["full_target_budget"]["duration_seconds"])
+            self.assertAlmostEqual(0.5 * 240 / 3600, first["full_target_budget"]["broker"]["requested_cpu"])
+            self.assertAlmostEqual(0.75 * 360 / 3600, second["full_target_budget"]["broker"]["requested_memory"])
+            self.assertEqual(
+                first["resource_windows"][0]["resource_budget"]["broker"],
+                second["resource_windows"][0]["resource_budget"]["broker"],
+            )
+            markdown = outputs[0].read_text(encoding="utf-8")
+            self.assertIn(
+                '<tr class="configuration-difference"><th scope="row">Warm-up</th>'
+                '<td>Disabled</td><td>Enabled · dedicated Kafka (K8s)</td></tr>',
+                markdown,
+            )
+            self.assertIn('<tr><th scope="row">Application</th><td colspan="2">ckc</td></tr>', markdown)
+            self.assertNotIn('>Application warm-up</th>', markdown)
+            self.assertNotIn('>Warm-up duration</th>', markdown)
+            self.assertNotIn('>Warm-up producer batch size</th>', markdown)
+            topics_start = markdown.index('>Topics configuration</th>')
+            profile_rows = [
+                line for line in markdown[topics_start:].splitlines()
+                if '>Warm-up load profile</th>' in line
+            ]
+            self.assertEqual(3, len(profile_rows))
+            for row, profile in zip(profile_rows, ["1 -&gt; 300", "2 -&gt; 200", "3 -&gt; 100"], strict=True):
+                self.assertIn(f'<td>—</td><td>{profile}</td>', row)
+                self.assertTrue(row.startswith('<tr class="configuration-difference">'))
+            self.assertIn("Full target including preparation · 240.0 s", markdown)
+            self.assertIn("Full target including preparation · 360.0 s", markdown)
+            self.assertIn("| Average memory working set (MiB) | no data | 256 | no data |", markdown)
+
     def test_report_collects_and_renders_multiple_measurement_windows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2606,15 +2748,15 @@ class ExperimentReportTest(unittest.TestCase):
                 outputs = generate_experiment_reports(summary_path, root / "lab")
             markdown = outputs[0].read_text(encoding="utf-8")
 
-            self.assertIn("Lifecycle handoff · reprocessed", markdown)
+            self.assertIn("Ownership handoff · reprocessed", markdown)
             self.assertIn(
-                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'Ownership handoff · reprocessed<span class="metric-source source-a" '
                 'title="Audit records">A</span></th><td>1</td>',
                 markdown,
             )
             self.assertNotIn("Conflicting terminal outcomes", markdown)
             self.assertNotIn(
-                'Lifecycle handoff · reprocessed<span class="metric-source source-a" '
+                'Ownership handoff · reprocessed<span class="metric-source source-a" '
                 'title="Audit records">A</span></th><td><span class="champion">',
                 markdown,
             )

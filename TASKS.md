@@ -76,6 +76,40 @@
 | [CORE-71](#core-71) | Bound per-partition offset tracking and apply partition-aware backpressure when its window is full. | DONE |
 | [CORE-72](#core-72) | Safely validate and restore bounded offset metadata before decompression and allocation. | DONE |
 | [CORE-73](#core-73) | Route fatal JVM errors directly to terminal consumer failure without retrying or acknowledging records. | DONE |
+| [CORE-74](#core-74) | Implement the shared-partition warm-up data plane with isolated donor sessions, fair selection, quota ramp, result routing, and ownership-safe fallback. | DONE |
+| [CORE-75](#core-75) | Filter foreign warm-up sessions before recipient records enter processing queues while preserving ownership and offset ordering. | DONE |
+| [CORE-76](#core-76) | Implement coordinator-free warm-up discovery, mapping preparation, donor acceptance, and recipient-readiness activation. | DONE |
+| [CORE-77](#core-77) | Complete and fail warm-up sessions safely with recipient-driven drain, terminal fencing, bounded cleanup, and parallel-session isolation. | DONE |
+| [CORE-78](#core-78) | Configure independent warm-up Kafka connections and expose remote-processing and protocol-specific observability. | DONE |
+| [CORE-79](#core-79) | Cover shared-partition warm-up lifecycle, isolation, fallback, restart, and metrics with real Kafka and the real consumer runtime. | DONE |
+| [CORE-80](#core-80) | Expose a public protocol-v6 warm-up context and consumer DSL that owns discovery, activation, fallback, completion, and shutdown. | DONE |
+| [CORE-81](#core-81) | Add a public container for reliable joint lifecycle management of heterogeneous consumers. | DONE |
+| [CORE-82](#core-82) | Reuse the core consumer container for joint shutdown coordination in the Spring Boot starter. | DONE |
+| [CORE-83](#core-83) | Recover protocol-v6 warm-up transport after complete broker and topic data loss without reviving affected sessions. | DONE |
+| [CORE-84](#core-84) | Bound control-consumer assignment waits without treating normal Kafka group joins or rebalances as transport failures. | DONE |
+| [CORE-85](#core-85) | Await warm-up producer acknowledgements without blocking one elastic IO worker per delegated record. | DONE |
+| [CORE-86](#core-86) | Configure each warm-up mapping quota with a normalized generator-style string profile. | DONE |
+| [CORE-87](#core-87) | Bound warm-up outstanding work and deliver recipient results with parallel Kafka acknowledgements. | DONE |
+| [CORE-88](#core-88) | Isolate warm-up protocol work on bounded named dispatchers whose idle threads expire. | DONE |
+| [CORE-89](#core-89) | Keep healthy control consumers polling through transient recovery-check failures and classify real transport failures. | DONE |
+| [CORE-96](#core-96) | Detect warm-up donor or control-path loss and start main consumers after bounded local cleanup. | DONE |
+| [CORE-97](#core-97) | Extract the traffic warm-up runtime and protocol into an optional library module. | DONE |
+| [CORE-98](#core-98) | Bound concurrent donor delegations across a warm-up context. | DONE |
+| [CORE-99](#core-99) | Coordinate warm-up context drain and prove completion before temporary Kafka shutdown. | DONE |
+| [CORE-100](#core-100) | Deliver in-flight warm-up delegation results during planned Kafka drain. | DONE |
+| [CORE-101](#core-101) | Stagger quota windows for concurrent warm-up sessions on one donor. | DONE |
+| [CORE-102](#core-102) | Use the production logical donor store and typed lanes in warm-up data plane tests. | DONE |
+| [CORE-103](#core-103) | Extract the lifecycle of a single warm-up recipient attempt. | DONE |
+| [CORE-104](#core-104) | Simplify the warm-up control transport and broker lifecycle. | DONE |
+| [CORE-105](#core-105) | Define and document the warm-up public API. | DONE |
+| [CORE-106](#core-106) | Split warm-up test suites by lifecycle responsibility. | DONE |
+| [CORE-107](#core-107) | Deregister late donor lanes and retain retryable resource cleanup. | DONE |
+| [CORE-108](#core-108) | Restore experimental offset tracker tests and Kafka test discovery. | DONE |
+| [CORE-109](#core-109) | Group warm-up implementation files and component tests by responsibility. | DONE |
+| [CORE-110](#core-110) | Move the optional Micrometer adapter into `ckc-core`. | DONE |
+| [CORE-111](#core-111) | Configure traffic warm-up through the Spring Boot starter. | DONE |
+| [CORE-112](#core-112) | Honor the donor processing policy for remote warm-up discards. | DONE |
+| [CORE-113](#core-113) | Reject warm-up routes into main subscriptions on the same Kafka cluster. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -181,6 +215,14 @@
 | [DEMO-103](#demo-103) | Allow each Spring Kafka topic consumer to run independently with its own consumer group. | DONE |
 | [DEMO-104](#demo-104) | Delay load-generator publication until a scheduled start timestamp without catch-up bursts. | DONE |
 | [DEMO-105](#demo-105) | Prevent cumulative drift in fixed-interval fleet telemetry generation. | DONE |
+| [DEMO-106](#demo-106) | Connect the demo CKC consumers to the public protocol-v6 shared-partition warm-up DSL. | DONE |
+| [DEMO-107](#demo-107) | Make each demo warm-up mapping's quota profile configurable. | DONE |
+| [DEMO-108](#demo-108) | Make the demo warm-up forwarding producer batch size configurable. | DONE |
+| [DEMO-109](#demo-109) | Make demo Redis business-state retention configurable while retaining the ten-minute default. | DONE |
+| [DEMO-113](#demo-113) | Distribute Armeria stub requests across discovered pod endpoints. | DONE |
+| [DEMO-114](#demo-114) | Accept root-path stub URLs in pod-aware Armeria routing. | DONE |
+| [DEMO-115](#demo-115) | Pass the demo warm-up in-flight delegation limit to the shared context. | DONE |
+| [DEMO-116](#demo-116) | Enable traffic warm-up in the Spring Boot demo profile. | DONE |
 | [INFRA-1](#infra-1) | Add AWS runner and load-lab scaffolding for reproducible cloud load and resiliency testing.                                                                                                          | DONE |
 | [INFRA-2](#infra-2) | Restructure AWS and shared observability assets, update local environment wiring, and align packaging scripts for demo services.                                                                    | DONE |
 | [INFRA-3](#infra-3) | Split lab lifecycle from test-run orchestration, move app/stubs deployment to Helm profiles, add MSK-backed minimal lab profile, and switch the AWS runner to a public-subnet SSM-only setup without NAT. | DONE |
@@ -498,8 +540,43 @@
 | [INFRA-320](#infra-320) | Add internal-lab node and per-core CPU/network observability. | DONE |
 | [INFRA-321](#infra-321) | Capture Redis resource evidence from the running container without changing its configured capacity. | DONE |
 | [INFRA-322](#infra-322) | Raise fixed internal-lab Redis capacity with explicit runtime headroom. | DONE |
+| [INFRA-323](#infra-323) | Add an autonomous warm-up Kafka image with topic reconciliation and recovery. | DONE |
+| [INFRA-324](#infra-324) | Port and tune the GLOBAL-4 sequential scale-up warm-up experiment for protocol v6. | DONE |
+| [INFRA-325](#infra-325) | Replace continuous warm-up topic reconciliation with one-shot container bootstrap. | DONE |
+| [INFRA-326](#infra-326) | Compare a three-minute quadratic shared-partition warm-up with an otherwise identical cold scale-up. | DONE |
+| [INFRA-327](#infra-327) | Compare staged-step and direct-linear two-minute warm-up profiles to 300/s. | DONE |
+| [INFRA-328](#infra-328) | Add the previously successful linear 1-to-100 warm-up as a control target. | DONE |
+| [INFRA-329](#infra-329) | Rerun the linear 1-to-100 warm-up reference after parallel result delivery. | DONE |
+| [INFRA-330](#infra-330) | Compare cold, staged, and linear warm-up profiles with controller-hosted stubs and delayed scale-up. | DONE |
+| [INFRA-331](#infra-331) | Compare a cold start with linear warm-up profiles during a 20k scale-up. | DONE |
+| [INFRA-332](#infra-332) | Keep internal-lab stubs running and prewarmed across experiment targets and runs. | DONE |
+| [INFRA-333](#infra-333) | Prewarm the optional warm-up Kafka broker before exposing transport readiness. | DONE |
+| [INFRA-334](#infra-334) | Expose warm-up service threads separately in thread stats and experiment dashboards. | DONE |
+| [INFRA-335](#infra-335) | Compare cold and two-stage warm-up during sequential one-to-four pod scaling at 22k TPS. | DONE |
+| [INFRA-336](#infra-336) | Repeat the sequential cold-versus-warm comparison at a stable 20k TPS peak. | DONE |
+| [INFRA-350](#infra-350) | Expose headless logical stub services and configure lab URLs for pod-aware request distribution. | DONE |
+| [INFRA-351](#infra-351) | Keep ClusterIP stub routing for JDK HTTP clients in lab experiments. | DONE |
+| [INFRA-352](#infra-352) | Observe application warm-up and include dedicated Kafka in experiment resource budgets. | DONE |
+| [INFRA-353](#infra-353) | Deploy dedicated Warmup Kafka only for eligible targets and lower its 20k A/B CPU request. | DONE |
+| [INFRA-354](#infra-354) | Align internal-lab tests with ownership handoff and scheduled load notifications. | DONE |
+| [INFRA-355](#infra-355) | Simplify internal-lab topology and show dedicated Warmup Kafka placement. | DONE |
+| [INFRA-356](#infra-356) | Show configured application warm-up settings for each report target. | DONE |
+| [INFRA-357](#infra-357) | Summarize target warm-up and list load profiles under their Kafka topics. | DONE |
+| [INFRA-358](#infra-358) | Show shared warm-up profiles once and place differing profiles at the end of each topic. | DONE |
+| [INFRA-359](#infra-359) | Highlight configuration rows that differ across report targets. | DONE |
+| [INFRA-360](#infra-360) | Bold only the target values in differing configuration rows. | DONE |
+| [INFRA-361](#infra-361) | Compare five warm-up quota profiles during sequential scale-up at 20k TPS. | DONE |
+| [INFRA-362](#infra-362) | Queue internal-lab experiments for sequential managed execution. | DONE |
+| [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
+| [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
+| [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
+| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | DONE |
+| [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
+| [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
+| [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
+| [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
 | [DOC-1](#doc-1) | Add a documentation task scope for repository documentation, task history, working rules, and project notes. | DONE |
 | [DOC-2](#doc-2) | Expand `TASKS.md` with linked task entries and retrospective implementation notes restored from git history and code changes. | DONE |
 | [DOC-3](#doc-3) | Add the initial OSS README with positioning, related projects, and alternative comparison boundaries. | DONE |
@@ -509,6 +586,7 @@
 | [DOC-7](#doc-7) | Document the fixed-frequency CPU equivalence of the two internal-lab nodes. | DONE |
 | [DOC-8](#doc-8) | Document replay after failures and the scope of ordered at-least-once processing guarantees. | DONE |
 | [DOC-9](#doc-9) | Close the remaining stale in-progress entries in the repository task tracker. | DONE |
+| [DOC-11](#doc-11) | Define the GLOBAL-5 shared-partition warm-up protocol, participant state machines, transfer map, and child-task plan. | DONE |
 
 ## Task Details
 
@@ -5923,3 +6001,1210 @@ retain the `noeviction` policy, and preserve explicit runtime headroom. Keep the
 capacity fixed for every target in an experiment rather than exposing a target override.
 Verification: all 12 environment-evidence tests pass, Compose validation succeeds,
 and the configuration retains 1 GiB of memory outside the Redis dataset limit.
+
+<a id="global-5"></a>
+### GLOBAL-5 - Shared-partition real-traffic warm-up
+
+_Date: 2026-11-14_
+
+Implement real-traffic warm-up over shared single-partition Kafka topics without a
+coordinator, distributed reservations, replicated snapshots, or bootstrap quarantine.
+Allow one donor to serve multiple isolated recipient sessions while preserving source
+ownership, local fallback, draining, and the processing guarantees of main consumers.
+Develop child tasks on branches based on this umbrella and merge them only back into
+`GLOBAL-5_shared_partition_warmup` until publication is authorized separately.
+
+<a id="doc-11"></a>
+### DOC-11 - Define the GLOBAL-5 warm-up architecture
+
+_Date: 2026-11-14_
+
+Define protocol v6, participant state machines, validation, failure handling, and the
+donor readiness criterion in the [GLOBAL-5 architecture](docs/design/shared-partition-warmup/README.md).
+Record `2cdde950` as the selected GLOBAL-4 source and map reusable components to their
+exact commits. Explicitly exclude coordinator, reservation, snapshot, retirement, and
+quarantine code, then split delivery into reviewable CORE, DEMO, INFRA, and DOC tasks.
+
+<a id="core-74"></a>
+### CORE-74 - Implement the multi-session warm-up data plane
+
+_Date: 2026-11-14_
+
+Selectively adapt the terminal processing seam and data-plane primitives from archived
+GLOBAL-4 commits `e83dae2d`, `f013ae6b`, `7e0918cc`, `e76be636`, `fc8708c2`,
+`dec5ab81`, `9405c1fc`, `d88571f7`, and `33ab8172`. Support independent donor
+sessions, atomic aggregate capacity, quota ramp, fair single-recipient selection, routed
+remote results, and ownership-safe local fallback without reservations or global state.
+Review hardening revalidates ownership before every first local handler attempt, distinguishes
+the delegation deadline from external cancellation, and rejects session removal until inflight
+work drains. Activation and removal are serialized, and removal seals admitted sessions against
+late activation before releasing their capacity. Names, round-robin selection, result tracking,
+and concurrency documentation now describe their actual effects and guarantees.
+The focused processing/data-plane suite, the complete core unit suite, and the real-Kafka
+`:ckc-core:integrationTest` suite pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-75"></a>
+### CORE-75 - Filter foreign recipient sessions before processing
+
+_Date: 2026-11-14_
+
+Add a warm-up-only `PolledRecordSink` wrapper after poll-time ownership registration and before
+the ordinary processing runtime. Admit records carrying exactly one matching session header;
+discard foreign, stale, missing, duplicated, or malformed headers through existing ownership
+bookkeeping without invoking business handling or ordinary terminal metrics.
+Adapt the exact-header validation introduced by archived GLOBAL-4 commit `dec5ab81` to this earlier
+poll boundary; the wrapper, offset closure, and queue-isolation behavior are new for the v6 contract.
+Focused coverage passes for interleaved offsets, blocked own records, malformed headers, ownership
+generation loss, and all processing modes. The complete core unit suite and the 23-test real-Kafka
+`:ckc-core:integrationTest` suite pass; no smoke, load, chaos, or experiment run was started.
+
+<a id="core-76"></a>
+### CORE-76 - Implement warm-up discovery and activation
+
+_Date: 2026-11-14_
+
+Implement protocol-v6 control messages and coordinator-free recipient/donor discovery. Resolve and
+prepare every source-to-destination mapping through its participant connection, atomically admit
+selected donor sessions, assign recipient warm-up consumers from captured starting positions, and
+gate all delegation on `RecipientReady`. Retain readiness that races donor preparation without
+allowing cancellation, completion, or failed preparation to revive a terminal session. Any missing
+donor or failed mapping preparation cold-starts the complete context and cleans partial resources.
+Selectively adapt the bounded codec/transport and lifecycle seams from archived GLOBAL-4 commits
+`20f7bead`, `69fa2fc`, `aa31b88c`, `be0018c8`, `ba75bc78`, and `33ab8172`; exclude coordinator,
+reservation, snapshot, retirement, and quarantine state. Protocol v6 adds an explicit control
+namespace, stateless offers, ownership-generation revalidation, local pending admission, and a
+runtime that routes only locally owned recipient/donor sessions. Focused discovery tests, the full
+core unit suite, and the 24-test real-Kafka `:ckc-core:integrationTest` suite pass. Review follow-up
+adds participant-scoped Kafka metadata lookup, a real independently assigned recipient runtime at
+the captured partition-0 position, cancellation-safe bounded cleanup, partial-readiness rollback,
+typed transport send timeouts, and final local-mapping revalidation. No smoke, load, chaos, or
+experiment run was started. Rollback follow-up converts donor drain expiry into an ordinary session
+failure, waits for ownership-safe fallback before releasing capacity, and reports incomplete
+recipient cleanup as a distinct result while retaining resources for a later cleanup attempt.
+
+<a id="core-77"></a>
+### CORE-77 - Complete and fail warm-up sessions safely
+
+_Date: 2026-11-14_
+
+Implement recipient-driven completion across every selected donor, bounded inflight drain and
+acknowledgement, recipient consumer shutdown, and handoff to normal consumers. Fence terminal and
+unknown sessions against late control messages, cancel unfinished preparation, clean late resources,
+validate senders and mappings, and isolate loss or failure to the affected parallel session.
+Selectively adapt the recipient-owned close ordering from archived GLOBAL-4 commit `005afa9c` and
+the lifecycle cleanup guarantees from `45464da2` and `72048208`, without coordinator state,
+reservations, snapshots, retirement, or emergency release. Donors now route remote results only for
+exact sessions and destinations, stop admission before drain, convert their own drain deadline to
+ownership-safe local fallback, retain bounded terminal fences, and expire abandoned sessions locally.
+The full core unit suite and the 24-test real-Kafka `:ckc-core:integrationTest` suite pass. No smoke,
+load, chaos, or experiment run was started.
+Review hardening keeps every unexpired terminal fence effective under bounded storage, cancels the
+actual preparation job on close, retains and retries failed late-resource cleanup, and makes repeated
+successful recipient completion return the stored result without repeating messages or cleanup.
+The final race fixes publish preparation completion even when cancellation wins before coroutine
+dispatch, and use one retained-resource cleanup path for late and detached installed sessions so a
+failed sender close remains retryable and cannot acknowledge completion early.
+Concurrent preparation starts now create and install their single lazy job atomically, preventing a
+losing launch from completing the winning preparation's shared terminal signal.
+
+<a id="core-78"></a>
+### CORE-78 - Configure warm-up Kafka connections and observability
+
+_Date: 2026-11-15_
+
+Selectively adapt GLOBAL-4 metadata discovery, Kafka client defaults and configuration merging,
+remote-processing callback semantics, and warm-up metrics to the shared-partition protocol. Resolve
+control metadata through the control connection and every destination through its participant
+connection, with one bounded metadata timeout and context-wide cold fallback on incompatibility.
+Preserve explicit user overrides while applying protocol-mandatory properties last; remote success
+must report `processedRemotely=true` without duplicating ordinary processed, duration, or E2E
+Micrometer observations. Foreign session records remain absent from terminal outcomes and ordinary
+processing metrics. Cover configuration precedence, metadata diagnostics, callback routing, and
+session-isolated metrics with focused unit and real-Kafka integration tests.
+Implementation selectively adapts archived GLOBAL-4 commits `5b1eae53` (safe metadata fallback
+diagnostics), `07e7fe26` (remote-processing and warm-up metrics), and `cb9ed640` (Kafka client
+defaults and precedence). Metadata is resolved concurrently through the exact participant
+connections under one preparation deadline, while the control connection validates its own topic.
+Recipient clients receive bounded unique protocol identities, explicit overrides beat defaults,
+and mandatory protocol settings retain final priority. Donor callbacks mark remote success without
+duplicating Micrometer processed, duration, or E2E series; pending results aggregate across donor
+sessions without high-cardinality session tags. Full core and Micrometer unit suites and all 24
+real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.
+Review hardening serializes aggregate pending publication with its session-state update so a delayed
+callback cannot restore a stale gauge value. Recipient Kafka client identities now include the full
+destination coordinate, keeping concurrent mappings of one participant distinct in JMX and metrics.
+
+<a id="core-79"></a>
+### CORE-79 - Cover shared-partition warm-up with real Kafka and runtime
+
+_Date: 2026-11-15_
+
+Build a reusable real-Kafka acceptance harness around the v6 discovery, multi-session donor data
+plane, independently assigned recipient consumers, and actual processing runtime. Cover concurrent
+recipients and donors, mid-session joins, session filtering, late records, lifecycle drain and loss,
+capacity reuse, total namespace restart without quarantine, context-wide metadata fallback, and
+remote-success metric suppression. Assert handlers, source outcomes, offsets, lifecycle state,
+metrics, released capacity, and absence of terminal consumer failure where applicable.
+Thirteen real-Kafka acceptance tests provide layered coverage. Full-protocol cases use independent
+tail-started Kafka control transports, discovery runtimes, donor activation, recipient readiness,
+`ControlRecordCompleted`, `WarmupCompletionRequested`, and `DonorClosed`; they verify namespace
+restart without history replay and metadata fallback followed by an actual cold main consumer.
+Focused data-plane/runtime cases isolate concurrency, filtering, inflight loss, fair selection, and
+capacity reuse through the actual source poll loop, forwarding producer, shared one-partition topic,
+session-filtered recipients, and source commits. A narrow internal donor builder seam connects the
+multi-session interceptor to the normal consumer runtime.
+Recipient terminal result publication selectively adapts archived GLOBAL-4 commits `f013ae6b` and
+`45464da2`: the metrics adapter publishes only after actual success/failure/drop observation, while
+the bounded outbox preserves transport order and offers an acknowledged flush barrier. Foreign and
+handed-off records publish no result. Review hardening closes the outbox on scope or sender
+cancellation, shares one pending aggregator across donor sessions, retains prepared consumers before
+startup, and proves that two pending sessions aggregate to two and drain to zero. Protocol harness
+cleanup independently owns both control transports, validates recipient cleanup results, and reports
+all shutdown failures; discovery deadlines now start immediately before discovery. Cancellation
+regressions wait explicitly for outbox worker termination instead of relying on scheduler delays.
+The Micrometer adapter test records a local success first and verifies that the subsequent remote
+callback changes neither processed nor E2E counts. All 259 core unit tests, 27 Micrometer tests, and
+37 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-80"></a>
+### CORE-80 - Expose the protocol-v6 warm-up DSL
+
+_Date: 2026-11-15_
+
+Added `trafficWarmupContext` and per-consumer `trafficWarmup` DSL entry points over protocol v6.
+The context freezes heterogeneous typed participants on first start, coordinates one all-or-cold
+recipient attempt, keeps donor service available after main readiness, and never owns main runtime
+lifecycle. A payload-free logical session spans typed lanes while per-mapping quota, ramp, result
+routing, pending accounting, and destination-cluster identity remain isolated.
+Normalized records-per-second admission atomically limits whole logical sessions; participant loss,
+late donor rejection, partial preparation, and stop during warm-up use bounded cleanup before cold
+start. Public Kafka coverage exercises three payload types, two simultaneous recipients, late start,
+registration freeze, stop rollback, and one-mapping metadata failure. All 264 core unit tests, 27
+Micrometer tests, the full 43-test Kafka suite, and the final six-test public-DSL Kafka suite pass.
+No smoke, load, chaos, or experiment run was started.
+
+<a id="core-81"></a>
+### CORE-81 - Add a joint consumer lifecycle container
+
+_Date: 2026-11-16_
+
+Added optional public `consumerContainer(...)` lifecycle composition for heterogeneous typed
+consumers. Start invokes every fixed participant without readiness serialization, collective
+readiness fails promptly, and concurrent stop callers share a container-owned attempt that survives
+caller cancellation. `ConsumerContainerException` retains indexed causes for start, readiness, and
+stop phases.
+Per-participant completion is tracked independently from reported errors. Stop requests run
+concurrently, completed cleanup is not repeated, and only incomplete participants are retried by a
+later call. Stop-before-start is terminal, restart is unsupported, duplicate instances are rejected,
+and an individually stopped consumer remains compatible with later container cleanup.
+The managed lifecycle seam now distinguishes a terminal main-consumer error after released resources
+from genuinely incomplete warm-up cleanup. Real-Kafka coverage runs three typed participants from one
+shared context through the container and cold-starts participants from independent contexts. All 286
+core unit tests and 46 real-Kafka integration tests pass. No smoke, load, chaos, or experiment run was
+started.
+
+<a id="core-82"></a>
+### CORE-82 - Reuse the consumer container in the Spring Boot starter
+
+_Date: 2026-11-16_
+
+Replace the starter's duplicate joint shutdown, failure aggregation, and incomplete-cleanup tracking
+with the core `ConsumerContainer` while preserving named individual control, automatic startup,
+health, snapshots, shutdown deadlines, dispatcher ownership, and terminal-failure policy.
+Keep a single fixed container across shutdown attempts, translate indexed lifecycle failures back to
+Spring consumer names, and ensure a timed-out Spring wait neither cancels nor loses core cleanup.
+Core now exposes a payload-independent participant adapter, per-participant stop on the shared
+container, and a read-only progress snapshot. Individual and collective stops share the same cleanup
+attempt; completed work is not repeated, incomplete work remains retryable, and fatal JVM failures
+remain unwrapped. Starter shutdown errors retain the consumer name, lifecycle phase, cause,
+unfinished set, and distinct Spring-timeout marker.
+Coverage includes automatic/manual isolation, an empty starter, partial startup, concurrent named
+and application stop, cancellation-safe retry, delayed cleanup after timeout, terminal and fatal
+failures, real prepared-consumer shutdown, and shared or independent warm-up contexts. All 292 core
+unit tests, 52 starter tests, and 46 real-Kafka integration tests pass. No smoke, load, chaos, or
+experiment run was started.
+Spring remains responsible for selecting and starting automatic or named manual consumers; CORE-82
+reuses the shared container specifically for individual and application-wide shutdown coordination.
+
+<a id="demo-106"></a>
+### DEMO-106 - Connect shared-partition traffic warm-up
+
+_Date: 2026-11-16_
+
+Connected the three typed CKC demo consumers to one public protocol-v6 `trafficWarmupContext`, with
+independent control, destination, and main Kafka connections. Order, batch, and cauldron mappings
+have separate quota, initial quota, interval, and ramp settings; explicit empty SSL endpoint
+identification remains a valid connection override. Disabling warm-up retains the original path.
+The fixed core `ConsumerContainer` now starts and stops the heterogeneous consumers. Partial stop
+failures do not skip siblings, incomplete cleanup stays retryable, and Spring lifecycle state is
+cleared only after every participant releases its resources. The remote-aware metrics wrapper keeps
+the compact audit format while forwarding `processedRemotely` to prevent duplicate Micrometer data.
+The selective port adapts archived GLOBAL-4 commits `75d0d4ec`, `2259bf71`, `7b201c41`, `09ea7cf6`,
+and `7483b708` to the v6 shared-partition contract without coordinator or reservation settings. All
+110 demo tests pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-83"></a>
+### CORE-83 - Recover warm-up transport after complete data loss
+
+_Date: 2026-11-16_
+
+Exercise complete warm-up Kafka broker and data loss through the public protocol-v6 DSL, followed by
+topic recreation at the same address. Bound and terminate affected recipient and donor sessions,
+preserve main-consumer processing and ownership-safe fallback, and restore control transport service
+for new recipients without replaying or reviving old sessions. Keep ordinary client reconnection for
+brief outages and introduce bounded transport recreation only where the real-Kafka scenario proves it
+necessary.
+
+Recipient runtimes now surface terminal warm-up consumer loss to the context. Graceful cleanup has a
+bounded forced-close path, while donor inflight records retain their existing ownership-safe local
+fallback. The control transport periodically validates the topic identity and current log position,
+keeps clients across brief metadata outages, and replaces stale producer/consumer clients only after
+confirmed recreation or bounded repeated validation failure. Initial startup still seeks to the
+current tail; a replacement consumer reads the fresh control log from its beginning.
+
+Real-Kafka coverage destroys the broker and all data with two active recipient sessions and nonempty
+inflight, recreates one-partition topics at the same address, and proves cold fallback, donor
+continuity, capacity release, metrics isolation, and successful warming of a new recipient without a
+donor restart. Review fixes preserve the last locally admitted control offset when a longer outage
+recreates a consumer for the same topic identity, while confirmed topic replacement alone resets the
+cursor. Kafka-side identity timeouts, interruptible lookup, and bounded Admin shutdown keep context
+stop finite. Focused recovery checks, all 299 core unit tests, and all 47 real-Kafka integration tests
+pass. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-84"></a>
+### CORE-84 - Bound control-consumer assignment waits
+
+_Date: 2026-11-17_
+
+Separate control-consumer assignment waiting from active transport validation. Continue polling
+during initial group join and after revoke under an explicit assignment deadline; enable topic
+identity and position recovery checks only after assignment and cursor positioning complete.
+Preserve the cursor when recovering the same topic and retain the CORE-83 fresh-log behavior for a
+confirmed topic replacement. Cover delayed initial and replacement assignments, bounded retry, and
+shutdown while waiting without premature consumer recreation or repeated join/leave cycles.
+
+The transport now enters an explicit assignment-wait state before initial join and after every
+revoke. Recovery identity and position checks start only after the assigned partition has been
+positioned. A 15-second assignment deadline produces a diagnosed, backoff-delayed replacement while
+same-topic replacements retain their local cursor and confirmed topic recreation retains fresh-log
+semantics. Deterministic tests cover initial assignment, revoke/reassignment, delayed replacement,
+deadline retry, and shutdown. A real Kafka broker with a three-second initial rebalance delay proves
+that readiness completes with exactly one consumer creation. Assignment positioning passes the
+remaining deadline to Kafka `endOffsets` and `position` calls and rejects operations that return
+after it. Deterministic regressions cover blocked initial log-end lookup and replacement position
+initialization. All 306 core unit tests and all 48 real-Kafka integration tests pass; no experiment
+run was started by this task.
+
+<a id="core-85"></a>
+### CORE-85 - Await warm-up producer acknowledgements without blocking IO workers
+
+_Date: 2026-11-17_
+
+Replace forwarding `KafkaProducer.send(...).get()` with callback-based suspension so each inflight
+delegation does not occupy an elastic `Dispatchers.IO` worker while Kafka completes the request.
+Bound only the potentially blocking producer submission stage, preserve delegation cancellation,
+acknowledgement validation, session isolation, and bounded producer close, and document the contrast
+with the already asynchronous load-test generator. Verify high concurrent inflight does not create
+one blocked dispatcher task per record and that synchronous send failures, asynchronous failures,
+cancellation, and successful acknowledgements retain the existing data-plane contract.
+
+Forwarding now submits `KafkaProducer.send` through one shared four-way limited IO view and suspends
+on its callback instead of blocking on `Future.get()`. Thus Kafka's potentially blocking submission
+remains interruptible under the existing delegation deadline, while arbitrarily many acknowledged
+or pending records do not each retain an IO worker. The control producer and load-test generator
+already used asynchronous callbacks and required no equivalent change. Deterministic tests cover 64
+simultaneous pending sends on one submission thread, cancellation, synchronous submission failure,
+asynchronous callback failure, acknowledgement validation, and session-header replacement. All 310
+core unit tests and all 48 real-Kafka integration tests pass; no experiment run was started.
+
+<a id="core-86"></a>
+### CORE-86 - Configure warm-up quota with a flexible string profile
+
+_Date: 2026-11-18_
+
+Replace the interim linear/quadratic ramp selector with one generator-style `quotaProfile` string
+per mapping. Profiles combine absolute quotas, labelled holds, linear transitions, and zero-duration
+jumps; they may increase or decrease and hold their final value until the donor session ends.
+
+Parse and validate the profile once while building the participant configuration. Carry only its
+normalized numeric initial quota and phases in mapping fingerprints and protocol-v6 control
+messages, ignoring labels and formatting. Start each mapping/session profile lazily on its first
+delegation attempt, preserve the current quota window across phase changes, discard unused budget
+between windows, and charge admission against the profile peak.
+
+Remove the interim `QuotaRampCurve`, initial quota, ramp duration, and quadratic formula. Adapt the
+demo to one profile string per mapping and convert dependent experiments to explicit direct-linear
+or staged profiles. All 320 core unit tests, 48 real-Kafka integration tests, 110 demo unit tests,
+and 84 shared experiment-orchestration tests pass. No smoke, load, chaos, or experiment run was
+started.
+
+<a id="core-87"></a>
+### CORE-87 - Bound and parallelize warm-up result delivery
+
+_Date: 2026-11-18_
+
+Replace the recipient session's single sequential completion sender with bounded concurrent result
+delivery through the existing control transport. Define one outstanding-work budget covering
+processing, queued terminal results, and sends awaiting Kafka acknowledgement; apply backpressure
+before accepting delegated work instead of throwing from terminal callbacks after handlers finish.
+
+Preserve all terminal outcomes, bounded memory and task counts, fair independent mappings, delivery
+failure diagnostics, and recipient-driven drain. A barrier waits for every result accepted before
+it while shutdown separately closes admission of new work. Delivery failures terminate only the
+affected session through the existing bounded fallback and cleanup path; the public DSL does not
+expose internal queue sizing.
+
+Cover bursts above the former 1024-result limit, concurrent and out-of-order acknowledgements,
+slow or failed transport, cancellation, concurrent flush/publication, freshness drops, and a
+three-mapping real-Kafka profile stepping to 300 records per second.
+
+Verified with the complete repository unit suite and a real-Kafka public-DSL scenario delivering
+300 results for each of three typed mappings. No smoke, load, chaos, or experiment run was started.
+
+<a id="core-88"></a>
+### CORE-88 - Isolate warm-up protocol work on bounded named dispatchers
+
+_Date: 2026-11-19_
+
+Give each public warm-up context one owned execution resource with isolated coordination and
+blocking-Kafka dispatchers, bounded parallelism, `ckc-warmup-<context>-<n>` thread names, lazy
+thread creation, and idle expiry. Route protocol
+lifecycle, control transport, metadata lookup, forwarding submission, and result delivery through
+managed execution resources without moving recipient business handlers off their consumer's
+processing dispatcher.
+Keep blocking Kafka calls from starving deadlines and shutdown, and close the owned executor only
+after all dependent sessions and clients have completed or exposed retryable cleanup.
+The public context exposes a total service-thread limit and idle timeout; one coordination worker is
+isolated from the shared blocking pool, while the continuously polling control consumer may retain
+one blocking worker between sessions. Recipient handlers remain on their configured processing
+dispatchers. Installed, late-prepared, partially prepared, and failed donor resources also close on
+the blocking pool without allowing an early `DonorClosed`. Failed cleanup ownership is retained
+independently of bounded and expiring terminal fences, and context shutdown performs another
+bounded, retryable cleanup attempt before closing its executors. Context shutdown also tracks
+cancelled preparations independently of admission: a late resource must finish its bounded cleanup
+or remain owned for a later stop attempt before the execution resource can close. The complete core
+unit suite and both public-DSL/shared-partition real-Kafka integration
+classes pass; no smoke, load, chaos, or experiment run was started.
+
+<a id="core-89"></a>
+### CORE-89 - Stabilize control transport recovery checks
+
+_Date: 2026-11-20_
+
+Keep the control consumer in its normal continuous `poll()` loop through ordinary disconnects,
+broker restarts, and temporary poll or metadata failures. Remove periodic position/end-offset
+validation and never replace a healthy consumer because a short external check timed out.
+Real-Kafka qualification showed that Kafka client 3.4.0 does not discover a completely new broker
+generation at the same address through polling alone, even after fifteen seconds. Retain one
+minimal asynchronous topic-ID sentinel for that CORE-83 case only: unavailable checks have no
+effect, while a confirmed new ID replaces stale control clients and reads the new log from its
+beginning. Initial-tail positioning, same-generation cursor preservation, assignment deadlines,
+session fallback, and terminal authentication/configuration behavior remain bounded.
+Assignment and sentinel detection share the same generation-change path, including producer
+replacement; temporary assignment metadata failures use bounded retry instead of terminating the
+transport, and temporary poll failures cannot postpone deadline or completed-sentinel handling.
+Focused tests cover transient poll and identity-check failures, delayed assignment, a brief real
+connection loss without replay or client replacement, and complete real-Kafka data loss with a
+fresh log deliberately grown beyond the old numeric cursor. The recovered donor warms a new
+recipient without application restart. No load, smoke, or experiment run was started.
+
+<a id="infra-323"></a>
+### INFRA-323 - Add an autonomous warm-up Kafka image
+
+_Date: 2026-11-16_
+
+Package a pinned Apache Kafka broker and continuous topic reconciler in one optional container for
+the internal lab. Create and verify the configured protocol-v6 control and destination topics with
+one partition and replication factor one, expose freshness-based readiness, and restore missing
+topics after complete broker-data loss without changing or deleting existing topics.
+Supervise broker and reconciliation processes with bounded operations and signal-safe shutdown;
+an unexpected exit of either process terminates the container. Integrate the shared image into
+internal-lab build/import, deployment, evidence, and verified cleanup while keeping the main Kafka
+and application cold-start path independent. A bounded initial readiness gate proceeds to cold
+application startup when the optional transport remains unavailable.
+
+Selectively adapt the broker, topic, deployment gate, cleanup, and lifecycle seams from archived
+GLOBAL-4 commits `088231fa`, `e3fba567`, `4d05e072`, `ebcd6513`, and `dae8a517`.
+Replace the archived sidecar-style provisioner with one autonomous image and continuous
+reconciliation. Eight script tests, all 82 shared orchestration tests, and 36 focused internal-lab
+tests pass. The pinned Docker image builds and its real-container lifecycle passes retained-data
+restart, incompatible metadata, complete data loss, topic restoration, reconciler failure, and
+separate internal/external listener routing. Topic lookup quotes the Kafka CLI regex and verifies
+the returned name exactly, so similarly named topics cannot satisfy reconciliation. The standalone
+Compose example also starts healthy and serves topic metadata through its published external port.
+The complete 195-test internal-lab suite retains the same two report/notification assertion
+failures and one helper-import error documented on the unchanged baseline. The exact internal-lab
+qualification definition is prepared but no smoke, load, chaos, or experiment run was started.
+
+<a id="infra-324"></a>
+### INFRA-324 - Port and tune the GLOBAL-4 sequential scale-up warm-up experiment
+
+_Date: 2026-11-16_
+
+Port the GLOBAL-4 local 16k warm-up versus cold scale-up experiment without changing its workload,
+resource, processing-profile, HPA, or one-pod-at-a-time scaling settings. Replace the
+archived protocol-v1 configuration and transport provisioning with the GLOBAL-5 public DSL wiring,
+protocol-v6 topics, and the autonomous INFRA-323 warm-up Kafka. Preserve audit, metrics, evidence,
+and report collection, validate the materialized experiment, and install it into the internal lab.
+Prepare the exact operator command but do not start the experiment as part of this task.
+
+The port is based on GLOBAL-4 commit `fa8fa0a1`. It retains the two-target 16k workload, forty-minute
+linear ramp, five-minute steady interval, tuned Serial GC profiles, resource requests, twelve main
+topic partitions, steady mapping quota/ramp values, and HPA limit of one added pod per 180 seconds.
+The archived zero initial quota is minimally adapted to `1`, the lowest value accepted by protocol
+v6. Other protocol wiring changes are v6 topics, per-mapping quota properties, independent
+control/destination connections, and the INFRA-323 autonomous transport. An explicit target-level
+disable keeps the cold baseline cold even though the experiment provisions the optional transport.
+The first operator run exposed the incompatible zero value and was cancelled during application
+startup; no load target ran. The corrected experiment is validated and installed for a fresh run.
+
+The follow-up diagnostic run temporarily omits the cold baseline and caps every mapping at 50
+forwarded records per second while preserving the initial quota, interval, and two-minute ramp.
+The warm-up target captures application-pod
+traffic from minute 11 through minute 16 with `tcp port 9092`, bracketing the first recipient warm-up
+observed near minute 12 in prior runs. Main Kafka uses TLS port 19092, so it is excluded from this
+capture. The warm-up broker remains a separate pod placed with the application workload on the
+application node. The earlier definition and branch history retain the cold target for later comparison.
+The focused materialization regression and all 70 contract, definition, deployment-plan,
+materialization, and planner tests pass.
+
+Run `20261117T100534Z` exposed a packet-capture shutdown race: tcpdump's rotation deadline and an
+outer timeout expired together, leaving only two seconds to close the capture before SIGKILL. The
+required diagnostic therefore stopped an otherwise running experiment with status 137. The runner
+now uses one duration owner, sends SIGINT at the requested end, allows a bounded 30-second savefile
+flush, and uses one deterministic capture path. Fifteen diagnostic tests include a real subprocess
+regression proving that an interrupt-aware capture closes successfully at its deadline. A second
+run reproduced status 137 and isolated it to GNU timeout signalling its managed process group inside
+the demo image. Foreground timeout mode now signals tcpdump alone; the exact image command completes
+with status zero, a closed PCAP, and tcpdump's terminal packet statistics. The final capture lifecycle
+uses tcpdump's own `-G`/`-W 1` timed rotation as the normal completion path. A foreground timeout at
+duration plus sixty seconds remains only as a bounded watchdog for an idle filter, because tcpdump
+checks its rotation deadline when a matching packet arrives.
+
+Run `20261117T113344Z` then completed the full long target, including audit analysis, evidence
+collection, and one successful 11.3 MiB packet capture. For faster quota tuning, the experiment now
+uses the short GLOBAL-4 fourth-pod diagnostic from commit `fa8fa0a1`: three pods ramp to and hold
+12k, a one-second step to 16k triggers the fourth pod, and the run holds 16k for eight minutes.
+Four comparable targets exercise per-mapping profiles `1→50/120s`, flat `50/120s`, `10→100/120s`,
+and `1→50/180s`. Every target logs JDK 21 `jit+compilation=debug`, captures warm-up Kafka traffic
+from minute three through minute eight, and retains identical workload, HPA, processing, and Kafka
+settings. The materialization regression verifies all four resolved quota profiles and JIT flags.
+
+The first short run showed that the one-minute initial ramp left the three donors with startup/JIT
+tail, while an `800m` request made the fourth-pod threshold only 2.04 effective CPU and scaled during
+the 12k plateau. The tuned definition uses a three-minute ramp to 12k, five minutes of stabilization,
+a ten-minute ramp to 14k, a two-minute maximum plateau, and one-minute cooldown. The first two runs
+of that profile measured a stable 1.96–2.02 non-JIT CPU at 12k and 2.32–2.34 at 14k. The initial
+`950m` request could not scale because its effective three-pod threshold, including 10% scale-up
+tolerance, was 2.664 CPU. A `775m` request lowers it to 2.174 CPU: the measured series crossed it
+3.5–4.25 minutes before the 14k plateau while retaining about 8% headroom over the stabilized 12k
+signal. Packet capture brackets the expected scale-up and warm-up from minute 13 through minute 18.
+The experiment file and identifier use `14k` so installed and collected evidence cannot be confused
+with the earlier 16k definition.
+
+<a id="infra-325"></a>
+### INFRA-325 - Replace continuous warm-up topic reconciliation with one-shot bootstrap
+
+_Date: 2026-11-16_
+
+Run topic preparation once after each warm-up Kafka broker start instead of continuously launching
+Kafka CLI processes beside the broker. Fetch topic metadata in one bounded operation, create only
+missing one-partition topics, verify the final configuration, and then leave only the broker
+running. Base readiness on successful bootstrap for the current container start plus a lightweight
+broker liveness check that does not start a JVM. Clear bootstrap state on every start and shutdown.
+
+Document that manual topic deletion while the broker remains alive is not repaired automatically;
+an operator restarts the container to repeat bootstrap. Preserve automatic recovery for the required
+case of broker and data loss followed by container recreation, together with bounded startup,
+signal-safe shutdown, retained-data restart, incompatible-metadata diagnostics, and cold fallback.
+
+Bootstrap now reads all topic metadata with one Kafka CLI invocation, creates only missing topics,
+and performs one final metadata read when creation occurred. Its successful exit leaves the broker
+as the only supervised child. Readiness uses the current-start marker, broker PID, and a bounded TCP
+check of the internal listener without starting a JVM. Nine script tests, all 82 shared orchestration
+tests, nine focused internal-lab tests, experiment validation, and the real Docker lifecycle pass.
+The lifecycle covers retained records, an empty replacement volume, incompatible metadata, finished
+bootstrap, independent listeners, and container termination after broker exit. No experiment run was
+started by this task.
+
+<a id="infra-326"></a>
+### INFRA-326 - Compare quadratic warm-up with cold scale-up
+
+_Date: 2026-11-17_
+
+Add a focused two-target internal-lab experiment using the tuned 14k three-to-four-pod scale-up.
+Compare the CORE-86 default quadratic ramp from 1 to 150 records per second for each mapping over
+three minutes with an otherwise identical target where traffic warm-up is disabled. Retain the same
+load profile, four-minute upper plateau, HPA, resources, processing profile, Kafka topology, JIT
+logging, packet capture, audit, metrics, and evidence so the warm and cold transitions are directly
+comparable. Validate and install the experiment without starting it automatically.
+
+The focused experiment contains exactly two targets: the CORE-86 default quadratic ramp from 1 to
+150 records per second on each of three mappings over 180 seconds, and a cold target with
+`TRAFFIC_WARMUP_ENABLED=false`. Both retain the tuned 14k load, three-to-four-pod HPA transition,
+`775m` application request, four-minute upper plateau, JIT logging, and five-minute port-9092 packet
+capture. A materialization regression verifies both rendered deployments and also updates the stale
+INFRA-324 single-target expectations. Canonical validation, the two focused materialization tests,
+and all 84 shared experiment-orchestration tests pass. No experiment run was started.
+
+<a id="demo-107"></a>
+### DEMO-107 - Configure warm-up quota profiles
+
+_Date: 2026-11-17_
+
+Expose one CORE `quotaProfile` string for every demo warm-up mapping and pass it unchanged into the
+public warm-up DSL. Keep the constant profile `10` as the demo default and allow experiments to
+define holds, linear transitions, and instantaneous changes without changing application code. The
+focused demo configuration test covers defaults and independent mapping profiles.
+
+<a id="demo-108"></a>
+### DEMO-108 - Configure warm-up forwarding producer batch size
+
+_Date: 2026-11-18_
+
+Expose the forwarding producer `batch.size` independently from the main load-generator producers.
+Keep the Kafka default-compatible 16 KiB demo value and allow experiments to raise it without
+changing application code. Preserve the independently configurable forwarding `linger.ms`.
+The focused binding test covers both the default and an explicit 32 KiB override.
+
+<a id="demo-109"></a>
+### DEMO-109 - Configure Redis business-state retention
+
+_Date: 2026-11-20_
+
+Expose the demo Redis business-state TTL as `demo.redis.state-retention`, retaining the existing
+ten-minute default. Apply the configured retention consistently to synchronous and coroutine writes
+and reject values shorter than one second. Allow long, high-throughput experiments to choose a
+smaller bounded working set without changing business handlers.
+The focused store regression and complete `ckc-demo` test suite pass.
+
+<a id="infra-327"></a>
+### INFRA-327 - Compare 300/s staged and direct-linear warm-up profiles
+
+_Date: 2026-11-17_
+
+Compare two two-minute profiles ending at 300 records per second for every mapping: a gentle
+`1→5` ramp followed by explicit `50` and `300` steps and holds, and a direct `1→300` linear ramp.
+Measure only the fourth-pod transition from minute 14 through 20 and the final settled plateau from
+minute 21 through 22; omit the uninteresting initial-three-pod window and packet capture. Use a
+32 KiB forwarding producer batch with the existing 15 ms linger for both targets.
+Materialization verifies both exact profiles, the two normalized measurement windows, the absence
+of diagnostics, and the forwarding producer settings. All 84 shared experiment-orchestration tests
+pass; no experiment was started automatically.
+
+<a id="infra-328"></a>
+### INFRA-328 - Add a previously successful linear warm-up control
+
+_Date: 2026-11-18_
+
+Add the earlier linear `1→100` over 180 seconds profile as a third target beside the staged-step and
+direct-linear `1→300` profiles. Keep workload, HPA, measurement windows, forwarding producer, and
+all other settings identical so the rerun can distinguish profile effects from run-to-run scale-up
+timing. Record that the first staged run cold-fell back after its recipient completion outbox filled;
+that result measures an implementation limit rather than the intended quota profile alone.
+The focused three-target materialization regression and all 84 shared experiment-orchestration tests
+pass. No experiment was started automatically.
+
+<a id="infra-329"></a>
+### INFRA-329 - Rerun the linear warm-up reference after parallel result delivery
+
+_Date: 2026-11-18_
+
+Prepare a focused fourth-pod scale-up experiment after CORE-87 using the previously successful
+linear `1→100` quota profile over three minutes for every mapping. Keep the 14k workload, HPA,
+fourth-pod measurement windows, 32 KiB forwarding batch, and 15 ms linger unchanged from the
+profile comparison so the result remains directly comparable. Omit initial-pod windows and packet
+capture; add additional quota profiles only after this reference run is understood.
+The focused materialization regression and all 85 shared orchestration tests pass. The installed
+internal lab contains the new experiment and rebuilt CORE-87 demo image; the experiment itself was
+not started automatically.
+
+<a id="infra-330"></a>
+### INFRA-330 - Rerun staged warm-up with controller-hosted stubs
+
+_Date: 2026-11-18_
+
+Compare a cold start with the staged `1→5→50→300` profile, direct-linear `1→300` over two
+minutes, a two-stage linear `1→100→300` profile over `60s+60s`, and the `1→100` three-minute
+reference after CORE-87. Keep the 14k workload, measurement windows, forwarding-producer settings,
+and controller-hosted HTTP stubs identical across targets. Raise the application CPU request from
+`775m` to `950m` so the fourth pod starts later in the 12k-to-14k ramp instead of during the initial
+12k stabilization plateau.
+The focused materialization regression and all 22 deployment-plan tests pass. The installed internal
+lab contains the cold target first and all four warm-up profiles with identical placement and resource
+settings; no load experiment was started automatically.
+
+<a id="infra-331"></a>
+### INFRA-331 - Compare linear warm-up profiles at 20k
+
+_Date: 2026-11-19_
+
+Prepare a new internal-lab experiment that raises the application-node plateau from 14k to 20k after
+moving HTTP stubs to the controller. Keep a cold fourth-pod start as the first baseline and compare it
+with the two-stage `1→100→300` profile, direct-linear `1→300` over two minutes, and the `1→100`
+three-minute reference. Remove the unsuccessful staged-step profile, use a `1200m` application CPU
+request, and retain the common measurement windows and forwarding-producer settings.
+The focused materialization regression and all 23 deployment-plan tests pass. The experiment is
+installed in the internal lab with the cold baseline first, three linear warm-up targets, 20k producer
+capacity, and `1200m` application requests; it was not started automatically.
+
+<a id="infra-332"></a>
+### INFRA-332 - Keep internal-lab stubs persistent and prewarmed
+
+_Date: 2026-11-19_
+
+Keep compatible internal-lab stub processes running across targets and experiments instead of
+scaling them to zero with each application cleanup. Apply the complete requested settings before
+every experiment, verify the effective configuration and its version through REST, and run a
+bounded representative prewarm whenever the process identity changes. Preserve image identity,
+process identity, effective settings, and configuration timestamps in evidence, while rejecting
+concurrent experiments that could configure the shared stubs incompatibly.
+The stable stub pod template no longer changes with target run IDs, application cleanup leaves the
+dependency running, and each target verifies every ready process before starting applications. A
+bounded prewarm exercises all three business endpoints only for previously unseen process IDs;
+target evidence includes configuration, content version, process/image identity, timing, and rate.
+Focused internal-lab, deployment-plan, result-bundle, and complete demo-stubs tests pass; no load
+experiment was started automatically.
+
+<a id="infra-333"></a>
+### INFRA-333 - Prewarm the optional warm-up Kafka broker before readiness
+
+_Date: 2026-11-19_
+
+Run a bounded one-shot broker prewarm after protocol-topic bootstrap on every warm-up Kafka
+container start. Exercise a dedicated temporary topic with producer and consumer clients already
+running, a smooth two-minute rate profile, and explicit record, byte, inflight, and cleanup bounds.
+Open readiness only after acknowledged records have been consumed, clients have stopped, and the
+temporary topic has been deleted; preserve evidence describing achieved work and failures.
+The pinned image now builds a small bounded Kafka client, removes stale primer topics after an
+interrupted start, and records actual acknowledgements, reads, bytes, rate, duration, and failures.
+The 15 script tests, 86 shared orchestration tests, 28 focused internal-lab tests, image build, and
+short real-broker lifecycle qualification pass; no experiment or smoke workload was started.
+
+<a id="infra-334"></a>
+### INFRA-334 - Expose warm-up service threads in observability
+
+_Date: 2026-11-19_
+
+Classify `ckc-warmup-*` threads separately from business handlers and Kafka client threads in the
+demo Thread Stats configuration. Update shared dashboards and their contract tests so the category
+is clearly identified as protocol service overhead rather than the complete cost of warm-up.
+Prepare an internal-lab comparison command for thread count, CPU, and processing p99 without
+starting the experiment automatically.
+The demo configuration now reports `warmup-protocol / service-executor` independently while the
+generic category panels retain the separate `business` and `kafka` costs. The Thread Stats dashboard
+documents this accounting boundary. Focused demo and dashboard tests pass; the complete internal-lab
+suite still reports three unrelated existing failures in chaos-helper imports, report wording, and
+Telegram wording. No smoke or experiment was started.
+
+<a id="infra-335"></a>
+### INFRA-335 - Compare sequential cold and warmed scale-up at 22k TPS
+
+_Date: 2026-11-19_
+
+Start each target with one application pod and let the hot-pod HPA add at most one pod per scaling
+step until four pods are running. Ramp traffic from zero to 22k TPS over 25 minutes, hold the peak
+for ten minutes, and cool down over ten minutes.
+Compare only a cold baseline and the best two-stage linear warm-up candidate, extending its second
+`100→300` quota phase from 60 to 90 seconds while retaining the 60-second `1→100` first phase.
+Use three measurement windows for the 25-minute scale-up, ten-minute peak plateau, and ten-minute
+cooldown. Schema validation, focused materialization, and all 86 shared orchestration tests pass;
+no experiment was started automatically.
+The first attempted run exposed that persistent stubs had no readiness probe and declared port
+`8080` while listening on `8085`; rollout could therefore finish before the HTTP server bound its
+socket. Their manifest now publishes `8085` and gates readiness with `/health`, eliminating the
+preparation race without a fixed sleep.
+The first load attempt showed that the lab could not sustain the 24k peak, so the qualified maximum
+was reduced to 22k without changing the ramp, plateau, cooldown, or warm-up comparison.
+The first 22k cold target reached the demo Redis three-GiB `maxmemory` limit during the peak plateau;
+use the new configurable five-minute state retention for both comparison targets so dependency OOM
+does not invalidate the warm-up measurement.
+Schema validation, the focused materialization regression, and all 86 shared orchestration tests pass
+with the five-minute override rendered identically for the cold and warm targets.
+
+<a id="infra-336"></a>
+### INFRA-336 - Repeat sequential scale-up at a stable 20k TPS peak
+
+_Date: 2026-11-20_
+
+Retain the 25-minute one-to-four-pod ramp, ten-minute plateau, ten-minute cooldown, cold baseline,
+and two-stage `1→100→300/s` warm-up comparison from INFRA-335. Reduce the fixed workload peak and
+producer capacities from 22k to 20k TPS so the plateau remains below the lab's saturation boundary
+and the control-transport recovery fix can be evaluated without the unrelated high-load collapse.
+Rename the experiment and labels consistently, validate materialization, and install the updated
+definition without starting the experiment automatically.
+The canonical definition validates for internal-lab, its focused materialization regression passes,
+and all 86 shared experiment-orchestration tests pass before installation.
+
+<a id="demo-113"></a>
+### DEMO-113 - Distribute stub requests across pod endpoints
+
+_Date: 2026-11-21_
+
+Configure Armeria model clients to discover ready stub pod addresses through DNS and select an endpoint for each request.
+Preserve ordinary URL behavior for local development and non-lab deployments.
+Verify request distribution and client lifecycle without launching an experiment.
+
+<a id="infra-350"></a>
+### INFRA-350 - Expose logical headless stub services
+
+_Date: 2026-11-21_
+
+Create ETA, flavour, and registry headless services over the shared stub deployment.
+Configure experiment application URLs and enable pod-aware Armeria routing.
+Keep the existing stub ClusterIP service for health checks and port forwarding.
+Verification: all 23 deployment-plan tests pass for internal-lab and AWS rendering.
+
+<a id="demo-114"></a>
+### DEMO-114 - Accept root-path stub URLs
+
+_Date: 2026-11-21_
+
+Allow a trailing slash in HTTP origin URLs while retaining validation against non-root paths.
+Cover both accepted origin forms and reject path-bearing overrides.
+Verification: both ModelStubEndpointGroupsTest cases pass.
+
+<a id="infra-351"></a>
+### INFRA-351 - Keep ClusterIP stub routing for JDK clients
+
+_Date: 2026-11-21_
+
+Select lab stub URL topology after all runtime HTTP-client overrides are resolved.
+Use the existing ClusterIP address for active JDK profiles and headless services for Armeria.
+Cover both synchronous and suspend profiles in deployment-plan tests.
+Verification: all 24 deployment-plan tests pass.
+
+<a id="infra-352"></a>
+### INFRA-352 - Report warm-up and dedicated Kafka resources
+
+_Date: 2026-11-21_
+
+Show the dedicated warm-up Kafka broker in the shared Grafana dashboard and account
+for its resources inside measurement windows and across the full target lifecycle.
+Preserve resource and application warm-up evidence for offline reports.
+Keep the application warm-up state separate from the dedicated broker configuration.
+The internal-lab installation was updated and the shared PromQL budget was checked
+against synthetic samples. Workload experiments are launched on operator request.
+The report uses configured broker requests over each target's execution interval,
+including preparation, and shows available Prometheus CPU and memory independently.
+The full-target and common measurement-window tables each include the combined budget.
+
+<a id="infra-353"></a>
+### INFRA-353 - Scope dedicated Warmup Kafka to enabled targets
+
+_Date: 2026-11-21_
+
+Deploy the dedicated warm-up broker only when the target runs application warm-up.
+Set the CPU request to 300m in the sequential 20k A/B experiment.
+Remove any previous broker before preparing a cold target and record the rendered
+deployment state for resource accounting. Updated internal-lab and validated both
+target manifests and budgets without launching a workload experiment.
+
+<a id="infra-354"></a>
+### INFRA-354 - Align internal-lab test expectations
+
+_Date: 2026-11-21_
+
+Check the current ownership handoff label in audit reports and the generator
+submission message for scheduled starts. Keep the audit counter and wait-time
+assertions in place.
+All 219 internal-lab unit tests passed.
+
+<a id="infra-355"></a>
+### INFRA-355 - Show Warmup Kafka in internal-lab topology
+
+_Date: 2026-11-21_
+
+Keep application deployment settings in the target configuration and show the
+dedicated warm-up broker where it runs, with a visual cue for target availability.
+The target table identifies broker availability. Mixed diagrams show a dashed broker card.
+Validated the installed report generator against saved OptiLab data.
+Passed 220 internal-lab and 97 AWS unit tests.
+
+<a id="infra-356"></a>
+### INFRA-356 - Show target warm-up settings in experiment reports
+
+_Date: 2026-11-21_
+
+Capture resolved application warm-up settings and show them in the target comparison.
+Show the application setting independently of broker deployment and include quota profiles,
+intervals, timeouts, and producer settings. Rebuilt the archived 20k A/B report on OptiLab.
+Passed 220 internal-lab, 97 AWS, and 9 shared report unit tests.
+
+<a id="infra-357"></a>
+### INFRA-357 - Condense warm-up settings in experiment reports
+
+_Date: 2026-11-21_
+
+Show one target status row and one warm-up load profile row per topic.
+Distinguish unsupported targets, disabled warm-up, main Kafka, and dedicated Kafka.
+Updated OptiLab and rebuilt the saved 20k A/B report. Passed 326 unit tests.
+
+<a id="infra-358"></a>
+### INFRA-358 - Group matching topic warm-up profiles
+
+_Date: 2026-11-21_
+
+Show the warm-up profile once if it matches across topics within every target.
+Place differing profiles after the other settings for each topic.
+Rebuilt the OptiLab 20k A/B report and verified both layouts. Passed 326 unit tests.
+
+<a id="infra-359"></a>
+### INFRA-359 - Highlight target configuration differences
+
+_Date: 2026-11-21_
+
+Emphasize settings that differ across targets, including topic and shared settings.
+Use bold text and a tinted background for differences in target and topic settings.
+Rebuilt the 20k A/B report on OptiLab. Passed 326 unit tests.
+
+<a id="infra-360"></a>
+### INFRA-360 - Bold differing target values
+
+_Date: 2026-11-21_
+
+Limit emphasis to target value cells and use the standard table colors.
+Rebuilt the OptiLab report and verified that only the CSS rule changed. Passed 220 internal-lab tests.
+
+<a id="infra-361"></a>
+### INFRA-361 - Compare sequential warm-up profiles
+
+_Date: 2026-11-22_
+
+Use the sequential 20k workload to isolate changes in the per-topic warm-up quota.
+Compare scale-up latency and compiler CPU across five warm targets.
+The reference starts at 1/s. Try 10/s and 25/s at the same 60s breakpoint,
+then reach 100/s at 30s or 90s from 10/s. All targets reach 300/s at 150s.
+In runs 20261120T175805Z and 20261121T091138Z, the three scale-out pods peaked
+at ages 77–104s in the first six minutes (native-jit CPU, 1m rate sampled every 15s).
+Compare per-topic post-warm-up latency, lag, delegated throughput and audit results.
+
+<a id="infra-362"></a>
+### INFRA-362 - Run internal-lab experiments sequentially
+
+_Date: 2026-11-22_
+
+Validate the complete ordered YAML list before starting the managed service.
+Run each definition through the existing runner and preserve its result directory, exit code, and report.
+Expose queue and target progress in the CLI and mark experiment boundaries in the service log.
+Serialize cancellation with launch so pending entries retain null exit codes and run IDs.
+
+<a id="infra-363"></a>
+### INFRA-363 - Configure the internal-lab Redis address
+
+_Date: 2026-11-22_
+
+Add an optional Redis endpoint address to the local lab configuration.
+Use it to route Redis over the dedicated USB link on OptiLab.
+Reconcile the Kubernetes endpoint during lab updates, including changes to the address alone.
+Verified 221 internal-lab tests and a Redis PING from optilab2 through the Kubernetes service.
+
+<a id="infra-364"></a>
+### INFRA-364 - Select chaos pods by creation order
+
+_Date: 2026-11-22_
+
+Add an optional one-based index for pod deletion and crash steps.
+Capture the selected pod identity and impact time in chaos events.
+Preserve random selection of Ready pods when no index is configured.
+Cover index normalization, candidate ordering, and crash evidence in unit tests.
+
+<a id="infra-365"></a>
+### INFRA-365 - Define four warm-up chaos experiments
+
+_Date: 2026-11-22_
+
+Reuse the first INFRA-361 target's processing and warm-up settings with the same 20k workload and HPA disabled.
+Time manual scale-ups from observed pod starts and schedule failures inside the expected warm-up windows.
+Document the launch commands and manual evidence checks for each independent experiment.
+Validate the four canonical definitions and their shared workload, infrastructure, and runtime settings.
+
+<a id="core-96"></a>
+### CORE-96 - Detect warm-up donor and control-path loss
+
+_Date: 2026-11-23_
+
+Negotiate donor probes using v6-compatible Kafka headers and send replies over a bounded queue.
+Keep the configurable 10s deadline through graceful donor drain until each DonorClosed arrives.
+Publish interruption before waiting for stalled Kafka sends, then join result and probe senders during cleanup.
+Fence donor sessions closed by an abort and classify Kafka and CKC ACK timeouts consistently.
+Resolve the bounded sender cleanup retry before committing a single terminal outcome after DonorClosed.
+Keep timeout metrics on abort and preserve the recorded session interruption or terminal outcome when a participant stops.
+Passed 345 core tests, 114 demo tests, and 33 Kafka warm-up integration tests.
+
+<a id="core-97"></a>
+### CORE-97 - Extract the optional warm-up module
+
+_Date: 2026-11-23_
+
+Move traffic warm-up and the v6 protocol into a single opt-in artifact.
+Use core extension points for record admission, processing, partition ownership, and lifecycle.
+Keep the base starter and Micrometer adapter independent of warm-up.
+Verify the runtime classpaths, both demo modes, and the wire payloads against CORE-96.
+Run the Micrometer-free Kafka scenarios from Gradle `check` and reuse gauge values when a metrics binding is reused.
+Include warm-up sources in the internal-lab demo image fingerprint.
+
+<a id="core-98"></a>
+### CORE-98 - Bound concurrent donor delegations
+
+_Date: 2026-11-23_
+
+Share a configurable inflight limit across donor sessions and participant mappings.
+Process records locally on saturation without consuming mapping quota.
+Release capacity when each admitted delegation finishes, including local fallback.
+Cover concurrent admission and recovery with controlled results and a Kafka DSL scenario.
+Passed 141 warm-up unit tests, 37 Kafka integration tests, and 2 Kafka scenarios without Micrometer.
+
+<a id="core-99"></a>
+### CORE-99 - Coordinate warm-up broker drain
+
+_Date: 2026-11-23_
+
+Reconstruct current broker membership up to the first drain request and require a final acknowledgement from each expected context.
+Fence warm-up admission, drain donor and recipient resources, and preserve the selected recipient outcome independently of main readiness.
+Verify offsets, shutdown races, and reconnect to a new broker generation with Kafka integration tests.
+Run the broker CLI from the existing warm-up JAR with an isolated classpath.
+Passed the warm-up unit suite and seven targeted Kafka scenarios, including a killed participant, delayed ACKs, and a restart with the same log.
+
+<a id="infra-366"></a>
+### INFRA-366 - Package warm-up broker drain
+
+_Date: 2026-11-23_
+
+Stage the standalone CLI and verify the lifecycle topic keeps the complete current epoch.
+Run lifecycle coordination before Kafka SIGTERM within the pod grace period.
+Route fresh final-confirmation connections to the old pod's advertised address during deletion.
+Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
+Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.
+Automate the two qualification targets with the established scale-up schedule and capture the broker and EndpointSlice evidence at impact.
+Enable coordinated shutdown in the four established warm-up chaos experiments with their existing schedules.
+Read run-scoped Loki lifecycle and final-confirmation logs with server-side filtering before the result limit. Replay of both failed qualification targets from experiment 20261124T060027Z recovered two warming sessions at each scheduled stop.
+Passed 245 internal-lab tests and validated the qualification launch command in dry-run mode. Live qualification remains pending.
+Live experiment 20261127T134756Z passed planned shutdown. Abrupt recovery exceeded the fixed 210-second wait and published a new broker epoch about 16 seconds after the timeout.
+Split the qualification into separate planned and abrupt experiments with top-level workload and chaos schedules. Both use a 360-second recovery timeout before the fourth pod may start.
+Passed 94 orchestration tests and 245 internal-lab tests. Updated optilab and verified both installed chaos plans in dry-run mode.
+Abrupt run 20261127T180246Z recovered within 360 seconds but a failed intermediate bootstrap replaced the previous container log. Verify the original Kafka exit and stopped epoch in run- and pod-scoped Loki logs.
+Replayed the retained Loki query for the failed run and confirmed evidence for the original SIGKILL and the fresh epoch. Passed all 245 internal-lab tests.
+Live abrupt run 20261127T183552Z passed. Loki confirmed the original SIGKILL and a fresh epoch on the same pod in about 229 seconds. The audit matched all 32,992,854 publications on the main topics with zero missing terminal outcomes, duplicates, or handler failures.
+
+<a id="core-100"></a>
+### CORE-100 - Deliver results during planned warm-up Kafka drain
+
+_Date: 2026-11-24_
+
+Fence donor admission at drain acceptance and keep recipient consumers and result senders running for admitted work.
+Close cleanly as soon as every selected donor confirms completion, or send one fallback fence after the result senders stop.
+Preserve accepted early results and resolve the remaining records through the source ownership check before confirming context cleanup.
+Verify message races, per-record processing and control-topic order, and emergency cleanup after broker loss.
+Passed 146 unit tests, 46 Kafka integration tests, and two scenarios without Micrometer.
+After bounding an already pending terminal acknowledgement by the broker deadline, reran the unit suite and all four broker drain scenarios.
+Bound forwarding ACK waits after the terminal fence even when an early result belongs to a cancelled delegation.
+Apply the broker deadline to recipient sender cleanup after DonorClosed, including when drain starts during an existing ACK wait.
+Passed 147 unit tests, 10 targeted Kafka integration tests, and two scenarios without Micrometer after the review fixes.
+Correlate warm-up writes and results before the forwarding ACK via an optional Kafka header with unchanged v6 payloads.
+Switch in-progress graceful and forced recipient consumer cleanup to the broker deadline when drain arrives.
+Passed 149 unit tests, 49 Kafka integration tests, and two scenarios without Micrometer.
+Reverified the unit suite and the interrupted recipient stop scenario after preserving non-cancellable cleanup of late preparation resources.
+Reserve time for the donor to finish fallback and confirm cleanup when SessionEnded is lost.
+Determine the recipient delivery outcome from outstanding results and stored transport errors when the flush window expires.
+Passed 151 unit tests, 10 targeted Kafka integration tests, and two scenarios without Micrometer after the deadline fixes.
+Record the delivery failure before awaiting sender cleanup so stopping a participant preserves the recipient session outcome.
+Reproduced the lost reason with Kafka before the fix. Passed 151 unit tests, 11 targeted Kafka tests, and two scenarios without Micrometer afterward.
+
+<a id="demo-115"></a>
+### DEMO-115 - Wire the warm-up in-flight delegation limit
+
+_Date: 2026-11-25_
+
+Bind the demo deployment setting and pass it to the shared warm-up context.
+Verified with Kafka that a saturated donor handles the next record locally while the first result is pending.
+Passed six focused demo tests.
+
+<a id="infra-367"></a>
+### INFRA-367 - Limit in-flight delegations in the recipient-loss experiment
+
+_Date: 2026-11-25_
+
+Set the shared donor context limit to 200 for the existing optilab recipient-loss target.
+Verified the generated demo Deployment receives the limit and the experiment differs only by this setting.
+
+<a id="core-101"></a>
+### CORE-101 - Stagger donor quota windows
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Assign repeating quota window phases to concurrent recipient sessions on one donor.
+Keep mapping quotas independent and preserve the shared in-flight delegation limit.
+Verify phase boundaries, skipped windows, phase reuse after cleanup, and the shared 300-record limit with controlled clocks.
+Passed 158 unit tests, 50 Kafka scenarios plus a focused rerun of the updated two-recipient scenario, two scenarios without Micrometer, and the demo in-flight limit integration test.
+
+<a id="infra-368"></a>
+### INFRA-368 - Limit in-flight warm-up delegations
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Set the shared donor limit to 300 for experiment targets with traffic warm-up enabled.
+Validated all 11 experiment definitions and enabled target environments; installed and verified their profiles on optilab.
+The running experiment retains its original resolved configuration until a new run.
+
+<a id="core-102"></a>
+### CORE-102 - Remove the alternative donor data plane
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Migrate warm-up tests to the logical donor store and typed participant lanes used by the DSL.
+Preserve admission, routing, drain, revoke, cancellation, session isolation, and retryable cleanup coverage.
+Passed 46 focused unit tests and 14 Kafka integration scenarios. Reviewed in commit `2e8704f8`.
+
+<a id="core-107"></a>
+### CORE-107 - Clean up late donor lanes
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Deregister a lane when its donor preparation loses the cancellation race.
+Preserve retryable resource cleanup and isolate a replacement lane from cleanup retries for the previous lane.
+Passed all 40 focused unit tests. Reviewed in commit `d1a25af2`.
+
+<a id="core-103"></a>
+### CORE-103 - Extract the warm-up recipient attempt
+
+_Date: 2026-11-25_
+
+Part of [GLOBAL-5](#global-5). Move discovery, result delivery, interruption, terminal outcome, broker-drain deadlines, and retryable cleanup into the recipient attempt.
+Keep participant registration, main runtimes, donor coordination, and shared resources in the context.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo.
+Verified the recipient lifecycle with the CORE-104 run at `2ac3dc25`: 66 focused unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer passed.
+
+<a id="core-104"></a>
+### CORE-104 - Simplify control and broker lifecycle
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Make control read state and broker connection state explicit and name the donor and recipient session owners.
+Preserve client replacement, protocol deadlines, callback failure handling, and resource ownership.
+Compiled warm-up production and test sources, the Spring Boot starter, and demo.
+Passed 66 focused unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer. Reviewed in commit `2ac3dc25`.
+
+<a id="core-105"></a>
+### CORE-105 - Define and document the warm-up public API
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Keep wire types internal and document the DSL, lifecycle, callbacks, and extension contracts.
+Verify that the broker supervisor CLI remains independently runnable and that warm-up can run without Micrometer.
+Passed 449 unit tests across the four library modules, 4 standalone broker CLI integration scenarios, and 2 scenarios without Micrometer. Demo compiles against the narrowed API.
+
+<a id="core-106"></a>
+### CORE-106 - Split warm-up test suites
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Group context integration and donor manager tests by lifecycle responsibility, sharing only setup and cleanup.
+Discover scenarios without Micrometer by their existing JUnit tag.
+Matched all 31 context and 27 donor manager methods and their tags against the original suites and verified their JUnit reports.
+Passed 159 warm-up unit tests, 51 Kafka integration scenarios, and both tagged scenarios without Micrometer.
+
+<a id="core-108"></a>
+### CORE-108 - Restore offset tracker and Kafka test coverage
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Restore experimental tracker test compilation against the shared core fixtures.
+Make the existing freshness-first Kafka scenario discoverable by JUnit.
+Passed 31 experimental unit tests and 24 core Kafka integration scenarios, including the restored freshness-first scenario.
+
+<a id="core-109"></a>
+### CORE-109 - Reorganize warm-up implementation packages
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Move warm-up implementation files and component tests into donor, recipient, data plane, runtime, Kafka, and broker packages.
+Keep public entry points, end-to-end scenarios, and shared test fixtures in the root packages.
+Capture expected background exceptions in two control transport tests so they do not affect subsequent coroutine tests.
+Matched the executed scenarios before and after the move. All 159 unit tests, 51 Kafka integration scenarios, and 2 scenarios without Micrometer passed. Demo and starter compiled.
+
+<a id="core-110"></a>
+### CORE-110 - Move the optional Micrometer adapter into core
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Move the adapter to `avh.ckc.core.metrics.micrometer` and remove the standalone artifact.
+Keep Micrometer optional for core and warm-up. The Spring Boot starter keeps its runtime dependency.
+Decide whether to bind warm-up metrics based on the presence of `MeterRegistry`, and verify the registry, prefix, and tags through a delegated consumer metrics wrapper.
+Passed 565 tests with `./gradlew :ckc-core:test :ckc-warmup:test :ckc-spring-boot-starter:test :ckc-demo:test`.
+Exclude Micrometer from the standard core Kafka integration test runtime and assert its absence while testing record processing.
+Passed 238 unit tests and 24 Kafka scenarios in one `./gradlew :ckc-core:check` run.
+Passed 51 scenarios with `:ckc-warmup:integrationTest` and two with `:ckc-warmup:integrationTestWithoutMicrometer`. Passed all 20 lab sync unit tests.
+
+<a id="core-111"></a>
+### CORE-111 - Configure warm-up in the Spring Boot starter
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Bind opt-in named contexts, independent Kafka connections, and typed participant mappings through the existing starter.
+Publish lifecycle and confirmed forwarding events through Spring. Expose per-participant warm-up phase and main subscription readiness in Actuator.
+Include starter sources in the demo image fingerprint and verify that a starter-only change invalidates it.
+Verified 62 starter tests, including four Kafka scenarios across separate main, control, and destination brokers, and 116 demo tests with `./gradlew :ckc-spring-boot-starter:test :ckc-demo:test`.
+Passed 21 lab sync unit tests with `python3 -m unittest discover -s demo/infra/internal-lab/tests -p update_lab_sync_test.py`.
+Review fixes retain terminal readiness failures in Actuator, distinguish stop cancellation from terminal drain timeout, and preserve main readiness when a waiting event arrives late.
+Passed 65 starter tests and 116 demo tests with the review fixes. Kafka regressions cover incomplete recipient cleanup under REPORT_ONLY, a named stop drain timeout under EXIT_PROCESS, and a normal stop during warming.
+Passed 159 unit tests and 53 integration scenarios, including two without Micrometer, with `./gradlew :ckc-warmup:check`.
+
+<a id="demo-116"></a>
+### DEMO-116 - Enable warm-up in the Spring Boot demo profile
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Bind the three demo consumers to one starter-managed warm-up context.
+Preserve the existing `TRAFFIC_WARMUP_*` settings for broker lifecycle, Kafka connections, quotas, and forwarding.
+Share lifecycle and offset logs and recipient metrics across demo profiles. Keep CUSTOM metrics and audit successful remote source records and recipient discards.
+Passed 119 demo tests, including binding, audit, and shared event coverage, with `./gradlew :ckc-demo:test :ckc-spring-boot-starter:test`. The 65 starter tests remained up-to-date.
+Keep the custom audit binding active with CKC meters disabled. A Kafka integration test starts two demo applications and verifies one successful audit entry for each of the confirmed source and destination offsets and no CKC consumer meters.
+Passed 120 demo tests after the review fix. The 65 starter tests remained up-to-date.
+Preserve the custom audit binding after Spring binds `CKC_METRICS_ENABLED=false` from the system environment. The two-application Kafka test reproduced the missing source audit before the fix and passed with the revised binding.
+
+<a id="infra-369"></a>
+### INFRA-369 - Qualify Spring Boot starter warm-up with local scale-up
+
+_Date: 2026-11-26_
+
+Part of [GLOBAL-5](#global-5). Add a short controlled one-to-two pod experiment with evidence for all three starter mappings.
+Enable the dedicated warm-up Kafka for the starter profile and keep the main Kafka on PLAINTEXT for qualification.
+Require cold donor readiness, successful recipient readiness, and one-to-one audit matching for the forwarded offsets of all three participants.
+Publish the proof with the report and evidence archives. Delivery totals count original Kafka records, and warm-up destination records are checked against the forwarding proof.
+Passed 244 internal-lab tests, 162 shared tests, 35 audit and packet-analysis tests, and 97 AWS adapter tests. The scale-up executor also passed a dry run with the resolved scenario.
+Updated optilab and verified the installed experiment, helpers, and dry-run behavior. The live scale-up remains a separate operator command.
+Live run `20261126T180803Z` passed qualification with 600 order, 589 batch, and 587 cauldron forwarding pairs verified by the audit.
+Match both starter and DSL consumer IDs in topic dashboards and report queries. Verified the corrected queries against the saved run and rebuilt its evidence bundle with the existing Prometheus data.
+Add the Spring Boot port of the sequential 20k cold/warm comparison, retaining its workload, autoscaling, resource sizing, and quota profile. Use PLAINTEXT for main Kafka and omit the freshness cap in unordered telemetry mode.
+Passed the 75 planner and contract tests and all 121 demo tests. The CLI dry-run validated the new experiment from the GLOBAL-5 worktree using the task checkout's entrypoint.
+Run both 20k comparison targets with at-least-once key ordering for orders and batches and pending-record replacement by key for telemetry. Keep the telemetry age cutoff disabled.
+Passed 94 orchestration tests and 244 internal-lab tests. Updated optilab and verified both rendered deployments from the installed experiment and the CLI dry run.
+
+<a id="core-112"></a>
+### CORE-112 - Honor the donor processing policy for remote warm-up discards
+
+_Date: 2026-11-27_
+
+Part of [GLOBAL-5](#global-5). Apply the source consumer's policy to discard outcomes returned by the warm-up recipient.
+Use ownership-checked local fallback when the donor cannot accept a remote discard.
+Freshness age discards use the original timestamp and the donor's configured age limit. Queue discards require the corresponding freshness mode.
+Public DSL Kafka tests verify local handling and source commit, acceptance of a compatible age discard, and replay by the next owner after revocation.
+Ran core and warm-up checks and starter and demo tests. Two existing integration scenarios failed in the concurrent run and passed in the single-worker rerun, which also passed all three new Kafka scenarios and the full demo suite.
+Keep an incompatible discard local to its record and report it as a rejected remote discard. The concurrent Kafka regression reproduced duplicate local handling before the fix and now verifies remote success for the other record and a commit past both offsets.
+After review, ran core and warm-up checks plus starter and demo tests. The broker-replacement scenario again hit TopicExistsException in the full warm-up suite and passed on its own. The remaining 54 Kafka warm-up scenarios and both scenarios without Micrometer passed.
+
+<a id="core-113"></a>
+### CORE-113 - Reject warm-up routes into main subscriptions
+
+_Date: 2026-11-27_
+
+Part of [GLOBAL-5](#global-5). Validate warm-up producer destinations against all main subscriptions in the context using Kafka cluster identity.
+Resolve cluster IDs only when a destination topic name appears in a main subscription. A conflict or failed cluster identity lookup disables context warm-up before control starts and allows consumers to start cold.
+Kafka integration scenarios cover the sender's own subscription, another participant's unmapped subscribed topic through different bootstrap lists, a successful append to an identically named topic on another cluster, and an unavailable cluster ID.
+Passed 159 warm-up unit tests, 59 Kafka warm-up scenarios, two warm-up scenarios without Micrometer, and 65 starter tests. Core checks were up to date. One existing demo warm-up test timed out after incomplete_donor_coverage in the full run and passed on its own. The other 119 demo tests passed in the full run.
+Keep subscription validation, control startup, and broker lifecycle startup owned by the context when one participant stops. A Kafka regression holds the cluster ID lookup through one participant's stop and verifies delegation from the surviving participant.
+Keep cluster lookup warnings limited to the fallback reason, route, and exception type. A unit test verifies that provider details and the exception object are absent.
+Review checks passed all 160 warm-up unit tests, 60 Kafka warm-up scenarios, both scenarios without Micrometer, all 65 starter tests, and all 120 demo tests. Core checks were up to date. Repeated the warm-up unit suite and the 14 Kafka startup, subscription validation, and participant lifecycle scenarios after the final shutdown cleanup adjustment.
+Resolve a recipient attempt as participant_stopped if its workflow was cancelled before it could record an outcome. A deterministic test holds the first participant's startup observer while a second participant starts and stops, then verifies the surviving main runtime starts once and becomes ready.
+The startup race regression reproduced an awaitReady timeout before the fix. After the fix, all 161 warm-up unit tests, 28 Kafka startup, lifecycle, routing, and broker recovery scenarios, two scenarios without Micrometer, and 65 starter tests passed.

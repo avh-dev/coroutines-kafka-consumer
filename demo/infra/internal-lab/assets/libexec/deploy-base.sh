@@ -9,6 +9,7 @@ fi
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 LAB_HOST="${LAB_HOST:-${LAB_NODE_IP}}"
+LAB_REDIS_ADDRESS="${LAB_REDIS_ADDRESS:-${LAB_NODE_IP}}"
 K8S_DIR="${K8S_DIR:-${LAB_ROOT}/k8s}"
 COMPOSE_DIR="${COMPOSE_DIR:-${LAB_ROOT}/docker/compose}"
 GRAFANA_DIR="${GRAFANA_DIR:-${LAB_ROOT}/grafana}"
@@ -87,7 +88,8 @@ mkdir -p "${GENERATED_DIR}"
 mkdir -p "${LAB_ROOT}/prometheus"
 mkdir -p "${LAB_ROOT}/loki"
 
-sed "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
+sed -e "s/__LAB_NODE_IP__/${LAB_NODE_IP}/g" \
+  -e "s/__LAB_REDIS_ADDRESS__/${LAB_REDIS_ADDRESS}/g" \
   "${K8S_DIR}/external-services.yaml.tpl" \
   > "${GENERATED_DIR}/external-services.yaml"
 
@@ -97,6 +99,7 @@ kubectl apply -f "${GENERATED_DIR}/external-services.yaml"
 kubectl -n ckc-perf delete service,endpoints ckc-external-demo-stubs --ignore-not-found=true
 kubectl -n ckc-perf delete service,endpoints ckc-external-load-test --ignore-not-found=true
 kubectl apply -f "${K8S_DIR}/node-exporter.yaml"
+kubectl apply -f "${K8S_DIR}/warmup-kafka-state.yaml"
 kubectl apply -f "${K8S_DIR}/prometheus.yaml"
 
 helm repo add kedacore https://kedacore.github.io/charts --force-update >/dev/null
@@ -111,6 +114,7 @@ helm upgrade --install keda kedacore/keda \
 
 kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
 kubectl -n ckc-perf rollout status daemonset/ckc-node-exporter --timeout=5m
+kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka-state --timeout=5m
 # Reconcile process state as well as the ConfigMap. A previous deploy may have updated the
 # mounted file without making Prometheus reread it, so equality of old/new ConfigMaps does
 # not prove that the active process uses the desired scrape configuration.
@@ -208,5 +212,5 @@ echo "  autoscaling: KEDA 2.21.0"
 echo "  grafana:    http://${LAB_HOST}:3000"
 echo "  loki:       http://${LAB_HOST}:3100"
 echo "  kafka:      ${KAFKA_BOOTSTRAP} (${LAB_KAFKA_IMPLEMENTATION}, ${LAB_KAFKA_TOPOLOGY}, ${LAB_KAFKA_TRANSPORT})"
-echo "  redis:      ${LAB_NODE_IP}:6379"
+echo "  redis:      ${LAB_REDIS_ADDRESS}:6379"
 echo "  audit-tcp:  ${LAB_NODE_IP}:5170"

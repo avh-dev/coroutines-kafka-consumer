@@ -12,6 +12,7 @@ from .definition import ResolvedExperiment, ResolvedTarget
 from .deployment_plan import (
     aws_terraform_variables,
     build_deployment_plan,
+    traffic_warmup_enabled,
     write_deployment_plan,
     write_terraform_variables,
 )
@@ -72,6 +73,22 @@ def materialize_target(
         "run_plan": plan,
         "kafka_topics": copy.deepcopy(values.get("lab", {}).get("kafkaTopics", [])),
     }
+    warmup_kafka = copy.deepcopy((experiment.environment_definition or {}).get("warmup_kafka") or {})
+    runtime_env = {
+        **((target.definition.get("runtime") or {}).get("env") or {}),
+        **(target.definition.get("env") or {}),
+    }
+    warmup_enabled = traffic_warmup_enabled(target.profile, runtime_env, warmup_kafka)
+    definition["deployment"]["traffic_warmup_enabled"] = warmup_enabled
+    if warmup_kafka.get("enabled"):
+        warmup_names = set(warmup_kafka["topics"])
+        main_names = {
+            str(topic.get("name") or topic.get("kafka_topic") or "")
+            for topic in definition["deployment"]["kafka_topics"]
+        }
+        if main_names & warmup_names:
+            raise ValueError("Warm-up Kafka topics must not be provisioned on the primary Kafka cluster")
+        definition["deployment"]["warmup_kafka"] = {**warmup_kafka, "enabled": warmup_enabled}
     definition_path = target_dir / "resolved-test.yaml"
     definition_path.write_text(yaml.safe_dump(definition, sort_keys=False), encoding="utf-8")
     deployment_plan_path = None

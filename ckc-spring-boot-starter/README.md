@@ -144,6 +144,113 @@ default. The MDC context includes `ckc.consumer`, `ckc.processing.mode`, `kafka.
 string conversion and high-cardinality log context; enable it with `ckc.observability.mdc.include-key`.
 Set `ckc.observability.mdc.enabled=false` to keep the record processing path direct.
 
+## Traffic Warm-Up
+
+Enable traffic warm-up with `ckc.warmup.enabled: true`. Each referenced context coordinates one
+recipient attempt for all its participants. A consumer joins by setting `warmup.context`. Its
+`@CkcKafkaConsumer` name is the participant ID. Use explicit `topics` for those consumers.
+With warm-up disabled, the starter runs the existing main consumers without creating warm-up contexts.
+
+This example assumes Spring beans implementing `CkcConsumer<String, String>` annotated with
+`@CkcKafkaConsumer(name = "orders")` and `@CkcKafkaConsumer(name = "batches")`.
+Create the control topic and each warm-up topic with one partition.
+
+```yaml
+ckc:
+  default-cluster: main
+  clusters:
+    main:
+      kafka-properties:
+        bootstrap.servers: localhost:9092
+        auto.offset.reset: earliest
+    control:
+      kafka-properties:
+        bootstrap.servers: localhost:9093
+    destination:
+      kafka-properties:
+        bootstrap.servers: localhost:9094
+  warmup:
+    enabled: true
+    contexts:
+      ingestion:
+        namespace: ingestion-v1
+        control-cluster: control
+        control-topic: warmup.control
+        warmup-duration: 30s
+        offer-window: 2s
+        participant-start-timeout: 15s
+        preparation-timeout: 15s
+        completion-timeout: 30s
+        delegation-timeout: 10s
+        max-donor-sessions: 4
+        max-inflight-delegations: 300
+  consumers:
+    orders:
+      topics: [orders]
+      group-id: orders-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      warmup:
+        context: ingestion
+        destination-cluster: destination
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: org.apache.kafka.common.serialization.StringSerializer
+        mappings:
+          - source-topic: orders
+            warmup-topic: warmup.orders
+            quota-profile: "100"
+            quota-interval: 1s
+    batches:
+      topics: [batches]
+      group-id: batches-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      warmup:
+        context: ingestion
+        destination-cluster: destination
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: org.apache.kafka.common.serialization.StringSerializer
+        mappings:
+          - source-topic: batches
+            warmup-topic: warmup.batches
+            quota-profile: "0 -> (10s, ramp) -> 25"
+            quota-interval: 1s
+```
+
+Peer replicas use the same namespace, control topic, and mappings. Each context instance gets a
+random ID unless you set `instance-id`. Set a distinct ID per live peer if you supply one.
+The control connection uses `control-cluster`. Each participant's recipient and forwarding
+producer use `destination-cluster` and may set `consumer-properties` or `producer-properties`
+for client-specific tuning. The recipient reuses the main deserializers by default. The explicit
+forwarding serializers take precedence over producer properties.
+
+Set `broker-lifecycle.topic` in a context to enable the broker supervisor handshake. The journal
+uses the control cluster unless `broker-lifecycle.cluster` is set. Set
+`broker-lifecycle.operation-timeout` to override the journal I/O timeout.
+Omitted tuning parameters, including `donor-liveness-timeout`, `max-aggregate-quota-per-second`,
+`service-thread-limit`, and `service-thread-idle-timeout`, inherit the warm-up DSL defaults.
+
+The starter registers all participants before calling their first `start()`, including consumers
+with `auto-startup: false`. Start those consumers through `CkcConsumerRegistry` within the shared
+`participant-start-timeout` to join the attempt. If a participant misses the deadline, consumers
+that already requested start fall back to their main subscriptions and late starts go directly to
+their main subscriptions. Set all participants to manual startup if the application needs to
+control when the shared attempt begins.
+
+Spring `@EventListener` methods can receive `CkcWarmupLifecycleEvent` and
+`CkcWarmupForwardedEvent`. The payloads include the context name and the original warm-up event.
+Forwarding events also include the donor consumer name. Spring's default synchronous listeners
+run on the warm-up threads or the caller of `start()` and `stop()`. Keep them thread-safe,
+non-blocking, and free of calls back into lifecycle operations. Consumers use their configured metrics binding, including
+`MICROMETER`, `CUSTOM`, and `NONE`.
+
+Actuator adds `warmup` details to each participating consumer, including `context`, `phase`, and
+`mainReady`. The phase reaches `MAIN_READY` after the main runtime obtains Kafka assignment and
+positions, whether it warms successfully or falls back to cold startup. Use `mainReady` for startup
+readiness and `running` to see whether the starter has requested start. Terminal failures appear
+in `failedConsumers` and set health to `DOWN`, including failures before the main runtime starts.
+The consumer's `terminalFailure` details contain the exception class and message observed by the starter.
+
 ## Configuration Reference
 
 The full starter property structure is:
@@ -262,8 +369,8 @@ Record-driven Micrometer tag schemas are declared in configuration. The per-reco
 lives in Spring beans annotated with `@CkcMicrometerRecordTags`:
 
 ```kotlin
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.recordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import avh.ckc.spring.CkcMicrometerRecordTags
 
 @Bean

@@ -4,27 +4,19 @@ set -euo pipefail
 
 LAB_ROOT="${LAB_ROOT:-/opt/ckc-lab}"
 STUB_SETTINGS_JSON="${1:-}"
-PORT="${STUBS_PORT_FORWARD_PORT:-18080}"
 
 if [[ -z "${STUB_SETTINGS_JSON}" ]]; then
   echo "Usage: $0 settings-json" >&2
   exit 1
 fi
 
-kubectl -n ckc-perf port-forward service/ckc-demo-stubs "${PORT}:8085" >/dev/null 2>&1 &
-PORT_FORWARD_PID="$!"
-trap 'kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+EVIDENCE_FILE="${STUB_PREPARATION_EVIDENCE_FILE:-${LAB_ROOT}/state/stubs/last-preparation.json}"
+STATE_FILE="${LAB_ROOT}/state/stubs/prewarm-state.json"
 
-for _ in {1..30}; do
-  if curl -fsS -X POST "http://127.0.0.1:${PORT}/settings" \
-    -H "Content-Type: application/json" \
-    --data "${STUB_SETTINGS_JSON}"; then
-    echo
-    echo "Demo stub settings applied."
-    exit 0
-  fi
-  sleep 1
-done
-
-echo "Demo stub settings endpoint did not become ready." >&2
-exit 1
+exec python3 "${LAB_ROOT}/helpers/prepare-stubs.py" \
+  "${STUB_SETTINGS_JSON}" \
+  --state "${STATE_FILE}" \
+  --evidence "${EVIDENCE_FILE}" \
+  --requests-per-endpoint "${STUB_PREWARM_REQUESTS_PER_ENDPOINT:-2000}" \
+  --concurrency "${STUB_PREWARM_CONCURRENCY:-24}" \
+  --timeout-seconds "${STUB_PREWARM_TIMEOUT_SECONDS:-90}"

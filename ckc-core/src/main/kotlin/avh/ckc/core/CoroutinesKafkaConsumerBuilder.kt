@@ -1,9 +1,16 @@
 package avh.ckc.core
 
+import avh.ckc.core.extension.ConsumerRuntimeFactory
+import avh.ckc.core.extension.RecordAdmission
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.runtime.isStaleRecord
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
 import java.util.regex.Pattern
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
@@ -113,6 +120,8 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private var topics: List<String>? = null
     private var topicsPattern: Pattern? = null
     private var handler: KafkaRecordHandler<K, V>? = null
+    private var runtimeExtension:
+        ((ConsumerRuntimeFactory<K, V>, Map<String, Any?>) -> CoroutinesKafkaConsumer<K, V>)? = null
 
     /**
      * Subscribes the consumer to the provided topic names.
@@ -153,37 +162,143 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     }
 
     /**
-     * Builds a low-level [CoroutinesKafkaConsumer] from the accumulated builder state.
+     * Registers the single runtime extension for this builder. It receives a factory snapshot and
+     * the main Kafka properties at build time. Return the main consumer and attach any coordinating
+     * lifecycle before it starts. The extension owns auxiliary runtimes and their cleanup.
      */
-    internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> {
+    fun extendRuntime(
+        extension: (ConsumerRuntimeFactory<K, V>, Map<String, Any?>) -> CoroutinesKafkaConsumer<K, V>
+    ) {
+        check(runtimeExtension == null) { "A consumer runtime extension is already configured" }
+        runtimeExtension = extension
+    }
+
+    internal fun build(consumerProperties: Map<String, Any?>): CoroutinesKafkaConsumer<K, V> =
+        runtimeExtension?.invoke(runtimeFactory(), consumerProperties.toMap())
+            ?: buildSubscribed(consumerProperties, localRecordInterceptor())
+
+    /** Captures a snapshot of the subscription, handler, metrics, and policies for extension runtime creation. */
+    fun runtimeFactory(): ConsumerRuntimeFactory<K, V> = snapshot().RuntimeFactory()
+
+    /** Assembles runtimes from the private, captured builder snapshot. */
+    private inner class RuntimeFactory : ConsumerRuntimeFactory<K, V> {
+        override val subscribedTopics: List<String>? = topics?.toList()
+        override val metrics: ConsumerMetrics<K, V> = this@CoroutinesKafkaConsumerBuilder.metrics
+
+        override fun acceptsRemoteDiscard(record: ConsumerRecord<K, V>, reason: RecordDropReason): Boolean =
+            when (reason) {
+                RecordDropReason.QUEUE_OVERFLOW -> processingMode == ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
+                RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD,
+                RecordDropReason.NEW_KEY_QUEUE_FULL -> processingMode == ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+                RecordDropReason.STALE_AGE -> processingMode.isFreshnessFirst() &&
+                    isStaleRecord(record.timestamp(), freshnessMaxRecordAge)
+                RecordDropReason.ALREADY_PROCESSED,
+                RecordDropReason.LIFECYCLE_DISCARD -> false
+            }
+
+        override fun subscribed(
+            consumerProperties: Map<String, Any?>,
+            interceptor: AdmittedRecordInterceptor<K, V>
+        ): CoroutinesKafkaConsumer<K, V> = buildSubscribed(consumerProperties, interceptor)
+
+        override fun assigned(
+            consumerProperties: Map<String, Any?>,
+            startOffsets: Map<TopicPartition, Long>,
+            admission: RecordAdmission<K, V>?,
+            metrics: ConsumerMetrics<K, V>,
+            shutdownTimeout: Duration
+        ): CoroutinesKafkaConsumer<K, V> {
+            require(startOffsets.isNotEmpty() && startOffsets.values.all { it >= 0 }) {
+                "Explicit assignment requires at least one partition and non-negative start offsets"
+            }
+            return buildRuntime(
+                consumerProperties = consumerProperties,
+                runtimeTopics = startOffsets.keys.map(TopicPartition::topic).distinct(),
+                runtimePollLoops = 1,
+                runtimeMetrics = metrics,
+                runtimeShutdownTimeout = minOf(shutdownDrainTimeout, shutdownTimeout),
+                admission = admission,
+                fixedAssignment = startOffsets.toMap()
+            )
+        }
+    }
+
+    private fun snapshot(): CoroutinesKafkaConsumerBuilder<K, V> {
         val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
+        return CoroutinesKafkaConsumerBuilder<K, V>().also { copy ->
+            copy.processingMode = processingMode
+            copy.workerConcurrency = workerConcurrency
+            copy.consumerPollLoopConcurrency = consumerPollLoopConcurrency
+            copy.commitIntervalMs = commitIntervalMs
+            copy.commitRecordsThreshold = commitRecordsThreshold
+            copy.maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition
+            copy.workChannelCapacity = workChannelCapacity
+            copy.freshnessMaxRecordAge = freshnessMaxRecordAge
+            copy.partitionHandoffTimeout = partitionHandoffTimeout
+            copy.shutdownDrainTimeout = shutdownDrainTimeout
+            copy.processingCancellationTimeout = processingCancellationTimeout
+            copy.recoveryTimeout = recoveryTimeout
+            copy.recoveryRetryBackoff = recoveryRetryBackoff
+            copy.processingDispatcher = processingDispatcher
+            copy.retryPolicy = retryPolicy
+            copy.metrics = metrics
+            copy.recordProcessingContext = recordProcessingContext
+            copy.processingFailureHandler = processingFailureHandler
+            copy.parentContext = parentContext
+            copy.topics = topics
+            copy.topicsPattern = topicsPattern
+            copy.handler = configuredHandler
+        }
+    }
+
+    private fun buildSubscribed(
+        consumerProperties: Map<String, Any?>,
+        interceptor: AdmittedRecordInterceptor<K, V>
+    ): CoroutinesKafkaConsumer<K, V> {
         require((topics == null) != (topicsPattern == null)) {
             "Exactly one of topics or topicsPattern must be specified"
         }
+        return buildRuntime(consumerProperties, topics, topicsPattern, interceptor = interceptor)
+    }
 
+    private fun buildRuntime(
+        consumerProperties: Map<String, Any?>,
+        runtimeTopics: List<String>?,
+        pattern: Pattern? = null,
+        runtimePollLoops: Int = consumerPollLoopConcurrency,
+        runtimeMetrics: ConsumerMetrics<K, V> = metrics,
+        runtimeShutdownTimeout: Duration = shutdownDrainTimeout,
+        interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+        admission: RecordAdmission<K, V>? = null,
+        fixedAssignment: Map<TopicPartition, Long>? = null
+    ): CoroutinesKafkaConsumer<K, V> {
+        val configuredHandler = requireNotNull(handler) { "Kafka record handler must be specified" }
         return CoroutinesKafkaConsumer(
             consumerProperties = consumerProperties,
             processingMode = processingMode,
             workerConcurrency = workerConcurrency,
-            consumerPollLoopConcurrency = consumerPollLoopConcurrency,
+            consumerPollLoopConcurrency = runtimePollLoops,
             commitIntervalMs = commitIntervalMs,
             commitRecordsThreshold = commitRecordsThreshold,
             maxTrackedOffsetsPerPartition = maxTrackedOffsetsPerPartition,
             workChannelCapacity = workChannelCapacity,
             freshnessMaxRecordAge = freshnessMaxRecordAge,
             partitionHandoffTimeout = partitionHandoffTimeout,
-            shutdownDrainTimeout = shutdownDrainTimeout,
+            shutdownDrainTimeout = runtimeShutdownTimeout,
             processingCancellationTimeout = processingCancellationTimeout,
             recoveryTimeout = recoveryTimeout,
             recoveryRetryBackoff = recoveryRetryBackoff,
             processingDispatcher = processingDispatcher,
             retryPolicy = retryPolicy,
-            metrics = metrics,
+            metrics = runtimeMetrics,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
             parentContext = parentContext,
-            topics = topics,
-            topicsPattern = topicsPattern,
+            topics = runtimeTopics,
+            topicsPattern = pattern,
+            recordAdmission = admission,
+            fixedAssignment = fixedAssignment,
+            admittedRecordInterceptor = interceptor,
             handler = configuredHandler
         )
     }

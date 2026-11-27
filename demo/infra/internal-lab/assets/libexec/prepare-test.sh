@@ -322,28 +322,6 @@ kubectl -n ckc-perf delete deployment,service -l ckc.dev/component=application -
 # Compatibility cleanup for manifests created before application component labels existed.
 kubectl -n ckc-perf delete deployment,service,hpa ckc-demo --ignore-not-found=true
 
-LAB_ROOT="${LAB_ROOT}" \
-LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
-LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}" \
-LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT}" \
-LAB_KAFKA_BROKER_COUNT="${LAB_KAFKA_BROKER_COUNT:-}" \
-LAB_KAFKA_REPLICATION_FACTOR="${LAB_KAFKA_REPLICATION_FACTOR:-}" \
-LAB_KAFKA_MIN_INSYNC_REPLICAS="${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}" \
-LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER:-}" \
-LAB_KAFKA_MEMORY_PER_BROKER="${LAB_KAFKA_MEMORY_PER_BROKER:-}" \
-LAB_KAFKA_HEAP_PER_BROKER="${LAB_KAFKA_HEAP_PER_BROKER:-}" \
-LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-}" \
-LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-}" \
-TOPIC_SPECS="${TOPIC_SPECS}" \
-CONSUMER_GROUPS="ckc-demo,ckc-demo-order,ckc-demo-batch,ckc-demo-telemetry,${CONSUMER_GROUPS}" \
-KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
-  "${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target
-
-python3 "${LAB_ROOT}/helpers/experiment_orchestration/seed_telemetry_fleet.py" \
-  --definition-path "${TEST_DEFINITION}" \
-  --host 127.0.0.1 \
-  --docker-container ckc-perf-redis
-
 if [[ -n "${STUB_REPLICA_COUNT}" ]]; then
   echo "stub replicas must be declared in the canonical experiment" >&2
   exit 1
@@ -387,7 +365,81 @@ for override in "${ENV_OVERRIDES[@]}"; do
   RENDER_ARGS+=(--env "${override}")
 done
 python3 "${LAB_ROOT}/helpers/experiment_orchestration/render-project-manifests.py" "${RENDER_ARGS[@]}"
-kubectl apply -f "${PROJECT_MANIFEST}"
+WARMUP_STATE="$(python3 - "${PROJECT_MANIFEST}" <<'PYCONFIG'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as file:
+    deployments = [item for item in yaml.safe_load_all(file) if item and item["kind"] == "Deployment"]
+enabled = any(item["metadata"]["labels"].get("ckc.dev/component") == "warmup-kafka" for item in deployments)
+traffic = any(
+    entry["name"] == "TRAFFIC_WARMUP_ENABLED" and entry.get("value") == "true"
+    for item in deployments if item["metadata"]["labels"].get("ckc.dev/component") == "application"
+    for container in item["spec"]["template"]["spec"]["containers"] if container["name"] == "demo"
+    for entry in container.get("env", [])
+)
+print(str(enabled).lower(), str(traffic).lower())
+PYCONFIG
+)"
+read -r WARMUP_KAFKA_ENABLED TRAFFIC_WARMUP_ENABLED <<< "${WARMUP_STATE}"
+
+if [[ "${WARMUP_KAFKA_ENABLED}" == "false" ]]; then
+  # A warm target may have preceded this cold target on the same lab.
+  kubectl -n ckc-perf delete deployment,service,pods -l ckc.dev/component=warmup-kafka \
+    --ignore-not-found=true --wait=true --timeout=2m
+fi
+
+LAB_ROOT="${LAB_ROOT}" \
+LAB_KAFKA_IMPLEMENTATION="${LAB_KAFKA_IMPLEMENTATION}" \
+LAB_KAFKA_TOPOLOGY="${LAB_KAFKA_TOPOLOGY}" \
+LAB_KAFKA_TRANSPORT="${LAB_KAFKA_TRANSPORT}" \
+LAB_KAFKA_BROKER_COUNT="${LAB_KAFKA_BROKER_COUNT:-}" \
+LAB_KAFKA_REPLICATION_FACTOR="${LAB_KAFKA_REPLICATION_FACTOR:-}" \
+LAB_KAFKA_MIN_INSYNC_REPLICAS="${LAB_KAFKA_MIN_INSYNC_REPLICAS:-}" \
+LAB_KAFKA_CPU_PER_BROKER="${LAB_KAFKA_CPU_PER_BROKER:-}" \
+LAB_KAFKA_MEMORY_PER_BROKER="${LAB_KAFKA_MEMORY_PER_BROKER:-}" \
+LAB_KAFKA_HEAP_PER_BROKER="${LAB_KAFKA_HEAP_PER_BROKER:-}" \
+LAB_KAFKA_MEMORY_RUNTIME="${LAB_KAFKA_MEMORY_RUNTIME:-}" \
+LAB_KAFKA_HEAP_RUNTIME="${LAB_KAFKA_HEAP_RUNTIME:-}" \
+TOPIC_SPECS="${TOPIC_SPECS}" \
+CONSUMER_GROUPS="ckc-demo,ckc-demo-order,ckc-demo-batch,ckc-demo-telemetry,${CONSUMER_GROUPS}" \
+KAFKA_TOPIC_METADATA_FILE="${KAFKA_TOPIC_METADATA_FILE:-}" \
+  "${LAB_ROOT}/libexec/reset-kafka-redis.sh" --reset-target
+
+python3 "${LAB_ROOT}/helpers/experiment_orchestration/seed_telemetry_fleet.py" \
+  --definition-path "${TEST_DEFINITION}" \
+  --host 127.0.0.1 \
+  --docker-container ckc-perf-redis
+
+WARMUP_KAFKA_READY_PID=""
+stop_warmup_kafka_wait() {
+  if [[ -n "${WARMUP_KAFKA_READY_PID}" ]] && kill -0 "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1; then
+    kill "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1 || true
+    wait "${WARMUP_KAFKA_READY_PID}" >/dev/null 2>&1 || true
+  fi
+}
+trap stop_warmup_kafka_wait EXIT
+if [[ "${WARMUP_KAFKA_ENABLED}" == "true" ]]; then
+  kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=warmup-kafka
+  kubectl -n ckc-perf rollout status deployment/ckc-warmup-kafka --timeout=5m &
+  WARMUP_KAFKA_READY_PID="$!"
+fi
+
+# Stubs are lab-scoped and have stable pod-template labels, so applying an
+# unchanged target leaves their warmed JVMs intact. Their preparation can run
+# while the optional warm-up Kafka deployment becomes ready.
+kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=stubs
+kubectl -n ckc-perf rollout status deployment/ckc-demo-stubs --timeout=10m
+"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
+
+if [[ -n "${WARMUP_KAFKA_READY_PID}" ]]; then
+  if ! wait "${WARMUP_KAFKA_READY_PID}"; then
+    echo "Warm-up Kafka did not become ready within 5m; applications will start and use cold fallback." >&2
+  fi
+  WARMUP_KAFKA_READY_PID=""
+fi
+
+kubectl apply -f "${PROJECT_MANIFEST}" -l ckc.dev/component=application
 
 mapfile -t APPLICATION_DEPLOYMENTS < <(
   kubectl -n ckc-perf get deployment -l ckc.dev/component=application -o name | sort
@@ -399,11 +451,12 @@ fi
 for deployment in "${APPLICATION_DEPLOYMENTS[@]}"; do
   kubectl -n ckc-perf rollout status "${deployment}" --timeout=10m
 done
-"${LAB_ROOT}/libexec/configure-stubs.sh" "${STUB_SETTINGS_JSON}"
 kubectl -n ckc-perf get pods,svc,endpoints -o wide
 
 cat > "${CURRENT_DEPLOYMENT_PATH}" <<EOF
 APP_PROFILE='${APP_PROFILE}'
+WARMUP_KAFKA_ENABLED='${WARMUP_KAFKA_ENABLED}'
+TRAFFIC_WARMUP_ENABLED='${TRAFFIC_WARMUP_ENABLED}'
 RUN_PROFILE='${RUN_PROFILE:-}'
 RUN_PLAN_PATH='${RUN_PLAN_PATH:-}'
 PROCESSING_DISPATCHER_TYPE='${PROCESSING_DISPATCHER_TYPE:-}'

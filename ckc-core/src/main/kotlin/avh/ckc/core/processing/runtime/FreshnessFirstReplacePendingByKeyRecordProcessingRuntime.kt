@@ -7,9 +7,11 @@ import avh.ckc.core.RetryPolicy
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.ConsumerRuntimeStatsTracker
 import avh.ckc.core.metrics.RecordDropReason
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingRuntime
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.localRecordInterceptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
@@ -53,7 +55,8 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
     retryPolicy: RetryPolicy,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
     recordProcessingContext: RecordProcessingContext<K, V>?,
-    private val processedRecordTracker: ProcessedRecordTracker
+    private val processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor()
 ) : RecordProcessingRuntime<K, V> {
     private val recordProcessor = RecordProcessor(
         handler = handler,
@@ -61,6 +64,7 @@ internal class FreshnessFirstReplacePendingByKeyRecordProcessingRuntime<K, V>(
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = processedRecordTracker::markProcessed,
+        interceptor = interceptor,
         awaitRetryPermission = processedRecordTracker::awaitRetryPermission,
         recordProcessingContext = recordProcessingContext
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -26,6 +27,10 @@ except ImportError as error:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[3]
+sys.path.insert(0, str(SCRIPT_DIR.parent / "assets/helpers"))
+
+from experiment_test import validate_internal_lab_experiments
+
 DEFAULT_CONFIG = REPO_ROOT / ".demo-infra/internal-lab/lab.yaml"
 BOOTSTRAP_SCRIPT = SCRIPT_DIR / "bootstrap-host.sh"
 UPDATE_SCRIPT = SCRIPT_DIR / "update-lab.sh"
@@ -63,6 +68,7 @@ class LabConfig:
     telegram_env: Path
     performance_cpu_khz: int
     application_link: str
+    redis_address: str
     nodes: tuple[Node, ...]
 
     @property
@@ -154,6 +160,13 @@ def load_config(path: Path) -> LabConfig:
         raise ValueError("lab nodes must have unique names, k3s_name values, and lab_address values")
     controller = controllers[0]
     application = applications[0]
+    redis_address = controller.lab_address
+    if "redis_address" in network:
+        value = _non_empty(network["redis_address"], "network.redis_address")
+        try:
+            redis_address = str(ipaddress.IPv4Address(value))
+        except ValueError as error:
+            raise ValueError("network.redis_address must be an IPv4 address") from error
     if topology == "single-host":
         if len(nodes) != 1 or controller != application:
             raise ValueError("single-host topology requires one node with controller and application roles")
@@ -176,7 +189,7 @@ def load_config(path: Path) -> LabConfig:
             raise ValueError("split-application worker may only host the application k3s agent")
     return LabConfig(
         path, topology, runtime_user, lab_root, public_key, telegram_env,
-        performance_cpu_khz, application_link, tuple(nodes),
+        performance_cpu_khz, application_link, redis_address, tuple(nodes),
     )
 
 
@@ -440,6 +453,7 @@ def write_compatibility_environment(config: LabConfig) -> Path:
         "LAB_SSH_HOST": node.ssh_host,
         "LAB_USER": config.runtime_user,
         "LAB_NODE_IP": node.lab_address,
+        "LAB_REDIS_ADDRESS": config.redis_address,
         "LAB_ROOT": str(config.lab_root),
         "LAB_TOPOLOGY": config.topology,
         "LAB_APPLICATION_LINK": config.application_link,
@@ -507,33 +521,20 @@ def resolve_repository_experiment(value: Path) -> Path:
     return candidate
 
 
-def remote_json(config: LabConfig, path: Path) -> dict[str, Any]:
-    result = capture([
+def managed_command(config: LabConfig, action: str) -> list[str]:
+    entrypoint = config.lab_root / "libexec/experiment-service.py"
+    path = shlex.quote(str(entrypoint))
+    missing = shlex.quote("The installed lab needs an update. Run 'lab up' before managing experiments.")
+    return [
         "ssh", "-o", "BatchMode=yes", runtime_target(config),
-        f"cat '{path}' 2>/dev/null || true",
-    ], check=False)
-    try:
-        value = json.loads(result.stdout) if result.stdout.strip() else {}
-    except json.JSONDecodeError:
-        return {"error": f"{path.name} is not valid JSON"}
-    return value if isinstance(value, dict) else {}
+        f"if [ ! -x {path} ]; then printf '%s\\n' {missing} >&2; exit 1; fi\n"
+        f"LAB_ROOT={shlex.quote(str(config.lab_root))} exec {path} {shlex.quote(action)}",
+    ]
 
 
 def managed_unit_properties(config: LabConfig) -> tuple[dict[str, str], dict[str, Any], dict[str, Any]]:
-    target = runtime_target(config)
-    result = capture([
-        "ssh", "-o", "BatchMode=yes", target,
-        "systemctl --user show ckc-experiment.service "
-        "--property=ActiveState --property=SubState --property=Result "
-        "--property=ExecMainStatus --property=ExecMainStartTimestamp --property=ExecMainExitTimestamp",
-    ])
-    properties = {}
-    for line in result.stdout.splitlines():
-        key, separator, value = line.partition("=")
-        if separator:
-            properties[key] = value
-    request = remote_json(config, config.lab_root / "state/experiment/request.json")
-    progress = remote_json(config, config.lab_root / "state/experiment/progress.json")
+    result = subprocess.run(managed_command(config, "status"), check=True, text=True, stdout=subprocess.PIPE)
+    properties, request, progress = json.loads(result.stdout)
     return properties, request, progress
 
 
@@ -555,15 +556,30 @@ def compact_duration(seconds: float) -> str:
 
 def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int:
     properties, request, progress = managed_unit_properties(config)
+    active_state = properties.get("ActiveState", "unknown")
     systemd_result = properties.get("Result", "unknown")
-    result = "cancelled" if progress.get("status") == "cancelled" else systemd_result
+    result = systemd_result
+    queue = request.get("queue")
+    if queue:
+        entries = queue["experiments"]
+        queue = {
+            **queue,
+            "total": len(entries),
+            "succeeded": sum(entry["status"] == "succeeded" for entry in entries),
+        }
+        if systemd_result == "success":
+            result = {"failed": "exit-code", "cancelled": "cancelled"}.get(queue["status"], "success")
+            if queue["status"] == "succeeded" and active_state in {"active", "deactivating"}:
+                result = "finishing"
+    elif systemd_result == "success" and progress.get("status") == "cancelled":
+        result = "cancelled"
     document = {
         "host": config.infra.host,
         "runtime_user": config.runtime_user,
         "experiment": request.get("experiment"),
         "requested_at": request.get("requested_at"),
         "env": request.get("env", []),
-        "active_state": properties.get("ActiveState", "unknown"),
+        "active_state": active_state,
         "sub_state": properties.get("SubState", "unknown"),
         "result": result,
         "systemd_result": systemd_result,
@@ -571,14 +587,29 @@ def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int
         "started_at": properties.get("ExecMainStartTimestamp", ""),
         "ended_at": properties.get("ExecMainExitTimestamp", ""),
         "progress": progress,
+        "queue": queue,
     }
     if json_output:
         print(json.dumps(document, indent=2))
         return 0
-    print(f"experiment:   {document['experiment'] or 'none'}")
+    if not queue or queue["total"] == 1:
+        print(f"experiment:   {document['experiment'] or 'none'}")
     print(f"environment:  internal-lab on {document['host']} as {document['runtime_user']}")
     print(f"state:        {document['active_state']} ({document['sub_state']})")
     print(f"result:       {document['result']}")
+    if queue:
+        total = queue["total"]
+        print(f"queue:        {queue['succeeded']}/{total} succeeded ({queue['status']})")
+        if (index := queue["current_index"]) is not None:
+            print(f"current:      {index}/{total} — {entries[index - 1]['experiment']}")
+        elif queue["exit_code"] is not None:
+            for index, entry in enumerate(entries, start=1):
+                status = entry["status"].replace("_", " ")
+                code = entry["exit_code"]
+                detail = "" if code is None else f" (exit {code})"
+                print(f"              {index}/{total} — {entry['experiment']}: {status}{detail}")
+        else:
+            progress = {}
     if progress.get("label"):
         print(f"step:         {progress['label']}")
     target = progress.get("target")
@@ -615,19 +646,17 @@ def print_managed_status(config: LabConfig, *, json_output: bool = False) -> int
 
 def experiment_start_command(args: argparse.Namespace) -> int:
     config = load_config(args.config.resolve())
-    experiment = resolve_repository_experiment(args.experiment)
+    experiments = [resolve_repository_experiment(value) for value in args.experiments]
+    validate_internal_lab_experiments(experiments)
     invalid_env = next((value for value in args.env if not ENV_OVERRIDE_PATTERN.fullmatch(value)), None)
     if invalid_env is not None:
         raise ValueError(f"experiment environment override must use UPPER_SNAKE_CASE=value: {invalid_env!r}")
     if not args.no_update:
         up_command(argparse.Namespace(config=args.config, dry_run=args.dry_run, force_rebuild=False))
-    target = runtime_target(config)
-    active = capture(["ssh", "-o", "BatchMode=yes", target, "systemctl --user is-active --quiet ckc-experiment.service"], check=False)
-    if active.returncode == 0:
-        raise ValueError("a managed experiment is already active; inspect it with 'lab.sh experiment status'")
     request = {
-        "version": 1,
-        "experiment": experiment.name,
+        "version": 2,
+        "experiment": experiments[0].name,
+        "experiments": [experiment.name for experiment in experiments],
         "environment": "internal-lab",
         "host": config.infra.host,
         "requested_at": datetime.now(timezone.utc).isoformat(),
@@ -635,20 +664,11 @@ def experiment_start_command(args: argparse.Namespace) -> int:
         "env": list(args.env),
         "skip_archives": bool(args.skip_archives),
     }
-    local_request = config.path.parent / "experiment-request.json"
-    local_request.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
-    os.chmod(local_request, 0o600)
-    remote_request = config.lab_root / "state/experiment/request.json"
-    run(["scp", str(local_request), f"{target}:{remote_request}.tmp"], dry_run=args.dry_run)
-    run([
-        "ssh", target,
-        f"set -e; chmod 600 '{remote_request}.tmp'; mv '{remote_request}.tmp' '{remote_request}'; "
-        f"rm -f '{config.lab_root}/state/experiment/progress.json'; "
-        "systemctl --user reset-failed ckc-experiment.service >/dev/null 2>&1 || true; "
-        "systemctl --user start ckc-experiment.service",
-    ], dry_run=args.dry_run)
+    command = managed_command(config, "start")
+    print("+ " + shlex.join(command), flush=True)
     if args.dry_run:
         return 0
+    subprocess.run(command, input=json.dumps(request), check=True, text=True)
     return print_managed_status(config)
 
 
@@ -669,7 +689,7 @@ def experiment_logs_command(args: argparse.Namespace) -> int:
 
 def experiment_stop_command(args: argparse.Namespace) -> int:
     config = load_config(args.config.resolve())
-    run(["ssh", "-o", "BatchMode=yes", runtime_target(config), "systemctl", "--user", "stop", "ckc-experiment.service"])
+    run(managed_command(config, "stop"))
     return print_managed_status(config)
 
 
@@ -723,8 +743,8 @@ def parser() -> argparse.ArgumentParser:
     setup.set_defaults(handler=setup_command)
     experiment = commands.add_parser("experiment", help="Manage the detached internal-lab experiment service.")
     experiment_commands = experiment.add_subparsers(dest="experiment_command", required=True)
-    start = experiment_commands.add_parser("start", help="Update the lab and start one detached experiment.")
-    start.add_argument("experiment", type=Path)
+    start = experiment_commands.add_parser("start", help="Start detached experiments in the given order.")
+    start.add_argument("experiments", nargs="+", type=Path)
     start.add_argument("--env", action="append", default=[])
     start.add_argument("--skip-archives", action="store_true")
     start.add_argument("--no-update", action="store_true")
@@ -737,7 +757,7 @@ def parser() -> argparse.ArgumentParser:
     logs.add_argument("-n", "--lines", type=int, default=100)
     logs.add_argument("-f", "--follow", action="store_true")
     logs.set_defaults(handler=experiment_logs_command)
-    stop = experiment_commands.add_parser("stop", help="Gracefully stop the active experiment.")
+    stop = experiment_commands.add_parser("stop", help="Cancel the queue and gracefully stop its current experiment.")
     stop.set_defaults(handler=experiment_stop_command)
     return root
 

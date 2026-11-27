@@ -218,7 +218,7 @@ class NotifyTelegramTest(unittest.TestCase):
             NOTIFY.message_for("target_generator_preparing", {"name": "ckc-tls-pcap"}),
         )
         self.assertEqual(
-            "⏳ Load generator ready: ckc-tls-pcap\nScheduled start: 2026-10-12T08:00:00Z\nWaiting: 1m 00s",
+            "⏳ Load generator submitted: ckc-tls-pcap\nScheduled load start: 2026-10-12T08:00:00Z\nWaiting: 1m 00s",
             NOTIFY.message_for("target_waiting_for_start", {
                 "name": "ckc-tls-pcap",
                 "scheduled_start": "2026-10-12T08:00:00Z",

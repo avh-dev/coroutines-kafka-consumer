@@ -7,6 +7,7 @@ from typing import Any
 
 from .model import ExperimentReport, TargetReport
 from .theme import topic_palette
+from .warmup import RESOURCE_ROWS, WARMUP_PROFILE_KEYS
 
 REPORT_GENERATOR_VERSION = "3"
 
@@ -246,6 +247,86 @@ def e2e_compliance_cells(
             content = f'<span class="champion">{content}</span>'
         cells.append(content)
     return cells
+
+
+def render_warmup_and_resources(
+    targets: list[TargetReport]
+) -> list[str]:
+    if not any(target.full_target_budget or target.resource_windows or target.warmup for target in targets):
+        return []
+    lines = ["## Application and Warmup Kafka resource budget", ""]
+    lines.extend([
+        "The full-target broker requests use configured capacity from preparation through target completion. Application CPU includes its own warm-up work.",
+        "",
+    ])
+
+    def value(raw: Any, digits: int) -> str:
+        return "unavailable" if raw is None else number(raw, digits)
+
+    def resource_table(title: str, budget: dict[str, Any]) -> None:
+        lines.extend([
+            f"**{title}**",
+            "",
+            "| Resource | Application | Warmup Kafka | Total |",
+            "| --- | ---: | ---: | ---: |",
+        ])
+        for key, label, digits in RESOURCE_ROWS:
+            app = budget.get("application", {}).get(key)
+            broker = budget.get("broker", {}).get(key)
+            total = app + broker if app is not None and broker is not None else None
+            cells = [number(raw, digits) if raw is not None else "no data" for raw in (app, broker, total)]
+            lines.append(f"| {label} | " + " | ".join(cells) + " |")
+        lines.append("")
+
+    for target in targets:
+        lines.extend([f"### {escaped(target.name)}", ""])
+        if target.full_target_budget:
+            duration = target.full_target_budget.get("duration_seconds")
+            title = "Full target including preparation"
+            if duration is not None:
+                title += f" · {number(duration, 1)} s"
+            resource_table(title, target.full_target_budget)
+        for window in target.resource_windows:
+            start = float(window.get("start_seconds") or 0)
+            seconds = float(window.get("duration_seconds") or 0)
+            label = escaped(window.get("name") or "Full measurement")
+            resource_table(
+                f"{label} · {number(start, 0)}–{number(start + seconds, 0)} s",
+                window["resource_budget"],
+            )
+
+        outcome = target.warmup
+        enabled = outcome.get("enabled")
+        status = {True: "enabled", False: "disabled"}.get(enabled, "unavailable")
+        broker_status = "enabled" if outcome.get("broker_enabled") else "disabled"
+        lines.extend([
+            f"Application warm-up **{status}** · dedicated broker **{broker_status}**",
+            "",
+            "| Warmed pods | Duration median (s) | Duration max (s) | Records handled | Errors | Timeouts |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        duration_missing = "—" if outcome.get("pods") == 0 else "unavailable"
+        cells = [
+            value(outcome.get("pods"), 0),
+            *[
+                value(outcome[key], 2) if key in outcome else duration_missing
+                for key in ("median_seconds", "max_seconds")
+            ],
+            *[value(outcome.get(key), 0) for key in ("records", "errors", "timeouts")],
+        ]
+        lines.extend(["| " + " | ".join(cells) + " |", ""])
+        qualification = outcome.get("scale_up")
+        if qualification:
+            lines.extend([f"Controlled scale-up verification **{escaped(qualification['status'])}**", ""])
+            processed = qualification.get("processed_by_participant", {})
+            if processed:
+                lines.extend([
+                    "| Participant | Confirmed delegated records |",
+                    "| --- | ---: |",
+                    *[f"| {escaped(participant)} | {number(count, 0)} |" for participant, count in processed.items()],
+                    "",
+                ])
+    return lines
 
 
 def render_markdown(report: ExperimentReport) -> str:
@@ -797,6 +878,7 @@ def render_markdown(report: ExperimentReport) -> str:
             'table.comparison th,table.comparison td{border:1px solid #d0d7de;padding:5px 8px;text-align:right}'
             'table.comparison th:first-child{text-align:left}'
             'table.comparison tbody th[scope=row]{font-weight:400}'
+            'table.comparison tbody tr.configuration-difference>td{font-weight:700}'
             'table.comparison thead{background:#24292f;color:#fff}'
             'table.comparison tr.section th{background:#dbeafe;color:#172554;text-align:left;font-size:1.05em;padding:9px 8px}'
             'table.comparison tr.subsection th{background:#eaeef2;color:#24292f;text-align:left;padding:7px 8px;font-weight:650}'
@@ -885,17 +967,20 @@ def render_markdown(report: ExperimentReport) -> str:
         letter, title = definitions[source]
         return f'<span class="metric-source source-{letter.lower()}" title="{title}">{letter}</span>'
 
-    def row(label: str, values: list[str], source: str | None = None) -> None:
-        if values and all(value == "—" for value in values):
+    def row(label: str, values: list[str], source: str | None = None, *, show_empty: bool = False) -> None:
+        if not show_empty and values and all(value == "—" for value in values):
             return
-        if configuration_rendering and len(targets) > 1 and values and len(set(values)) == 1:
+        compare_configuration = configuration_rendering and len(targets) > 1
+        distinct_values = len(set(values)) if compare_configuration else 0
+        if distinct_values == 1:
             lines.append(
                 f'<tr><th scope="row">{escaped(label)}{source_badge(source)}</th>'
                 f'<td colspan="{len(targets)}">{values[0]}</td></tr>'
             )
             return
+        highlight = ' class="configuration-difference"' if distinct_values > 1 and source is None else ""
         lines.append(
-            f'<tr><th scope="row">{escaped(label)}{source_badge(source)}</th>'
+            f'<tr{highlight}><th scope="row">{escaped(label)}{source_badge(source)}</th>'
             + "".join(f"<td>{value}</td>" for value in values)
             + "</tr>"
         )
@@ -983,6 +1068,16 @@ def render_markdown(report: ExperimentReport) -> str:
         maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
         return f"{kind}, {number(minimum, 0)}–{number(maximum, 0)} pods"
 
+    ckc_profiles = {"ckc", "ckc-sync", "ckc-spring-boot"}
+
+    def warmup_status(target: TargetReport) -> str:
+        if target.configuration.get("profile") not in ckc_profiles:
+            return "N/A"
+        if not target.warmup.get("enabled"):
+            return "Disabled"
+        broker = "dedicated Kafka (K8s)" if target.warmup.get("broker_enabled") else "main Kafka"
+        return f"Enabled · {broker}"
+
     section("Target configuration")
     row("Application", [escaped(target.configuration.get("profile")) for target in targets])
     row("Requested application placement", [escaped(target.configuration.get("placement")) for target in targets])
@@ -1013,6 +1108,8 @@ def render_markdown(report: ExperimentReport) -> str:
             [f'{number(target.test_definition.get("telemetry_publish_interval_seconds"), 0)} s' for target in targets],
         )
         row("Peak telemetry fleet", [number(target.test_definition.get("peak_telemetry_fleet_size"), 0) for target in targets])
+    row("Warm-up", [warmup_status(target) for target in targets])
+
     configured_topics = []
     for target in targets:
         for topic in target.configuration.get("topics", []):
@@ -1046,6 +1143,19 @@ def render_markdown(report: ExperimentReport) -> str:
         ("Load producer compression.type", lambda topic: escaped((topic.get("producer") or {}).get("compression_type"))),
         ("Load producer buffer.memory", lambda topic: bytes_value((topic.get("producer") or {}).get("buffer_memory"))),
     )
+    warmup_profiles = {
+        topic_name: [
+            escaped(target.warmup.get("settings", {}).get(WARMUP_PROFILE_KEYS.get(topic_name)))
+            if target.configuration.get("profile") in ckc_profiles and target.warmup.get("enabled")
+            else "—"
+            for target in targets
+        ]
+        for topic_name in configured_topics
+    }
+    shared_warmup_profile = len(warmup_profiles) > 1 and len({
+        tuple(values) for values in warmup_profiles.values()
+    }) == 1
+
     section("Topics configuration")
     shared_kafka_settings: set[str] = set()
     if configured_topics:
@@ -1056,11 +1166,13 @@ def render_markdown(report: ExperimentReport) -> str:
             ]
             if all(values and len(set(values)) == 1 for values in per_target):
                 shared_kafka_settings.add(label)
-        if shared_kafka_settings:
-            subsection("Shared Kafka client settings")
+        if shared_kafka_settings or shared_warmup_profile:
+            subsection("Shared topic settings" if shared_warmup_profile else "Shared Kafka client settings")
             for label, formatter in kafka_setting_rows:
                 if label in shared_kafka_settings:
                     row(label, [formatter(configured_topic(target, configured_topics[0])) for target in targets])
+            if shared_warmup_profile:
+                row("Warm-up load profile", warmup_profiles[configured_topics[0]], show_empty=True)
 
     def key_order_value(data: dict[str, Any]) -> Any:
         ordering = data.get("ordering") if isinstance(data.get("ordering"), dict) else {}
@@ -1116,6 +1228,8 @@ def render_markdown(report: ExperimentReport) -> str:
         for label, formatter in kafka_setting_rows:
             if label not in shared_kafka_settings:
                 row(label, [formatter(configured_topic(target, topic_name)) for target in targets])
+        if not shared_warmup_profile:
+            row("Warm-up load profile", warmup_profiles[topic_name], show_empty=True)
 
     measurement_windows = report.test_definition.get("measurement_windows")
     if not isinstance(measurement_windows, list):
@@ -1852,6 +1966,7 @@ def render_markdown(report: ExperimentReport) -> str:
             "Wire traffic is a rounded estimate from each scheduled packet-capture window. Message payload and pre-compression Kafka record sizes are producer-capture averages over decoded records. Messages per Kafka record batch divides the producer batch record count by decoded topic batches; batch compression compares compressed and uncompressed record bytes without the batch header. Wire totals include Kafka requests and responses, shared protocol traffic, TCP/IP headers, acknowledgements, and retransmissions. Shared bytes without a topic identity are allocated by decoded record-batch size. Producer estimates can differ across targets because Kafka batches records separately for each partition and the targets use different partition counts.",
             "",
         ])
+    lines.extend(render_warmup_and_resources(targets))
     lines.extend([
         "## Methodology and artifacts",
         "",

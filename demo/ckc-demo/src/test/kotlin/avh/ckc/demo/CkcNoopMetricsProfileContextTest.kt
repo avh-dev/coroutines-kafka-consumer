@@ -1,8 +1,8 @@
 package avh.ckc.demo
 
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
 import avh.ckc.demo.proto.CauldronTelemetryEvent
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier

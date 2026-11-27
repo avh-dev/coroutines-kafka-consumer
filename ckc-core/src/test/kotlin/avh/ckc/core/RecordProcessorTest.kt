@@ -3,6 +3,9 @@ package avh.ckc.core
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.processing.RecordProcessor
+import avh.ckc.core.processing.AdmittedRecordInterceptor
+import avh.ckc.core.processing.RecordProcessingOutcome
+import avh.ckc.core.processing.localRecordInterceptor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -19,6 +22,24 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
 class RecordProcessorTest {
+
+    @Test
+    fun `remote success reaches callback without executing the donor handler`() = runBlocking {
+        val metrics = RecordingMetrics<String, String>()
+        val handlerCalls = AtomicInteger()
+        val processor = createRecordProcessor(
+            handler = KafkaRecordHandler<String, String> { handlerCalls.incrementAndGet() },
+            metrics = metrics,
+            interceptor = AdmittedRecordInterceptor { _, _ ->
+                RecordProcessingOutcome.HandlerSucceededRemotely
+            }
+        )
+
+        processor.process(typedTestRecord(offset = 7L))
+
+        assertEquals(0, handlerCalls.get())
+        assertEquals(true, metrics.processed.single().processedRemotely)
+    }
 
     @Test
     @Suppress("DEPRECATION")
@@ -88,6 +109,7 @@ class RecordProcessorTest {
         val attempts = AtomicInteger()
         val failureHandlerCalls = AtomicInteger()
         val processedCalls = AtomicInteger()
+        val permissionChecks = AtomicInteger()
         val metrics = RecordingMetrics<String, String>()
         val processor = createRecordProcessor(
             handler = KafkaRecordHandler<String, String> {
@@ -100,12 +122,13 @@ class RecordProcessorTest {
             metrics = metrics,
             processingFailureHandler = ProcessingFailureHandler { _, _ -> failureHandlerCalls.incrementAndGet() },
             onRecordProcessed = { processedCalls.incrementAndGet() },
-            awaitRetryPermission = { _, _ -> false }
+            awaitRetryPermission = { _, _ -> permissionChecks.getAndIncrement() == 0 }
         )
 
         processor.process(typedTestRecord(offset = 9L))
 
         assertEquals(1, attempts.get())
+        assertEquals(2, permissionChecks.get())
         assertEquals(0, failureHandlerCalls.get())
         assertEquals(0, processedCalls.get())
         assertEquals(emptyList<Int>(), metrics.retries.map { it.attempt })
@@ -358,6 +381,7 @@ class RecordProcessorTest {
         metrics: ConsumerMetrics<K, V> = ConsumerMetrics.NOOP as ConsumerMetrics<K, V>,
         processingFailureHandler: ProcessingFailureHandler<K, V> = ProcessingFailureHandler.skip(),
         onRecordProcessed: (ConsumerRecord<K, V>) -> Unit = {},
+        interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
         awaitRetryPermission: suspend (ConsumerRecord<K, V>, kotlin.time.Duration) -> Boolean = { _, delay ->
             if (delay.isPositive()) kotlinx.coroutines.delay(delay)
             true
@@ -370,6 +394,7 @@ class RecordProcessorTest {
         metrics = metrics,
         processingFailureHandler = processingFailureHandler,
         onRecordProcessed = onRecordProcessed,
+        interceptor = interceptor,
         awaitRetryPermission = awaitRetryPermission,
         recordProcessingContext = recordProcessingContext,
         currentTimeMillis = currentTimeMillis

@@ -235,14 +235,6 @@ def environment_topology_svg(
     resources = [target.configuration.get("resources") for target in selected_targets]
     shared_resources = resources[0] if resources and all(value == resources[0] for value in resources) else {}
     requests = shared_resources.get("requests", {}) if isinstance(shared_resources, dict) else {}
-    limits = shared_resources.get("limits", {}) if isinstance(shared_resources, dict) else {}
-    def resource_summary(prefix: str, values: dict[str, Any]) -> str:
-        parts = [
-            f"{values.get('cpu')} CPU" if values.get("cpu") is not None else "",
-            f"{values.get('memory')} memory" if values.get("memory") is not None else "",
-        ]
-        details = " · ".join(part for part in parts if part)
-        return f"{prefix} {details}" if details else ""
 
     def compact_resources(value: dict[str, Any]) -> str:
         resource_requests = value.get("requests") if isinstance(value.get("requests"), dict) else {}
@@ -253,12 +245,6 @@ def environment_topology_svg(
         limit_pair = f"{resource_limits.get('cpu') or '—'}/{resource_limits.get('memory') or '—'}"
         return f"req {request_pair} · lim {limit_pair} CPU/RAM"
 
-    app_resources = " · ".join(part for part in [
-        resource_summary("requests", requests),
-        resource_summary("limits", limits),
-    ] if part) or "resources vary by target"
-    app_requests = f"requests {requests.get('cpu')} CPU / {requests.get('memory')}" if requests else "resources vary by target"
-    app_limits = f"limits {limits.get('cpu')} CPU / {limits.get('memory')}" if limits else ""
     load_test = report.test_definition.get("load_test") if isinstance(report.test_definition.get("load_test"), dict) else {}
     target_load_tests = [
         target.configuration.get("load_test", {})
@@ -400,79 +386,6 @@ def environment_topology_svg(
         ] if part)
         return model, details
 
-    def application_deployment_label() -> str:
-        configurations = [
-            target.configuration for target in selected_targets if isinstance(target.configuration, dict)
-        ]
-        if configurations and all(item.get("deployment_mode") == "per_topic" for item in configurations):
-            workloads = configurations[0].get("workloads") or {}
-            ranges = {
-                (
-                    (values.get("hpa") or {}).get("min_replicas"),
-                    (values.get("hpa") or {}).get("max_replicas"),
-                )
-                for values in workloads.values()
-                if isinstance(values, dict) and (values.get("hpa") or {}).get("enabled")
-            }
-            if len(ranges) == 1:
-                minimum, maximum = next(iter(ranges))
-                return f"3 topic deployments · HPA {minimum}–{maximum} each"
-            return "3 independently scaled topic deployments"
-        replicas = {item.get("replicas") for item in configurations if item.get("replicas") is not None}
-        return f"{next(iter(replicas))} pods" if len(replicas) == 1 else "pod count varies by target"
-
-    local_application_label = application_deployment_label()
-
-    def application_scaling_lines() -> list[str]:
-        lines: list[str] = []
-        for target in selected_targets:
-            configuration = target.configuration if isinstance(target.configuration, dict) else {}
-            target_name = str(getattr(target, "name", ""))
-            implementation = (
-                "Spring Kafka" if target_name.startswith("spring-kafka")
-                else "CKC" if target_name.startswith("ckc")
-                else target_name or "Application"
-            )
-            if configuration.get("deployment_mode") == "per_topic":
-                topic_workloads = configuration.get("workloads")
-                topic_workloads = topic_workloads if isinstance(topic_workloads, dict) else {}
-                grouped_ranges: dict[tuple[Any, Any], list[str]] = {}
-                kafka_lag_enabled = False
-                for topic, workload in topic_workloads.items():
-                    workload = workload if isinstance(workload, dict) else {}
-                    hpa = workload.get("hpa") if isinstance(workload.get("hpa"), dict) else {}
-                    if not hpa.get("enabled"):
-                        continue
-                    grouped_ranges.setdefault(
-                        (hpa.get("min_replicas"), hpa.get("max_replicas")), []
-                    ).append(str(topic))
-                    lag = hpa.get("kafka_lag") if isinstance(hpa.get("kafka_lag"), dict) else {}
-                    kafka_lag_enabled = kafka_lag_enabled or bool(lag.get("enabled"))
-                lines.append(f"{implementation} · per-topic {'KEDA' if kafka_lag_enabled else 'HPA'}")
-                for (minimum, maximum), topics in grouped_ranges.items():
-                    topic_label = "/".join(topics)
-                    range_label = f"{minimum}–{maximum}" if minimum is not None and maximum is not None else "autoscaled"
-                    lines.append(f"{topic_label} {range_label}")
-                continue
-            hpa = configuration.get("hpa") if isinstance(configuration.get("hpa"), dict) else {}
-            if hpa.get("enabled"):
-                minimum = hpa.get("min_replicas", hpa.get("minReplicas"))
-                maximum = hpa.get("max_replicas", hpa.get("maxReplicas"))
-                range_label = f"{minimum}–{maximum}" if minimum is not None and maximum is not None else "autoscaled"
-                hot_pod = hpa.get("hot_pod_cpu") or hpa.get("hotPodCpu") or {}
-                scaler_label = "CPU KEDA + hot-pod guard" if hot_pod.get("enabled") else "CPU HPA"
-                lines.append(f"{implementation} · {scaler_label} {range_label}")
-                target_cpu = hpa.get(
-                    "target_cpu_utilization_percentage",
-                    hpa.get("targetCPUUtilizationPercentage"),
-                )
-                if target_cpu is not None:
-                    lines.append(f"target utilization {target_cpu}%")
-            else:
-                replicas = int(configuration.get("replicas") or 1)
-                lines.append(f"{implementation} · {replicas} {'pod' if replicas == 1 else 'pods'}")
-        return lines or [local_application_label]
-
     def resource_display_lines(value: dict[str, Any]) -> tuple[str, str]:
         request_values = value.get("requests") if isinstance(value.get("requests"), dict) else {}
         limit_values = value.get("limits") if isinstance(value.get("limits"), dict) else {}
@@ -512,6 +425,30 @@ def environment_topology_svg(
             for index, line in enumerate(lines)
             if line
         ]
+
+    broker_targets = [
+        target for target in selected_targets if target.warmup.get("broker_enabled")
+    ] if kafka_mode == "docker" else []
+    worker_broker_count = sum(
+        (target.warmup.get("broker_config") or {}).get("placement", "application") == "application"
+        for target in broker_targets
+    )
+    controller_broker_count = len(broker_targets) - worker_broker_count
+
+    def warmup_kafka_card(x: int, y: int, width: int, target_count: int, connection: str) -> list[str]:
+        if not target_count:
+            return []
+        optional = target_count < len(selected_targets)
+        dash = ' stroke-dasharray="6 4"' if optional else ""
+        return [
+            f'<rect data-service-card="warmup-kafka" x="{x}" y="{y}" width="{width}" height="90" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"{dash}/>',
+            service_icon("apache-kafka", x + 18, y + 18, 30),
+            f'<text class="card-title" x="{x + 60}" y="{y + 37}">Warmup Kafka</text>',
+            f'<text class="detail" x="{x + 18}" y="{y + 67}">{"Enabled for selected targets" if optional else "Dedicated warm-up broker"}</text>',
+            f'<path data-flow="application-to-warmup-kafka" d="{connection}" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow)"/>',
+        ]
+
+    application_runtime = [java_label("application")] if java.get("application") else []
 
     if kafka_mode != "docker":
         # AWS keeps measured workloads in EKS, stateful dependencies in managed
@@ -687,26 +624,25 @@ def environment_topology_svg(
             '</g>',
         ]
     elif split_internal_lab:
-        width, height = 1280, 1040
+        controller_extra = 100 if controller_broker_count else 0
+        width, height = 1280, 1040 + controller_extra
         worker_name = worker_names[0]
         controller_model, controller_summary = host_summary(controller_name, hardware)
         worker_model, worker_summary = host_summary(worker_name)
         load_request_line, load_limit_line = resource_display_lines(load_resources)
         stub_request_line, stub_limit_line = resource_display_lines(stub_resources)
-        application_lines = application_scaling_lines()
-        application_details_y = 422 + len(application_lines) * 24 + 24
         controller_header_lines = wrap_words(controller_model, 74) + wrap_detail_parts(controller_summary, 74)
         worker_header_lines = wrap_words(worker_model, 38) + wrap_detail_parts(worker_summary, 38)
         body = [
             f'<text class="title" x="30" y="32">Resolved two-host environment · {esc(provider)}</text>',
-            '<rect x="20" y="55" width="820" height="970" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<rect x="20" y="55" width="820" height="{970 + controller_extra}" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="42" y="87">Controller host · {esc(controller_name)}</text>',
             *text_block("detail", 42, 116, controller_header_lines),
-            '<rect x="870" y="55" width="390" height="970" rx="12" fill="#fafafa" stroke="#64748b" stroke-width="2"/>',
+            f'<rect x="870" y="55" width="390" height="{970 + controller_extra}" rx="12" fill="#fafafa" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="895" y="87">Application worker · {esc(worker_name)}</text>',
             *text_block("detail", 895, 116, worker_header_lines),
 
-            '<rect data-boundary="controller-kubernetes" x="45" y="205" width="350" height="780" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            f'<rect data-boundary="controller-kubernetes" x="45" y="205" width="350" height="{780 + controller_extra}" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
             service_icon("environment-kubernetes", 65, 222, 32),
             '<text class="card-title" x="108" y="242">Kubernetes server</text>',
             f'<text class="detail" x="108" y="270">{esc(platform)} {esc(version)}</text>',
@@ -773,23 +709,24 @@ def environment_topology_svg(
             service_icon("environment-kubernetes", 915, 222, 32),
             '<text class="card-title" x="958" y="242">Kubernetes agent</text>',
             f'<text class="detail" x="958" y="270">{esc(platform)} {esc(version)}</text>',
-            '<text class="detail" x="958" y="298">Application-only worker</text>',
-            '<rect data-service-card="application" x="920" y="350" width="290" height="300" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            '<text class="detail" x="958" y="298">Application workloads</text>',
+            '<rect data-service-card="application" x="920" y="350" width="290" height="220" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 938, 368, 30),
             '<text class="card-title" x="980" y="387">Measured application</text>',
-            *text_block("detail", 938, 422, application_lines, 24),
-            f'<text class="detail" x="938" y="{application_details_y}">{esc(app_resources)}</text>',
-            f'<text class="detail" x="938" y="{application_details_y + 24}">{esc(java_label("application"))}</text>',
+            *text_block("detail", 938, 422, application_runtime),
+            *warmup_kafka_card(920, 725, 290, worker_broker_count, "M1065 570 V725"),
+            *warmup_kafka_card(65, 970, 310, controller_broker_count, "M1210 550 H1223 V995 H405 V1015 H375"),
 
             '<path data-flow="load-to-kafka" d="M375 455 H405 V420 H440" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="kafka-to-application" d="M795 420 H855 V450 H920" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-redis" d="M920 550 H855 V610 H795" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<path data-flow="application-to-stubs" d="M1065 650 V687.5 H410 V667.5 H375" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<text class="detail" x="42" y="1012">Controller: orchestration, load generation, dependencies and observability</text>',
-            '<text class="detail" x="1235" y="1012" text-anchor="end">Worker: measured application only</text>',
+            f'<path data-flow="application-to-stubs" d="M{980 if worker_broker_count else 1065} 570 V687.5 H410 V667.5 H375" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
+            f'<text class="detail" x="42" y="{1012 + controller_extra}">Controller: orchestration, load generation, dependencies and observability</text>',
+            f'<text class="detail" x="1235" y="{1012 + controller_extra}" text-anchor="end">Worker: {"app and Warmup Kafka" if worker_broker_count else "measured application only"}</text>',
         ]
     else:
-        width, height = 1280, 1080
+        broker_extra = 100 if broker_targets else 0
+        width, height = 1280, 1080 + broker_extra
         controller_model, controller_summary = host_summary(controller_name, hardware)
         host_header_lines = (
             wrap_words(controller_model, 105)
@@ -818,25 +755,19 @@ def environment_topology_svg(
         kubernetes_detail_lines = wrap_detail_parts(single_node_line, 68)
         load_request_line, load_limit_line = resource_display_lines(load_resources)
         stub_request_line, stub_limit_line = resource_display_lines(stub_resources)
-        application_lines = application_scaling_lines()
-        if shared_resources:
-            application_request_line, application_limit_line = resource_display_lines(shared_resources)
-        else:
-            application_request_line, application_limit_line = "resources vary by target", ""
-        application_details_y = 497 + len(application_lines) * 24 + 12
         body = [
             f'<text class="title" x="30" y="32">Resolved single-host environment · {esc(provider)}</text>',
-            '<rect x="20" y="55" width="1240" height="1010" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
+            f'<rect x="20" y="55" width="1240" height="{1010 + broker_extra}" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>',
             f'<text class="card-title" x="42" y="87">Physical host · {esc(controller_name)}</text>',
             *text_block("detail", 42, 116, host_header_lines),
 
-            '<rect data-boundary="kubernetes" x="45" y="200" width="750" height="820" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
+            f'<rect data-boundary="kubernetes" x="45" y="200" width="750" height="{820 + broker_extra}" rx="10" fill="#eff6ff" stroke="#326ce5" stroke-width="2"/>',
             service_icon("environment-kubernetes", 65, 217, 32),
             '<text class="card-title" x="108" y="237">Kubernetes server</text>',
             f'<text class="detail" x="108" y="265">{esc(platform)} {esc(version)}</text>',
             *text_block("detail", 108, 293, kubernetes_detail_lines, 28),
 
-            '<path data-boundary="support-workloads" d="M69 345 H411 Q425 345 425 359 V711 Q425 725 439 725 H761 Q775 725 775 739 V986 Q775 1000 761 1000 H69 Q55 1000 55 986 V359 Q55 345 69 345 Z" fill="#ffffff" stroke="#94a3b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5"/>',
+            f'<path data-boundary="support-workloads" d="M69 345 H411 Q425 345 425 359 V711 Q425 725 439 725 H761 Q775 725 775 739 V{986 + broker_extra} Q775 {1000 + broker_extra} 761 {1000 + broker_extra} H69 Q55 {1000 + broker_extra} 55 {986 + broker_extra} V359 Q55 345 69 345 Z" fill="#ffffff" stroke="#94a3b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5"/>',
             '<text class="card-title" x="75" y="375">Kubernetes workloads: Support</text>',
             '<text class="detail" x="75" y="399">Load generation, stubs and telemetry</text>',
             '<rect data-boundary="application-workloads" x="435" y="345" width="340" height="370" rx="14" fill="#ffffff" stroke="#16a34a" stroke-width="2" stroke-dasharray="7 5"/>',
@@ -853,13 +784,11 @@ def environment_topology_svg(
             f'<text class="detail" x="93" y="590">{esc(load_limit_line)}</text>',
             f'<text class="detail" x="93" y="638">{esc(f"{generator_tps} aggregate TPS")}</text>',
 
-            '<rect data-service-card="application" x="455" y="425" width="300" height="270" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
+            '<rect data-service-card="application" x="455" y="425" width="300" height="225" rx="8" fill="#dcfce7" stroke="#16a34a"/>',
             service_icon("application", 473, 443, 30),
             '<text class="card-title" x="515" y="462">Measured application</text>',
-            *text_block("detail", 473, 497, application_lines, 24),
-            f'<text class="detail" x="473" y="{application_details_y}">{esc(application_request_line)}</text>',
-            f'<text class="detail" x="473" y="{application_details_y + 24}">{esc(application_limit_line)}</text>' if application_limit_line else '',
-            f'<text class="detail" x="473" y="{application_details_y + (48 if application_limit_line else 24)}">{esc(java_label("application"))}</text>',
+            *text_block("detail", 473, 497, application_runtime),
+            *warmup_kafka_card(445, 990, 310, len(broker_targets), "M755 625 H765 V1035 H755"),
 
             '<rect data-service-card="stubs" x="75" y="755" width="320" height="165" rx="8" fill="#e0f2fe" stroke="#0284c7"/>',
             service_icon("demo-stubs", 93, 773, 30),
@@ -919,7 +848,7 @@ def environment_topology_svg(
             '<path data-flow="kafka-to-application" d="M845 440 H810 V535 H755" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-stubs" d="M455 560 H410 V837.5 H395" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
             '<path data-flow="application-to-redis" d="M755 590 H810 V630 H845" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>',
-            '<text class="detail" x="42" y="1048">All shown workloads and services run on this physical host</text>',
+            f'<text class="detail" x="42" y="{1048 + broker_extra}">All shown workloads and services run on this physical host</text>',
         ]
     body.append('<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#475569"/></marker></defs>')
     view_box = (0, 35, 1280, 945) if kafka_mode != "docker" else None

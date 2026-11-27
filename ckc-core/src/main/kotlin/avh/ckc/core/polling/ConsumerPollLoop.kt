@@ -68,6 +68,7 @@ internal class ConsumerPollLoop<K, V>(
     private val consumerConfigAdapter: KafkaConsumerConfigAdapter,
     private val topics: List<String>?,
     private val topicsPattern: Pattern?,
+    private val fixedAssignment: Map<TopicPartition, Long>? = null,
     private val recordSink: PolledRecordSink<K, V>,
     private val partitionStateRegistry: PartitionRegistry,
     private val kafkaConsumerFactory:
@@ -138,6 +139,7 @@ internal class ConsumerPollLoop<K, V>(
                 CoroutineName("ConsumerPollLoop-$id")
     )
     private val resourceReleaseStarted = AtomicBoolean(false)
+    private val forceCloseOnExit = AtomicBoolean(false)
     private val resourceReleaseCompletion = CompletableDeferred<Unit>()
 
     private var job: Job? = null
@@ -179,6 +181,7 @@ internal class ConsumerPollLoop<K, V>(
     /** Completed when tracked at-least-once shutdown tail is drained (caller should cancel job afterwards). */
     private val readyForShutdownSignal = CompletableDeferred<Unit>()
     private val finalizedShutdownSignal = CompletableDeferred<Unit>()
+    private val readinessSignal = CompletableDeferred<Unit>()
 
     @Volatile
     private var finalizationRequested = false
@@ -199,6 +202,8 @@ internal class ConsumerPollLoop<K, V>(
         return job!!
     }
 
+    override fun readiness(): Deferred<Unit> = readinessSignal
+
     /**
      * Phase 1 shutdown: request draining and pause poll().
      * Phase 2: loop completes [readyForShutdownSignal] once stash drained and poll returns empty.
@@ -210,8 +215,18 @@ internal class ConsumerPollLoop<K, V>(
     override fun prepareForShutdown(deadlineNanos: Long): Deferred<Unit> {
         shutdownDeadlineNanos = deadlineNanos
         shutdownRequested = true
+        if (!started) {
+            readyForShutdownSignal.complete(Unit)
+            finalizedShutdownSignal.complete(Unit)
+        }
         consumerRef?.wakeup()
         return readyForShutdownSignal
+    }
+
+    /** Bounds Kafka client close when a feature-owned runtime has exhausted its cleanup deadline. */
+    override fun abort() {
+        forceCloseOnExit.set(true)
+        consumerRef?.wakeup()
     }
 
     override fun finalizeShutdown(): Deferred<Unit> {
@@ -254,6 +269,11 @@ internal class ConsumerPollLoop<K, V>(
     }
 
     override suspend fun releaseResources() {
+        if (!started && !readinessSignal.isCompleted) {
+            readinessSignal.completeExceptionally(
+                CancellationException("Kafka consumer #$id stopped before start")
+            )
+        }
         if (resourceReleaseStarted.compareAndSet(false, true)) {
             try {
                 withContext(NonCancellable) {
@@ -315,7 +335,9 @@ internal class ConsumerPollLoop<K, V>(
                             if (kafkaClientMetricsBound) metrics.unbindKafkaClientMetrics(id)
                         } finally {
                             try {
-                                if (recoveringLostAssignment) {
+                                if (forceCloseOnExit.get()) {
+                                    consumer?.close(Duration.ZERO)
+                                } else if (recoveringLostAssignment) {
                                     consumer?.close(remainingRecoveryCloseTimeout())
                                 } else {
                                     consumer?.close()
@@ -325,6 +347,9 @@ internal class ConsumerPollLoop<K, V>(
                     }
                 }
             }
+        } catch (error: Throwable) {
+            readinessSignal.completeExceptionally(error)
+            throw error
         } finally {
             if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.FAILURE)
             running = false
@@ -333,15 +358,42 @@ internal class ConsumerPollLoop<K, V>(
             // but it is already safe for the owner to join the completed job.
             readyForShutdownSignal.complete(Unit)
             finalizedShutdownSignal.complete(Unit)
+            if (!readinessSignal.isCompleted) {
+                readinessSignal.completeExceptionally(
+                    CancellationException("Kafka consumer #$id stopped before assignment readiness")
+                )
+            }
         }
     }
 
     private fun subscribe(consumer: KafkaConsumer<K, V>) {
-        if (topicsPattern != null) {
+        if (fixedAssignment != null) {
+            val partitions = fixedAssignment.keys
+            consumer.assign(partitions)
+            partitions.forEach { partition -> consumer.seek(partition, fixedAssignment.getValue(partition)) }
+            // Force Kafka to validate the assignment and every seek before protocol readiness.
+            partitions.forEach(consumer::position)
+            handleFixedPartitionsAssigned(partitions, fixedAssignment)
+        } else if (topicsPattern != null) {
             consumer.subscribe(topicsPattern, createRebalanceListener(consumer, processingMode))
         } else {
             consumer.subscribe(topics, createRebalanceListener(consumer, processingMode))
         }
+    }
+
+    /** Registers an explicitly assigned partition at its configured start offset. */
+    private fun handleFixedPartitionsAssigned(
+        partitions: Set<TopicPartition>,
+        startOffsets: Map<TopicPartition, Long>
+    ) {
+        val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        assignedPartitionStates.forEach { state ->
+            state.init(startOffsets.getValue(state.topicPartition), forceReset = true)
+            metrics.bindPartitionMetrics(id, state)
+        }
+        assignedPartitions += assignedPartitionStates
+        refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     /**
@@ -457,6 +509,12 @@ internal class ConsumerPollLoop<K, V>(
         partitions: Collection<TopicPartition>
     ) {
         val assignedPartitionStates = partitionStateRegistry.onPartitionsAssigned(partitions)
+        if (partitions.isEmpty()) {
+            if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
+            refreshAssignedPartitionSnapshot()
+            readinessSignal.complete(Unit)
+            return
+        }
         val recoveryCallTimeout = remainingRecoveryCallTimeout()
         val committedOffsets = if (recoveryCallTimeout == null) {
             consumer.committed(partitions.toSet())
@@ -490,6 +548,7 @@ internal class ConsumerPollLoop<K, V>(
         }
         if (recoveringLostAssignment) finishRecovery(LifecycleOutcome.SUCCESS)
         refreshAssignedPartitionSnapshot()
+        readinessSignal.complete(Unit)
     }
 
     private fun remainingRecoveryCallTimeout(): Duration? {
@@ -988,8 +1047,10 @@ internal class ConsumerPollLoop<K, V>(
         val retained = stash.filterTo(ArrayDeque()) { record ->
             val discard = TopicPartition(record.topic(), record.partition()) in revoked
             if (discard) {
-                metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
-                partitionStateRegistry.discard(record)
+                if (!recordSink.discardIfFiltered(record)) {
+                    metrics.onRecordHandedOff(record, RecordHandoffReason.ASSIGNMENT_ENDED)
+                    partitionStateRegistry.discard(record)
+                }
                 activeUnobservedRecords?.remove(record)
                 activeTrackerBlockedRecords?.remove(record)
             }
@@ -1035,58 +1096,132 @@ internal class ConsumerPollLoop<K, V>(
 
     /**
      * Freshness-first modes:
-     * - Minimal poll-loop mode; uses best-effort dispatch into a runtime that may drop records.
+     * - Dispatches into a runtime that may intentionally replace or drop pending records.
+     * - Retains a bounded poll tail when an auxiliary admission gate applies backpressure.
      * - Explicitly commits the latest accepted offsets by time or record count.
      */
     private suspend fun consumerLoopFreshnessFirst(consumer: KafkaConsumer<K, V>) {
+        val maxPollRecords = consumerConfigAdapter.getInt(MAX_POLL_RECORDS_CONFIG)!!
+        val stashCapacity = Math.multiplyExact(maxPollRecords, 2)
+        val stash = ArrayDeque<ConsumerRecord<K, V>>(stashCapacity)
+        val unobservedRecords = Collections.newSetFromMap(
+            IdentityHashMap<ConsumerRecord<K, V>, Boolean>()
+        )
+        val trackerBlockedRecords = Collections.newSetFromMap(
+            IdentityHashMap<ConsumerRecord<K, V>, Boolean>()
+        )
+        val trackerPausedPartitions = mutableSetOf<TopicPartition>()
+        activeStash = stash
+        activeUnobservedRecords = unobservedRecords
+        activeTrackerBlockedRecords = trackerBlockedRecords
+        activeTrackerPausedPartitions = trackerPausedPartitions
+
         var lastCommitAt = System.currentTimeMillis()
         var pendingRecordsAtLastAttempt = 0L
-        while (currentCoroutineContext().isActive) {
-            if (recoveringLostAssignment) {
-                val deadline = recoveryDeadlineNanos
-                if (deadline != null && System.nanoTime() >= deadline) {
-                    throw RecoveryTimeoutException("Kafka consumer #$id did not receive an assignment before the recovery deadline")
+        var state = State.ACTIVE
+        globalPauseActive = false
+        try {
+            while (currentCoroutineContext().isActive) {
+                if (recoveringLostAssignment) {
+                    val deadline = recoveryDeadlineNanos
+                    if (deadline != null && System.nanoTime() >= deadline) {
+                        throw RecoveryTimeoutException(
+                            "Kafka consumer #$id did not receive an assignment before the recovery deadline"
+                        )
+                    }
                 }
-            }
-            if (shutdownRequested) {
-                if (!shutdownPaused) {
-                    pause(consumer, recordBackpressureMetric = false)
-                    shutdownPaused = true
+                if (shutdownRequested) {
+                    if (!shutdownPaused) {
+                        pause(consumer, recordBackpressureMetric = false)
+                        shutdownPaused = true
+                    }
+                    while (stash.isNotEmpty()) {
+                        val record = stash.removeFirst()
+                        unobservedRecords.remove(record)
+                        if (!recordSink.discardIfFiltered(record)) {
+                            metrics.onRecordDropped(
+                                record,
+                                avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD
+                            )
+                            partitionStateRegistry.discard(record)
+                        }
+                    }
+                    readyForShutdownSignal.complete(Unit)
+                    // Keep the group member/client alive while the runtime drains accepted records.
+                    // No new records are admitted once shutdown starts.
+                    if (finalizationRequested) break
+                    pollRecords(consumer, State.DRAINING_TAIL).forEach { record ->
+                        if (!recordSink.discardIfFiltered(record)) {
+                            metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
+                        }
+                    }
+                    continue
                 }
-                readyForShutdownSignal.complete(Unit)
-                // Keep the group member/client alive while the runtime drains accepted records.
-                // No new records are admitted once shutdown starts.
-                if (finalizationRequested) break
-                pollRecords(consumer, State.DRAINING_TAIL).forEach { record ->
-                    metrics.onRecordDropped(record, avh.ckc.core.metrics.RecordDropReason.LIFECYCLE_DISCARD)
-                }
-                continue
-            }
 
-            val pendingRecords = countPendingCommitRecords()
-            if (pendingRecords < pendingRecordsAtLastAttempt) {
-                pendingRecordsAtLastAttempt = pendingRecords
-            }
-            val now = System.currentTimeMillis()
-            val intervalReached = now - lastCommitAt >= commitIntervalMs
-            val recordsThresholdReached =
-                pendingRecords - pendingRecordsAtLastAttempt >= commitRecordsThreshold.toLong()
-            if (intervalReached || recordsThresholdReached) {
-                val result = commitOffsets(consumer, assignedPartitions)
-                lastCommitAt = now
-                pendingRecordsAtLastAttempt = when (result) {
-                    CommitAttemptResult.FAILED -> pendingRecords
-                    CommitAttemptResult.NO_OFFSETS,
-                    CommitAttemptResult.SUCCEEDED -> 0L
+                val pendingRecords = countPendingCommitRecords()
+                if (pendingRecords < pendingRecordsAtLastAttempt) {
+                    pendingRecordsAtLastAttempt = pendingRecords
+                }
+                val now = System.currentTimeMillis()
+                val intervalReached = now - lastCommitAt >= commitIntervalMs
+                val recordsThresholdReached =
+                    pendingRecords - pendingRecordsAtLastAttempt >= commitRecordsThreshold.toLong()
+                if (intervalReached || recordsThresholdReached) {
+                    val result = commitOffsets(consumer, assignedPartitions)
+                    lastCommitAt = now
+                    pendingRecordsAtLastAttempt = when (result) {
+                        CommitAttemptResult.FAILED -> pendingRecords
+                        CommitAttemptResult.NO_OFFSETS,
+                        CommitAttemptResult.SUCCEEDED -> 0L
+                    }
+                }
+
+                val records = pollRecords(consumer, state)
+                val iterator = records.iterator()
+                if (state == State.ACTIVE) {
+                    while (iterator.hasNext()) {
+                        val record = iterator.next()
+                        if (!observeRecordOffset(record)) {
+                            stash.addBounded(record, stashCapacity)
+                            unobservedRecords += record
+                            continue
+                        }
+                        if (!recordSink.tryEmit(record)) {
+                            state = State.PAUSED
+                            stash.addBounded(record, stashCapacity)
+                            pause(consumer)
+                            break
+                        }
+                    }
+                }
+
+                while (iterator.hasNext()) {
+                    val record = iterator.next()
+                    stash.addBounded(record, stashCapacity)
+                    unobservedRecords += record
+                }
+
+                val queueAvailable = drainStash(
+                    consumer,
+                    stash,
+                    unobservedRecords,
+                    trackerBlockedRecords,
+                    trackerPausedPartitions
+                )
+                if (!queueAvailable && state == State.ACTIVE) {
+                    state = State.PAUSED
+                    pause(consumer)
+                }
+                if (state == State.PAUSED && queueAvailable && stash.size <= maxPollRecords) {
+                    state = State.ACTIVE
+                    resume(consumer)
                 }
             }
-
-            val records = pollRecords(consumer, State.ACTIVE)
-
-            for (record in records) {
-                observeRecordOffset(record)
-                recordSink.tryEmit(record)
-            }
+        } finally {
+            activeStash = null
+            activeUnobservedRecords = null
+            activeTrackerBlockedRecords = null
+            activeTrackerPausedPartitions = null
         }
     }
 

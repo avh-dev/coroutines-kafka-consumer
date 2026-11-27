@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,6 +96,31 @@ nodes:
         self.assertIn("LAB_SSH_HOST=192.0.2.10", environment)
         self.assertIn("LAB_USER=ckc-lab", environment)
         self.assertIn("LAB_ROOT=/opt/ckc-lab", environment)
+        self.assertIn("LAB_REDIS_ADDRESS=192.0.2.10\n", environment)
+
+    def test_redis_address_overrides_only_the_redis_endpoint(self) -> None:
+        path = self.write_config(topology="split-application")
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "  application_link: direct\n",
+                "  application_link: direct\n  redis_address: 10.77.0.1\n",
+            ),
+            encoding="utf-8",
+        )
+
+        config = LAB.load_config(path)
+        environment = LAB.write_compatibility_environment(config).read_text(encoding="utf-8")
+
+        self.assertIn("LAB_REDIS_ADDRESS=10.77.0.1\n", environment)
+        self.assertIn("LAB_NODE_IP=192.0.2.10\n", environment)
+        self.assertIn("LAB_APPLICATION_HOST=198.51.100.11\n", environment)
+
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("10.77.0.1", "redis.local"),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "network.redis_address must be an IPv4 address"):
+            LAB.load_config(path)
 
     def test_writes_split_worker_runtime_environment(self) -> None:
         config = LAB.load_config(self.write_config(topology="split-application"))
@@ -158,29 +185,75 @@ nodes:
 
         self.assertEqual("eno1", result.stdout.strip())
 
-    @mock.patch.object(LAB, "capture")
-    @mock.patch.object(LAB, "run")
-    def test_start_writes_request_and_uses_user_systemd(self, run: mock.Mock, capture: mock.Mock) -> None:
+    @mock.patch.object(LAB, "print_managed_status", return_value=0)
+    @mock.patch.object(LAB.subprocess, "run")
+    def test_start_submits_one_ordered_request(self, run: mock.Mock, _status: mock.Mock) -> None:
         config_path = self.write_config()
-        capture.return_value = mock.Mock(returncode=3)
-        args = mock.Mock(
-            config=config_path,
-            experiment=Path("smoke.yaml"),
-            no_update=True,
-            dry_run=True,
-            env=["AUDIT_LOG_ENABLED=true"],
-            skip_archives=False,
-        )
+        args = LAB.parser().parse_args([
+            "--config", str(config_path), "experiment", "start",
+            "smoke.yaml", "ckc-spring-boot-smoke.yaml", "smoke.yaml",
+            "--no-update", "--env", "AUDIT_LOG_ENABLED=true", "--skip-archives",
+        ])
 
         self.assertEqual(0, LAB.experiment_start_command(args))
 
-        request = (self.root / "experiment-request.json").read_text(encoding="utf-8")
-        self.assertIn('"experiment": "smoke.yaml"', request)
-        self.assertIn('"AUDIT_LOG_ENABLED=true"', request)
-        command = " ".join(str(value) for value in run.call_args_list[-1].args[0])
-        self.assertIn("progress.json", command)
-        self.assertIn("rm -f", command)
-        self.assertIn("systemctl --user start ckc-experiment.service", command)
+        run.assert_called_once()
+        self.assertIn("/libexec/experiment-service.py start", run.call_args.args[0][-1])
+        request = json.loads(run.call_args.kwargs["input"])
+        self.assertEqual(
+            ["smoke.yaml", "ckc-spring-boot-smoke.yaml", "smoke.yaml"], request["experiments"],
+        )
+        self.assertEqual(["AUDIT_LOG_ENABLED=true"], request["env"])
+        self.assertTrue(request["skip_archives"])
+
+    @mock.patch.object(LAB, "up_command")
+    @mock.patch.object(LAB.subprocess, "run")
+    def test_start_rejects_existing_invalid_yaml_before_updating_or_starting(
+        self, run: mock.Mock, up: mock.Mock,
+    ) -> None:
+        config_path = self.write_config()
+        catalog = self.root / "demo/infra/experiments"
+        catalog.mkdir(parents=True)
+        shutil.copyfile(LAB.REPO_ROOT / "demo/infra/experiments/smoke.yaml", catalog / "smoke.yaml")
+        broken = LAB.yaml.safe_load((catalog / "smoke.yaml").read_text(encoding="utf-8"))
+        broken["targets"][0]["annotation_label"] = ""
+        (catalog / "broken.yaml").write_text(LAB.yaml.safe_dump(broken), encoding="utf-8")
+
+        with mock.patch.object(LAB, "REPO_ROOT", self.root):
+            with self.assertRaisesRegex(ValueError, r"broken\.yaml: .*annotation_label must not be blank"):
+                args = LAB.parser().parse_args([
+                    "--config", str(config_path), "experiment", "start", "smoke.yaml", "broken.yaml",
+                ])
+                LAB.experiment_start_command(args)
+
+        run.assert_not_called()
+        up.assert_not_called()
+
+    def test_management_commands_do_not_invoke_legacy_runner(self) -> None:
+        config = self.write_config()
+        lab_root = self.root / "installed"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace("/opt/ckc-lab", str(lab_root)), encoding="utf-8",
+        )
+        legacy = lab_root / "libexec/managed-experiment.py"
+        legacy.parent.mkdir(parents=True)
+        marker = legacy.parent / "legacy-ran"
+        legacy.write_text('#!/bin/sh\ntouch "$(dirname "$0")/legacy-ran"\n', encoding="utf-8")
+        legacy.chmod(0o755)
+        real_run = subprocess.run
+
+        def run_remote(command, **kwargs):
+            self.assertEqual("ssh", command[0])
+            kwargs.setdefault("text", True)
+            return real_run(["sh", "-c", command[-1]], **kwargs, stderr=subprocess.PIPE)
+
+        for options in (["status"], ["stop"], ["start", "smoke.yaml", "--no-update"]):
+            with self.subTest(options=options), mock.patch.object(LAB.subprocess, "run", side_effect=run_remote):
+                args = LAB.parser().parse_args(["--config", str(config), "experiment", *options])
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    args.handler(args)
+                self.assertIn("lab up", error.exception.stderr)
+                self.assertFalse(marker.exists())
 
     @mock.patch.object(LAB, "managed_unit_properties")
     def test_status_shows_live_target_eta_and_drain_lag(self, properties: mock.Mock) -> None:
@@ -205,6 +278,61 @@ nodes:
         self.assertIn("step:         draining consumer lag", rendered)
         self.assertIn("target:       1/1 — ckc", rendered)
         self.assertIn("consumer lag: 42", rendered)
+
+    @mock.patch.object(LAB, "managed_unit_properties")
+    def test_status_exposes_queue_and_target_progress_in_both_formats(self, properties: mock.Mock) -> None:
+        config = LAB.load_config(self.write_config())
+        properties.return_value = (
+            {"ActiveState": "active", "SubState": "running", "Result": "success"},
+            {
+                "experiment": "baseline.yaml",
+                "queue": {
+                    "status": "running", "current_index": 2, "exit_code": None,
+                    "experiments": [
+                        {"experiment": "baseline.yaml", "status": "succeeded", "exit_code": 0, "run_id": "baseline"},
+                        {"experiment": "ckc.yaml", "status": "running", "exit_code": None, "run_id": "ckc"},
+                        {"experiment": "repeat.yaml", "status": "not_started", "exit_code": None, "run_id": None},
+                    ],
+                },
+            },
+            {"target": {"index": 4, "total": 7, "name": "ckc"}},
+        )
+
+        with redirect_stdout(io.StringIO()) as output:
+            LAB.print_managed_status(config)
+        self.assertIn("1/3 succeeded", output.getvalue())
+        self.assertIn("2/3 — ckc.yaml", output.getvalue())
+        self.assertIn("4/7 — ckc", output.getvalue())
+
+        with redirect_stdout(io.StringIO()) as output:
+            LAB.print_managed_status(config, json_output=True)
+        document = json.loads(output.getvalue())
+        queue = document["queue"]
+        self.assertEqual((1, 3, 2), (queue["succeeded"], queue["total"], queue["current_index"]))
+        self.assertIsNone(queue["experiments"][2]["exit_code"])
+        self.assertIsNone(queue["experiments"][2]["run_id"])
+        self.assertEqual(4, document["progress"]["target"]["index"])
+
+    @mock.patch.object(LAB, "managed_unit_properties")
+    def test_service_cleanup_failure_overrides_queue_success(self, properties: mock.Mock) -> None:
+        config = LAB.load_config(self.write_config())
+        completed = {"experiment": "smoke.yaml", "status": "succeeded", "exit_code": 0, "run_id": "run"}
+        properties.return_value = (
+            {"ActiveState": "failed", "SubState": "failed", "Result": "exit-code", "ExecMainStatus": "0"},
+            {"queue": {"status": "succeeded", "current_index": None, "exit_code": 0, "experiments": [completed]}},
+            {},
+        )
+        with redirect_stdout(io.StringIO()) as output:
+            LAB.print_managed_status(config, json_output=True)
+        document = json.loads(output.getvalue())
+        self.assertEqual("exit-code", document["result"])
+        self.assertEqual("failed", document["active_state"])
+        self.assertEqual([completed], document["queue"]["experiments"])
+
+        with redirect_stdout(io.StringIO()) as output:
+            LAB.print_managed_status(config)
+        self.assertIn("result:       exit-code", output.getvalue())
+        self.assertIn("smoke.yaml: succeeded (exit 0)", output.getvalue())
 
     @mock.patch.object(LAB, "managed_unit_properties")
     def test_status_reports_cancelled_instead_of_systemd_success(self, properties: mock.Mock) -> None:

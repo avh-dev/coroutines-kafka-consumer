@@ -1,10 +1,10 @@
 package avh.ckc.spring
 
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.micrometer.MicrometerConsumerMetricsSchema
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.RecordMetricTagDefinition
-import avh.ckc.micrometer.micrometerConsumerMetrics
+import avh.ckc.core.metrics.micrometer.MicrometerConsumerMetricsSchema
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordMetricTagDefinition
+import avh.ckc.core.metrics.micrometer.micrometerConsumerMetrics
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Tag
 import org.springframework.context.ApplicationContext

@@ -1,0 +1,142 @@
+# Autonomous warm-up Kafka image
+
+This image wraps the pinned official `docker.io/apache/kafka:4.3.1` broker with a
+one-shot topic bootstrap and broker prewarm. It is an optional transport for
+protocol-v6 traffic warm-up; the application still owns no topic-creation
+privileges.
+
+```bash
+./gradlew :ckc-warmup:stageWarmupBrokerCli
+warmup_image_context=$(mktemp -d)
+cp -a demo/infra/shared/warmup-kafka/. "${warmup_image_context}/"
+cp -a ckc-warmup/build/warmup-broker-cli "${warmup_image_context}/cli"
+docker build -t ckc-perf/warmup-kafka:latest "${warmup_image_context}"
+docker run --rm --name ckc-warmup-kafka -p 29092:9092 \
+  -e KAFKA_BOOTSTRAP_TOPICS='ckc.traffic-warmup.v6.control, ckc.traffic-warmup.v6.order.events,ckc.traffic-warmup.v6.batch.events,ckc.traffic-warmup.v6.cauldron.events' \
+  -e KAFKA_ADVERTISED_LISTENERS=INTERNAL://localhost:19092,EXTERNAL://localhost:29092 \
+  -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+  -e KAFKA_LISTENERS=INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093 \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  ckc-perf/warmup-kafka:latest
+```
+
+`KAFKA_BOOTSTRAP_TOPICS` is required. Bootstrap trims whitespace, removes
+duplicates, creates only missing topics with one partition and replication factor
+one, and never deletes topics or changes their partition count. A topic with any
+other partition count keeps readiness closed and is reported as
+`incompatible_metadata`.
+
+The broker has separate listener identities. Bootstrap and the inter-broker path
+use `INTERNAL://localhost:19092`, whose metadata never depends on a Docker port or
+Kubernetes Service endpoint. Applications use the `EXTERNAL` listener advertised
+at the stable environment address. Local Docker examples publish that listener as
+`localhost:29092`; Kubernetes advertises `ckc-warmup-kafka:9092`.
+
+After protocol-topic bootstrap, a producer and consumer exercise a dedicated
+temporary topic through the internal listener. The default profile grows smoothly
+from 1 to 100 records/s over 30 seconds and then from 100 to 2000 records/s over
+90 seconds. Scheduling delay or producer backpressure reduces the achieved rate;
+it never creates a catch-up burst. The client bounds outstanding sends, total
+records, total bytes, producer buffering, and delivery time. Readiness opens only
+after every accepted record is acknowledged and consumed, both clients stop, and
+the temporary topic is deleted. Protocol topics are never used for priming.
+
+The marker is cleared before every broker start. Readiness requires successful
+bootstrap and prewarm for that start, a live broker process, and an open internal
+listener; the listener check does not start a JVM. The following settings are
+optional:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KAFKA_BOOTSTRAP_TIMEOUT_SECONDS` | `120` | Total bound for initial broker and topic preparation |
+| `KAFKA_BOOTSTRAP_BACKOFF_SECONDS` | `2` | Retry delay while the broker is starting |
+| `KAFKA_OPERATION_TIMEOUT_SECONDS` | `10` | Bound for every Kafka CLI operation |
+| `KAFKA_PREWARM_TIMEOUT_SECONDS` | `180` | Outer bound for prewarm and temporary-topic cleanup |
+| `KAFKA_PREWARM_FIRST_PHASE_SECONDS` | `30` | Duration of the 1-to-100 records/s phase |
+| `KAFKA_PREWARM_SECOND_PHASE_SECONDS` | `90` | Duration of the 100-to-2000 records/s phase |
+| `KAFKA_PREWARM_START_RATE` | `1` | Initial records/s |
+| `KAFKA_PREWARM_MIDDLE_RATE` | `100` | Rate at the phase boundary |
+| `KAFKA_PREWARM_END_RATE` | `2000` | Final records/s |
+| `KAFKA_PREWARM_PAYLOAD_BYTES` | `512` | Size of each temporary record |
+| `KAFKA_PREWARM_MAX_RECORDS` | `100000` | Maximum accepted records |
+| `KAFKA_PREWARM_MAX_BYTES` | `67108864` | Maximum accepted payload bytes |
+| `KAFKA_PREWARM_MAX_INFLIGHT` | `256` | Maximum records awaiting producer acknowledgement |
+| `KAFKA_PREWARM_MAX_BUFFERED_BYTES` | `16777216` | Kafka producer memory bound |
+| `KAFKA_PREWARM_DELIVERY_TIMEOUT_SECONDS` | `30` | Bound for acknowledgement and consumer drain |
+| `KAFKA_READINESS_TIMEOUT_SECONDS` | `2` | Bound for the internal TCP listener check |
+| `KAFKA_SHUTDOWN_TIMEOUT_SECONDS` | `30` | Grace period before child processes are killed |
+| `KAFKA_BROKER_LIFECYCLE_TOPIC` | empty | Enables coordination on a dedicated topic |
+| `KAFKA_DRAIN_TIMEOUT_SECONDS` | `50` | Time reserved for the drain process, including two seconds for JVM launch and exit |
+| `KAFKA_TERMINATION_GRACE_PERIOD_SECONDS` | `90` | Total pod termination budget for coordination, Kafka shutdown, and a five-second safety margin |
+
+Enable the lifecycle topic after deploying clients that register on it. Bootstrap creates the topic
+with one partition, unlimited time and size retention, and log append timestamps. It verifies
+the effective configuration before the supervisor publishes `BrokerStarted` and opens readiness.
+Each start of the Kafka process publishes a new epoch, including a restart with the same data volume.
+
+During shutdown the supervisor removes readiness, starts the drain CLI, and sends `SIGTERM` to Kafka
+after the CLI exits or reaches its budget. The result includes the expected contexts and the missing
+confirmations. The CLI uses the internal listener. Final confirmations from application pods use
+a fresh connection to the address Kafka advertised before shutdown.
+
+The Kubernetes deployment generated by the shared experiment orchestration uses
+the same image and a stable `ckc-warmup-kafka` Service. Bootstrap exits after topic
+preparation and prewarm; the supervisor then monitors the broker alone. A bootstrap or prewarm failure or
+broker exit terminates the container so Kubernetes can restart the complete unit.
+Full loss of the ephemeral broker data therefore creates a new Kafka log at the
+same address; CORE-83 deliberately terminates old sessions and allows new sessions
+after the restarted container completes bootstrap.
+
+Manual topic deletion while a broker remains alive is not repaired automatically.
+Restart the container to run bootstrap again. Normal operation does not delete
+protocol topics, so avoiding continuous Kafka CLI processes keeps the transport
+lightweight without weakening the required broker-and-data-loss recovery path.
+
+Internal-lab experiments opt in through their environment configuration. The
+topic list is materialized into `KAFKA_BOOTSTRAP_TOPICS`; changing it does not
+rebuild the image.
+
+```yaml
+environments:
+  internal-lab:
+    lab: {profile: installed}
+    warmup_kafka:
+      enabled: true
+      placement: application
+      topics:
+        - ckc.traffic-warmup.v6.control
+        - ckc.traffic-warmup.v6.order.events
+        - ckc.traffic-warmup.v6.batch.events
+        - ckc.traffic-warmup.v6.cauldron.events
+```
+
+Complete standalone manifests are in [`examples/docker-compose.yml`](examples/docker-compose.yml)
+and [`examples/kubernetes.yaml`](examples/kubernetes.yaml). The internal-lab
+preparation waits at most five minutes for initial transport readiness and then
+starts the application anyway, allowing the core cold-fallback path to run.
+
+`/var/run/ckc-warmup-kafka/prewarm.json` records the achieved rate, accepted,
+acknowledged and consumed counts, bytes, duration, and failure reason. The same
+record is written to the container log so experiment evidence retains it. The
+two-minute default is an initial qualification profile, not a claim that every
+broker or hardware combination is fully warmed. Comparisons should state whether
+they use prewarmed infrastructure or a deliberately fully cold broker start.
+
+The bounded Docker lifecycle qualification can be run against any built tag:
+
+```bash
+demo/infra/shared/warmup-kafka/tests/container-lifecycle-test.sh \
+  ckc-perf/warmup-kafka:latest
+```
+
+It verifies initial bootstrap through the internal listener before the stable
+external address is used, the external metadata path, record-preserving restart,
+incompatible partition metadata, automatic topic restoration after deleting the
+broker data volume, bootstrap completion, and supervisor response to broker exit.
+Its trap removes the temporary container, network, and volume on success,
+failure, or interruption.

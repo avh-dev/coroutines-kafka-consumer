@@ -147,8 +147,8 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(1, len(drop_panels))
         target = drop_panels[0]["targets"][0]
         self.assertIn("demo_ckc_record_dropped_total", target["expr"])
-        self.assertIn('consumer_id=\"cauldron_events\"', target["expr"])
-        self.assertNotIn("order_events|batch_events", target["expr"])
+        self.assertIn('consumer_id=~"cauldron[-_]events"', target["expr"])
+        self.assertNotIn("(order|batch)[-_]events", target["expr"])
         self.assertEqual("{{reason}} {{pod_legend}}", target["legendFormat"])
         self.assertEqual("ops", drop_panels[0]["fieldConfig"]["defaults"]["unit"])
 
@@ -246,7 +246,13 @@ class DashboardTest(unittest.TestCase):
         row = next(panel for panel in dashboard["panels"] if panel.get("title") == "Application Resources")
         panels = {panel["title"]: panel for panel in row["panels"]}
 
-        self.assertIn("sum(rate(container_cpu_usage_seconds_total", panels["Application Container CPU — Total"]["targets"][0]["expr"])
+        combined_cpu = panels["Application and Warmup Kafka CPU — Total"]["targets"]
+        self.assertEqual(["Application", "Warmup Kafka", "Total"], [target["legendFormat"] for target in combined_cpu])
+        self.assertIn("sum(rate(container_cpu_usage_seconds_total", combined_cpu[0]["expr"])
+        self.assertIn('container="kafka"', combined_cpu[1]["expr"])
+        self.assertIn("kube_pod_created", combined_cpu[2]["expr"])
+        warmup = next(panel for panel in dashboard["panels"] if panel["title"] == "Warmup Kafka")
+        self.assertEqual(6, len(warmup["panels"]))
         cpu_by_pod = panels["Application CPU — Container vs Thread Stats by Pod"]
         self.assertIn(
             "sum by (pod) (rate(container_cpu_usage_seconds_total",
@@ -514,6 +520,17 @@ class DashboardTest(unittest.TestCase):
                 target["legendFormat"],
             )
             self.assertEqual("A", target["refId"])
+
+    def test_thread_stats_row_explains_warmup_service_cost_boundary(self) -> None:
+        dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        row = next(panel for panel in dashboard["panels"] if panel.get("id") == 94)
+
+        self.assertIn("warmup-protocol", row["description"])
+        self.assertIn("service executors", row["description"])
+        self.assertIn("business handlers", row["description"])
+        self.assertIn("Kafka client", row["description"])
+        self.assertIn("rather than the complete cost", row["description"])
 
     def test_thread_stats_context_switch_panels_are_split_smooth_and_stacked(self) -> None:
         dashboard_path = Path(__file__).resolve().parents[1] / "grafana/dashboards/ckc-overview.json"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -59,6 +60,10 @@ STANDARD_MEASUREMENTS = {
     "cpu_throttling_seconds_total": (
         "sum(increase(container_cpu_cfs_throttled_seconds_total"
         '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}]))'
+    ),
+    "application_cpu_used_core_hours": (
+        "sum(increase(container_cpu_usage_seconds_total"
+        '{{namespace=~"ckc-perf|ckc-app", container="demo", pod=~"ckc-demo-.+"}}[{window}])) / 3600'
     ),
     "cpu_average_cores": (
         "avg_over_time((sum(rate(container_cpu_usage_seconds_total"
@@ -168,21 +173,21 @@ STANDARD_MEASUREMENTS = {
     ),
     "telemetry_poll_batch_average_records": (
         "sum(increase(demo_ckc_poll_records_sum"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])) / '
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}])) / '
         "clamp_min(sum(increase(demo_ckc_poll_records_count"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])), 1)'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}])), 1)'
     ),
     "telemetry_poll_batch_max_records": (
         "max(max_over_time(demo_ckc_poll_records_max"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "telemetry_active_workers_average": (
         "avg(avg_over_time(demo_ckc_workers_active"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "telemetry_active_workers_max": (
         "max(max_over_time(demo_ckc_workers_active"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "processing_worker_cpu_average_cores": (
         "sum(increase(thread_stats_cpu_seconds_total"
@@ -300,16 +305,18 @@ class PrometheusClient:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def query_scalar(self, query: str, at: datetime) -> float | None:
+    def query_vector(self, query: str, at: datetime) -> list[dict[str, Any]]:
         params = urllib.parse.urlencode({"query": query, "time": at.timestamp()})
         url = f"{self.base_url}/api/v1/query?{params}"
         with urllib.request.urlopen(url, timeout=self.timeout_seconds) as response:
             document = json.loads(response.read().decode("utf-8"))
         if document.get("status") != "success":
             raise ValueError(f"Prometheus query failed: {document.get('error', 'unknown error')}")
-        result = document.get("data", {}).get("result", [])
+        return document.get("data", {}).get("result", [])
+
+    def query_scalar(self, query: str, at: datetime) -> float | None:
         values = []
-        for series in result:
+        for series in self.query_vector(query, at):
             value = series.get("value")
             if isinstance(value, list) and len(value) == 2:
                 try:
@@ -358,6 +365,47 @@ def collect_standard_measurements(
     for name, template in STANDARD_MEASUREMENTS.items():
         query = template.format(window=window, seconds=seconds)
         measurements[name] = client.query_scalar(query, end)
+    return measurements
+
+
+def collect_target_application_resources(
+    client: PrometheusClient,
+    run_id: str,
+    start: datetime,
+    end: datetime,
+    *,
+    per_topic: bool,
+) -> dict[str, float | None]:
+    duration = (end - start).total_seconds()
+    seconds = math.ceil(duration)
+    window = f"{seconds}s"
+    step = min(15, seconds)
+    owner = (
+        'group by (namespace, pod) (max_over_time(up{job="ckc-demo",'
+        f'run_id={json.dumps(run_id)}}}[{window}] @ {end.timestamp():.3f}))'
+    )
+    member = f"and on(namespace, pod) ({owner})"
+    containers = 'namespace=~"ckc-perf|ckc-app",container="demo"'
+    pods = f'{containers},pod=~"ckc-demo-.+"'
+    memory = "container_memory_working_set_bytes"
+    cpu = f"increase(container_cpu_usage_seconds_total{{{pods}}}[{window}])"
+    working_set = f"last_over_time({memory}{{{pods}}}[30s])"
+    measurements = {
+        "application_cpu_used_core_hours": client.query_scalar(f"sum({cpu} {member}) / 3600", end),
+        "application_memory_average_mib": client.query_scalar(
+            f"avg_over_time((sum({working_set} {member}))[{window}:{step}s]) / 1024 / 1024", end
+        ),
+    }
+    groups = {"application": "ckc-demo-.+"}
+    if per_topic:
+        groups.update({f"application_{topic}": f"ckc-demo-{topic}-.+" for topic in ("order", "batch", "telemetry")})
+    for key, pattern in groups.items():
+        current = f'last_over_time({memory}{{{containers},pod=~"{pattern}"}}[30s])'
+        # Only observed pods contribute replica time during target preparation.
+        measurements[f"{key}_replicas_average"] = client.query_scalar(
+            f"sum_over_time((count({current} {member}))[{window}:{step}s]) * {step} / {duration}",
+            end,
+        )
     return measurements
 
 

@@ -6,18 +6,27 @@ import argparse
 import json
 import os
 import random
+import re
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from experiment_events import append_event
+from experiment_events import append_event, utc_iso
+
+SHARED_ROOT = Path(__file__).resolve().parents[3] / "shared"
+if SHARED_ROOT.is_dir():
+    sys.path.insert(0, str(SHARED_ROOT))
+
+from experiment_orchestration import warmup_scale_up
+from result_bundle.collect import http_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +69,7 @@ SERVICE_TARGETS = {
     "audit": {"ports": [5170], "container": "ckc-internal-fluent-bit", "mark": 6503, "band": 12, "handle": 112},
 }
 
-INSTANT_SCENARIO_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart"}
+INSTANT_SCENARIO_TYPES = {"deployment_scale", "pod_delete", "pod_crash", "service_restart", "warmup_broker_stop"}
 DURATION_SCENARIO_TYPES = {"stubs_degradation", "network_degradation", "service_outage", "service_crash"}
 COMPOSITE_SCENARIO_TYPES = {"sequence"}
 
@@ -276,10 +285,14 @@ def docker_service(params: dict[str, Any], action: str, *, dry_run: bool, check:
     run(["docker", action, container], check=check)
 
 
-def wait_for_http_ok(url: str, timeout_seconds: int) -> None:
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        result = subprocess.run(["curl", "-fsS", url], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def wait_for_http(url: str, timeout_seconds: int, *, require_success: bool) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    curl_flags = "-fsS" if require_success else "-sS"
+    while (remaining := deadline - time.monotonic()) > 0:
+        result = subprocess.run(
+            ["curl", curl_flags, "--max-time", str(min(remaining, 1.0)), url],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         if result.returncode == 0:
             return
         time.sleep(0.5)
@@ -374,7 +387,11 @@ def wait_until(
         time.sleep(min(1.0, remaining))
 
 
-def random_running_pod(namespace: str, selector: str) -> str:
+def select_running_pod(namespace: str, selector: str, pod_index: int | None) -> dict[str, Any]:
+    if pod_index is not None and (
+        isinstance(pod_index, bool) or not isinstance(pod_index, int) or pod_index <= 0
+    ):
+        raise ValueError("pod_index must be a positive integer")
     result = run(
         [
             "kubectl",
@@ -393,19 +410,34 @@ def random_running_pod(namespace: str, selector: str) -> str:
     data = json.loads(result.stdout)
     pods = []
     for item in data.get("items", []):
-        metadata = item.get("metadata", {})
-        if metadata.get("deletionTimestamp"):
+        metadata = item["metadata"]
+        status = item.get("status", {})
+        if status.get("phase") != "Running" or metadata.get("deletionTimestamp"):
             continue
-        conditions = item.get("status", {}).get("conditions", [])
-        ready = any(
+        if pod_index is None and not any(
             condition.get("type") == "Ready" and condition.get("status") == "True"
-            for condition in conditions
+            for condition in status.get("conditions", [])
+        ):
+            continue
+        pods.append(metadata)
+    if pod_index is None:
+        if not pods:
+            raise RuntimeError(f"No ready running pods matched namespace={namespace} selector={selector}")
+        return random.SystemRandom().choice(pods)
+    if pod_index > len(pods):
+        raise RuntimeError(
+            f"pod_index {pod_index} exceeds {len(pods)} running pods matched "
+            f"namespace={namespace} selector={selector}"
         )
-        if ready:
-            pods.append(metadata["name"])
-    if not pods:
-        raise RuntimeError(f"No ready running pods matched namespace={namespace} selector={selector}")
-    return random.SystemRandom().choice(pods)
+    pods.sort(key=lambda pod: (
+        datetime.fromisoformat(pod["creationTimestamp"].replace("Z", "+00:00")),
+        pod["name"],
+    ))
+    return pods[pod_index - 1]
+
+
+def pod_impact_details(pod: dict[str, Any], pod_index: int | None) -> dict[str, Any]:
+    return {"podIndex": pod_index, "podName": pod["name"], "podUid": pod["uid"], "impactAt": utc_iso()}
 
 
 def pod_params(params: dict[str, Any]) -> tuple[str, str]:
@@ -419,14 +451,245 @@ def crash_endpoint(params: dict[str, Any]) -> str:
     return endpoint if endpoint.startswith("/") else f"/{endpoint}"
 
 
-def delete_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
+def delete_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace, selector = pod_params(params)
+    pod_index = params.get("podIndex")
     if dry_run:
-        log(f"dry-run: would delete one pod namespace={namespace} selector={selector}")
-        return
-    pod = random_running_pod(namespace, selector)
-    log(f"deleting pod namespace={namespace} pod={pod}")
-    run(["kubectl", "-n", namespace, "delete", "pod", pod])
+        log(f"dry-run: would delete pod namespace={namespace} selector={selector} pod_index={pod_index}")
+        return None
+    pod = select_running_pod(namespace, selector, pod_index)
+    log(f"deleting pod namespace={namespace} pod={pod['name']}")
+    details = pod_impact_details(pod, pod_index)
+    run(["kubectl", "-n", namespace, "delete", "pod", pod["name"]])
+    return details
+
+
+def loki_log_lines(query: str, start: int, end: int) -> str:
+    payload = http_json("http://127.0.0.1:3100", "/loki/api/v1/query_range", {
+        "query": query,
+        "start": str(start),
+        "end": str(end),
+        "limit": "1000",
+        "direction": "backward",
+    }, timeout=5)
+    records = {
+        (int(timestamp), line)
+        for stream in payload["data"]["result"]
+        for timestamp, line in stream["values"]
+    }
+    return "\n".join(line for _, line in sorted(records))
+
+
+def warmup_app_logs(run_id: str, marker: str) -> str:
+    selector = '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id=' + json.dumps(run_id) + '}'
+    end = time.time_ns()
+    return loki_log_lines(f"{selector} |= {json.dumps(marker)}", end - 240_000_000_000, end)
+
+
+def warmup_broker_logs(run_id: str, pod_name: str, impact_ns: int) -> list[str]:
+    selector = (
+        '{namespace="ckc-perf",app="ckc-warmup-kafka",container="kafka",'
+        f'run_id={json.dumps(run_id)},pod={json.dumps(pod_name)}}}'
+    )
+    query = f'{selector} |~ "broker-lifecycle |warmup-kafka-supervisor "'
+    return broker_stop_lines(loki_log_lines(query, impact_ns, time.time_ns()))
+
+
+def proves_abrupt_broker_stop(lines: list[str], epoch: str) -> bool:
+    if any(f"event=DrainRequested(epoch={epoch}," in line for line in lines):
+        return False
+    # The supervisor writes the process exit, then the stop marker for that broker epoch.
+    return any(
+        before.endswith("warmup-kafka-supervisor process=broker exit_status=137")
+        and f"event=KafkaStopped brokerEpoch={epoch} " in after
+        for before, after in zip(lines, lines[1:])
+    )
+
+
+def warming_sessions(logs: str) -> list[str]:
+    phases = {}
+    for phase, session_id in re.findall(r"Warm-up lifecycle: phase=(\w+),.*?sessionId=([^,\s]+)", logs):
+        if session_id != "null":
+            phases[session_id] = phase
+    return sorted(session_id for session_id, phase in phases.items() if phase == "WARMING")
+
+
+def broker_endpoint(kubectl: list[str], uid: str) -> dict[str, Any] | None:
+    result = run([
+        *kubectl, "get", "endpointslices", "-l", "kubernetes.io/service-name=ckc-warmup-kafka", "-o", "json",
+    ], capture_output=True)
+    for item in json.loads(result.stdout)["items"]:
+        for endpoint in item["endpoints"]:
+            if endpoint.get("targetRef", {}).get("uid") == uid:
+                return {
+                    "observedAt": datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+                    "resourceVersion": item["metadata"]["resourceVersion"],
+                    "conditions": endpoint["conditions"],
+                    "addresses": endpoint["addresses"],
+                }
+    return None
+
+
+def verified_drain_connection(
+    lines: list[str], application_logs: str, endpoint: dict[str, Any], address: str, epoch: str
+) -> str | None:
+    acknowledgements = set()
+    for line in lines:
+        if match := re.search(r"event=ContextDrained\(epoch=([^,]+), drainId=([^,]+), context=([^,]+),", line):
+            acknowledgements.add(match.groups())
+    for line in application_logs.splitlines():
+        if "opening final confirmation connection" not in line:
+            continue
+        match = re.search(r"brokerEpoch=(\S+) drainId=(\S+) context=(\S+) advertisedBroker=(\S+)", line)
+        timestamp = re.search(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z", line)
+        if match and timestamp and match[1] == epoch and match[4] == address and match.groups()[:3] in acknowledgements:
+            if datetime.fromisoformat(timestamp[0]) > datetime.fromisoformat(endpoint["observedAt"]):
+                return line
+    return None
+
+
+def await_warmup_broker(
+    kubectl: list[str], selector: str, epoch_file: str, previous_epoch: str, timeout_seconds: int
+) -> tuple[dict[str, Any], str]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        running = run([*kubectl, "get", "pods", "-l", selector, "-o", "json"], capture_output=True)
+        for pod in json.loads(running.stdout)["items"]:
+            metadata = pod["metadata"]
+            if metadata.get("deletionTimestamp") or not any(
+                item["type"] == "Ready" and item["status"] == "True" for item in pod["status"].get("conditions", [])
+            ):
+                continue
+            marker = run([
+                *kubectl, "exec", metadata["name"], "-c", "kafka", "--", "cat", epoch_file,
+            ], check=False, capture_output=True)
+            if marker.returncode == 0 and (epoch := marker.stdout.strip()) and epoch != previous_epoch:
+                return metadata, epoch
+        time.sleep(2)
+    raise RuntimeError(f"Temporary Kafka did not become ready within {timeout_seconds}s with a new epoch after {previous_epoch}")
+
+
+def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
+    namespace = "ckc-perf"
+    selector = "ckc.dev/component=warmup-kafka"
+    mode = params["mode"]
+    recovery_timeout = params.get("recoveryTimeoutSeconds", 210)
+    if mode not in ("planned", "abrupt"):
+        raise ValueError("Temporary Kafka stop mode must be planned or abrupt")
+    if dry_run:
+        log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING "
+            f"and wait up to {recovery_timeout}s for recovery")
+        return None
+    run_id = os.environ["TEST_RUN_ID"]
+    kubectl = ["kubectl", "--request-timeout=5s", "-n", namespace]
+    deadline = time.monotonic() + 35
+    while True:
+        sessions = warming_sessions(warmup_app_logs(run_id, "Warm-up lifecycle: phase="))
+        if len(sessions) >= 2:
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Expected two warming recipients at broker stop, observed {sessions}")
+        time.sleep(1)
+
+    broker = select_running_pod(namespace, selector, None)
+    name, uid = broker["name"], broker["uid"]
+    pod = json.loads(run([*kubectl, "get", "pod", name, "-o", "json"], capture_output=True).stdout)
+    kafka = next(container for container in pod["spec"]["containers"] if container["name"] == "kafka")
+    if pod["metadata"]["uid"] != uid or not any(
+        entry["name"] == "KAFKA_BROKER_LIFECYCLE_TOPIC" and entry.get("value") for entry in kafka["env"]
+    ):
+        raise RuntimeError("The selected temporary Kafka pod does not have coordinated shutdown enabled")
+    epoch_file = "/var/run/ckc-warmup-kafka/broker-epoch"
+    exec_in_broker = [*kubectl, "exec", name, "-c", "kafka", "--"]
+    epoch = run([*exec_in_broker, "cat", epoch_file], capture_output=True).stdout.strip()
+    pod_ip = pod["status"]["podIP"]
+    address = f"[{pod_ip}]:9092" if ":" in pod_ip else f"{pod_ip}:9092"
+    details = {
+        "mode": mode, **pod_impact_details(broker, None), "brokerEpoch": epoch, "advertisedBroker": address,
+        "warmingSessions": sessions, "recoveryTimeoutSeconds": recovery_timeout,
+    }
+    if mode == "abrupt":
+        details["impactAt"] = utc_iso()
+        impact_ns = time.time_ns()
+        result = run([
+            *exec_in_broker, "bash", "-c", 'kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"',
+        ], check=False)
+        details["execExitCode"] = result.returncode
+        restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
+        details["nextBrokerEpoch"] = next_epoch
+        details["nextBrokerPodUid"] = restarted["uid"]
+        # A failed container restart can rotate the original exit out of kubectl logs --previous.
+        lines = warmup_broker_logs(run_id, name, impact_ns)
+        details["brokerEvents"] = lines
+        log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
+        if restarted["uid"] != uid or not proves_abrupt_broker_stop(lines, epoch):
+            raise RuntimeError(f"Kafka restart did not prove abrupt loss of broker epoch {epoch}")
+        return details
+
+    details["beforeDeletion"] = broker_endpoint(kubectl, uid)
+    with tempfile.TemporaryDirectory(prefix="ckc-broker-drain-") as directory:
+        path = Path(directory) / "old-broker.log"
+        with path.open("w", encoding="utf-8") as output:
+            watch = subprocess.Popen(
+                ["kubectl", "-n", namespace, "logs", "-f", name, "-c", "kafka", "--timestamps"],
+                stdout=output, stderr=subprocess.STDOUT, text=True,
+            )
+        try:
+            ready_deadline = time.monotonic() + 5
+            while f"event=BrokerStarted brokerEpoch={epoch}" not in path.read_text(encoding="utf-8"):
+                if watch.poll() is not None or time.monotonic() >= ready_deadline:
+                    raise RuntimeError(f"Could not attach to the old Kafka pod log for epoch {epoch}")
+                time.sleep(0.1)
+            details["impactAt"] = utc_iso()
+            run([*kubectl, "delete", "pod", name, "--wait=false"])
+            deadline = time.monotonic() + pod["spec"]["terminationGracePeriodSeconds"] + 10
+            terminating = None
+            while time.monotonic() < deadline:
+                if terminating is None and (endpoint := broker_endpoint(kubectl, uid)):
+                    if endpoint["conditions"].get("terminating"):
+                        terminating = endpoint
+                if watch.poll() is not None or "event=KafkaStopped" in path.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.1)
+        finally:
+            if watch.poll() is None:
+                watch.terminate()
+                try:
+                    watch.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    watch.kill()
+                    watch.wait()
+        details["terminatingEndpoint"] = terminating
+        lines = broker_stop_lines(path.read_text(encoding="utf-8"))
+        details["brokerEvents"] = lines
+    connection = None
+    if terminating:
+        # Loki may still be ingesting the final log when the old broker stops.
+        deadline = time.monotonic() + 10
+        while True:
+            logs = warmup_app_logs(run_id, "opening final confirmation connection")
+            connection = verified_drain_connection(lines, logs, terminating, address, epoch)
+            if connection or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
+    details["finalConfirmationConnection"] = connection
+    log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
+    timeline = "\n".join(lines)
+    ordered_markers = ("event=DrainRequested(", "event=DrainAccepted(", "event=ContextDrained(",
+                       f"status=DRAINED brokerEpoch={epoch}", "event=KafkaSIGTERM", "event=KafkaStopped")
+    positions = [timeline.find(marker) for marker in ordered_markers]
+    if not connection or positions[0] < 0 or any(a >= b for a, b in zip(positions, positions[1:])):
+        raise RuntimeError(f"Planned stop of {uid} did not prove drain and reconnection after EndpointSlice termination")
+    replacement, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
+    if replacement["uid"] == uid:
+        raise RuntimeError(f"Planned deletion did not replace broker pod {uid}")
+    details["nextBrokerEpoch"] = next_epoch
+    details["nextBrokerPodUid"] = replacement["uid"]
+    return details
+
+
+def broker_stop_lines(logs: str) -> list[str]:
+    return [line for line in logs.splitlines() if "broker-lifecycle " in line or "warmup-kafka-supervisor " in line]
 
 
 def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
@@ -450,6 +713,120 @@ def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
         deployment,
         f"--replicas={replicas}",
     ])
+
+
+def qualify_warmup_scale_up(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    if dry_run:
+        scale_deployment(params, dry_run=True)
+        log("dry-run: would verify cold donor startup, warm recipient startup, and forwarding")
+        return {}
+
+    run_id = os.environ["TEST_RUN_ID"]
+    proof_path = Path(os.environ["EXPERIMENT_EVENTS_FILE"]).parent / "diagnostics" / warmup_scale_up.EVIDENCE_FILE
+    kubectl = ["kubectl", "-n", str(params["namespace"]), "--request-timeout=5s"]
+    selector = f"ckc.dev/component=application,ckc.dev/test-run-id={run_id}"
+    proof: dict[str, Any] = {"status": "failed", "runId": run_id}
+
+    def pods() -> dict[str, str]:
+        result = run([*kubectl, "get", "pods", "-l", selector, "-o", "json"], capture_output=True)
+        items = json.loads(result.stdout)["items"]
+        active = [pod for pod in items if not pod["metadata"].get("deletionTimestamp")]
+        if any(
+            pod["status"].get("phase") == "Failed"
+            or any(status.get("restartCount", 0) for status in pod["status"].get("containerStatuses", []))
+            for pod in active
+        ):
+            raise ValueError("An application pod restarted or failed during warm-up qualification")
+        return {pod["metadata"]["uid"]: pod["metadata"]["name"] for pod in active}
+
+    def pod_logs(name: str) -> str:
+        # A new pod may be scheduled before its container starts.
+        result = run([*kubectl, "logs", name, "-c", "demo", "--timestamps"], check=False, capture_output=True)
+        return result.stdout if result.returncode == 0 else ""
+
+    try:
+        deployment = json.loads(run([
+            *kubectl, "get", "deployment", str(params["target"]), "-o", "json"
+        ], capture_output=True).stdout)
+        env = {
+            setting["name"]: setting.get("value")
+            for container in deployment["spec"]["template"]["spec"]["containers"] if container["name"] == "demo"
+            for setting in container.get("env", [])
+        }
+        main_bootstrap = env.get("KAFKA_BOOTSTRAP_SERVERS")
+        expected_env = {
+            "SPRING_PROFILES_ACTIVE": "ckc-spring-boot",
+            "TRAFFIC_WARMUP_ENABLED": "true",
+            "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "DEMO_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
+            "AUDIT_LOG_ENABLED": "true",
+        }
+        proof["deployment"] = {
+            "replicas": deployment["spec"].get("replicas"),
+            **{key: env.get(key) for key in expected_env},
+        }
+        if proof["deployment"] != {"replicas": 1, **expected_env}:
+            raise ValueError(f"Unexpected application deployment: {proof['deployment']}")
+        proof["deployment"]["KAFKA_BOOTSTRAP_SERVERS"] = main_bootstrap
+        if not main_bootstrap or main_bootstrap == expected_env["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"]:
+            raise ValueError(f"Expected a separate main Kafka connection, got {main_bootstrap!r}")
+
+        initial = pods()
+        if len(initial) != 1:
+            raise ValueError(f"Expected one donor pod, got {initial}")
+        donor_uid, donor_name = next(iter(initial.items()))
+        donor_logs = pod_logs(donor_name)
+        proof["donor"] = {
+            "pod": donor_name, "uid": donor_uid,
+            "lifecycle": [asdict(event) for event in warmup_scale_up.lifecycle(donor_logs)],
+        }
+        if not warmup_scale_up.donor_is_ready(donor_logs):
+            raise ValueError(f"Donor {donor_name} did not reach MAIN_READY for all participants after cold fallback")
+
+        proof["scaleAt"] = utc_iso()
+        scale_deployment(params, dry_run=False)
+        recipient_uid = None
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            current = pods()
+            if current.get(donor_uid) != donor_name or len(current) > 2:
+                raise ValueError(f"Unexpected application pods after scaling: {current}")
+            if len(current) == 2:
+                uid, recipient_name = next((uid, name) for uid, name in current.items() if uid != donor_uid)
+                if recipient_uid is not None and uid != recipient_uid:
+                    raise ValueError("Recipient pod was replaced during warm-up qualification")
+                recipient_uid = uid
+                recipient_logs = pod_logs(recipient_name)
+                proof["recipient"] = {
+                    "pod": recipient_name, "uid": recipient_uid,
+                    "lifecycle": [asdict(event) for event in warmup_scale_up.lifecycle(recipient_logs)],
+                }
+                session = warmup_scale_up.recipient_session(recipient_logs)
+                if session is not None:
+                    proof["session"] = session
+                    offsets = warmup_scale_up.forwarding_offsets(pod_logs(donor_name), session)
+                    proof["offsets"] = offsets
+                    if all(offsets.values()):
+                        proof["status"] = "passed"
+                        break
+            elif recipient_uid is not None:
+                raise ValueError("Recipient pod disappeared during warm-up qualification")
+            time.sleep(2)
+        else:
+            raise ValueError("Timed out waiting for successful recipient warm-up, MAIN_READY and all three mappings")
+    except (ValueError, subprocess.CalledProcessError) as error:
+        proof["error"] = str(error)
+        log(f"Warm-up scale-up verification failed: {error}")
+    finally:
+        proof_path.parent.mkdir(parents=True, exist_ok=True)
+        proof_path.write_text(json.dumps(proof, indent=2) + "\n", encoding="utf-8")
+    return {
+        "replicas": params["replicas"],
+        "warmupVerification": proof["status"],
+        "session": proof.get("session"),
+        "error": proof.get("error"),
+    }
 
 
 def deployment_replicas(namespace: str, deployment: str) -> int:
@@ -481,22 +858,27 @@ def wait_for_deployment_rollout(params: dict[str, Any], *, dry_run: bool) -> Non
     ])
 
 
-def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
+def crash_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace, selector = pod_params(params)
     endpoint = crash_endpoint(params)
+    pod_index = params.get("podIndex")
     if dry_run:
-        log(f"dry-run: would crash one pod namespace={namespace} selector={selector} endpoint={endpoint}")
-        return
-    pod = random_running_pod(namespace, selector)
+        log(
+            f"dry-run: would crash pod namespace={namespace} selector={selector} "
+            f"endpoint={endpoint} pod_index={pod_index}"
+        )
+        return None
+    pod = select_running_pod(namespace, selector, pod_index)
     port = free_local_port()
-    log(f"triggering internal crash endpoint namespace={namespace} pod={pod} endpoint={endpoint}")
+    base_url = f"http://127.0.0.1:{port}"
+    log(f"triggering internal crash endpoint namespace={namespace} pod={pod['name']} endpoint={endpoint}")
     port_forward = subprocess.Popen(
         [
             "kubectl",
             "-n",
             namespace,
             "port-forward",
-            f"pod/{pod}",
+            f"pod/{pod['name']}",
             f"{port}:8080",
             "--address",
             "127.0.0.1",
@@ -505,8 +887,16 @@ def crash_random_pod(params: dict[str, Any], *, dry_run: bool) -> None:
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_for_http_ok(f"http://127.0.0.1:{port}/actuator/health", 30)
-        run(["curl", "-fsS", "-X", "POST", f"http://127.0.0.1:{port}{endpoint}"], check=False)
+        wait_for_http(f"{base_url}/actuator/health", 30, require_success=pod_index is None)
+        details = pod_impact_details(pod, pod_index)
+        result = run(
+            ["curl", "-fsS", "--max-time", "30", "-X", "POST", f"{base_url}{endpoint}"],
+            check=False,
+        )
+        # The crash handler halts the JVM before it can send an HTTP response.
+        if pod_index is not None and result.returncode not in {0, 52, 56}:
+            raise RuntimeError(f"Crash request for pod {pod['name']} failed (curl exit {result.returncode})")
+        return details
     finally:
         port_forward.terminate()
         try:
@@ -544,17 +934,23 @@ def scenario_params(scenario: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: bool) -> None:
+def start_scenario(
+    scenario: dict[str, Any], configure_stubs: str, *, dry_run: bool
+) -> dict[str, Any] | None:
     scenario_type = str(scenario["type"])
     params = scenario_params(scenario)
     if not isinstance(params, dict):
         raise ValueError(f"{scenario_type} params must be an object.")
     if scenario_type == "deployment_scale":
+        if params.get("verifyWarmup"):
+            return qualify_warmup_scale_up(params, dry_run=dry_run)
         scale_deployment(params, dry_run=dry_run)
     elif scenario_type == "pod_delete":
-        delete_random_pod(params, dry_run=dry_run)
+        return delete_pod(params, dry_run=dry_run)
     elif scenario_type == "pod_crash":
-        crash_random_pod(params, dry_run=dry_run)
+        return crash_pod(params, dry_run=dry_run)
+    elif scenario_type == "warmup_broker_stop":
+        return stop_warmup_broker(params, dry_run=dry_run)
     elif scenario_type == "stubs_degradation":
         apply_stubs_profile(params, configure_stubs, dry_run=dry_run)
     elif scenario_type == "network_degradation":
@@ -567,6 +963,7 @@ def start_scenario(scenario: dict[str, Any], configure_stubs: str, *, dry_run: b
         docker_service(params, "restart", dry_run=dry_run)
     else:
         raise ValueError(f"Unsupported chaos scenario type: {scenario_type}")
+    return None
 
 
 def recover_scenario(
@@ -706,6 +1103,7 @@ def execute_sequence(
                     scenario, step, iteration, step_index, len(steps), "started"
                 )
                 append_event(started_event, publish_annotation=False)
+                action_details = None
                 try:
                     if step_type == "delay":
                         interrupted = wait_sequence_delay(
@@ -731,7 +1129,7 @@ def execute_sequence(
                             start_scenario(step, configure_stubs, dry_run=dry_run)
                             wait_for_deployment_rollout(params, dry_run=dry_run)
                         else:
-                            start_scenario(step, configure_stubs, dry_run=dry_run)
+                            action_details = start_scenario(step, configure_stubs, dry_run=dry_run)
                 except Exception as error:
                     append_event(
                         sequence_step_event(
@@ -758,7 +1156,7 @@ def execute_sequence(
                     break
                 append_event(
                     sequence_step_event(
-                        scenario, step, iteration, step_index, len(steps), "completed"
+                        scenario, step, iteration, step_index, len(steps), "completed", **(action_details or {})
                     ),
                     publish_annotation=False,
                 )
@@ -951,6 +1349,7 @@ def execute_scenarios(
                 "details": {"phase": phase, "target": scenario.get("target", ""), "scheduledAtSeconds": at_seconds},
             }
             append_event(event)
+            action_details = None
             try:
                 if phase == "start":
                     if scenario_type == "sequence":
@@ -965,14 +1364,18 @@ def execute_scenarios(
                         continue
                     if scenario_type in DURATION_SCENARIO_TYPES:
                         active[index] = scenario
-                    start_scenario(scenario, configure_stubs, dry_run=dry_run)
+                    action_details = start_scenario(scenario, configure_stubs, dry_run=dry_run)
                 else:
                     recover_scenario(scenario, configure_stubs, dry_run=dry_run)
                     active.pop(index, None)
             except Exception as error:
                 append_event({**event, "status": "failed", "error": str(error)})
                 raise
-            append_event({**event, "status": "completed"})
+            append_event({
+                **event,
+                "status": "completed",
+                "details": {**event["details"], **(action_details or {})},
+            })
         for execution in sequence_executions:
             if execution.thread is not None:
                 execution.thread.join()

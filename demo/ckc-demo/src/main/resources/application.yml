@@ -58,6 +58,11 @@ thread-stats:
         - name: confluent-parallel-worker
           rules:
             - { type: prefix, value: pc-reactor-worker- }
+    - name: warmup-protocol
+      groups:
+        - name: service-executor
+          rules:
+            - { type: prefix, value: ckc-warmup- }
     - name: kafka
       groups:
         - name: ckc-poll
@@ -168,11 +173,13 @@ demo:
     flavour-base-url: ${FLAVOUR_MODEL_BASE_URL:${MODEL_BASE_URL:http://127.0.0.1:18080}}
     http-client: ${MODEL_HTTP_CLIENT:ARMERIA}
     sync-http-client: ${MODEL_SYNC_HTTP_CLIENT:ARMERIA}
+    distribute-stub-requests: ${MODEL_DISTRIBUTE_STUB_REQUESTS:false}
     jdk-http-client-executor: ${JDK_HTTP_CLIENT_EXECUTOR:DEFAULT}
     jdk-http-client-virtual-thread-name-prefix: ${JDK_HTTP_CLIENT_VIRTUAL_THREAD_NAME_PREFIX:HttpClient-virtual-}
   registry:
     base-url: ${REGISTRY_BASE_URL:http://127.0.0.1:18080}
   redis:
+    state-retention: ${DEMO_REDIS_STATE_RETENTION:10m}
     metrics:
       enabled: ${LETTUCE_METRICS_ENABLED:true}
   audit:
@@ -181,6 +188,43 @@ demo:
     port: ${AUDIT_TCP_PORT:5170}
     run-id: ${AUDIT_RUN_ID:local}
     writer-id: ${AUDIT_WRITER_ID:${HOSTNAME:demo}}
+  traffic-warmup:
+    enabled: ${TRAFFIC_WARMUP_ENABLED:false}
+    instance-id: ${TRAFFIC_WARMUP_INSTANCE_ID:${HOSTNAME:demo}}
+    namespace: ${TRAFFIC_WARMUP_NAMESPACE:global5-shared-partition-v6-local}
+    control-topic: ${TRAFFIC_WARMUP_CONTROL_TOPIC:ckc.traffic-warmup.v6.control}
+    broker-lifecycle-topic: ${TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC:}
+    control-kafka:
+      bootstrap-servers: ${TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      security-protocol: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      ssl-truststore-certificates: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+      ssl-endpoint-identification-algorithm: ${TRAFFIC_WARMUP_CONTROL_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+    destination-kafka:
+      bootstrap-servers: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      security-protocol: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      ssl-truststore-certificates: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
+      ssl-endpoint-identification-algorithm: ${TRAFFIC_WARMUP_DESTINATION_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:}
+    mappings:
+      order-events:
+        quota-profile: ${TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE:10}
+        quota-interval-ms: ${TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS:1000}
+      batch-events:
+        quota-profile: ${TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE:10}
+        quota-interval-ms: ${TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS:1000}
+      cauldron-events:
+        quota-profile: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE:10}
+        quota-interval-ms: ${TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS:1000}
+    duration-seconds: ${TRAFFIC_WARMUP_DURATION_SECONDS:90}
+    offer-window-ms: ${TRAFFIC_WARMUP_OFFER_WINDOW_MS:2000}
+    participant-start-timeout-seconds: ${TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS:15}
+    preparation-timeout-seconds: ${TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS:15}
+    completion-timeout-seconds: ${TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS:30}
+    delegation-timeout-seconds: ${TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS:10}
+    max-donor-sessions: ${TRAFFIC_WARMUP_MAX_DONOR_SESSIONS:4}
+    max-aggregate-quota-per-second: ${TRAFFIC_WARMUP_MAX_AGGREGATE_QUOTA_PER_SECOND:2147483647}
+    max-inflight-delegations: ${TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS:2147483647}
+    producer-linger-ms: ${TRAFFIC_WARMUP_PRODUCER_LINGER_MS:5}
+    producer-batch-size: ${TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE:16384}
   consumers:
     processing-enabled: ${DEMO_CONSUMER_PROCESSING_ENABLED:true}
     metrics-implementation: ${METRICS_IMPLEMENTATION:MICROMETER}

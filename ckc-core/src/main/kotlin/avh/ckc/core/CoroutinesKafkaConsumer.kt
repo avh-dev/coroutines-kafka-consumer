@@ -1,21 +1,32 @@
 package avh.ckc.core
 
+import avh.ckc.core.extension.ConsumerRuntimeControl
+import avh.ckc.core.extension.ManagedConsumerLifecycle
+import avh.ckc.core.extension.RecordAdmission
 import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
 import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.metrics.LifecycleOutcome
-import avh.ckc.core.polling.partition.PartitionRegistry
 import avh.ckc.core.polling.ConsumerPollLoop
 import avh.ckc.core.polling.ConsumerPollLoopControl
-import avh.ckc.core.processing.NoopProcessedRecordTracker
+import avh.ckc.core.polling.partition.PartitionRegistry
+import avh.ckc.core.processing.AdmissionControlledRecordSink
+import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.PartitionProcessedRecordTracker
 import avh.ckc.core.processing.PolledRecordSink
 import avh.ckc.core.processing.ProcessedRecordTracker
 import avh.ckc.core.processing.RecordProcessingLifecycle
 import avh.ckc.core.processing.RecordProcessingRuntime
-import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
+import avh.ckc.core.processing.localRecordInterceptor
 import avh.ckc.core.processing.runtime.AtLeastOnceNoOrderingRecordProcessingRuntime
-import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.AtLeastOnceOrderingRecordProcessingRuntime
 import avh.ckc.core.processing.runtime.FreshnessFirstDropOldestRecordProcessingRuntime
+import avh.ckc.core.processing.runtime.FreshnessFirstReplacePendingByKeyRecordProcessingRuntime
+import java.util.concurrent.atomic.AtomicReference
+import java.util.regex.Pattern
+import kotlin.concurrent.Volatile
+import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -28,22 +39,18 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG
-import org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG
 import org.apache.kafka.clients.consumer.ConsumerRecord
-import java.util.concurrent.atomic.AtomicReference
-import java.util.regex.Pattern
-import kotlin.concurrent.Volatile
-import kotlin.coroutines.CoroutineContext
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
+import org.apache.kafka.common.TopicPartition
 
 fun interface KafkaRecordHandler<K, V> {
     suspend fun process(record: ConsumerRecord<K, V>)
@@ -75,7 +82,8 @@ private typealias PollLoopFactory<K, V> = (
     topics: List<String>?,
     topicsPattern: Pattern?,
     recordSink: PolledRecordSink<K, V>,
-    partitionRegistry: PartitionRegistry
+    partitionRegistry: PartitionRegistry,
+    fixedAssignment: Map<TopicPartition, Long>?
 ) -> ConsumerPollLoopControl
 
 private typealias ProcessingRuntimeFactory<K, V> = (
@@ -90,7 +98,8 @@ private typealias ProcessingRuntimeFactory<K, V> = (
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V>
 ) -> RecordProcessingRuntime<K, V>
 
 /**
@@ -128,6 +137,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     parentContext: CoroutineContext,
     private val topics: List<String>? = null,
     private val topicsPattern: Pattern? = null,
+    private val admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+    recordAdmission: RecordAdmission<K, V>? = null,
+    private val fixedAssignment: Map<TopicPartition, Long>? = null,
     private val pollLoopFactory: PollLoopFactory<K, V>,
     private val processingRuntimeFactory: ProcessingRuntimeFactory<K, V>
 ) {
@@ -168,9 +180,13 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         retryPolicy,
         recordProcessingContext,
         processingFailureHandler,
-        processedRecordTracker
+        processedRecordTracker,
+        admittedRecordInterceptor
     )
     private val processingLifecycle: RecordProcessingLifecycle = processingRuntime
+    private val recordSink: PolledRecordSink<K, V> = recordAdmission?.let {
+        AdmissionControlledRecordSink(processingRuntime, processedRecordTracker, it)
+    } ?: processingRuntime
     private val pollLoops = List(consumerPollLoopConcurrency) { index ->
         pollLoopFactory(
             index,
@@ -183,13 +199,16 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
             consumerConfigAdapter,
             topics,
             topicsPattern,
-            processingRuntime,
-            partitionRegistry
+            recordSink,
+            partitionRegistry,
+            fixedAssignment
         )
     }
 
     @Volatile
     private var started = false
+
+    private var managedLifecycle: ManagedConsumerLifecycle? = null
 
     @Volatile
     private var stopped = false
@@ -239,6 +258,15 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         require((topics == null) != (topicsPattern == null)) {
             "Exactly one of topics or topicsPattern must be specified"
         }
+        fixedAssignment?.let { assignment ->
+            require(consumerPollLoopConcurrency == 1) { "Fixed assignment requires exactly one poll loop" }
+            require(assignment.isNotEmpty() && assignment.values.all { it >= 0 }) {
+                "Fixed assignment requires non-negative start offsets"
+            }
+            require(topicsPattern == null && topics?.toSet() == assignment.keys.map { it.topic() }.toSet()) {
+                "Fixed assignment must match the configured topics"
+            }
+        }
         require(consumerProperties.containsKey(KEY_DESERIALIZER_CLASS_CONFIG)) {
             "Kafka property '$KEY_DESERIALIZER_CLASS_CONFIG' must be specified"
         }
@@ -271,6 +299,9 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext: CoroutineContext = Dispatchers.Default,
         topics: List<String>? = null,
         topicsPattern: Pattern? = null,
+        admittedRecordInterceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor(),
+        recordAdmission: RecordAdmission<K, V>? = null,
+        fixedAssignment: Map<TopicPartition, Long>? = null,
         handler: KafkaRecordHandler<K, V>
     ) : this(
         processingMode = processingMode,
@@ -296,11 +327,23 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         parentContext = parentContext,
         topics = topics,
         topicsPattern = topicsPattern,
+        admittedRecordInterceptor = admittedRecordInterceptor,
+        recordAdmission = recordAdmission,
+        fixedAssignment = fixedAssignment,
         pollLoopFactory = defaultPollLoopFactory(),
         processingRuntimeFactory = ::defaultProcessingRuntime
     )
 
+    /** Requests one startup. With a managed lifecycle, main runtime startup can be deferred. */
     fun start() {
+        managedLifecycle?.let {
+            it.start()
+            return
+        }
+        startRuntime()
+    }
+
+    internal fun startRuntime() {
         check(!started) { "Consumer already started" }
         started = true
 
@@ -324,25 +367,119 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
         }
     }
 
+    /** Waits for the main runtime's first Kafka assignments and positions, through any attached lifecycle. */
+    suspend fun awaitReady() {
+        managedLifecycle?.let {
+            it.awaitReady()
+            return
+        }
+        awaitRuntimeReady()
+    }
+
+    internal suspend fun awaitRuntimeReady() {
+        check(started) { "Consumer must be started before awaiting readiness" }
+        try {
+            pollLoops.map { it.readiness() }.awaitAll()
+        } catch (error: Throwable) {
+            failure.get()?.let { throw it }
+            throw error
+        }
+        failure.get()?.let { throw it }
+    }
+
+    private fun partitionOwnership(topic: String): Map<TopicPartition, Long> {
+        val pollLoopReadiness = pollLoops.map { it.readiness() }
+        if (!started || stopped || failure.get() != null ||
+            pollLoopReadiness.any { !it.isCompleted || it.isCancelled }
+        ) return emptyMap()
+        return partitionRegistry.currentLeases(topic).associate { it.topicPartition to it.generation }
+    }
+
+    /** Gives extensions control of this runtime independently of the configured consumer lifecycle. */
+    val runtimeControl: ConsumerRuntimeControl = object : ConsumerRuntimeControl {
+        override fun start() = startRuntime()
+        override suspend fun awaitReady() = awaitRuntimeReady()
+        override suspend fun stop() = stopRuntime()
+        override suspend fun abort(cause: Throwable) = abortRuntime(cause)
+        override suspend fun awaitTermination() = awaitRuntimeTermination()
+        override suspend fun awaitShutdownCompletion() = this@CoroutinesKafkaConsumer.awaitShutdownCompletion()
+        override fun isShutdownComplete() = this@CoroutinesKafkaConsumer.isShutdownComplete()
+        override fun partitionOwnership(topic: String) = this@CoroutinesKafkaConsumer.partitionOwnership(topic)
+    }
+
     private fun prepareForStop(): Deferred<Unit> = synchronized(this) {
         stopDeferred ?: shutdownScope.launchStopSequence().also { stopDeferred = it }
     }
 
+    /**
+     * Requests cleanup for this consumer, including any attached lifecycle. Calling before start
+     * releases resources without starting the consumer. If an extension reports incomplete
+     * cleanup or the caller is cancelled, use a later call to wait for or retry cleanup.
+     */
     suspend fun stop() {
+        managedLifecycle?.let {
+            it.stop()
+            return
+        }
+        stopRuntime()
+    }
+
+    internal suspend fun stopRuntime() {
         val deferred = prepareForStop()
         deferred.await()
         failure.get()?.let { throw it }
     }
 
-    /** Waits for normal shutdown or rethrows the one terminal failure to every caller. */
+    /** Cancels a feature-owned runtime when its bounded graceful cleanup can no longer progress. */
+    internal suspend fun abortRuntime(cause: Throwable) {
+        if (!shutdownCompletion.isCompleted) {
+            pollLoops.forEach { it.abort() }
+            handleFailure(cause)
+        }
+        val deferred = prepareForStop()
+        deferred.await()
+        failure.get()?.let { throw it }
+    }
+
+    /**
+     * Waits for normal termination or rethrows the terminal failure. Failure can be reported
+     * before runtime cleanup has finished. Use [awaitShutdownCompletion] to wait for that sequence.
+     */
     suspend fun awaitTermination() {
+        managedLifecycle?.let {
+            it.awaitTermination()
+            return
+        }
+        awaitRuntimeTermination()
+    }
+
+    internal suspend fun awaitRuntimeTermination() {
         termination.await()?.let { throw it }
     }
 
-    /** Waits until the shutdown sequence has finished waiting for all consumer-owned work. */
+    /** Attaches a coordinating lifecycle before this consumer is started. */
+    fun manageLifecycle(lifecycle: ManagedConsumerLifecycle) {
+        check(managedLifecycle == null) { "Consumer lifecycle is already managed" }
+        check(!started) { "Consumer lifecycle must be attached before start" }
+        managedLifecycle = lifecycle
+    }
+
+    /**
+     * Waits for the underlying runtime's shutdown sequence and resource release attempts.
+     * [isStopComplete] includes cleanup by an attached lifecycle.
+     */
     suspend fun awaitShutdownCompletion() {
         shutdownCompletion.await()
     }
+
+    internal fun isShutdownComplete(): Boolean = shutdownCompletion.isCompleted
+
+    /** Includes optional feature-owned resources in addition to the main runtime shutdown. */
+    internal fun isLifecycleStopComplete(): Boolean =
+        managedLifecycle?.isStopComplete() ?: isShutdownComplete()
+
+    /** Returns true only after the main runtime and any attached optional lifecycle release resources. */
+    fun isStopComplete(): Boolean = isLifecycleStopComplete()
 
     fun stateSnapshot(): ConsumerStateSnapshot {
         val currentFailure = failure.get()
@@ -514,7 +651,7 @@ private fun Map<String, Any?>.withExplicitCommitManagement(): Map<String, Any?> 
 private fun Throwable.isCancellation(): Boolean = this is CancellationException
 
 private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
-    { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry ->
+    { id, context, processingMode, commitIntervalMs, commitRecordsThreshold, metrics, consumerProperties, consumerConfigAdapter, loopTopics, loopTopicsPattern, recordSink, registry, fixedAssignment ->
         ConsumerPollLoop<K, V>(
             id = id,
             parentContext = context,
@@ -526,6 +663,7 @@ private fun <K, V> defaultPollLoopFactory(): PollLoopFactory<K, V> =
             consumerConfigAdapter = consumerConfigAdapter,
             topics = loopTopics,
             topicsPattern = loopTopicsPattern,
+            fixedAssignment = fixedAssignment,
             recordSink = recordSink,
             partitionStateRegistry = registry
         )
@@ -543,7 +681,8 @@ internal fun <K, V> defaultProcessingRuntime(
     retryPolicy: RetryPolicy,
     recordProcessingContext: RecordProcessingContext<K, V>?,
     processingFailureHandler: ProcessingFailureHandler<K, V>,
-    processedRecordTracker: ProcessedRecordTracker
+    processedRecordTracker: ProcessedRecordTracker,
+    interceptor: AdmittedRecordInterceptor<K, V> = localRecordInterceptor()
 ): RecordProcessingRuntime<K, V> =
     when (processingMode) {
         ProcessingMode.AT_LEAST_ONCE_NO_ORDERING -> AtLeastOnceNoOrderingRecordProcessingRuntime(
@@ -556,7 +695,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor
         )
 
         ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
@@ -570,7 +710,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor
         )
 
         ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> AtLeastOnceOrderingRecordProcessingRuntime(
@@ -584,7 +725,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor
         )
 
         ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST -> FreshnessFirstDropOldestRecordProcessingRuntime(
@@ -598,7 +740,8 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor
         )
 
         ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> FreshnessFirstReplacePendingByKeyRecordProcessingRuntime(
@@ -612,6 +755,7 @@ internal fun <K, V> defaultProcessingRuntime(
             retryPolicy = retryPolicy,
             recordProcessingContext = recordProcessingContext,
             processingFailureHandler = processingFailureHandler,
-            processedRecordTracker = processedRecordTracker
+            processedRecordTracker = processedRecordTracker,
+            interceptor = interceptor
         )
     }

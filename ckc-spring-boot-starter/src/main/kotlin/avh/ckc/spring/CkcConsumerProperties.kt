@@ -24,6 +24,7 @@ data class CkcConsumerProperties(
     var retrySchemas: MutableMap<String, RetrySchema> = linkedMapOf(),
     var defaultCluster: String? = null,
     var clusters: MutableMap<String, Cluster> = linkedMapOf(),
+    var warmup: CkcWarmupProperties = CkcWarmupProperties(),
     var consumers: MutableMap<String, Consumer> = linkedMapOf()
 ) {
     /**
@@ -150,6 +151,7 @@ data class CkcConsumerProperties(
         var recoveryRetryBackoff: Duration = Duration.ofSeconds(1),
         var processingDispatcher: String? = null,
         var metrics: ConsumerMetricsProperties = ConsumerMetricsProperties(),
+        var warmup: CkcWarmupProperties.Participant? = null,
         var retrySchema: String? = null,
         var kafkaProperties: MutableMap<String, String> = linkedMapOf()
     ) {

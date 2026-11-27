@@ -32,8 +32,8 @@ val threadStatsVersion = providers.gradleProperty("threadStatsVersion").get()
 
 dependencies {
     implementation(project(":ckc-core"))
+    implementation(project(":ckc-warmup"))
     implementation(project(":ckc-demo-contracts"))
-    implementation(project(":ckc-micrometer"))
     implementation(project(":ckc-spring-boot-starter"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
     implementation(kotlin("reflect"))
@@ -60,6 +60,8 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.2")
+    testImplementation("org.testcontainers:testcontainers-kafka:2.0.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     constraints {

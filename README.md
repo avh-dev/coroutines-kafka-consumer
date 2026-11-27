@@ -115,14 +115,120 @@ do not provide that application-level guarantee.
 
 ## Modules
 
-- `ckc-core` contains the consumer runtime and public Kotlin DSL.
-- `ckc-micrometer` adapts CKC metrics to Micrometer.
+- `ckc-core` contains the consumer runtime, public Kotlin DSL, and optional [Micrometer adapter](ckc-core/README.md).
+- `ckc-warmup` contains the opt-in traffic warm-up DSL, runtime, and v6 protocol.
 - `ckc-spring-boot-starter` wires CKC consumers into Spring Boot applications.
 - `demo/ckc-demo-contracts` contains shared demo protobuf contracts and serialization helpers.
 - `demo/ckc-demo` is a Spring Boot demo application used for functional checks and implementation comparisons.
 - `demo/ckc-demo-load-test` generates reproducible load-test traffic.
 - `demo/ckc-demo-stubs` provides local model-service stubs used by demo and load-test flows.
 - `experiments/ckc-experiments` contains offset-tracker and metadata-compression experiments.
+
+## Using CKC
+
+### Standard consumer
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":ckc-core"))
+}
+```
+
+```kotlin
+import avh.ckc.core.coroutinesKafkaConsumer
+
+val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
+    topics("orders")
+    handle { record -> processOrder(record.value()) }
+}
+```
+
+Supply the main Kafka bootstrap servers, group ID, and deserializers in `kafkaProperties`.
+Call `consumer.start()` and use the suspending `consumer.stop()` during shutdown.
+The Spring Boot starter ships with optional warm-up configuration, disabled by default.
+See the [starter warm-up example](ckc-spring-boot-starter/README.md#traffic-warm-up).
+
+### Consumer with traffic warm-up
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":ckc-warmup"))
+}
+```
+
+```kotlin
+import avh.ckc.core.coroutinesKafkaConsumer
+import avh.ckc.warmup.trafficWarmup
+import avh.ckc.warmup.trafficWarmupContext
+import org.apache.kafka.common.serialization.StringSerializer
+
+val warmupKafka = mapOf("bootstrap.servers" to "localhost:9092")
+val context = trafficWarmupContext {
+    namespace = "orders-service"
+    controlTopic = "warmup.control"
+    controlProducerProperties = warmupKafka
+    controlConsumerProperties = warmupKafka
+    maxInflightDelegations = 4
+}
+
+val consumer = coroutinesKafkaConsumer<String, String>(kafkaProperties) {
+    topics("orders")
+    trafficWarmup(context, "orders") {
+        mapTopic("orders", "warmup.orders")
+        warmupConsumerProperties = warmupKafka
+        forwardingProducerProperties = warmupKafka + mapOf(
+            "key.serializer" to StringSerializer::class.java,
+            "value.serializer" to StringSerializer::class.java
+        )
+    }
+    handle { record -> processOrder(record.value()) }
+}
+```
+
+Provision the control topic and a single-partition destination topic before starting the consumer.
+Instances that share a namespace use the same participant IDs and mappings.
+
+A donor staggers quota windows for concurrent recipient sessions that use the same
+`quotaInterval`. For a one-second interval, the first three recipients get window starts
+at 0, 500, and 250 ms within each second of the donor's schedule. The first can delegate
+immediately. Each mapping can send its available quota as a batch once its window opens.
+Mappings retain their own quota profiles and share a session's phase only when their
+intervals match. Unused quota expires at the next window boundary.
+
+The mapping quota limits how many records can be delegated per interval.
+`maxInflightDelegations` limits how many delegations the donor can have outstanding at once,
+including when it serves a single recipient whose results stop arriving.
+
+`maxInflightDelegations` accepts values from `1` to `Int.MAX_VALUE` and defaults to `Int.MAX_VALUE`.
+Each `TrafficWarmupContext` has its own limit shared by all its donor sessions, participants, and source topics.
+A delegation holds a place from admission before the Kafka send through the producer ACK, the recipient result,
+and any required local fallback. When all places are occupied, the record is processed locally immediately.
+Saturation preserves the remaining mapping quota and the session can delegate later records as places become free.
+The `warmup.pending` metric counts only sends acknowledged by Kafka that are still awaiting a recipient result.
+Use each consumer's `workerConcurrency` when sizing the limit if local processing needs spare workers.
+Any participant can use all available places up to its own worker concurrency.
+
+The `coroutines-kafka-consumer-warmup` JAR includes the protocol in `avh.ckc.warmup.protocol`.
+When the consumer uses a CKC Micrometer metrics binding, enabling the DSL also registers the
+warm-up meters with that binding's prefix and tags.
+For custom callbacks, implement `WarmupMetrics<K, V>` and set `metrics` inside the warm-up block.
+
+For a temporary broker configured for coordinated shutdown, point each participating context at its
+dedicated lifecycle topic and broker connection.
+
+```kotlin
+brokerLifecycle {
+    topic = "ckc.traffic-warmup.lifecycle"
+    kafkaProperties = warmupKafka
+}
+```
+
+The broker supervisor publishes a fresh epoch at startup. A context joins that epoch before
+serving warm-up and uses the ordinary main consumer path when the broker is draining.
+The stop coordinator waits for the contexts present at the first drain request's offset.
+Stage the standalone CLI and its dependencies with `./gradlew :ckc-warmup:stageWarmupBrokerCli`.
 
 ## Current Status
 

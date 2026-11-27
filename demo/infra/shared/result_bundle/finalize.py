@@ -287,7 +287,7 @@ Run `./start-grafana.sh` to restore the preserved report, metrics, and logs. Doc
 - `restore/` — only the dashboard, Loki records, metrics snapshot, and private restore implementation.
 - `deployment/` — resolved experiment inputs, generated Kubernetes resources, and execution logs.
 - `lab/` — environment construction commands and, for AWS, the exact Terraform sources and resolved inputs.
-- `diagnostics/` — raw Thread Stats snapshots, Kafka packet captures, capture metadata, and packet-analysis outputs.
+- `diagnostics/` — stub preparation identity, raw Thread Stats snapshots, Kafka metadata, packet captures, capture metadata, and packet-analysis outputs.
 """
 
 
@@ -390,6 +390,8 @@ def build_deployment(result_root: Path, report_dir: Path, destination: Path, rep
     target_names = target_names_by_run(result_root)
     for run_dir in run_directories(result_root):
         target = destination / "targets" / target_names.get(run_dir.name, run_dir.name)
+        for name in ("run-metadata.json", "run-status.json"):
+            copy_portable(run_dir / name, target / "definition" / name, replacements)
         copy_portable_tree(run_dir / "generated", target / "kubernetes", replacements, suffixes={".yaml", ".yml"})
         copy_portable(run_dir / "logs/runner/session.log", target / "execution.log", replacements)
     logs = sorted(result_root.glob("*.log"))
@@ -403,6 +405,8 @@ def build_diagnostics(result_root: Path, destination: Path, replacements: dict[s
         target = destination / "targets" / target_names.get(run_dir.name, run_dir.name)
         diagnostics = run_dir / "diagnostics"
         copy_portable(diagnostics / "kafka-metadata.json", target / "kafka-metadata.json", replacements)
+        copy_portable(diagnostics / "stubs-preparation.json", target / "stubs-preparation.json", replacements)
+        copy_portable(diagnostics / "warmup-scale-up.json", target / "warmup-scale-up.json", replacements)
         copy_portable_tree(diagnostics / "thread-stats", target / "thread-stats", replacements)
         copy_portable_tree(diagnostics / "tcpdump", target / "tcpdump", replacements)
         copy_portable_tree(diagnostics / "pcap-analysis", target / "pcap-analysis", replacements)
@@ -482,6 +486,7 @@ def build_audit(
                 source = audit / name
                 if source.is_file():
                     copy_portable(source, target / name, replacements)
+            copy_portable(run_dir / "diagnostics" / "warmup-scale-up.json", target / "warmup-scale-up.json", replacements)
             copy_compressed_audit_log(audit, target / "audit.log.gz")
             summary = audit / "summary.yaml"
             if summary.is_file():
@@ -534,6 +539,7 @@ def finalize(
             evidence_readme(identity, experiment, environment, status), encoding="utf-8"
         )
         copy_report(report_dir, evidence_root / "report", experiment=experiment, environment=environment, status=status)
+        copy_portable(report_dir / "report-model.yaml", evidence_root / "report/report-model.yaml", replacements)
         build_restore(result_root, evidence_root / "restore", restore_sources, replacements)
         build_deployment(result_root, report_dir, evidence_root / "deployment", replacements)
         build_lab(result_root, evidence_root / "lab", environment, replacements)

@@ -113,6 +113,13 @@ internal class PartitionRegistry(
     fun partitionStateFor(topicPartition: TopicPartition): PartitionState? =
         partitionStateFor(topicPartition.topic(), topicPartition.partition());
 
+    /** Snapshot of the currently open ownership generations for one source topic. */
+    fun currentLeases(topic: String): Set<PartitionLease> =
+        topicPartitionStateMap[topic]
+            ?.mapNotNull { it?.currentLease() }
+            ?.toSet()
+            .orEmpty()
+
     /** Captures the current assignment generation at poll admission time. */
     fun observe(
         record: ConsumerRecord<*, *>,

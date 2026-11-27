@@ -23,7 +23,9 @@ interface CkcConsumerRegistry {
     fun start(name: String)
 
     /**
-     * Stops a named consumer runtime if it is currently running.
+     * Stops a named consumer runtime if it is currently running. If the starter's shutdown
+     * timeout expires, [CkcConsumersShutdownException] reports the unfinished cleanup while
+     * the container continues the attempt. A later call can retry incomplete cleanup.
      */
     fun stop(name: String)
 }

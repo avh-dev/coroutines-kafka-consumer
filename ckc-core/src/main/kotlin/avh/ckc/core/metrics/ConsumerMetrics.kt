@@ -8,9 +8,21 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
  *
  * Implementations are expected to be non-blocking and safe to call from multiple coroutine contexts:
  * poll loops, worker coroutines, and shutdown paths can invoke callbacks concurrently. All methods have no-op
- * defaults so consumers can implement only the signals they export.
+ * defaults so consumers can implement only the signals they export. Keep callbacks exception-free.
+ * Callback exceptions can propagate into the core runtime.
  */
 interface ConsumerMetrics<K, V> {
+    /** Returns the requested backend binding when supported, or `null`. Wrappers can delegate this lookup. */
+    fun <T : Any> unwrap(type: Class<T>): T? = null
+
+    /**
+     * Returns the metrics binding owned by one auxiliary consumer runtime.
+     *
+     * Stateless callback implementations may return themselves. Adapters that bind gauges or native Kafka
+     * clients must return an independently unbindable binding for every distinct [bindingId].
+     */
+    fun runtimeBinding(bindingId: String): ConsumerMetrics<K, V> = this
+
     /**
      * Binds metrics exposed by the underlying Kafka consumer used by one poll loop.
      *
@@ -77,6 +89,23 @@ interface ConsumerMetrics<K, V> {
         endToEndLatencyMillis: Long,
         durationNanos: Long
     ) = Unit
+
+    /**
+     * Records a successful source outcome and identifies whether this consumer ran the handler.
+     * The compatibility overload remains the audit seam for implementations that need both local
+     * and remotely confirmed success. When [processedRemotely] is true, durations describe the
+     * source-side lifecycle including delegation, in milliseconds for end-to-end latency and
+     * nanoseconds for processing. Adapters can use the flag to avoid counting recipient handler
+     * execution again in ordinary processing series.
+     */
+    fun onRecordProcessed(
+        key: K?,
+        value: V?,
+        record: ConsumerRecord<K, V>,
+        endToEndLatencyMillis: Long,
+        durationNanos: Long,
+        processedRemotely: Boolean
+    ) = onRecordProcessed(key, value, record, endToEndLatencyMillis, durationNanos)
 
     /**
      * Records a failed record after processing cannot continue.

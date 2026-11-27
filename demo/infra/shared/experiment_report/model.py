@@ -61,6 +61,9 @@ class TargetReport:
     pcap_analysis: dict[str, Any]
     network_counters: dict[str, Any]
     time_series: dict[str, list[dict[str, float]]]
+    resource_windows: list[dict[str, Any]] = field(default_factory=list)
+    full_target_budget: dict[str, Any] = field(default_factory=dict)
+    warmup: dict[str, Any] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
     criteria: list[CriterionResult] = field(default_factory=list)
     latency_sla: list[LatencySlaResult] = field(default_factory=list)

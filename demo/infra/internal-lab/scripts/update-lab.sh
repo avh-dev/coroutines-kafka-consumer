@@ -89,6 +89,20 @@ legacy_fingerprint_paths() {
   fingerprint_paths_with_locale "${LEGACY_FINGERPRINT_LOCALE}" "$@"
 }
 
+base_deploy_fingerprint() {
+  local fingerprint_function="$1"
+  {
+    "${fingerprint_function}" "base-deploy" \
+      demo/infra/internal-lab/assets/compose \
+      demo/infra/internal-lab/assets/grafana \
+      demo/infra/internal-lab/assets/k8s \
+      demo/infra/internal-lab/assets/libexec/deploy-base.sh \
+      demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
+      demo/infra/shared/grafana
+    printf '%s\n' "${LAB_REDIS_ADDRESS}"
+  } | sha256sum | awk '{ print $1 }'
+}
+
 image_fingerprint() {
   local service="$1"
   local fingerprint_function="${2:-fingerprint_paths}"
@@ -101,7 +115,7 @@ image_fingerprint() {
 
   case "${service}" in
     demo)
-      paths+=(ckc-core ckc-micrometer demo/ckc-demo-contracts demo/ckc-demo)
+      paths+=(ckc-core ckc-warmup ckc-spring-boot-starter demo/ckc-demo-contracts demo/ckc-demo)
       ;;
     demo-stubs)
       paths+=(demo/ckc-demo-stubs)
@@ -111,6 +125,9 @@ image_fingerprint() {
       ;;
     kafka-network-exporter)
       paths+=(demo/kafka-network-exporter)
+      ;;
+    warmup-kafka)
+      paths+=(demo/infra/shared/warmup-kafka ckc-warmup/build.gradle.kts ckc-warmup/src/main)
       ;;
     *)
       echo "Unknown image service: ${service}" >&2
@@ -306,6 +323,7 @@ LAB_SSH_HOST="${LAB_SSH_HOST:-${LAB_HOST}}"
 LAB_USER="${LAB_USER:-ckc-lab}"
 LAB_TARGET="${LAB_USER}@${LAB_SSH_HOST}"
 LAB_NODE_IP="${LAB_NODE_IP:-$(resolve_host_ip "${LAB_HOST}")}"
+LAB_REDIS_ADDRESS="${LAB_REDIS_ADDRESS:-${LAB_NODE_IP}}"
 LAB_TOPOLOGY="${LAB_TOPOLOGY:-single-host}"
 if [[ -z "${LAB_APPLICATION_LINK:-}" ]]; then
   if [[ "${LAB_TOPOLOGY}" == "split-application" ]]; then
@@ -326,6 +344,7 @@ DEMO_FINGERPRINT="$(image_fingerprint demo)"
 DEMO_STUBS_FINGERPRINT="$(image_fingerprint demo-stubs)"
 LOAD_TEST_FINGERPRINT="$(image_fingerprint load-test)"
 KAFKA_NETWORK_EXPORTER_FINGERPRINT="$(image_fingerprint kafka-network-exporter)"
+WARMUP_KAFKA_FINGERPRINT="$(image_fingerprint warmup-kafka)"
 THREAD_STATS_AGENT_JAR_PATH="$(resolve_thread_stats_agent)"
 if [[ -z "${THREAD_STATS_AGENT_JAR_PATH}" || ! -f "${THREAD_STATS_AGENT_JAR_PATH}" ]]; then
   echo "Thread Stats agent jar was not resolved." >&2
@@ -362,17 +381,11 @@ RUNTIME_TEST_ASSETS_FINGERPRINT="$(fingerprint_paths "runtime-test-assets" \
   demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
   demo/infra/experiments)"
-BASE_DEPLOY_FINGERPRINT="$(fingerprint_paths "base-deploy" \
-  demo/infra/internal-lab/assets/compose \
-  demo/infra/internal-lab/assets/grafana \
-  demo/infra/internal-lab/assets/k8s \
-  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
-  demo/infra/shared/grafana)"
+BASE_DEPLOY_FINGERPRINT="$(base_deploy_fingerprint fingerprint_paths)"
 UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${DEMO_FINGERPRINT}" "${DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
-  printf '%s\n' "${LOAD_TEST_FINGERPRINT}" "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
+  printf '%s\n' "${LOAD_TEST_FINGERPRINT}" "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" "${WARMUP_KAFKA_FINGERPRINT}" "${ASSETS_SYNC_FINGERPRINT}" "${RUNTIME_TEST_ASSETS_FINGERPRINT}" "${BASE_DEPLOY_FINGERPRINT}"
   printf '%s\n' "${LAB_HOST}" "${LAB_NODE_IP}" "${LAB_ROOT}" "${LAB_TOPOLOGY}" "${LAB_APPLICATION_LINK}"
   printf '%s\n' "${LAB_APPLICATION_HOST}" "${LAB_APPLICATION_TARGET}" "${LAB_APPLICATION_NODE_SELECTOR}" "${LAB_CONTROLLER_NODE_SELECTOR}"
 } | sha256sum | awk '{ print $1 }')"
@@ -396,13 +409,7 @@ LEGACY_RUNTIME_TEST_ASSETS_FINGERPRINT="$(legacy_fingerprint_paths "runtime-test
   demo/infra/shared/result_bundle \
   demo/infra/shared/grafana \
   demo/infra/experiments)"
-LEGACY_BASE_DEPLOY_FINGERPRINT="$(legacy_fingerprint_paths "base-deploy" \
-  demo/infra/internal-lab/assets/compose \
-  demo/infra/internal-lab/assets/grafana \
-  demo/infra/internal-lab/assets/k8s \
-  demo/infra/internal-lab/assets/libexec/deploy-base.sh \
-  demo/infra/internal-lab/assets/libexec/ensure-kafka-tls.sh \
-  demo/infra/shared/grafana)"
+LEGACY_BASE_DEPLOY_FINGERPRINT="$(base_deploy_fingerprint legacy_fingerprint_paths)"
 LEGACY_UPDATE_FINGERPRINT="$({
   printf '%s\n' "internal-lab-update-v2"
   printf '%s\n' "${LEGACY_DEMO_FINGERPRINT}" "${LEGACY_DEMO_STUBS_FINGERPRINT}" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -427,11 +434,14 @@ if [[ "${REMOTE_PROBE}" == active\|* ]]; then
   echo "A managed experiment is active on ${LAB_TARGET}; stop it before updating the lab." >&2
   exit 1
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
+REMOTE_REDIS_ADDRESS="$(ssh "${LAB_TARGET}" \
+  'KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}" kubectl -n ckc-perf get endpoints ckc-external-redis -o jsonpath="{.subsets[*].addresses[*].ip}" 2>/dev/null || true')"
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_REDIS_ADDRESS}" == "${LAB_REDIS_ADDRESS}" && "${REMOTE_PROBE}" == "inactive|${UPDATE_FINGERPRINT}|complete" ]]; then
   echo "Internal lab is already current (${UPDATE_FINGERPRINT:0:12}); no files transferred."
   exit 0
 fi
-if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]]; then
+if [[ "${FORCE_REBUILD}" -eq 0 && "${K3S_IMAGE_CACHE_CURRENT}" -eq 1 && "${REMOTE_REDIS_ADDRESS}" == "${LAB_REDIS_ADDRESS}" && "${UPDATE_FINGERPRINT}" != "${LEGACY_UPDATE_FINGERPRINT}" && "${REMOTE_PROBE}" == "inactive|${LEGACY_UPDATE_FINGERPRINT}|complete" ]] && \
+  remote_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}" && worker_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}"; then
   record_remote_image_fingerprint demo "${DEMO_FINGERPRINT}"
   record_remote_image_fingerprint demo-stubs "${DEMO_STUBS_FINGERPRINT}"
   record_remote_fingerprint "thread-stats-agent" "${THREAD_STATS_AGENT_FINGERPRINT}"
@@ -489,11 +499,12 @@ ssh "${LAB_TARGET}" "
   fi
   rm -rf '${LEGACY_LAB_ROOT}'
   rm -rf '${LAB_ROOT}/assets' '${LAB_ROOT}/workspace' '${LAB_ROOT}/shared' '${LAB_ROOT}/build-context' '${LAB_ROOT}/build' '${LAB_ROOT}/compose' '${LAB_ROOT}/runtime' '${LAB_ROOT}/images' '${LAB_ROOT}/fingerprints' '${LAB_ROOT}/generated' '${LAB_ROOT}/pids' '${LAB_ROOT}/audit' '${LAB_ROOT}/audit-tools' '${LAB_ROOT}/docker-compose.host-services.yml' '${LAB_ROOT}/process-exporter.yml' '${LAB_ROOT}/fluent-bit.yaml'
-  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/docker/build/load-test/build/install' '${LAB_ROOT}/docker/build/kafka-network-exporter' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
+  mkdir -p '${LAB_ROOT}/config' '${LAB_ROOT}/docker/build/demo/build/install' '${LAB_ROOT}/docker/build/demo-stubs/build/install' '${LAB_ROOT}/docker/build/load-test/build/install' '${LAB_ROOT}/docker/build/kafka-network-exporter' '${LAB_ROOT}/docker/build/warmup-kafka' '${LAB_ROOT}/state/images' '${LAB_ROOT}/state/fingerprints/images' '${LAB_ROOT}/state/pids' '${LAB_ROOT}/state/generated'
 "
 ssh "${LAB_TARGET}" "cat > '${LAB_ROOT}/config/lab.env'" <<EOF
 LAB_HOST=${LAB_HOST}
 LAB_NODE_IP=${LAB_NODE_IP}
+LAB_REDIS_ADDRESS=${LAB_REDIS_ADDRESS}
 LAB_ROOT=${LAB_ROOT}
 LAB_TOPOLOGY=${LAB_TOPOLOGY}
 LAB_APPLICATION_LINK=${LAB_APPLICATION_LINK}
@@ -512,6 +523,7 @@ DEMO_STUBS_IMAGE_CHANGED=0
 THREAD_STATS_AGENT_CHANGED=0
 LOAD_TEST_IMAGE_CHANGED=0
 KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED=0
+WARMUP_KAFKA_IMAGE_CHANGED=0
 ASSETS_SYNC_CHANGED=0
 RUNTIME_TEST_ASSETS_CHANGED=0
 BASE_DEPLOY_CHANGED=0
@@ -535,6 +547,9 @@ fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current kafka-network-exporter "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}" || ! worker_image_is_current kafka-network-exporter "${KAFKA_NETWORK_EXPORTER_FINGERPRINT}"; then
   KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED=1
 fi
+if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}" || ! worker_image_is_current warmup-kafka "${WARMUP_KAFKA_FINGERPRINT}"; then
+  WARMUP_KAFKA_IMAGE_CHANGED=1
+fi
 if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "assets-sync" "${ASSETS_SYNC_FINGERPRINT}"; then
   ASSETS_SYNC_CHANGED=1
 fi
@@ -549,7 +564,8 @@ if [[ "${FORCE_REBUILD}" -eq 1 ]] ||
     "${LAB_ROOT}/grafana/dashboards/ckc-overview.json"; then
   RUNTIME_TEST_ASSETS_CHANGED=1
 fi
-if [[ "${FORCE_REBUILD}" -eq 1 ]] || ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
+if [[ "${FORCE_REBUILD}" -eq 1 || "${REMOTE_REDIS_ADDRESS}" != "${LAB_REDIS_ADDRESS}" ]] ||
+  ! remote_fingerprint_matches "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"; then
   BASE_DEPLOY_CHANGED=1
 fi
 
@@ -562,6 +578,10 @@ if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
   sync_file "${REPO_ROOT}/demo/kafka-network-exporter/Dockerfile" "${LAB_ROOT}/docker/build/kafka-network-exporter/Dockerfile"
   sync_file "${REPO_ROOT}/demo/kafka-network-exporter/exporter.py" "${LAB_ROOT}/docker/build/kafka-network-exporter/exporter.py"
 fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_path "${REPO_ROOT}/demo/infra/shared/warmup-kafka" "${LAB_ROOT}/docker/build/warmup-kafka"
+  GRADLE_TASKS+=(:ckc-warmup:stageWarmupBrokerCli)
+fi
 if [[ "${DEMO_IMAGE_CHANGED}" -eq 1 ]]; then
   GRADLE_TASKS+=(:ckc-demo:installDist)
 fi
@@ -570,6 +590,9 @@ if [[ "${DEMO_STUBS_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${#GRADLE_TASKS[@]}" -gt 0 ]]; then
   ./gradlew "${GRADLE_TASKS[@]}"
+fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  sync_path "${REPO_ROOT}/ckc-warmup/build/warmup-broker-cli" "${LAB_ROOT}/docker/build/warmup-kafka/cli"
 fi
 
 if [[ "${ASSETS_SYNC_CHANGED}" -eq 1 ]]; then
@@ -611,7 +634,7 @@ if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
   ssh "${LAB_TARGET}" "chmod +x '${LAB_ROOT}/docker/build/load-test/build/install/ckc-demo-load-test/bin/'*"
 fi
 if [[ "${BASE_DEPLOY_CHANGED}" -eq 1 ]]; then
-  ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
+  ssh "${LAB_TARGET}" "LAB_NODE_IP='${LAB_NODE_IP}' LAB_REDIS_ADDRESS='${LAB_REDIS_ADDRESS}' LAB_HOST='${LAB_HOST}' LAB_ROOT='${LAB_ROOT}' '${LAB_ROOT}/libexec/deploy-base.sh'"
   record_remote_fingerprint "base-deploy" "${BASE_DEPLOY_FINGERPRINT}"
 fi
 
@@ -632,6 +655,9 @@ if [[ "${LOAD_TEST_IMAGE_CHANGED}" -eq 1 ]]; then
 fi
 if [[ "${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}" -eq 1 ]]; then
   REBUILD_ARGS+=("kafka-network-exporter=${KAFKA_NETWORK_EXPORTER_FINGERPRINT}")
+fi
+if [[ "${WARMUP_KAFKA_IMAGE_CHANGED}" -eq 1 ]]; then
+  REBUILD_ARGS+=("warmup-kafka=${WARMUP_KAFKA_FINGERPRINT}")
 fi
 if [[ "${#REBUILD_ARGS[@]}" -gt 0 ]]; then
   ssh "${LAB_TARGET}" "LAB_ROOT='${LAB_ROOT}' LAB_APPLICATION_TARGET='${LAB_APPLICATION_TARGET}' '${LAB_ROOT}/libexec/rebuild-images.sh' ${REBUILD_ARGS[*]}"
@@ -658,6 +684,7 @@ echo "  demo-stubs image changed=${DEMO_STUBS_IMAGE_CHANGED}"
 echo "  Thread Stats agent changed=${THREAD_STATS_AGENT_CHANGED}"
 echo "  load-test image changed=${LOAD_TEST_IMAGE_CHANGED}"
 echo "  kafka-network-exporter image changed=${KAFKA_NETWORK_EXPORTER_IMAGE_CHANGED}"
+echo "  warmup-kafka image changed=${WARMUP_KAFKA_IMAGE_CHANGED}"
 echo "  assets synced=${ASSETS_SYNC_CHANGED}"
 echo "  runtime test assets synced=${RUNTIME_TEST_ASSETS_CHANGED}"
 echo "  base redeployed=${BASE_DEPLOY_CHANGED}"

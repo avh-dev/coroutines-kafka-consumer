@@ -29,6 +29,7 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
@@ -53,6 +54,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
 
     @Test
     fun `when record is produced to real kafka then consumer processes it`() = runBlocking {
+        assertNull(javaClass.classLoader.getResource("avh/ckc/warmup/TrafficWarmupDslKt.class"))
+        assertNull(javaClass.classLoader.getResource("io/micrometer/core/instrument/MeterRegistry.class"))
         val topic = "ckc-it-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
@@ -79,6 +82,8 @@ class CoroutinesKafkaConsumerIntegrationTest {
         } finally {
             consumer.stop()
         }
+        assertTrue(consumer.isStopComplete())
+        assertEquals(1L, committedOffset(groupId, topic)?.offset())
     }
 
     @Test
@@ -280,7 +285,7 @@ class CoroutinesKafkaConsumerIntegrationTest {
     }
 
     @Test
-    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then consumer processes produced record`() = runBlocking {
+    fun `when processing mode is FRESHNESS_FIRST_DROP_OLDEST then consumer processes produced record`() = runBlocking<Unit> {
         val topic = "FRESHNESS_FIRST_DROP_OLDEST-${UUID.randomUUID()}"
         val groupId = "ckc-it-group-${UUID.randomUUID()}"
         createTopic(topic)
@@ -478,8 +483,9 @@ class CoroutinesKafkaConsumerIntegrationTest {
             produce(topic, "failure-key", "failure-payload")
             withTimeout(15_000) { recovered.await() }
 
+            val failedRecord = awaitFor(15_000) { metrics.failed.firstOrNull() }
+            assertEquals("metrics-boom", failedRecord.error.message)
             assertEquals(1, metrics.failed.size)
-            assertEquals("metrics-boom", metrics.failed.single().error.message)
             assertFalse(metrics.polls.isEmpty())
         } finally {
             consumer.stop()

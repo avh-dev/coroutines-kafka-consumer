@@ -1,31 +1,28 @@
 package avh.ckc.core
 
-import avh.ckc.core.kafka.KafkaConsumerConfigAdapter
+import avh.ckc.core.extension.RecordAdmission
 import avh.ckc.core.metrics.BackpressureAction
-import avh.ckc.core.metrics.ConsumerMetrics
 import avh.ckc.core.polling.partition.offset.OffsetTracker
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadata
 import avh.ckc.core.polling.partition.offset.OffsetTrackerMetadataContext
 import avh.ckc.core.polling.partition.offset.OffsetTrackerSnapshot
-import avh.ckc.core.polling.partition.PartitionRegistry
-import avh.ckc.core.polling.partition.PartitionState
-import avh.ckc.core.polling.ConsumerPollLoop
-import avh.ckc.core.processing.PolledRecordSink
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import java.time.Duration
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.ConsumerRecords
-import org.apache.kafka.clients.consumer.ConsumerRebalanceListener
-import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.KafkaException
+import org.apache.kafka.common.TopicPartition
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -39,18 +36,9 @@ import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.doNothing
 import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.eq
-import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
-import java.time.Duration
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 
 class ConsumerPollLoopTest {
 
@@ -84,6 +72,48 @@ class ConsumerPollLoopTest {
 
     @Nested
     inner class FRESHNESS_FIRST_DROP_OLDEST {
+
+        @Test
+        fun `when shutdown tail polls a rejected record then lifecycle drop is suppressed`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val activePollEntered = CountDownLatch(1)
+            val releaseActivePoll = CountDownLatch(1)
+            val shutdownRecordReturned = AtomicBoolean(false)
+            val foreign = record(offset = 41L).withRecordSet("other")
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+                metrics = metrics,
+                workChannelCapacity = 1,
+                admission = sameRecordSet("recipient"),
+                filterPausedPollRecords = false,
+                pollAnswer = {
+                    if (activePollEntered.count == 1L) {
+                        activePollEntered.countDown()
+                        check(releaseActivePoll.await(2, TimeUnit.SECONDS))
+                        emptyRecords()
+                    } else if (shutdownRecordReturned.compareAndSet(false, true)) {
+                        recordsOf(topicPartition, foreign)
+                    } else {
+                        emptyRecords()
+                    }
+                }
+            )
+            val job = fixture.start()
+            assertTrue(activePollEntered.await(2, TimeUnit.SECONDS))
+
+            val ready = fixture.loop.prepareForShutdown()
+            releaseActivePoll.countDown()
+            withTimeout(2_000) { ready.await() }
+            awaitFor(2_000L, 10L) {
+                metrics.polls.firstOrNull { it.first == 1 }
+            }
+
+            assertTrue(metrics.dropped.isEmpty())
+            assertTrue(fixture.workChannel.tryReceive().isFailure)
+
+            fixture.loop.finalizeShutdown()
+            withTimeout(2_000) { job.join() }
+        }
 
         @Test
         fun `when FRESHNESS_FIRST_DROP_OLDEST loop polls records then they are sent to work channel`() = runBlocking {
@@ -356,6 +386,50 @@ class ConsumerPollLoopTest {
 
     @Nested
     inner class AT_LEAST_ONCE_NO_ORDERING {
+
+        @Test
+        fun `when revoke discards a stashed rejected record then handoff is suppressed`() = runBlocking {
+            val metrics = RecordingMetrics<ByteArray, ByteArray>()
+            val listener = AtomicReference<ConsumerRebalanceListener?>()
+            val pollNumber = AtomicInteger()
+            val revoked = CountDownLatch(1)
+            val occupyingRecord = record(offset = -1L)
+            val own = record(offset = 16L).withRecordSet("recipient")
+            val foreign = record(offset = 17L).withRecordSet("other")
+            val fixture = PollLoopFixture(
+                processingMode = ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
+                metrics = metrics,
+                workChannelCapacity = 1,
+                initialChannelRecords = listOf(occupyingRecord),
+                listenerRef = listener,
+                admission = sameRecordSet("recipient"),
+                pollAnswer = {
+                    when (pollNumber.getAndIncrement()) {
+                        0 -> recordsOf(topicPartition, own, foreign)
+                        1 -> {
+                            checkNotNull(listener.get()).onPartitionsRevoked(setOf(topicPartition))
+                            revoked.countDown()
+                            emptyRecords()
+                        }
+                        else -> emptyRecords()
+                    }
+                }
+            )
+            val job = fixture.start()
+
+            assertTrue(revoked.await(2, TimeUnit.SECONDS))
+            awaitFor(2_000L, 10L) {
+                metrics.polls.firstOrNull { it.first == 2 }
+            }
+
+            assertEquals(listOf(own), metrics.handedOff.map { it.record })
+            assertEquals(occupyingRecord, fixture.workChannel.tryReceive().getOrNull())
+            assertFalse(fixture.registry.tryStart(own))
+            assertFalse(fixture.registry.tryStart(foreign))
+
+            job.cancel()
+            job.join()
+        }
 
         @Test
         fun `when poll fails then terminal completion releases shutdown readiness`() = runBlocking {
@@ -1397,177 +1471,6 @@ class ConsumerPollLoopTest {
     }
 }
 
-private class PollLoopFixture(
-    processingMode: ProcessingMode,
-    @Suppress("UNCHECKED_CAST")
-    metrics: ConsumerMetrics<ByteArray, ByteArray> = ConsumerMetrics.NOOP as ConsumerMetrics<ByteArray, ByteArray>,
-    workChannelCapacity: Int,
-    assignmentPosition: Long = 0L,
-    private val committedOffsets: Map<TopicPartition, OffsetAndMetadata> = emptyMap(),
-    commitIntervalMs: Long = 5_000L,
-    commitRecordsThreshold: Int = 1_000,
-    maxTrackedOffsetsPerPartition: Int = 1_048_576,
-    private val additionalAssignmentPositions: Map<TopicPartition, Long> = emptyMap(),
-    initialChannelRecords: List<ConsumerRecord<ByteArray, ByteArray>> = emptyList(),
-    private val listenerRef: AtomicReference<ConsumerRebalanceListener?> = AtomicReference(),
-    private val pollAnswer: PollLoopFixture.() -> ConsumerRecords<ByteArray, ByteArray>
-) {
-    val consumer: KafkaConsumer<ByteArray, ByteArray> = mock()
-    val workChannel = Channel<ConsumerRecord<ByteArray, ByteArray>>(
-        capacity = workChannelCapacity,
-        onBufferOverflow = when (processingMode) {
-            ProcessingMode.AT_LEAST_ONCE_NO_ORDERING,
-            ProcessingMode.AT_LEAST_ONCE_KEY_ORDERING,
-            ProcessingMode.AT_LEAST_ONCE_PARTITION_ORDERING -> BufferOverflow.SUSPEND
-            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
-            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> BufferOverflow.DROP_OLDEST
-        }
-    )
-    private val recordSink = object : PolledRecordSink<ByteArray, ByteArray> {
-        override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
-            if (processingMode.tracksProcessedOffsets() &&
-                registry.partitionStateFor(record)?.isProcessed(record.offset()) == true
-            ) {
-                return true
-            }
-            return workChannel.trySend(record).isSuccess
-        }
-    }
-    val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
-    val topicPartition = TopicPartition("topic-a", 0)
-    private val assignmentPositions = ConcurrentHashMap<TopicPartition, Long>().apply {
-        put(topicPartition, assignmentPosition)
-        putAll(additionalAssignmentPositions)
-    }
-    private val consumerProperties = testConsumerProperties()
-    val loop = ConsumerPollLoop<ByteArray, ByteArray>(
-        id = 1,
-        parentContext = Dispatchers.Default,
-        processingMode = processingMode,
-        commitIntervalMs = commitIntervalMs,
-        commitRecordsThreshold = commitRecordsThreshold,
-        metrics = metrics,
-        consumerProperties = consumerProperties,
-        consumerConfigAdapter = KafkaConsumerConfigAdapter(consumerProperties),
-        topics = listOf(topicPartition.topic()),
-        topicsPattern = null,
-        recordSink = recordSink,
-        partitionStateRegistry = registry,
-        kafkaConsumerFactory = { consumer }
-    )
-
-    private val assignedOnce = AtomicBoolean(false)
-    private val pausedPartitions = ConcurrentHashMap.newKeySet<TopicPartition>()
-
-    init {
-        initialChannelRecords.forEach { workChannel.trySendBlocking(it) }
-
-        whenever(consumer.subscribe(any<List<String>>(), any<ConsumerRebalanceListener>()))
-            .thenAnswer { invocation ->
-                listenerRef.set(invocation.getArgument(1))
-            }
-
-        whenever(consumer.position(any<TopicPartition>())).thenAnswer { invocation ->
-            assignmentPositions.getValue(invocation.getArgument(0))
-        }
-        whenever(consumer.position(any<TopicPartition>(), any<Duration>())).thenAnswer { invocation ->
-            assignmentPositions.getValue(invocation.getArgument(0))
-        }
-        whenever(consumer.committed(any<Set<TopicPartition>>())).thenReturn(committedOffsets)
-        whenever(consumer.committed(any<Set<TopicPartition>>(), any<Duration>())).thenReturn(committedOffsets)
-        whenever(consumer.assignment()).thenAnswer { assignmentPositions.keys.toSet() }
-        doAnswer { invocation ->
-            pausedPartitions.addAll(invocation.getArgument<Collection<TopicPartition>>(0))
-            null
-        }.whenever(consumer).pause(any())
-        doAnswer { invocation ->
-            pausedPartitions.removeAll(invocation.getArgument<Collection<TopicPartition>>(0).toSet())
-            null
-        }.whenever(consumer).resume(any())
-        whenever(consumer.close()).then { }
-
-        whenever(consumer.poll(any<Duration>()))
-            .thenAnswer {
-                if (assignedOnce.compareAndSet(false, true)) {
-                    listenerRef.get()?.onPartitionsAssigned(assignmentPositions.keys)
-                }
-                val fetched = pollAnswer()
-                ConsumerRecords(
-                    fetched.partitions()
-                        .filterNot { it in pausedPartitions }
-                        .associateWith { fetched.records(it) }
-                )
-            }
-    }
-
-    fun start(): Job = loop.start()
-
-    fun assignAdditional(topicPartition: TopicPartition, position: Long) {
-        assignmentPositions[topicPartition] = position
-        checkNotNull(listenerRef.get()).onPartitionsAssigned(listOf(topicPartition))
-    }
-
-    suspend fun awaitAssignedState(lastCommittedOffset: Long? = null): PartitionState =
-        awaitFor(2_000L, 10L) {
-            val state = registry.partitionStateFor(topicPartition) ?: return@awaitFor null
-            if (lastCommittedOffset == null || state.lastCommittedOffset == lastCommittedOffset) {
-                state
-            } else {
-                null
-            }
-        }
-
-    fun awaitPause() {
-        verify(consumer, timeout(2_000)).pause(eq(setOf(topicPartition)))
-    }
-
-    fun awaitResume() {
-        verify(consumer, timeout(2_000)).resume(eq(setOf(topicPartition)))
-    }
-
-    fun awaitCommit(offset: Long) {
-        verify(consumer, timeout(2_000)).commitSync(
-            argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                val committed = get(topicPartition)
-                committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
-            }
-        )
-    }
-
-    fun awaitFreshnessCommit(offset: Long) {
-        verify(consumer, timeout(2_000)).commitSync(
-            argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                val committed = get(topicPartition)
-                committed?.offset() == offset + 1 && committed.metadata().isEmpty()
-            }
-        )
-    }
-
-    fun awaitDeadlineBoundedCommit(offset: Long) {
-        verify(consumer, timeout(2_000)).commitSync(
-            argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                val committed = get(topicPartition)
-                committed?.offset() == offset + 1 && !committed.metadata().isNullOrEmpty()
-            },
-            any<Duration>()
-        )
-    }
-
-    fun awaitDeadlineBoundedFreshnessCommit(offset: Long) {
-        verify(consumer, timeout(2_000)).commitSync(
-            argThat<Map<TopicPartition, OffsetAndMetadata>> {
-                val committed = get(topicPartition)
-                committed?.offset() == offset + 1 && committed.metadata().isEmpty()
-            },
-            any<Duration>()
-        )
-    }
-
-    fun awaitCommitAttempts(attempts: Int) {
-        verify(consumer, timeout(2_000).times(attempts)).commitSync(any<Map<TopicPartition, OffsetAndMetadata>>())
-    }
-}
-
 private fun record(
     topic: String = "topic-a",
     partition: Int = 0,
@@ -1581,3 +1484,14 @@ private fun record(
     key.toByteArray(),
     value.toByteArray()
 )
+
+private fun ConsumerRecord<ByteArray, ByteArray>.withRecordSet(
+    value: String
+): ConsumerRecord<ByteArray, ByteArray> = apply {
+    headers().add("record-set", value.toByteArray(Charsets.UTF_8))
+}
+
+private fun sameRecordSet(value: String): RecordAdmission<ByteArray, ByteArray> =
+    RecordAdmission { record ->
+        record.headers().lastHeader("record-set")?.value()?.toString(Charsets.UTF_8) != value
+    }

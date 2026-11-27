@@ -2,8 +2,8 @@ package avh.ckc.spring
 
 import avh.ckc.core.ProcessingMode
 import avh.ckc.core.metrics.ConsumerMetrics
-import avh.ckc.micrometer.RecordDrivenTagExtractors
-import avh.ckc.micrometer.recordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.RecordDrivenTagExtractors
+import avh.ckc.core.metrics.micrometer.recordDrivenTagExtractors
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +32,16 @@ class CkcSpringBootAutoConfigurationTest {
                 CkcSpringBootHealthAutoConfiguration::class.java
             )
         )
+
+    @Test
+    fun `starts and closes an enabled starter without configured consumers`() {
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(CkcConsumersLifecycle::class.java)
+            val lifecycle = context.getBean(CkcConsumersLifecycle::class.java)
+            assertThat(lifecycle.isRunning).isTrue()
+            assertThat(lifecycle.consumerNames).isEmpty()
+        }
+    }
 
     @Test
     fun `creates lifecycle for annotated consumer configured by name`() {
@@ -538,6 +548,9 @@ class CkcSpringBootAutoConfigurationTest {
             .contains("ckc.consumers.*.max-tracked-offsets-per-partition")
             .contains("ckc.metrics.micrometer.kafka-client-metrics-enabled")
             .contains("ckc.metrics.micrometer.schemas.*.record-driven-tags[].default")
+            .contains("ckc.warmup.enabled")
+            .contains("ckc.warmup.contexts.*.max-inflight-delegations")
+            .contains("ckc.consumers.*.warmup.mappings[].quota-profile")
             .contains("ckc.consumers.*.retry-schema")
     }
 
@@ -691,6 +704,11 @@ class CkcSpringBootAutoConfigurationTest {
                     .isEqualTo("UNKNOWN")
                 assertThat(metrics.micrometer.kafkaClientMetricsEnabled)
                     .isTrue()
+
+                val meters = context.getBean(SimpleMeterRegistry::class.java).meters.map { it.id.name }
+                assertThat(meters).contains("testapp.ckc.recovery.active")
+                assertThat(meters).noneMatch { ".warmup." in it }
+                assertThat(context.getBean(CkcConsumerProperties::class.java).warmup.enabled).isFalse()
             }
     }
 

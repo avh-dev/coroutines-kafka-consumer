@@ -56,6 +56,16 @@
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
     },
     {
+      "name": "ckc.warmup",
+      "type": "avh.ckc.spring.CkcWarmupProperties",
+      "sourceType": "avh.ckc.spring.CkcConsumerProperties"
+    },
+    {
+      "name": "ckc.warmup.contexts",
+      "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcWarmupProperties$Context>",
+      "sourceType": "avh.ckc.spring.CkcWarmupProperties"
+    },
+    {
       "name": "ckc.consumers",
       "type": "java.util.Map<java.lang.String,avh.ckc.spring.CkcConsumerProperties$Consumer>",
       "sourceType": "avh.ckc.spring.CkcConsumerProperties"
@@ -239,7 +249,121 @@
     {
       "name": "ckc.clusters.*.kafka-properties",
       "type": "java.util.Map<java.lang.String,java.lang.String>",
-      "description": "Base Kafka consumer properties shared by consumers that reference this cluster."
+      "description": "Base Kafka client properties for clients that reference this cluster."
+    },
+    {
+      "name": "ckc.warmup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enables traffic warm-up for configured participants.",
+      "defaultValue": false
+    },
+    {
+      "name": "ckc.warmup.contexts.*.instance-id",
+      "type": "java.lang.String",
+      "description": "Unique live peer ID. Generated when omitted."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.namespace",
+      "type": "java.lang.String",
+      "description": "Routing namespace shared by compatible peers."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.control-topic",
+      "type": "java.lang.String",
+      "description": "Dedicated single-partition control topic."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.control-cluster",
+      "type": "java.lang.String",
+      "description": "Named Kafka cluster for the control producer and consumer."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.warmup-duration",
+      "type": "java.time.Duration",
+      "description": "Length of the warming phase.",
+      "defaultValue": "90s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.offer-window",
+      "type": "java.time.Duration",
+      "description": "Window for collecting donor offers.",
+      "defaultValue": "2s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.participant-start-timeout",
+      "type": "java.time.Duration",
+      "description": "Time to wait for every registered participant to request startup.",
+      "defaultValue": "15s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.preparation-timeout",
+      "type": "java.time.Duration",
+      "description": "Budget for each recipient preparation stage.",
+      "defaultValue": "15s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.completion-timeout",
+      "type": "java.time.Duration",
+      "description": "Budget for each recipient completion or cleanup stage.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.delegation-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout for forwarding a record and obtaining its result.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.donor-liveness-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum time without a supporting donor control round trip.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.max-donor-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum concurrent sessions admitted by the donor.",
+      "defaultValue": 4
+    },
+    {
+      "name": "ckc.warmup.contexts.*.max-aggregate-quota-per-second",
+      "type": "java.lang.Integer",
+      "description": "Peak aggregate donor admission budget in records per second.",
+      "defaultValue": 2147483647
+    },
+    {
+      "name": "ckc.warmup.contexts.*.max-inflight-delegations",
+      "type": "java.lang.Integer",
+      "description": "Maximum simultaneous record delegations in the context.",
+      "defaultValue": 2147483647
+    },
+    {
+      "name": "ckc.warmup.contexts.*.service-thread-limit",
+      "type": "java.lang.Integer",
+      "description": "Maximum context-owned service workers.",
+      "defaultValue": 4
+    },
+    {
+      "name": "ckc.warmup.contexts.*.service-thread-idle-timeout",
+      "type": "java.time.Duration",
+      "description": "Idle service worker expiry.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "ckc.warmup.contexts.*.broker-lifecycle.topic",
+      "type": "java.lang.String",
+      "description": "Dedicated broker lifecycle journal topic. Empty disables the handshake."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.broker-lifecycle.cluster",
+      "type": "java.lang.String",
+      "description": "Named journal cluster. Defaults to the control cluster."
+    },
+    {
+      "name": "ckc.warmup.contexts.*.broker-lifecycle.operation-timeout",
+      "type": "java.time.Duration",
+      "description": "Budget for each journal operation.",
+      "defaultValue": "2s"
     },
     {
       "name": "ckc.consumers.*.auto-startup",
@@ -368,6 +492,63 @@
       "name": "ckc.consumers.*.metrics.schema",
       "type": "java.lang.String",
       "description": "Micrometer schema name used by this consumer when metrics implementation is MICROMETER."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.context",
+      "type": "java.lang.String",
+      "description": "Name of the shared warm-up context this consumer joins."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.destination-cluster",
+      "type": "java.lang.String",
+      "description": "Named Kafka cluster for the recipient and forwarding producer."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.key-serializer",
+      "type": "java.lang.String",
+      "description": "Kafka key serializer class for the forwarding producer."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.value-serializer",
+      "type": "java.lang.String",
+      "description": "Kafka value serializer class for the forwarding producer."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.producer-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Forwarding producer properties overriding destination cluster properties."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.consumer-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Recipient consumer properties overriding destination cluster properties."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.mappings",
+      "type": "java.util.List<avh.ckc.spring.CkcWarmupProperties$Mapping>",
+      "description": "Topic mappings owned by this participant."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.mappings[].source-topic",
+      "type": "java.lang.String",
+      "description": "Main subscription topic to delegate from."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.mappings[].warmup-topic",
+      "type": "java.lang.String",
+      "description": "Dedicated single-partition topic to forward to."
+    },
+    {
+      "name": "ckc.consumers.*.warmup.mappings[].quota-profile",
+      "type": "java.lang.String",
+      "description": "Record budget profile for a mapping quota window.",
+      "defaultValue": "10"
+    },
+    {
+      "name": "ckc.consumers.*.warmup.mappings[].quota-interval",
+      "type": "java.time.Duration",
+      "description": "Length of the repeating mapping quota window.",
+      "defaultValue": "1s"
     },
     {
       "name": "ckc.consumers.*.retry-schema",

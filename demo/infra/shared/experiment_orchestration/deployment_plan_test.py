@@ -17,6 +17,38 @@ EXAMPLE = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/porta
 
 
 class DeploymentPlanTest(unittest.TestCase):
+    def test_spring_boot_scale_up_materializes_dedicated_kafka_only_when_enabled(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-spring-boot-warmup-scale-up-local.yaml"
+        spec = yaml.safe_load(source.read_text(encoding="utf-8"))
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                spec["targets"][0]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = enabled
+                case = Path(self.temp.name) / str(enabled)
+                case.mkdir()
+                path = case / source.name
+                path.write_text(yaml.safe_dump(spec), encoding="utf-8")
+                resolved = resolve_experiment_definition(path, environment="internal-lab")
+                target, = materialize_experiment(resolved, output_dir=case / "materialized", repo_dir=REPO_ROOT)
+                plan, definition, env = self._materialized_application(target)
+
+                self.assertEqual("ckc-spring-boot", env["SPRING_PROFILES_ACTIVE"])
+                self.assertEqual("true", env["AUDIT_LOG_ENABLED"])
+                self.assertEqual("PLAINTEXT", env["DEMO_KAFKA_SECURITY_PROTOCOL"])
+                self.assertEqual("main-kafka:9092", env["KAFKA_BOOTSTRAP_SERVERS"])
+                self.assertEqual(1, plan["application"]["configuration"]["replicas"])
+                self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
+                self.assertEqual("plaintext", plan["environment"]["lab"]["kafka"]["transport"])
+                self.assertEqual([{
+                    "at": "30s", "type": "deployment_scale", "target": "ckc-demo",
+                    "params": {"replicas": 2, "verify_warmup": True},
+                }], definition["chaos_steps"])
+                self.assertEqual("FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY", env["TELEMETRY_PROCESSING_MODE"])
+                self.assertEqual(enabled, "warmup-kafka" in plan["project_resources"])
+                self.assertEqual(str(enabled).lower(), env["TRAFFIC_WARMUP_ENABLED"])
+                for role in ("CONTROL", "DESTINATION"):
+                    setting = f"TRAFFIC_WARMUP_{role}_KAFKA_BOOTSTRAP_SERVERS"
+                    self.assertEqual("ckc-warmup-kafka:9092" if enabled else None, env.get(setting))
+
     def materialize(self, environment: str) -> tuple[Path, dict, object]:
         root = Path(self.temp.name)
         resolved = resolve_experiment_definition(EXAMPLE, environment=environment)
@@ -33,6 +65,56 @@ class DeploymentPlanTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp.cleanup()
+
+    def test_stub_services_expose_ready_pods_to_each_logical_client(self) -> None:
+        for environment in ("internal-lab", "aws"):
+            with self.subTest(environment=environment):
+                _, plan, _ = self.materialize(environment)
+                manifests = render_project_manifests(plan, DeploymentBindings(
+                    run_id="stub-balancing",
+                    application_image="registry/demo@sha256:application",
+                    stubs_image="registry/stubs@sha256:stubs",
+                    load_test_image="registry/load@sha256:load",
+                    kafka_bootstrap="kafka:9092",
+                    redis_host="redis",
+                    audit_host="audit",
+                ))
+                services = {item["metadata"]["name"]: item for item in manifests if item["kind"] == "Service"}
+                for name in ("ckc-eta-stub", "ckc-flavour-stub", "ckc-registry-stub"):
+                    self.assertEqual("None", services[name]["spec"]["clusterIP"])
+                    self.assertEqual({"app.kubernetes.io/name": "ckc-demo-stubs"}, services[name]["spec"]["selector"])
+                self.assertNotIn("clusterIP", services["ckc-demo-stubs"]["spec"])
+                application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+                environment_values = {
+                    item["name"]: item["value"]
+                    for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+                    if "value" in item
+                }
+                self.assertEqual("http://ckc-eta-stub:8085", environment_values["ETA_MODEL_BASE_URL"])
+                self.assertEqual("http://ckc-flavour-stub:8085", environment_values["FLAVOUR_MODEL_BASE_URL"])
+                self.assertEqual("http://ckc-registry-stub:8085", environment_values["REGISTRY_BASE_URL"])
+                self.assertEqual("true", environment_values["MODEL_DISTRIBUTE_STUB_REQUESTS"])
+
+    def test_jdk_profiles_keep_clusterip_stub_urls(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        for profile, setting in (("spring-kafka", "MODEL_SYNC_HTTP_CLIENT"), ("ckc", "MODEL_HTTP_CLIENT")):
+            with self.subTest(profile=profile):
+                plan["target"]["implementation"] = profile
+                plan["application"].setdefault("runtime", {})["env"] = {setting: "JDK"}
+                manifests = render_project_manifests(plan, DeploymentBindings(
+                    run_id="jdk-stub-routing",
+                    application_image="registry/demo@sha256:application",
+                    stubs_image="registry/stubs@sha256:stubs",
+                    load_test_image="registry/load@sha256:load",
+                    kafka_bootstrap="kafka:9092",
+                    redis_host="redis",
+                    audit_host="audit",
+                ))
+                application = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+                env = {item["name"]: item["value"] for item in application["spec"]["template"]["spec"]["containers"][0]["env"] if "value" in item}
+                for name in ("ETA_MODEL_BASE_URL", "FLAVOUR_MODEL_BASE_URL", "REGISTRY_BASE_URL"):
+                    self.assertEqual("http://ckc-demo-stubs:8085", env[name])
+                self.assertEqual("false", env["MODEL_DISTRIBUTE_STUB_REQUESTS"])
 
     def test_materializes_aws_terraform_inputs_without_profile_indirection(self) -> None:
         root, plan, target = self.materialize("aws")
@@ -75,6 +157,538 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("SSL", load_env["KAFKA_SECURITY_PROTOCOL"])
         self.assertIn("BEGIN CERTIFICATE", load_env["KAFKA_SSL_TRUSTSTORE_CERTIFICATES"])
         self.assertEqual("", load_env["KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM"])
+
+    def test_renders_one_autonomous_warmup_kafka_container_and_independent_connections(self) -> None:
+        _, plan, _ = self.materialize("internal-lab")
+        topics = [
+            "ckc.traffic-warmup.v6.control",
+            "ckc.traffic-warmup.v6.order.events",
+        ]
+        plan["environment"]["warmup_kafka"] = {
+            "enabled": True,
+            "placement": "application",
+            "heap": "512Mi",
+            "resources": {
+                "requests": {"cpu": "500m", "memory": "768Mi"},
+                "limits": {"cpu": "1", "memory": "1Gi"},
+            },
+            "topics": topics,
+            "retention_ms": 600_000,
+            "bootstrap_timeout_seconds": 120,
+            "bootstrap_backoff_seconds": 2,
+            "operation_timeout_seconds": 10,
+        }
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="warmup-1",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            warmup_kafka_image="ckc-perf/warmup-kafka:test",
+            kafka_bootstrap="main-kafka:9092",
+            redis_host="redis",
+            audit_host="audit",
+        ))
+
+        deployment = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-warmup-kafka"
+        )
+        service = next(
+            item for item in manifests
+            if item["kind"] == "Service" and item["metadata"]["name"] == "ckc-warmup-kafka"
+        )
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(1, len(containers))
+        self.assertEqual("ckc-perf/warmup-kafka:test", containers[0]["image"])
+        environment = {item["name"]: item["value"] for item in containers[0]["env"]}
+        self.assertEqual(",".join(topics), environment["KAFKA_BOOTSTRAP_TOPICS"])
+        self.assertEqual("false", environment["KAFKA_AUTO_CREATE_TOPICS_ENABLE"])
+        self.assertEqual(
+            "INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093",
+            environment["KAFKA_LISTENERS"],
+        )
+        self.assertEqual(
+            "INTERNAL://localhost:19092,EXTERNAL://ckc-warmup-kafka:9092",
+            environment["KAFKA_ADVERTISED_LISTENERS"],
+        )
+        self.assertEqual("INTERNAL", environment["KAFKA_INTER_BROKER_LISTENER_NAME"])
+        self.assertEqual("120", environment["KAFKA_BOOTSTRAP_TIMEOUT_SECONDS"])
+        self.assertEqual("2", environment["KAFKA_BOOTSTRAP_BACKOFF_SECONDS"])
+        self.assertEqual("180", environment["KAFKA_PREWARM_TIMEOUT_SECONDS"])
+        self.assertNotIn("KAFKA_RECONCILE_INTERVAL_SECONDS", environment)
+        self.assertNotIn("KAFKA_READY_MAX_AGE_SECONDS", environment)
+        self.assertEqual(
+            ["/opt/ckc-warmup-kafka/bin/readiness.sh"],
+            containers[0]["readinessProbe"]["exec"]["command"],
+        )
+        self.assertNotIn("publishNotReadyAddresses", service["spec"])
+
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        application_env = {
+            item["name"]: item["value"]
+            for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual("main-kafka:9092", application_env["DEMO_KAFKA_BOOTSTRAP_SERVERS"])
+        self.assertEqual(
+            "ckc-warmup-kafka:9092",
+            application_env["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"],
+        )
+        self.assertEqual(
+            "ckc-warmup-kafka:9092",
+            application_env["TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS"],
+        )
+
+    def test_coordinated_broker_exposes_a_pod_address_and_opts_in_its_applications(self) -> None:
+        plans = {}
+        for mode in ("planned", "abrupt"):
+            source = REPO_ROOT / f"demo/infra/experiments/ckc-warmup-broker-drain-{mode}-20k-local.yaml"
+            document = yaml.safe_load(source.read_text(encoding="utf-8"))
+            self.assertIn("chaos", document["workload"])
+            resolved = resolve_experiment_definition(source, environment="internal-lab")
+            target, = materialize_experiment(resolved, output_dir=Path(self.temp.name) / mode, repo_dir=REPO_ROOT)
+            self.assertEqual(f"ckc.broker-drain-{mode}", target.target.name)
+            self.assertNotIn("workload", document["targets"][0])
+            definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+            plans[mode] = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+            steps = definition["chaos_steps"]
+            self.assertEqual(["7m", "7m30s", "8m15s", "12m30s"], [step["at"] for step in steps])
+            self.assertEqual([2, 3, 4], [
+                step["params"]["replicas"] for step in steps if step["type"] == "deployment_scale"
+            ])
+            self.assertEqual("warmup_broker_stop", steps[2]["type"])
+            self.assertEqual({"mode": mode, "recovery_timeout_seconds": 360}, steps[2]["params"])
+        self.assertEqual(plans["planned"]["workload"]["load"], plans["abrupt"]["workload"]["load"])
+        self.assertEqual(plans["planned"]["application"]["configuration"], plans["abrupt"]["application"]["configuration"])
+        plan = plans["planned"]
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="warmup-drain",
+            application_image="demo", stubs_image="stubs", load_test_image="load",
+            kafka_bootstrap="application-kafka:9092", redis_host="redis", audit_host="audit",
+        ))
+        broker = next(item for item in manifests if
+                      item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-warmup-kafka")
+        spec = broker["spec"]["template"]["spec"]
+        self.assertEqual(90, spec["terminationGracePeriodSeconds"])
+        env = {item["name"]: item for item in spec["containers"][0]["env"]}
+        self.assertEqual("status.podIP", env["CKC_WARMUP_POD_IP"]["valueFrom"]["fieldRef"]["fieldPath"])
+        self.assertEqual("50", env["KAFKA_DRAIN_TIMEOUT_SECONDS"]["value"])
+        self.assertEqual("30", env["KAFKA_SHUTDOWN_TIMEOUT_SECONDS"]["value"])
+        topic = env["KAFKA_BROKER_LIFECYCLE_TOPIC"]["value"]
+        self.assertNotIn(topic, env["KAFKA_BOOTSTRAP_TOPICS"]["value"].split(","))
+        service = next(item for item in manifests if
+                       item["kind"] == "Service" and item["metadata"]["name"] == "ckc-warmup-kafka")
+        self.assertTrue(service["spec"]["publishNotReadyAddresses"])
+        application = next(item for item in manifests if
+                           item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo")
+        env = {entry["name"]: entry["value"] for entry in
+               application["spec"]["template"]["spec"]["containers"][0]["env"]}
+        self.assertEqual(topic, env["TRAFFIC_WARMUP_BROKER_LIFECYCLE_TOPIC"])
+        self.assertEqual("application-kafka:9092", env["DEMO_KAFKA_BOOTSTRAP_SERVERS"])
+
+    def test_materializes_internal_lab_warmup_transport_qualification(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-shared-partition-warmup-transport-qualification.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "warmup-qualification"
+        target = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)[0]
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+
+        self.assertIn("warmup-kafka", plan["project_resources"])
+        self.assertEqual(
+            [
+                "ckc.traffic-warmup.v6.control",
+                "ckc.traffic-warmup.v6.order.events",
+                "ckc.traffic-warmup.v6.batch.events",
+                "ckc.traffic-warmup.v6.cauldron.events",
+            ],
+            plan["environment"]["warmup_kafka"]["topics"],
+        )
+        self.assertEqual(
+            plan["environment"]["warmup_kafka"],
+            definition["deployment"]["warmup_kafka"],
+        )
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id="qualification",
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="main-kafka:9092",
+            redis_host="redis",
+            audit_host="audit",
+        ))
+        self.assertEqual(
+            ["Deployment", "Service"],
+            [
+                item["kind"] for item in manifests
+                if item["metadata"]["name"] == "ckc-warmup-kafka"
+            ],
+        )
+
+    def test_materializes_shared_partition_fourth_pod_warmup_target(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-shared-partition-warmup-scale-up-14k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "warmup-ab"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(["ckc.shared-partition-warmup-1-to-100-180s"], [target.target.name for target in targets])
+        plan, definition, environment = self._materialized_application(targets[0])
+        self._assert_fourth_pod_scale_up(plan)
+        self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (180s, ramp) -> 100",
+                environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        self.assertEqual("180", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("14m", definition["diagnostic_steps"][0]["at"])
+        self.assertEqual("5m", definition["diagnostic_steps"][0]["duration"])
+
+    def test_materializes_staged_and_linear_warmup_profile_comparison(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-staged-vs-linear-warmup-300-scale-up-14k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "staged-vs-linear-warmup"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            [
+                "ckc.staged-step-warmup-1-to-300-120s",
+                "ckc.linear-warmup-1-to-300-120s",
+                "ckc.linear-control-warmup-1-to-100-180s",
+            ],
+            [target.target.name for target in targets],
+        )
+        materialized = [self._materialized_application(target) for target in targets]
+        for plan, definition, _ in materialized:
+            self._assert_fourth_pod_scale_up(plan)
+            self.assertNotIn("diagnostic_steps", definition)
+            self.assertEqual(
+                [
+                    {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                    {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+                ],
+                definition["load_test"]["measurement_windows"],
+            )
+
+        staged = materialized[0][2]
+        linear = materialized[1][2]
+        linear_control = materialized[2][2]
+        self.assertEqual("true", staged["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("true", linear["TRAFFIC_WARMUP_ENABLED"])
+        self.assertEqual("true", linear_control["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (30s, gentle start) -> 5 -> (0s, step) -> 50 -> (30s, hold) -> 50 -> "
+                "(0s, step) -> 300 -> (60s, hold) -> 300",
+                staged[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+            self.assertEqual(
+                "1 -> (120s, direct linear) -> 300",
+                linear[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+            self.assertEqual(
+                "1 -> (180s, direct linear control) -> 100",
+                linear_control[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        for environment in (staged, linear):
+            self.assertEqual("120", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("180", linear_control["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        for environment in (staged, linear, linear_control):
+            self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+            self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_linear_warmup_reference_after_parallel_result_delivery(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-linear-warmup-reference-scale-up-14k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "linear-warmup-reference"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            ["ckc.linear-warmup-reference-1-to-100-180s"],
+            [target.target.name for target in targets],
+        )
+        plan, definition, environment = self._materialized_application(targets[0])
+        self._assert_fourth_pod_scale_up(plan)
+        self.assertNotIn("diagnostic_steps", definition)
+        self.assertEqual(
+            [
+                {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+            ],
+            definition["load_test"]["measurement_windows"],
+        )
+        self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (180s, linear reference) -> 100",
+                environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        self.assertEqual("180", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+        self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_sequential_warmup_comparison_at_20k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-sequential-warmup-scale-up-20k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "sequential-warmup-20k"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            [
+                "ckc.cold-start-controller-stubs",
+                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-150s",
+            ],
+            [target.target.name for target in targets],
+        )
+        cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
+        self._assert_controller_stubs_target(cold_plan, cold_definition)
+        self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertFalse(cold_definition["deployment"]["warmup_kafka"]["enabled"])
+        self.assertNotIn("warmup-kafka", cold_plan["project_resources"])
+        self.assertNotIn("TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS", cold_environment)
+        self.assertEqual("5m", cold_environment["DEMO_REDIS_STATE_RETENTION"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
+
+        plan, definition, environment = self._materialized_application(targets[1])
+        self._assert_controller_stubs_target(plan, definition)
+        self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+        self.assertTrue(definition["deployment"]["warmup_kafka"]["enabled"])
+        self.assertIn("warmup-kafka", plan["project_resources"])
+        self.assertEqual("ckc-warmup-kafka:9092", environment["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"])
+        bindings = DeploymentBindings(
+            run_id="20k-ab", application_image="demo:test", stubs_image="stubs:test",
+            load_test_image="load:test", kafka_bootstrap="kafka:9092", redis_host="redis",
+            audit_host="audit", autoscaling_metrics_url="http://prometheus:9090",
+        )
+        for current_plan, expected_kinds in ((cold_plan, []), (plan, ["Deployment", "Service"])):
+            manifests = render_project_manifests(current_plan, bindings)
+            broker = [item for item in manifests if item["metadata"]["name"] == "ckc-warmup-kafka"]
+            self.assertEqual(expected_kinds, [item["kind"] for item in broker])
+            if broker:
+                self.assertEqual(
+                    {"requests": {"cpu": "300m", "memory": "768Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+                    broker[0]["spec"]["template"]["spec"]["containers"][0]["resources"],
+                )
+        # CLI overrides are applied to the runtime environment before rendering.
+        cold_plan["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = "true"
+        plan["application"]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = "false"
+        for current_plan, expected in ((cold_plan, True), (plan, False)):
+            manifests = render_project_manifests(current_plan, bindings)
+            self.assertEqual(expected, any(item["metadata"]["name"] == "ckc-warmup-kafka" for item in manifests))
+        self.assertEqual("5m", environment["DEMO_REDIS_STATE_RETENTION"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertEqual(
+                "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300",
+                environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"],
+            )
+        self.assertEqual("150", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+        self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+        self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_sequential_spring_boot_cold_and_warm_comparison(self) -> None:
+        catalog = REPO_ROOT / "demo/infra/experiments"
+        reference = yaml.safe_load((catalog / "ckc-sequential-warmup-scale-up-20k-local.yaml").read_text())
+        source = catalog / "ckc-spring-boot-sequential-warmup-scale-up-20k-local.yaml"
+        experiment = yaml.safe_load(source.read_text())
+        self.assertEqual(reference["workload"], experiment["workload"])
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        cold, warm = materialize_experiment(resolved, output_dir=Path(self.temp.name), repo_dir=REPO_ROOT)
+
+        for target, expected in ((cold, False), (warm, True)):
+            with self.subTest(warmup=expected):
+                plan, definition, env = self._materialized_application(target)
+                self._assert_controller_stubs_target(plan, definition)
+                self.assertEqual("plaintext", plan["environment"]["lab"]["kafka"]["transport"])
+                self.assertNotIn("chaos_steps", definition)
+                self.assertEqual("ckc-spring-boot", env["SPRING_PROFILES_ACTIVE"])
+                self.assertEqual("PLAINTEXT", env["DEMO_KAFKA_SECURITY_PROTOCOL"])
+                self.assertEqual("true", env["DEMO_CONSUMER_PROCESSING_ENABLED"])
+                self.assertEqual("true", env["AUDIT_LOG_ENABLED"])
+                self.assertEqual("true", env["CKC_METRICS_ENABLED"])
+                self.assertEqual("", env["CKC_TELEMETRY_FRESHNESS_MAX_RECORD_AGE"])
+                self.assertEqual(str(expected).lower(), env["TRAFFIC_WARMUP_ENABLED"])
+                self.assertEqual(expected, "warmup-kafka" in plan["project_resources"])
+                for topic in ("ORDER", "BATCH", "CAULDRON"):
+                    consumer = "TELEMETRY" if topic == "CAULDRON" else topic
+                    self.assertEqual("500", env[f"{consumer}_WORKER_CONCURRENCY"])
+                    mode = (
+                        "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY" if consumer == "TELEMETRY"
+                        else "AT_LEAST_ONCE_KEY_ORDERING"
+                    )
+                    self.assertEqual(mode, env[f"{consumer}_PROCESSING_MODE"])
+                    self.assertEqual(
+                        "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300" if expected else None,
+                        env.get(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"),
+                    )
+                if expected:
+                    self.assertEqual("150", env["TRAFFIC_WARMUP_DURATION_SECONDS"])
+                    self.assertEqual("300", env["TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS"])
+                    self.assertEqual("ckc-warmup-kafka:9092", env["TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS"])
+
+    def _assert_controller_stubs_target(self, plan, definition) -> None:
+        self.assertEqual(20_000, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            "0 -> (25m, ramp-to-20k) -> 100 -> (10m, hold-20k) -> 100 -> (10m, cool-down) -> 0",
+            plan["workload"]["load"]["load_profile"],
+        )
+        application = plan["application"]["configuration"]
+        self.assertEqual(1, application["replicas"])
+        self.assertEqual("950m", application["resources"]["requests"]["cpu"])
+        self.assertEqual(1, application["hpa"]["min_replicas"])
+        self.assertEqual(4, application["hpa"]["max_replicas"])
+        self.assertEqual(
+            {"max_pods": 1, "period_seconds": 180, "tolerance": 0.1},
+            application["hpa"]["hot_pod_cpu"]["scale_up"],
+        )
+        self.assertIn("jit+compilation=debug", application["java_options"])
+        self.assertEqual(
+            {"application": "worker", "stubs": "controller", "generator": "controller"},
+            plan["placement"],
+        )
+        self.assertNotIn("diagnostic_steps", definition)
+        self.assertEqual(
+            [
+                {"name": "sequential-scale-up", "start_seconds": 0, "duration_seconds": 1_500},
+                {"name": "peak-plateau", "start_seconds": 1_500, "duration_seconds": 600},
+                {"name": "cool-down", "start_seconds": 2_100, "duration_seconds": 600},
+            ],
+            definition["load_test"]["measurement_windows"],
+        )
+
+    def _assert_linear_20k_target(
+        self,
+        plan,
+        definition,
+        expected_cpu_request: str = "950m",
+        expected_base_tps: int = 14_000,
+        expected_load_profile: str | None = None,
+    ) -> None:
+        self._assert_fourth_pod_scale_up(
+            plan,
+            expected_cpu_request=expected_cpu_request,
+            expected_base_tps=expected_base_tps,
+            expected_load_profile=expected_load_profile,
+        )
+        self.assertEqual(
+            {"application": "worker", "stubs": "controller", "generator": "controller"},
+            plan["placement"],
+        )
+        self.assertNotIn("diagnostic_steps", definition)
+        self.assertEqual(
+            [
+                {"name": "fourth-pod-transition", "start_seconds": 840, "duration_seconds": 360},
+                {"name": "settled-four-pod-plateau", "start_seconds": 1_260, "duration_seconds": 60},
+            ],
+            definition["load_test"]["measurement_windows"],
+        )
+
+    def test_materializes_linear_warmup_comparison_at_20k(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-linear-warmup-scale-up-20k-local.yaml"
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        root = Path(self.temp.name) / "linear-warmup-20k"
+        targets = materialize_experiment(resolved, output_dir=root, repo_dir=REPO_ROOT)
+
+        self.assertEqual(
+            [
+                "ckc.cold-start-controller-stubs-20k",
+                "ckc.two-stage-linear-controller-stubs-1-to-100-to-300-120s-20k",
+                "ckc.linear-warmup-controller-stubs-1-to-300-120s-20k",
+                "ckc.linear-control-controller-stubs-1-to-100-180s-20k",
+            ],
+            [target.target.name for target in targets],
+        )
+        load_profile = (
+            "0 -> (3m, ramp-to-12k) -> 60 -> (5m, stabilize-at-12k) -> 60 -> "
+            "(10m, ramp-to-20k) -> 100 -> (4m, hold-20k) -> 100 -> (1m, cool-down) -> 0"
+        )
+        cold_plan, cold_definition, cold_environment = self._materialized_application(targets[0])
+        self._assert_linear_20k_target(
+            cold_plan,
+            cold_definition,
+            expected_cpu_request="1200m",
+            expected_base_tps=20_000,
+            expected_load_profile=load_profile,
+        )
+        self.assertEqual(
+            {"order": 20_000, "batch": 20_000, "telemetry": 20_000},
+            cold_plan["workload"]["load"]["producer_capacity_tps"],
+        )
+        self.assertEqual("false", cold_environment["TRAFFIC_WARMUP_ENABLED"])
+        for topic in ("ORDER", "BATCH", "CAULDRON"):
+            self.assertNotIn(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE", cold_environment)
+
+        expected_profiles = [
+            ("1 -> (60s, first linear) -> 100 -> (60s, second linear) -> 300", "120"),
+            ("1 -> (120s, direct linear) -> 300", "120"),
+            ("1 -> (180s, direct linear control) -> 100", "180"),
+        ]
+        for target, (profile, duration) in zip(targets[1:], expected_profiles, strict=True):
+            plan, definition, environment = self._materialized_application(target)
+            self._assert_linear_20k_target(
+                plan,
+                definition,
+                expected_cpu_request="1200m",
+                expected_base_tps=20_000,
+                expected_load_profile=load_profile,
+            )
+            self.assertEqual("true", environment["TRAFFIC_WARMUP_ENABLED"])
+            for topic in ("ORDER", "BATCH", "CAULDRON"):
+                self.assertEqual(profile, environment[f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"])
+            self.assertEqual(duration, environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
+            self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
+            self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def _materialized_application(self, target):
+        plan = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
+        definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+        manifests = render_project_manifests(plan, DeploymentBindings(
+            run_id=target.target.id,
+            application_image="registry/demo@sha256:application",
+            stubs_image="registry/stubs@sha256:stubs",
+            load_test_image="registry/load@sha256:load",
+            kafka_bootstrap="main-kafka:9092",
+            redis_host="redis",
+            audit_host="audit",
+            autoscaling_metrics_url="http://ckc-prometheus.ckc-perf.svc.cluster.local:9090",
+        ))
+        application = next(
+            item for item in manifests
+            if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo"
+        )
+        environment = {
+            item["name"]: item["value"]
+            for item in application["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        return plan, definition, environment
+
+    def _assert_fourth_pod_scale_up(
+        self,
+        plan,
+        expected_cpu_request: str = "775m",
+        expected_base_tps: int = 14_000,
+        expected_load_profile: str | None = None,
+    ) -> None:
+        self.assertEqual(expected_base_tps, plan["workload"]["load"]["base_tps"])
+        self.assertEqual(
+            expected_load_profile or (
+                "0 -> (3m, ramp-to-12k) -> 86 -> (5m, stabilize-at-12k) -> 86 -> "
+                "(10m, ramp-to-14k) -> 100 -> (4m, hold-14k) -> 100 -> (1m, cool-down) -> 0"
+            ),
+            plan["workload"]["load"]["load_profile"],
+        )
+        application = plan["application"]["configuration"]
+        self.assertEqual(3, application["replicas"])
+        self.assertEqual(expected_cpu_request, application["resources"]["requests"]["cpu"])
+        self.assertEqual(3, application["hpa"]["min_replicas"])
+        self.assertEqual(4, application["hpa"]["max_replicas"])
+        self.assertEqual(
+            {"max_pods": 1, "period_seconds": 180, "tolerance": 0.1},
+            application["hpa"]["hot_pod_cpu"]["scale_up"],
+        )
+        self.assertIn("jit+compilation=debug", application["java_options"])
 
     def test_materializes_fixed_aws_ckc_baseline_experiment(self) -> None:
         source = REPO_ROOT / "demo/infra/experiments/aws-ckc-msk-sizing-50k.yaml"
@@ -629,6 +1243,15 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("23", application_environment["TELEMETRY_POLL_LOOP_CONCURRENCY"])
         self.assertEqual(4, stubs["spec"]["replicas"])
         self.assertEqual("4", stubs_environment["STUB_WORKERS"])
+        self.assertEqual([{"name": "http", "containerPort": 8085}], stubs_container["ports"])
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["startupProbe"]["httpGet"],
+        )
+        self.assertEqual(
+            {"path": "/health", "port": 8085},
+            stubs_container["readinessProbe"]["httpGet"],
+        )
         self.assertEqual({"cpu": "1", "memory": "1Gi"}, stubs_container["resources"]["requests"])
         self.assertEqual({"memory": "1536Mi"}, stubs_container["resources"]["limits"])
         self.assertEqual(
@@ -680,6 +1303,14 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual({"ckc.dev/role": "application"}, application["spec"]["template"]["spec"]["nodeSelector"])
         stubs = next(item for item in manifests if item["kind"] == "Deployment" and item["metadata"]["name"] == "ckc-demo-stubs")
         load_test = next(item for item in manifests if item["kind"] == "Job")
+        stubs_labels = stubs["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual("shared", stubs_labels["ckc_run_id"])
+        self.assertEqual("shared", stubs_labels["ckc_test_definition"])
+        self.assertEqual("stubs", stubs_labels["ckc.dev/component"])
+        self.assertEqual(
+            {"app.kubernetes.io/name": "ckc-demo-stubs"},
+            stubs["spec"]["selector"]["matchLabels"],
+        )
         self.assertEqual({"ckc.dev/role": "controller"}, stubs["spec"]["template"]["spec"]["nodeSelector"])
         self.assertEqual({"ckc.dev/role": "controller"}, load_test["spec"]["template"]["spec"]["nodeSelector"])
         load_environment = {

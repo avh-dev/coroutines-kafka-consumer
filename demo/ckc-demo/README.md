@@ -15,6 +15,7 @@ The application is intended for functional checks and for comparing consumer imp
 
 - `ckc` profile uses `coroutines-kafka-consumer` with suspend business services;
 - `ckc-sync` profile uses `coroutines-kafka-consumer` with blocking business services and a configurable processing dispatcher;
+- `ckc-spring-boot` profile uses the CKC Spring Boot starter with suspend business services;
 - `spring-kafka` profile uses `@KafkaListener` as a legacy baseline;
 - `spring-kafka-coroutines-naive` profile uses Spring Kafka batch listeners that enqueue records into bounded channels drained by coroutine workers;
 - `confluent-parallel` profile uses a blocking Confluent Parallel Consumer implementation with key-ordered parallel processing.
@@ -30,7 +31,7 @@ The application is intended for functional checks and for comparing consumer imp
 - optional reference read API for current order state at `/api/orders/{orderId}` under the `api` profile
 
 External HTTP dependencies use separate base URL settings: `ETA_MODEL_BASE_URL`, `FLAVOUR_MODEL_BASE_URL`, and `REGISTRY_BASE_URL`.
-Local and lab defaults point all three at `ckc-demo-stubs`, but the application keeps separate clients so production-like deployments can route them to distinct services.
+Local development may point all three to one stub process. Internal-lab and AWS experiments use separate headless Service names over the same stub deployment. With `MODEL_DISTRIBUTE_STUB_REQUESTS=true`, Armeria selects a ready stub pod for each request; lab JDK profiles use the existing `ckc-demo-stubs` ClusterIP Service.
 
 ## Local Environment
 
@@ -96,6 +97,9 @@ If you override the app port, update `demo/infra/local-dev/prometheus/prometheus
 ## CKC Experiment Controls
 
 The consumer profiles expose demo-only switches for consumer experiments:
+
+- `TRAFFIC_WARMUP_ENABLED=true` enables traffic warm-up in `ckc`, `ckc-sync`, and `ckc-spring-boot`. The starter profile registers order, batch, and cauldron consumers in one context. It uses the existing `TRAFFIC_WARMUP_*` settings for control and destination Kafka, broker lifecycle, per-topic quotas, and the shared in-flight delegation limit.
+- In `ckc-spring-boot`, `CKC_METRICS_ENABLED=false` disables CKC consumer meters. Audit callbacks remain active when `AUDIT_LOG_ENABLED=true`.
 
 - `EXPERIMENT_TARGET_NAME` overrides the human-readable `profile` tag on `ckc.demo.consumer.profile.info`; the active Spring profile remains available as `spring_profile`.
 - Shared `KAFKA_CONSUMER_FETCH_MIN_BYTES`, `KAFKA_CONSUMER_FETCH_MAX_WAIT_MS`, `KAFKA_CONSUMER_MAX_POLL_RECORDS`, `KAFKA_CONSUMER_FETCH_MAX_BYTES`, and `KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES` settings can be overridden per topic with the `ORDER_`, `BATCH_`, or `TELEMETRY_` prefix.
