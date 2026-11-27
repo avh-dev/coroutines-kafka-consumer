@@ -503,14 +503,17 @@ class DeploymentPlanTest(unittest.TestCase):
                 self.assertEqual("true", env["DEMO_CONSUMER_PROCESSING_ENABLED"])
                 self.assertEqual("true", env["AUDIT_LOG_ENABLED"])
                 self.assertEqual("true", env["CKC_METRICS_ENABLED"])
-                self.assertEqual("0", env["FRESHNESS_FIRST_MAX_RECORD_AGE_SECONDS"])
                 self.assertEqual("", env["CKC_TELEMETRY_FRESHNESS_MAX_RECORD_AGE"])
                 self.assertEqual(str(expected).lower(), env["TRAFFIC_WARMUP_ENABLED"])
                 self.assertEqual(expected, "warmup-kafka" in plan["project_resources"])
                 for topic in ("ORDER", "BATCH", "CAULDRON"):
                     consumer = "TELEMETRY" if topic == "CAULDRON" else topic
                     self.assertEqual("500", env[f"{consumer}_WORKER_CONCURRENCY"])
-                    self.assertEqual("AT_LEAST_ONCE_NO_ORDERING", env[f"{consumer}_PROCESSING_MODE"])
+                    mode = (
+                        "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY" if consumer == "TELEMETRY"
+                        else "AT_LEAST_ONCE_KEY_ORDERING"
+                    )
+                    self.assertEqual(mode, env[f"{consumer}_PROCESSING_MODE"])
                     self.assertEqual(
                         "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300" if expected else None,
                         env.get(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"),

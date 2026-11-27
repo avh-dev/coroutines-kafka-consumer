@@ -110,15 +110,15 @@ targets:
       KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
       TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
       TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
-      # The unordered telemetry consumer has no record age limit.
+      # Exercise pending-record replacement without age-based drops.
       CKC_TELEMETRY_FRESHNESS_MAX_RECORD_AGE: ''
       TRAFFIC_WARMUP_ENABLED: false
     planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
     parallelism: [workers]
     topics:
-      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_KEY_ORDERING}
+      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
 - name: ckc-spring-boot.two-stage-linear-controller-stubs-1-to-100-to-300-150s
   annotation_label: CKC Spring Boot · linear warm-up 1→100→300/s over 60s+90s · controller stubs · sequential 1→4 pod · local 20k
   implementation: ckc-spring-boot

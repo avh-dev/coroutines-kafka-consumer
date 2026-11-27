@@ -7170,6 +7170,8 @@ Live run `20261126T180803Z` passed qualification with 600 order, 589 batch, and 
 Match both starter and DSL consumer IDs in topic dashboards and report queries. Verified the corrected queries against the saved run and rebuilt its evidence bundle with the existing Prometheus data.
 Add the Spring Boot port of the sequential 20k cold/warm comparison, retaining its workload, autoscaling, resource sizing, and quota profile. Use PLAINTEXT for main Kafka and omit the freshness cap in unordered telemetry mode.
 Passed the 75 planner and contract tests and all 121 demo tests. The CLI dry-run validated the new experiment from the GLOBAL-5 worktree using the task checkout's entrypoint.
+Run both 20k comparison targets with at-least-once key ordering for orders and batches and pending-record replacement by key for telemetry. Keep the telemetry age cutoff disabled.
+Passed 94 orchestration tests and 244 internal-lab tests. Updated optilab and verified both rendered deployments from the installed experiment and the CLI dry run.
 
 <a id="core-112"></a>
 ### CORE-112 - Honor the donor processing policy for remote warm-up discards
