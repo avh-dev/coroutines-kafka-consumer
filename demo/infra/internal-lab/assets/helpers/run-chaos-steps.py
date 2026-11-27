@@ -26,6 +26,7 @@ if SHARED_ROOT.is_dir():
     sys.path.insert(0, str(SHARED_ROOT))
 
 from experiment_orchestration import warmup_scale_up
+from result_bundle.collect import http_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -463,11 +464,46 @@ def delete_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | Non
     return details
 
 
-def warmup_app_logs(kubectl: list[str]) -> str:
-    return run([
-        *kubectl, "logs", "-l", "ckc.dev/component=application", "--all-containers",
-        "--prefix", "--timestamps", "--since=4m", "--tail=4000", "--ignore-errors=true",
-    ], capture_output=True).stdout
+def loki_log_lines(query: str, start: int, end: int) -> str:
+    payload = http_json("http://127.0.0.1:3100", "/loki/api/v1/query_range", {
+        "query": query,
+        "start": str(start),
+        "end": str(end),
+        "limit": "1000",
+        "direction": "backward",
+    }, timeout=5)
+    records = {
+        (int(timestamp), line)
+        for stream in payload["data"]["result"]
+        for timestamp, line in stream["values"]
+    }
+    return "\n".join(line for _, line in sorted(records))
+
+
+def warmup_app_logs(run_id: str, marker: str) -> str:
+    selector = '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id=' + json.dumps(run_id) + '}'
+    end = time.time_ns()
+    return loki_log_lines(f"{selector} |= {json.dumps(marker)}", end - 240_000_000_000, end)
+
+
+def warmup_broker_logs(run_id: str, pod_name: str, impact_ns: int) -> list[str]:
+    selector = (
+        '{namespace="ckc-perf",app="ckc-warmup-kafka",container="kafka",'
+        f'run_id={json.dumps(run_id)},pod={json.dumps(pod_name)}}}'
+    )
+    query = f'{selector} |~ "broker-lifecycle |warmup-kafka-supervisor "'
+    return broker_stop_lines(loki_log_lines(query, impact_ns, time.time_ns()))
+
+
+def proves_abrupt_broker_stop(lines: list[str], epoch: str) -> bool:
+    if any(f"event=DrainRequested(epoch={epoch}," in line for line in lines):
+        return False
+    # The supervisor writes the process exit, then the stop marker for that broker epoch.
+    return any(
+        before.endswith("warmup-kafka-supervisor process=broker exit_status=137")
+        and f"event=KafkaStopped brokerEpoch={epoch} " in after
+        for before, after in zip(lines, lines[1:])
+    )
 
 
 def warming_sessions(logs: str) -> list[str]:
@@ -513,9 +549,9 @@ def verified_drain_connection(
 
 
 def await_warmup_broker(
-    kubectl: list[str], selector: str, epoch_file: str, previous_epoch: str
+    kubectl: list[str], selector: str, epoch_file: str, previous_epoch: str, timeout_seconds: int
 ) -> tuple[dict[str, Any], str]:
-    deadline = time.monotonic() + 210
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         running = run([*kubectl, "get", "pods", "-l", selector, "-o", "json"], capture_output=True)
         for pod in json.loads(running.stdout)["items"]:
@@ -530,22 +566,25 @@ def await_warmup_broker(
             if marker.returncode == 0 and (epoch := marker.stdout.strip()) and epoch != previous_epoch:
                 return metadata, epoch
         time.sleep(2)
-    raise RuntimeError(f"Temporary Kafka did not become ready with a new epoch after {previous_epoch}")
+    raise RuntimeError(f"Temporary Kafka did not become ready within {timeout_seconds}s with a new epoch after {previous_epoch}")
 
 
 def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace = "ckc-perf"
     selector = "ckc.dev/component=warmup-kafka"
     mode = params["mode"]
+    recovery_timeout = params.get("recoveryTimeoutSeconds", 210)
     if mode not in ("planned", "abrupt"):
         raise ValueError("Temporary Kafka stop mode must be planned or abrupt")
     if dry_run:
-        log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING")
+        log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING "
+            f"and wait up to {recovery_timeout}s for recovery")
         return None
+    run_id = os.environ["TEST_RUN_ID"]
     kubectl = ["kubectl", "--request-timeout=5s", "-n", namespace]
     deadline = time.monotonic() + 35
     while True:
-        sessions = warming_sessions(warmup_app_logs(kubectl))
+        sessions = warming_sessions(warmup_app_logs(run_id, "Warm-up lifecycle: phase="))
         if len(sessions) >= 2:
             break
         if time.monotonic() >= deadline:
@@ -567,22 +606,24 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
     address = f"[{pod_ip}]:9092" if ":" in pod_ip else f"{pod_ip}:9092"
     details = {
         "mode": mode, **pod_impact_details(broker, None), "brokerEpoch": epoch, "advertisedBroker": address,
-        "warmingSessions": sessions,
+        "warmingSessions": sessions, "recoveryTimeoutSeconds": recovery_timeout,
     }
     if mode == "abrupt":
+        details["impactAt"] = utc_iso()
+        impact_ns = time.time_ns()
         result = run([
             *exec_in_broker, "bash", "-c", 'kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"',
         ], check=False)
         details["execExitCode"] = result.returncode
-        restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch)
-        previous = run([*kubectl, "logs", name, "-c", "kafka", "--previous", "--timestamps"], capture_output=True)
+        restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
         details["nextBrokerEpoch"] = next_epoch
         details["nextBrokerPodUid"] = restarted["uid"]
-        details["brokerEvents"] = broker_stop_lines(previous.stdout)
+        # A failed container restart can rotate the original exit out of kubectl logs --previous.
+        lines = warmup_broker_logs(run_id, name, impact_ns)
+        details["brokerEvents"] = lines
         log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
-        if (restarted["uid"] != uid or "process=broker exit_status=137" not in previous.stdout or
-            f"event=DrainRequested(epoch={epoch}," in previous.stdout):
-            raise RuntimeError("Kafka restart did not prove abrupt loss of the previous generation")
+        if restarted["uid"] != uid or not proves_abrupt_broker_stop(lines, epoch):
+            raise RuntimeError(f"Kafka restart did not prove abrupt loss of broker epoch {epoch}")
         return details
 
     details["beforeDeletion"] = broker_endpoint(kubectl, uid)
@@ -621,7 +662,16 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
         details["terminatingEndpoint"] = terminating
         lines = broker_stop_lines(path.read_text(encoding="utf-8"))
         details["brokerEvents"] = lines
-    connection = verified_drain_connection(lines, warmup_app_logs(kubectl), terminating, address, epoch) if terminating else None
+    connection = None
+    if terminating:
+        # Loki may still be ingesting the final log when the old broker stops.
+        deadline = time.monotonic() + 10
+        while True:
+            logs = warmup_app_logs(run_id, "opening final confirmation connection")
+            connection = verified_drain_connection(lines, logs, terminating, address, epoch)
+            if connection or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
     details["finalConfirmationConnection"] = connection
     log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
     timeline = "\n".join(lines)
@@ -630,7 +680,7 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
     positions = [timeline.find(marker) for marker in ordered_markers]
     if not connection or positions[0] < 0 or any(a >= b for a, b in zip(positions, positions[1:])):
         raise RuntimeError(f"Planned stop of {uid} did not prove drain and reconnection after EndpointSlice termination")
-    replacement, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch)
+    replacement, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
     if replacement["uid"] == uid:
         raise RuntimeError(f"Planned deletion did not replace broker pod {uid}")
     details["nextBrokerEpoch"] = next_epoch

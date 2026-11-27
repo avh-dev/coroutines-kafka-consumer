@@ -565,25 +565,27 @@ summary, Prometheus, Loki and generated report.
 
 ### Qualify coordinated warm-up Kafka shutdown
 
-Run the qualification definition once. It contains two independent targets with the same 20k
-workload, resource settings, and scale actions as the warm-up chaos experiments.
+Run the two qualification experiments in one queue or start either YAML on its own.
+Both define the same 20k workload, resource settings, and scale actions at experiment level.
 
 ```bash
-lab experiment start ckc-warmup-broker-drain-qualification-20k-local.yaml
+lab experiment start ckc-warmup-broker-drain-planned-20k-local.yaml ckc-warmup-broker-drain-abrupt-20k-local.yaml
 lab experiment status
 ```
 
-Both targets start with one demo pod, scale to two at 7:00, and scale to three at 7:30. At 8:15
-`warmup_broker_stop` checks for two `WARMING` sessions before affecting the temporary broker.
-The planned target deletes the pod with its configured grace period. The abrupt target sends
-`SIGKILL` to the Kafka process. Each target scales to four at 12:30, after confirming the new
-broker is ready and has published a different epoch.
+Each experiment starts with one demo pod, scales to two at 7:00, and scales to three at 7:30.
+At 8:15, `warmup_broker_stop` checks for two `WARMING` sessions in the run's Loki lifecycle logs.
+The planned experiment deletes the broker pod with its configured grace period. The abrupt
+experiment sends `SIGKILL` to the Kafka process. Both set `recovery_timeout_seconds` to 360
+and require a ready broker with a new epoch before scaling to four. The scale step is scheduled
+at 12:30 and runs when recovery completes if that time has already passed.
 
 Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl`.
 The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's
 advertised address, the new client connection observed after that transition, and the matching
 `ContextDrained` offset before `DRAINED`, `KafkaSIGTERM`, and `KafkaStopped`.
-The abrupt target checks the previous broker exit and fresh epoch for the same pod UID.
+The abrupt target checks the killed epoch's exit in Loki and a fresh epoch for the same pod UID,
+including when an intermediate restart failed.
 Use Loki and the warm-up metrics to verify the interrupted recipients reach `MAIN_READY`,
 the fourth pod receives delegated records and finishes warm-up, and the surviving donor
 continues to process main-cluster records.

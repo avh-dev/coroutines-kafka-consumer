@@ -1,0 +1,153 @@
+schema_version: 2
+name: ckc-warmup-broker-drain-planned-20k-local
+description: >-
+  Qualify coordinated shutdown of temporary warm-up Kafka under a 20k workload.
+  Stop the temporary broker while two recipients are warming, then scale again after its recovery.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: &fast_stub {percentiles: {p90: 10, p95: 20, p99: 40, p100: 60}}
+    flavour: *fast_stub
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+    deployment:
+      replicas: 2
+      workers: 4
+      resources:
+        requests: {cpu: 300m, memory: 384Mi}
+        limits: {memory: 1Gi}
+  load:
+    shards: 1
+    workers: 100
+    dispatcher_threads: 2
+    base_tps: 20000
+    producer_capacity_tps: {order: 20000, batch: 20000, telemetry: 20000}
+    load_profile: >-
+      0 -> (25m, ramp-to-20k) -> 100 ->
+      (10m, hold-20k) -> 100 ->
+      (10m, cool-down) -> 0
+    cauldron_count: 10000
+    min_orders_per_batch: 3
+    max_orders_per_batch: 6
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    stats_log_interval_seconds: 15
+    kafka_producer_linger_ms: 300
+    kafka_producer_batch_size: 32768
+    kafka_producer_compression_type: lz4
+    kafka_producer_buffer_memory: 67108864
+    order_kafka_producer_batch_size: 32768
+    batch_kafka_producer_batch_size: 32768
+    telemetry_kafka_producer_batch_size: 32768
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    audit_log_enabled: true
+    cpu_request: 1500m
+    memory_request: 768Mi
+    memory_limit: 1280Mi
+    java_options: -Xms256m -Xmx768m -XX:+UseSerialGC
+    consumer_drain_timeout_seconds: 120
+    consumer_drain_required: false
+    telemetry_settle_seconds: 60
+    maximum_first_sample_delay_seconds: 90
+  measurement_windows:
+  - {name: sequential-scale-up, start: 0m, duration: 25m}
+  - {name: peak-plateau, start: 25m, duration: 10m}
+  - {name: cool-down, start: 35m, duration: 10m}
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+  chaos:
+  - {at: 7m, type: deployment_scale, target: ckc-demo, params: {replicas: 2}}
+  - {at: 7m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 3}}
+  - at: 8m15s
+    type: warmup_broker_stop
+    target: ckc-warmup-kafka
+    params: {mode: planned, recovery_timeout_seconds: 360}
+  - {at: 12m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 4}}
+targets:
+- name: ckc.broker-drain-planned
+  implementation: ckc
+  placement:
+    application: worker
+    stubs: controller
+    generator: controller
+  application:
+    placement: worker
+    replicas: 1
+    resources:
+      requests: {cpu: 950m, memory: 512Mi}
+      limits: {memory: 1280Mi}
+    java_options: >-
+      -Xms768m -Xmx768m -Xss256k -XX:+UseSerialGC
+      -XX:TargetSurvivorRatio=90 -XX:MaxTenuringThreshold=15
+      -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info,jit+compilation=debug:stdout:time,uptime,level,tags
+    hpa: {enabled: false}
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      METRICS_IMPLEMENTATION: MICROMETER
+      KAFKA_CLIENT_METRICS_ENABLED: false
+      SPRING_KAFKA_LISTENER_METRICS_ENABLED: false
+      DEMO_REDIS_STATE_RETENTION: 5m
+      PROCESSING_DISPATCHER_TYPE: FIXED
+      WORKER_DISPATCHER_THREADS: 1
+      KAFKA_CONSUMER_FETCH_MIN_BYTES: 65536
+      KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      KAFKA_CONSUMER_MAX_POLL_RECORDS: 2000
+      KAFKA_CONSUMER_FETCH_MAX_BYTES: 52428800
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MIN_BYTES: 16384
+      TELEMETRY_KAFKA_CONSUMER_FETCH_MAX_WAIT_MS: 350
+      TRAFFIC_WARMUP_ENABLED: true
+      TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS: 300
+      TRAFFIC_WARMUP_CONTROL_TOPIC: ckc.traffic-warmup.v6.control
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: &reference_quota 1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300
+      TRAFFIC_WARMUP_ORDER_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: *reference_quota
+      TRAFFIC_WARMUP_BATCH_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: *reference_quota
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_INTERVAL_MS: 1000
+      TRAFFIC_WARMUP_DURATION_SECONDS: 150
+      TRAFFIC_WARMUP_PARTICIPANT_START_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_PREPARATION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_COMPLETION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_DELEGATION_TIMEOUT_SECONDS: 30
+      TRAFFIC_WARMUP_PRODUCER_LINGER_MS: 15
+      TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE: 32768
+    planning_latency: {order_ms: 8, batch_ms: 7, telemetry_ms: 21}
+    parallelism: [workers]
+    topics:
+      order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        implementation: apache-kafka
+        topology: single
+        transport: tls
+        brokers: 1
+        replication_factor: 1
+        min_insync_replicas: 1
+        resources: {cpu_per_broker: 1, memory_per_broker: 2Gi, heap_per_broker: 1Gi}
+    warmup_kafka:
+      enabled: true
+      coordinated_shutdown:
+        drain_timeout_seconds: 50
+        kafka_shutdown_timeout_seconds: 30
+        termination_grace_period_seconds: 90
+      placement: application
+      heap: 512Mi
+      resources:
+        requests: {cpu: 500m, memory: 768Mi}
+        limits: {cpu: '1', memory: 1Gi}
+      topics:
+      - ckc.traffic-warmup.v6.control
+      - ckc.traffic-warmup.v6.order.events
+      - ckc.traffic-warmup.v6.batch.events
+      - ckc.traffic-warmup.v6.cauldron.events

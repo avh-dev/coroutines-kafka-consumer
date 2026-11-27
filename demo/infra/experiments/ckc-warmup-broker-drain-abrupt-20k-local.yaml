@@ -1,7 +1,7 @@
 schema_version: 2
-name: ckc-warmup-broker-drain-qualification-20k-local
+name: ckc-warmup-broker-drain-abrupt-20k-local
 description: >-
-  Qualify coordinated stop and abrupt broker loss with the same 20k workload and replica schedule.
+  Qualify recovery from abrupt loss of temporary warm-up Kafka under a 20k workload.
   Stop the temporary broker while two recipients are warming, then scale again after its recovery.
 workload:
   stubs:
@@ -58,14 +58,22 @@ workload:
     order: {kafka_topic: order.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     batch: {kafka_topic: batch.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
     telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 20, max_e2e_latency_ms: 2000}
+  chaos:
+  - {at: 7m, type: deployment_scale, target: ckc-demo, params: {replicas: 2}}
+  - {at: 7m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 3}}
+  - at: 8m15s
+    type: warmup_broker_stop
+    target: ckc-warmup-kafka
+    params: {mode: abrupt, recovery_timeout_seconds: 360}
+  - {at: 12m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 4}}
 targets:
-- name: ckc.broker-drain-planned
+- name: ckc.broker-drain-abrupt
   implementation: ckc
-  placement: &qualification_placement
+  placement:
     application: worker
     stubs: controller
     generator: controller
-  application: &qualification_application
+  application:
     placement: worker
     replicas: 1
     resources:
@@ -76,7 +84,7 @@ targets:
       -XX:TargetSurvivorRatio=90 -XX:MaxTenuringThreshold=15
       -Xlog:gc,gc+heap=debug,gc+age=trace,safepoint=info,jit+compilation=debug:stdout:time,uptime,level,tags
     hpa: {enabled: false}
-  runtime: &qualification_runtime
+  runtime:
     env:
       DEMO_CONSUMER_PROCESSING_ENABLED: true
       AUDIT_LOG_ENABLED: true
@@ -115,23 +123,6 @@ targets:
       order: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       batch: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
       telemetry: {partitions: 12, workers: 500, queue_capacity: 4096, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
-  workload:
-    chaos:
-    - &scale_two {at: 7m, type: deployment_scale, target: ckc-demo, params: {replicas: 2}}
-    - &scale_three {at: 7m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 3}}
-    - {at: 8m15s, type: warmup_broker_stop, target: ckc-warmup-kafka, params: {mode: planned}}
-    - &scale_four {at: 12m30s, type: deployment_scale, target: ckc-demo, params: {replicas: 4}}
-- name: ckc.broker-drain-abrupt
-  implementation: ckc
-  placement: *qualification_placement
-  application: *qualification_application
-  runtime: *qualification_runtime
-  workload:
-    chaos:
-    - *scale_two
-    - *scale_three
-    - {at: 8m15s, type: warmup_broker_stop, target: ckc-warmup-kafka, params: {mode: abrupt}}
-    - *scale_four
 environments:
   internal-lab:
     lab:

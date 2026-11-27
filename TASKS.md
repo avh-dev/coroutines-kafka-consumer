@@ -570,7 +570,7 @@
 | [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
 | [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
 | [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
-| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
+| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | DONE |
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
 | [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
@@ -6978,6 +6978,14 @@ Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
 Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.
 Automate the two qualification targets with the established scale-up schedule and capture the broker and EndpointSlice evidence at impact.
 Enable coordinated shutdown in the four established warm-up chaos experiments with their existing schedules.
+Read run-scoped Loki lifecycle and final-confirmation logs with server-side filtering before the result limit. Replay of both failed qualification targets from experiment 20261124T060027Z recovered two warming sessions at each scheduled stop.
+Passed 245 internal-lab tests and validated the qualification launch command in dry-run mode. Live qualification remains pending.
+Live experiment 20261127T134756Z passed planned shutdown. Abrupt recovery exceeded the fixed 210-second wait and published a new broker epoch about 16 seconds after the timeout.
+Split the qualification into separate planned and abrupt experiments with top-level workload and chaos schedules. Both use a 360-second recovery timeout before the fourth pod may start.
+Passed 94 orchestration tests and 245 internal-lab tests. Updated optilab and verified both installed chaos plans in dry-run mode.
+Abrupt run 20261127T180246Z recovered within 360 seconds but a failed intermediate bootstrap replaced the previous container log. Verify the original Kafka exit and stopped epoch in run- and pod-scoped Loki logs.
+Replayed the retained Loki query for the failed run and confirmed evidence for the original SIGKILL and the fresh epoch. Passed all 245 internal-lab tests.
+Live abrupt run 20261127T183552Z passed. Loki confirmed the original SIGKILL and a fresh epoch on the same pod in about 229 seconds. The audit matched all 32,992,854 publications on the main topics with zero missing terminal outcomes, duplicates, or handler failures.
 
 <a id="core-100"></a>
 ### CORE-100 - Deliver results during planned warm-up Kafka drain

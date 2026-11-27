@@ -242,22 +242,27 @@ class DeploymentPlanTest(unittest.TestCase):
         )
 
     def test_coordinated_broker_exposes_a_pod_address_and_opts_in_its_applications(self) -> None:
-        source = REPO_ROOT / "demo/infra/experiments/ckc-warmup-broker-drain-qualification-20k-local.yaml"
-        resolved = resolve_experiment_definition(source, environment="internal-lab")
-        targets = materialize_experiment(resolved, output_dir=Path(self.temp.name), repo_dir=REPO_ROOT)
-        self.assertEqual(["ckc.broker-drain-planned", "ckc.broker-drain-abrupt"], [
-            target.target.name for target in targets
-        ])
-        for target, mode in zip(targets, ("planned", "abrupt")):
+        plans = {}
+        for mode in ("planned", "abrupt"):
+            source = REPO_ROOT / f"demo/infra/experiments/ckc-warmup-broker-drain-{mode}-20k-local.yaml"
+            document = yaml.safe_load(source.read_text(encoding="utf-8"))
+            self.assertIn("chaos", document["workload"])
+            resolved = resolve_experiment_definition(source, environment="internal-lab")
+            target, = materialize_experiment(resolved, output_dir=Path(self.temp.name) / mode, repo_dir=REPO_ROOT)
+            self.assertEqual(f"ckc.broker-drain-{mode}", target.target.name)
+            self.assertNotIn("workload", document["targets"][0])
             definition = yaml.safe_load(target.definition_path.read_text(encoding="utf-8"))
+            plans[mode] = yaml.safe_load(target.deployment_plan_path.read_text(encoding="utf-8"))
             steps = definition["chaos_steps"]
             self.assertEqual(["7m", "7m30s", "8m15s", "12m30s"], [step["at"] for step in steps])
             self.assertEqual([2, 3, 4], [
                 step["params"]["replicas"] for step in steps if step["type"] == "deployment_scale"
             ])
             self.assertEqual("warmup_broker_stop", steps[2]["type"])
-            self.assertEqual(mode, steps[2]["params"]["mode"])
-        plan = yaml.safe_load(targets[0].deployment_plan_path.read_text(encoding="utf-8"))
+            self.assertEqual({"mode": mode, "recovery_timeout_seconds": 360}, steps[2]["params"])
+        self.assertEqual(plans["planned"]["workload"]["load"], plans["abrupt"]["workload"]["load"])
+        self.assertEqual(plans["planned"]["application"]["configuration"], plans["abrupt"]["application"]["configuration"])
+        plan = plans["planned"]
         manifests = render_project_manifests(plan, DeploymentBindings(
             run_id="warmup-drain",
             application_image="demo", stubs_image="stubs", load_test_image="load",
