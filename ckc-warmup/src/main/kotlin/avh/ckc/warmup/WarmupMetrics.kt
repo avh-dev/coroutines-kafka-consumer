@@ -73,7 +73,9 @@ enum class WarmupFallbackReason {
     /** The donor session failed before it could use a recipient result. */
     SESSION_FAILURE,
     /** The recipient reported terminal processing failure. */
-    REMOTE_TERMINAL_FAILURE
+    REMOTE_TERMINAL_FAILURE,
+    /** The recipient discarded a record that the donor's policy requires it to handle. */
+    REMOTE_DISCARD_REJECTED
 }
 
 /** Reason the recipient could not deliver outstanding results to the donor. */

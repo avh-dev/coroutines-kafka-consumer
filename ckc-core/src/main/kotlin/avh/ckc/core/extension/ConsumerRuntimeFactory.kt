@@ -2,8 +2,10 @@ package avh.ckc.core.extension
 
 import avh.ckc.core.CoroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.AdmittedRecordInterceptor
 import kotlin.time.Duration
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 
 /**
@@ -15,6 +17,9 @@ interface ConsumerRuntimeFactory<K, V> {
     val subscribedTopics: List<String>?
     /** Metrics configured for the main runtime. Stateful adapters need independent auxiliary bindings. */
     val metrics: ConsumerMetrics<K, V>
+
+    /** Whether the captured source policy permits this discard reported by an auxiliary runtime. */
+    fun acceptsRemoteDiscard(record: ConsumerRecord<K, V>, reason: RecordDropReason): Boolean = false
 
     /** Builds the regular subscribed runtime with an interceptor for admitted records. */
     fun subscribed(

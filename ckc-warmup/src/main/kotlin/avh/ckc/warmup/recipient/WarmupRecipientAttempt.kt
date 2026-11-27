@@ -67,7 +67,7 @@ internal class WarmupRecipientAttempt(
     private val runtime: WarmupDiscoveryRuntime<LogicalWarmupDonorSession>?,
     private val transport: WarmupControlChannel?,
     private val brokerLifecycle: WarmupBrokerLifecycle?,
-    private val brokerControlReady: Deferred<Boolean>?,
+    private val protocolStartup: Deferred<String?>?,
     private val awaitParticipants: suspend () -> Boolean,
     private val observe: (TrafficWarmupLifecycleEvent) -> Unit,
     private val onCompleted: () -> Unit,
@@ -98,10 +98,10 @@ internal class WarmupRecipientAttempt(
     private val brokerDrain = CompletableDeferred<WarmupBrokerDrain>()
     private var brokerInterruptionReason: String? = null
 
-    fun prepareWorkflow(protocolInitialized: Boolean): Job = synchronized(lock) {
+    fun prepareWorkflow(): Job = synchronized(lock) {
         check(workflow == null) { "Warm-up recipient workflow already prepared" }
         scope.launch(start = CoroutineStart.LAZY) {
-            if (protocolInitialized) runInitialRecipientAttempt()
+            if (protocolStartup != null) runInitialRecipientAttempt(protocolStartup)
             else runProtocolInitializationFallback()
         }.also { workflow = it }
     }
@@ -110,6 +110,12 @@ internal class WarmupRecipientAttempt(
 
     fun pendingWorkflow(): Job? = synchronized(lock) {
         workflow?.takeUnless { it.isCompleted || terminalOutcome != null }
+    }
+
+    suspend fun stopForParticipant() {
+        val pending = pendingWorkflow()
+        pending?.cancel(CancellationException("Warm-up participant stopped"))
+        awaitInterruptedWorkflow(pending, "participant_stopped")
     }
 
     fun fenceBrokerAdmission(reason: String, drain: WarmupBrokerDrain?): BrokerFence = synchronized(lock) {
@@ -129,9 +135,14 @@ internal class WarmupRecipientAttempt(
     }
 
     suspend fun awaitBrokerCleanup(fence: BrokerFence) {
-        fence.workflow?.join()
-        if (outcome() == null) finishInterruptedAttempt(fence.reason)
+        awaitInterruptedWorkflow(fence.workflow, fence.reason)
         check(outcome()?.cleanupFailure == null) { "Broker recipient cleanup incomplete" }
+    }
+
+    private suspend fun awaitInterruptedWorkflow(pending: Job?, reason: String) {
+        pending?.join()
+        // A coroutine cancelled before entering its body cannot publish an outcome itself.
+        if (outcome() == null) finishInterruptedAttempt(reason)
     }
 
     fun recordBrokerInterruption(reason: String?) = synchronized(lock) {
@@ -149,23 +160,29 @@ internal class WarmupRecipientAttempt(
         )
     }
 
-    private suspend fun runProtocolInitializationFallback() {
+    private suspend fun runProtocolInitializationFallback(reasonCode: String = "protocol_initialization_failed") {
         try {
             completeRecipientPhase(
-                if (awaitParticipants()) "protocol_initialization_failed" else "participant_start_timeout"
+                if (awaitParticipants()) reasonCode else "participant_start_timeout"
             )
         } catch (_: CancellationException) {
             withContext(NonCancellable) { completeRecipientPhase("participant_stopped") }
         }
     }
 
-    private suspend fun runInitialRecipientAttempt() {
+    private suspend fun runInitialRecipientAttempt(startup: Deferred<String?>) {
         try {
-            val controlReady = brokerControlReady?.await() ?: protocolRuntime.startControl()
-            if (!controlReady) {
-                observe(TrafficWarmupLifecyclePhase.CONTROL_UNAVAILABLE, reasonCode = "control_unavailable")
-                completeRecipientPhase("control_unavailable")
-                return
+            when (val startupFailure = startup.await()) {
+                "control_unavailable" -> {
+                    observe(TrafficWarmupLifecyclePhase.CONTROL_UNAVAILABLE, reasonCode = startupFailure)
+                    completeRecipientPhase(startupFailure)
+                    return
+                }
+                null -> Unit
+                else -> {
+                    runProtocolInitializationFallback(startupFailure)
+                    return
+                }
             }
             val lifecycle = brokerLifecycle
             if (lifecycle != null && !lifecycle.awaitInitialAdmission(configuration.preparationTimeout)) {

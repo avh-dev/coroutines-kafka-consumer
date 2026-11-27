@@ -43,7 +43,10 @@ import org.apache.kafka.clients.producer.ProducerConfig
 internal interface RegisteredTrafficWarmupParticipant {
     val participantId: WarmupParticipantId
     val mappings: List<WarmupTopicMapping>
+    val mainTopics: List<String>
+    val mainProperties: Map<String, Any?>
     val warmupConsumerProperties: Map<String, Any?>
+    val forwardingProducerProperties: Map<String, Any?>
     val mainConsumer: CoroutinesKafkaConsumer<*, *>
 
     fun prepareDonorLane(
@@ -66,9 +69,10 @@ internal class TrafficWarmupParticipant<K, V>(
     override val participantId: WarmupParticipantId,
     override val mappings: List<WarmupTopicMapping>,
     override val warmupConsumerProperties: Map<String, Any?>,
-    private val forwardingProducerProperties: Map<String, Any?>,
-    private val mainProperties: Map<String, Any?>,
-    private val recipientFactory: ConsumerRuntimeFactory<K, V>,
+    override val forwardingProducerProperties: Map<String, Any?>,
+    override val mainProperties: Map<String, Any?>,
+    override val mainTopics: List<String>,
+    private val runtimeFactory: ConsumerRuntimeFactory<K, V>,
     override val mainConsumer: CoroutinesKafkaConsumer<K, V>,
     private val dataPlane: WarmupParticipantDataPlane<K, V>,
     private val metrics: ConsumerMetrics<K, V>,
@@ -120,7 +124,7 @@ internal class TrafficWarmupParticipant<K, V>(
                     ),
                     observer = observer,
                     pendingLaneId = mapping.mappingFingerprint,
-                    supportsRemoteDiscard = { true },
+                    supportsRemoteDiscard = runtimeFactory::acceptsRemoteDiscard,
                     inflightDelegations = inflightDelegations,
                     canDelegate = canDelegate
                 )
@@ -158,7 +162,7 @@ internal class TrafficWarmupParticipant<K, V>(
         )
         val laneId = start.assignment.mapping.mappingFingerprint
         val resultLane = completionOutbox.lane(laneId, resultDeliveryMetricsObserver.lane(laneId))
-        val runtime = recipientFactory.buildWarmupRecipient(
+        val runtime = runtimeFactory.buildWarmupRecipient(
             effectiveProperties,
             sessionId,
             start.assignment.destination,

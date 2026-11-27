@@ -108,6 +108,8 @@
 | [CORE-109](#core-109) | Group warm-up implementation files and component tests by responsibility. | DONE |
 | [CORE-110](#core-110) | Move the optional Micrometer adapter into `ckc-core`. | DONE |
 | [CORE-111](#core-111) | Configure traffic warm-up through the Spring Boot starter. | DONE |
+| [CORE-112](#core-112) | Honor the donor processing policy for remote warm-up discards. | DONE |
+| [CORE-113](#core-113) | Reject warm-up routes into main subscriptions on the same Kafka cluster. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7168,3 +7170,31 @@ Live run `20261126T180803Z` passed qualification with 600 order, 589 batch, and 
 Match both starter and DSL consumer IDs in topic dashboards and report queries. Verified the corrected queries against the saved run and rebuilt its evidence bundle with the existing Prometheus data.
 Add the Spring Boot port of the sequential 20k cold/warm comparison, retaining its workload, autoscaling, resource sizing, and quota profile. Use PLAINTEXT for main Kafka and omit the freshness cap in unordered telemetry mode.
 Passed the 75 planner and contract tests and all 121 demo tests. The CLI dry-run validated the new experiment from the GLOBAL-5 worktree using the task checkout's entrypoint.
+
+<a id="core-112"></a>
+### CORE-112 - Honor the donor processing policy for remote warm-up discards
+
+_Date: 2026-11-27_
+
+Part of [GLOBAL-5](#global-5). Apply the source consumer's policy to discard outcomes returned by the warm-up recipient.
+Use ownership-checked local fallback when the donor cannot accept a remote discard.
+Freshness age discards use the original timestamp and the donor's configured age limit. Queue discards require the corresponding freshness mode.
+Public DSL Kafka tests verify local handling and source commit, acceptance of a compatible age discard, and replay by the next owner after revocation.
+Ran core and warm-up checks and starter and demo tests. Two existing integration scenarios failed in the concurrent run and passed in the single-worker rerun, which also passed all three new Kafka scenarios and the full demo suite.
+Keep an incompatible discard local to its record and report it as a rejected remote discard. The concurrent Kafka regression reproduced duplicate local handling before the fix and now verifies remote success for the other record and a commit past both offsets.
+After review, ran core and warm-up checks plus starter and demo tests. The broker-replacement scenario again hit TopicExistsException in the full warm-up suite and passed on its own. The remaining 54 Kafka warm-up scenarios and both scenarios without Micrometer passed.
+
+<a id="core-113"></a>
+### CORE-113 - Reject warm-up routes into main subscriptions
+
+_Date: 2026-11-27_
+
+Part of [GLOBAL-5](#global-5). Validate warm-up producer destinations against all main subscriptions in the context using Kafka cluster identity.
+Resolve cluster IDs only when a destination topic name appears in a main subscription. A conflict or failed cluster identity lookup disables context warm-up before control starts and allows consumers to start cold.
+Kafka integration scenarios cover the sender's own subscription, another participant's unmapped subscribed topic through different bootstrap lists, a successful append to an identically named topic on another cluster, and an unavailable cluster ID.
+Passed 159 warm-up unit tests, 59 Kafka warm-up scenarios, two warm-up scenarios without Micrometer, and 65 starter tests. Core checks were up to date. One existing demo warm-up test timed out after incomplete_donor_coverage in the full run and passed on its own. The other 119 demo tests passed in the full run.
+Keep subscription validation, control startup, and broker lifecycle startup owned by the context when one participant stops. A Kafka regression holds the cluster ID lookup through one participant's stop and verifies delegation from the surviving participant.
+Keep cluster lookup warnings limited to the fallback reason, route, and exception type. A unit test verifies that provider details and the exception object are absent.
+Review checks passed all 160 warm-up unit tests, 60 Kafka warm-up scenarios, both scenarios without Micrometer, all 65 starter tests, and all 120 demo tests. Core checks were up to date. Repeated the warm-up unit suite and the 14 Kafka startup, subscription validation, and participant lifecycle scenarios after the final shutdown cleanup adjustment.
+Resolve a recipient attempt as participant_stopped if its workflow was cancelled before it could record an outcome. A deterministic test holds the first participant's startup observer while a second participant starts and stops, then verifies the surviving main runtime starts once and becomes ready.
+The startup race regression reproduced an awaitReady timeout before the fix. After the fix, all 161 warm-up unit tests, 28 Kafka startup, lifecycle, routing, and broker recovery scenarios, two scenarios without Micrometer, and 65 starter tests passed.
