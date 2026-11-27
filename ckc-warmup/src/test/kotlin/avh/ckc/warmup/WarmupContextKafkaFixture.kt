@@ -6,6 +6,9 @@ import avh.ckc.core.ProcessingMode
 import avh.ckc.core.consumerContainer
 import avh.ckc.core.coroutinesKafkaConsumer
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.warmup.broker.BrokerLifecycleEvent
+import avh.ckc.warmup.broker.KafkaBrokerLifecycleLog
+import avh.ckc.warmup.broker.launchBrokerLifecycleCli
 import avh.ckc.warmup.dataplane.WarmupCompletionOutbox
 import avh.ckc.warmup.dataplane.WarmupResultLane
 import avh.ckc.warmup.donor.WarmupDonorQuotaPhases
@@ -31,6 +34,7 @@ import avh.ckc.warmup.recipient.PreparedWarmupRecipientConsumer
 import avh.ckc.warmup.recipient.WarmupDestinationStart
 import avh.ckc.warmup.runtime.RegisteredTrafficWarmupParticipant
 import avh.ckc.warmup.runtime.mappingFingerprint
+import java.nio.file.Files
 import java.time.Duration as JavaDuration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
@@ -41,6 +45,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
+import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -98,6 +104,7 @@ internal abstract class WarmupContextKafkaFixture {
         namespace: String,
         controlTopic: String,
         configure: TrafficWarmupContextConfiguration.() -> Unit = {},
+        subscriptionAdminFactory: (Map<String, Any?>) -> Admin = Admin::create,
         send: suspend WarmupControlChannel.(WarmupControlMessage) -> RecordMetadata = { send(it) }
     ): TrafficWarmupContext {
         val configuration = TrafficWarmupContextConfiguration().apply {
@@ -109,7 +116,7 @@ internal abstract class WarmupContextKafkaFixture {
             preparationTimeout = 3.seconds
             configure()
         }
-        return TrafficWarmupContext(configuration) { config, handler, scope, dispatcher ->
+        return TrafficWarmupContext(configuration, subscriptionAdminFactory) { config, handler, scope, dispatcher ->
             val transport = WarmupControlTransport(
                 config, handler, parentContext = scope.coroutineContext, dispatcher = dispatcher
             )
@@ -117,6 +124,39 @@ internal abstract class WarmupContextKafkaFixture {
                 override suspend fun send(message: WarmupControlMessage) = send(transport, message)
             }
         }
+    }
+
+    protected suspend fun awaitLifecycle(
+        observer: KafkaBrokerLifecycleLog,
+        matches: (BrokerLifecycleEvent) -> Boolean
+    ): BrokerLifecycleEvent = withTimeout(12.seconds) {
+        while (true) {
+            val records = observer.poll(JavaDuration.ofMillis(100))
+            records.firstOrNull { matches(it.event) }?.let { return@withTimeout it.event }
+            yield()
+        }
+        error("Unreachable")
+    }
+
+    protected suspend fun startBrokerWitness(bootstrap: String, topic: String, epoch: String): AutoCloseable {
+        val directory = Files.createTempDirectory("ckc-broker-witness")
+        val ready = directory.resolve("ready")
+        val process = launchBrokerLifecycleCli("serve", bootstrap, topic, epoch, "10000", ready.toString())
+        fun close() {
+            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS)
+            Files.deleteIfExists(ready)
+            Files.deleteIfExists(directory)
+        }
+        try {
+            awaitFor {
+                check(process.isAlive) { process.inputStream.bufferedReader().readText() }
+                Files.exists(ready)
+            }
+        } catch (error: Throwable) {
+            close()
+            throw error
+        }
+        return AutoCloseable { close() }
     }
 
     protected class ControllableRecipient(
@@ -139,6 +179,9 @@ internal abstract class WarmupContextKafkaFixture {
                 quota
             )
         )
+        override val mainTopics = listOf(mappings.single().sourceTopic)
+        override val mainProperties: Map<String, Any?> = mapOf("bootstrap.servers" to sharedKafka.bootstrapServers)
+        override val forwardingProducerProperties: Map<String, Any?> = warmupConsumerProperties
         override val mainConsumer = mock<CoroutinesKafkaConsumer<String, String>>()
         val terminated = CompletableDeferred<Unit>()
         val warmupStopped = CompletableDeferred<Unit>()

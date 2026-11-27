@@ -43,7 +43,10 @@ import org.apache.kafka.clients.producer.ProducerConfig
 internal interface RegisteredTrafficWarmupParticipant {
     val participantId: WarmupParticipantId
     val mappings: List<WarmupTopicMapping>
+    val mainTopics: List<String>
+    val mainProperties: Map<String, Any?>
     val warmupConsumerProperties: Map<String, Any?>
+    val forwardingProducerProperties: Map<String, Any?>
     val mainConsumer: CoroutinesKafkaConsumer<*, *>
 
     fun prepareDonorLane(
@@ -66,8 +69,9 @@ internal class TrafficWarmupParticipant<K, V>(
     override val participantId: WarmupParticipantId,
     override val mappings: List<WarmupTopicMapping>,
     override val warmupConsumerProperties: Map<String, Any?>,
-    private val forwardingProducerProperties: Map<String, Any?>,
-    private val mainProperties: Map<String, Any?>,
+    override val forwardingProducerProperties: Map<String, Any?>,
+    override val mainProperties: Map<String, Any?>,
+    override val mainTopics: List<String>,
     private val runtimeFactory: ConsumerRuntimeFactory<K, V>,
     override val mainConsumer: CoroutinesKafkaConsumer<K, V>,
     private val dataPlane: WarmupParticipantDataPlane<K, V>,
