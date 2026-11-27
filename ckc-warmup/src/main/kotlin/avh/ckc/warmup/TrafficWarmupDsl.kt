@@ -383,7 +383,7 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
             warmupConsumerProperties = configuration.warmupConsumerProperties,
             forwardingProducerProperties = configuration.forwardingProducerProperties,
             mainProperties = consumerProperties,
-            recipientFactory = runtimeFactory,
+            runtimeFactory = runtimeFactory,
             mainConsumer = main,
             dataPlane = dataPlane,
             metrics = runtimeFactory.metrics,

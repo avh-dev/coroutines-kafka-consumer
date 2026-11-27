@@ -3,8 +3,10 @@ package avh.ckc.core
 import avh.ckc.core.extension.ConsumerRuntimeFactory
 import avh.ckc.core.extension.RecordAdmission
 import avh.ckc.core.metrics.ConsumerMetrics
+import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.processing.AdmittedRecordInterceptor
 import avh.ckc.core.processing.localRecordInterceptor
+import avh.ckc.core.processing.runtime.isStaleRecord
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -182,6 +184,17 @@ class CoroutinesKafkaConsumerBuilder<K, V> {
     private inner class RuntimeFactory : ConsumerRuntimeFactory<K, V> {
         override val subscribedTopics: List<String>? = topics?.toList()
         override val metrics: ConsumerMetrics<K, V> = this@CoroutinesKafkaConsumerBuilder.metrics
+
+        override fun acceptsRemoteDiscard(record: ConsumerRecord<K, V>, reason: RecordDropReason): Boolean =
+            when (reason) {
+                RecordDropReason.QUEUE_OVERFLOW -> processingMode == ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST
+                RecordDropReason.REPLACED_BY_NEWER_KEY_RECORD,
+                RecordDropReason.NEW_KEY_QUEUE_FULL -> processingMode == ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+                RecordDropReason.STALE_AGE -> processingMode.isFreshnessFirst() &&
+                    isStaleRecord(record.timestamp(), freshnessMaxRecordAge)
+                RecordDropReason.ALREADY_PROCESSED,
+                RecordDropReason.LIFECYCLE_DISCARD -> false
+            }
 
         override fun subscribed(
             consumerProperties: Map<String, Any?>,

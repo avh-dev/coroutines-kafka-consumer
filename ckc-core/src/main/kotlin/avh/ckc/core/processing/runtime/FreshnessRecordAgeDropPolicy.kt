@@ -10,16 +10,16 @@ internal class FreshnessRecordAgeDropPolicy<K, V>(
     private val metrics: ConsumerMetrics<K, V>
 ) {
     fun shouldDrop(record: ConsumerRecord<K, V>, nowMillis: Long = System.currentTimeMillis()): Boolean {
-        val maxAge = maxRecordAge ?: return false
-        val recordTimestamp = record.timestamp()
-        if (recordTimestamp <= 0L) {
-            return false
-        }
-        if (nowMillis - recordTimestamp <= maxAge.inWholeMilliseconds) {
-            return false
-        }
+        if (!isStaleRecord(record.timestamp(), maxRecordAge, nowMillis)) return false
 
         metrics.onRecordDropped(record, RecordDropReason.STALE_AGE)
         return true
     }
 }
+
+internal fun isStaleRecord(
+    recordTimestamp: Long,
+    maxRecordAge: Duration?,
+    nowMillis: Long = System.currentTimeMillis()
+): Boolean = maxRecordAge != null && recordTimestamp > 0L &&
+    nowMillis - recordTimestamp > maxRecordAge.inWholeMilliseconds

@@ -68,7 +68,7 @@ internal class TrafficWarmupParticipant<K, V>(
     override val warmupConsumerProperties: Map<String, Any?>,
     private val forwardingProducerProperties: Map<String, Any?>,
     private val mainProperties: Map<String, Any?>,
-    private val recipientFactory: ConsumerRuntimeFactory<K, V>,
+    private val runtimeFactory: ConsumerRuntimeFactory<K, V>,
     override val mainConsumer: CoroutinesKafkaConsumer<K, V>,
     private val dataPlane: WarmupParticipantDataPlane<K, V>,
     private val metrics: ConsumerMetrics<K, V>,
@@ -120,7 +120,7 @@ internal class TrafficWarmupParticipant<K, V>(
                     ),
                     observer = observer,
                     pendingLaneId = mapping.mappingFingerprint,
-                    supportsRemoteDiscard = { true },
+                    supportsRemoteDiscard = runtimeFactory::acceptsRemoteDiscard,
                     inflightDelegations = inflightDelegations,
                     canDelegate = canDelegate
                 )
@@ -158,7 +158,7 @@ internal class TrafficWarmupParticipant<K, V>(
         )
         val laneId = start.assignment.mapping.mappingFingerprint
         val resultLane = completionOutbox.lane(laneId, resultDeliveryMetricsObserver.lane(laneId))
-        val runtime = recipientFactory.buildWarmupRecipient(
+        val runtime = runtimeFactory.buildWarmupRecipient(
             effectiveProperties,
             sessionId,
             start.assignment.destination,

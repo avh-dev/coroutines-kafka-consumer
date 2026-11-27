@@ -63,7 +63,7 @@ internal class WarmupDonorSession<K, V>(
     private val sender: WarmupRecordSender<K, V>,
     private val observer: WarmupDataPlaneObserver<K, V> = noOpWarmupDataPlaneObserver(),
     private val pendingLaneId: String = "default",
-    private val supportsRemoteDiscard: (RecordDropReason) -> Boolean = { false },
+    private val supportsRemoteDiscard: (ConsumerRecord<K, V>, RecordDropReason) -> Boolean = { _, _ -> false },
     private val maxEarlyResults: Int = 1_024,
     earlyResultTtl: Duration = delegationTimeout,
     nanoTime: () -> Long = System::nanoTime,
@@ -236,15 +236,10 @@ internal class WarmupDonorSession<K, V>(
         }
         is WarmupRemoteOutcome.Discarded -> {
             val reason = remoteOutcome.reason.toCore()
-            if (supportsRemoteDiscard(reason)) {
+            if (supportsRemoteDiscard(record, reason)) {
                 RecordProcessingOutcome.PolicyDiscarded(reason)
             } else {
-                fail(
-                    InvalidWarmupRemoteOutcomeException(
-                        "Remote discard ${remoteOutcome.reason} is not supported by the source processing mode"
-                    )
-                )
-                reportFallback(record, WarmupFallbackReason.SESSION_FAILURE)
+                reportFallback(record, WarmupFallbackReason.REMOTE_DISCARD_REJECTED)
                 processLocally()
             }
         }
@@ -381,9 +376,6 @@ internal class WarmupDelegationDeadlineException(val acknowledged: Boolean) :
 /** Preserves a producer failure so the donor can select its local fallback reason. */
 internal class WarmupSendFailedException(cause: Throwable) :
     IllegalStateException("Warm-up record send failed", cause)
-
-/** Signals a remote result incompatible with the source processing policy. */
-internal class InvalidWarmupRemoteOutcomeException(message: String) : IllegalStateException(message)
 
 private fun normalizedSessionBudget(intervalBudget: Int, quotaInterval: Duration): Int {
     require(intervalBudget > 0) { "Warm-up interval budget must be > 0" }
