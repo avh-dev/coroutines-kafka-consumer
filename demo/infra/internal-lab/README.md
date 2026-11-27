@@ -565,20 +565,20 @@ summary, Prometheus, Loki and generated report.
 
 ### Qualify coordinated warm-up Kafka shutdown
 
-Run the qualification definition once. It contains two independent targets with the same 20k
-workload, resource settings, and scale actions as the warm-up chaos experiments.
+Run the two qualification experiments in one queue or start either YAML on its own.
+Both define the same 20k workload, resource settings, and scale actions at experiment level.
 
 ```bash
-lab experiment start ckc-warmup-broker-drain-qualification-20k-local.yaml
+lab experiment start ckc-warmup-broker-drain-planned-20k-local.yaml ckc-warmup-broker-drain-abrupt-20k-local.yaml
 lab experiment status
 ```
 
-Both targets start with one demo pod, scale to two at 7:00, and scale to three at 7:30. At 8:15
-`warmup_broker_stop` checks for two `WARMING` sessions in the run's Loki lifecycle logs
-before affecting the temporary broker.
-The planned target deletes the pod with its configured grace period. The abrupt target sends
-`SIGKILL` to the Kafka process. Each target scales to four at 12:30, after confirming the new
-broker is ready and has published a different epoch.
+Each experiment starts with one demo pod, scales to two at 7:00, and scales to three at 7:30.
+At 8:15, `warmup_broker_stop` checks for two `WARMING` sessions in the run's Loki lifecycle logs.
+The planned experiment deletes the broker pod with its configured grace period. The abrupt
+experiment sends `SIGKILL` to the Kafka process. Both set `recovery_timeout_seconds` to 360
+and require a ready broker with a new epoch before scaling to four. The scale step is scheduled
+at 12:30 and runs when recovery completes if that time has already passed.
 
 Inspect the `warmup_broker_stop` event in each target's `experiment-events.jsonl`.
 The planned target requires the old pod UID and its terminating EndpointSlice, the old pod's

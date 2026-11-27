@@ -287,10 +287,13 @@ def _normalize_chaos_action(
             raise ValueError(f"{context}.params.mode must be planned or abrupt: {definition_path}")
         if raw_step.get("target", "ckc-warmup-kafka") != "ckc-warmup-kafka":
             raise ValueError(f"{context}.target must be ckc-warmup-kafka: {definition_path}")
-        if set(params) - {"mode"}:
-            raise ValueError(f"{context}.params only accepts mode: {definition_path}")
+        if set(params) - {"mode", "recovery_timeout_seconds"}:
+            raise ValueError(f"{context}.params only accepts mode and recovery_timeout_seconds: {definition_path}")
+        recovery_timeout = params.get("recovery_timeout_seconds", 210)
+        if isinstance(recovery_timeout, bool) or not isinstance(recovery_timeout, int) or recovery_timeout <= 0:
+            raise ValueError(f"{context}.params.recovery_timeout_seconds must be a positive integer: {definition_path}")
         normalized["target"] = "ckc-warmup-kafka"
-        normalized["params"] = {"mode": mode}
+        normalized["params"] = {"mode": mode, "recoveryTimeoutSeconds": recovery_timeout}
     elif step_type in {"pod_delete", "pod_crash"}:
         target = str(raw_step.get("target", "ckc-demo")).strip()
         if not target:

@@ -67,7 +67,15 @@ class ChaosScenariosTest(unittest.TestCase):
 
     def test_broker_stop_accepts_only_the_temporary_broker_and_an_explicit_mode(self) -> None:
         step = {"at": "1s", "type": "warmup_broker_stop", "params": {"mode": "planned"}}
-        self.assertEqual("ckc-warmup-kafka", self.normalize([step])[0]["target"])
+        normalized, = self.normalize([step])
+        self.assertEqual("ckc-warmup-kafka", normalized["target"])
+        self.assertEqual({"mode": "planned", "recoveryTimeoutSeconds": 210}, normalized["params"])
+        custom, = self.normalize([step | {"params": {"mode": "abrupt", "recovery_timeout_seconds": 360}}])
+        self.assertEqual({"mode": "abrupt", "recoveryTimeoutSeconds": 360}, custom["params"])
+        for invalid in (True, 0, -1, 1.5, "360", None):
+            with self.subTest(recovery_timeout_seconds=invalid):
+                with self.assertRaisesRegex(ValueError, "recovery_timeout_seconds must be a positive integer"):
+                    self.normalize([step | {"params": {"mode": "abrupt", "recovery_timeout_seconds": invalid}}])
         with self.assertRaisesRegex(ValueError, "must be ckc-warmup-kafka"):
             self.normalize([step | {"target": "kafka"}])
         with self.assertRaisesRegex(ValueError, "must be planned or abrupt"):
@@ -200,7 +208,7 @@ class ChaosScenariosTest(unittest.TestCase):
             patch.object(chaos_runner, "warmup_app_logs", return_value=""),
             patch.object(chaos_runner, "warming_sessions", return_value=["session-1", "session-2"]),
             patch.object(chaos_runner, "select_running_pod", return_value=metadata),
-            patch.object(chaos_runner, "await_warmup_broker", return_value=(metadata, "new-epoch")),
+            patch.object(chaos_runner, "await_warmup_broker", return_value=(metadata, "new-epoch")) as await_broker,
             patch.object(chaos_runner, "run", side_effect=[
                 subprocess.CompletedProcess([], 0, json.dumps(pod)),
                 subprocess.CompletedProcess([], 0, "old-epoch"),
@@ -208,7 +216,9 @@ class ChaosScenariosTest(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, "warmup-kafka-supervisor process=broker exit_status=137"),
             ]) as run,
         ):
-            evidence = chaos_runner.stop_warmup_broker({"mode": "abrupt"}, dry_run=False)
+            evidence = chaos_runner.stop_warmup_broker({"mode": "abrupt", "recoveryTimeoutSeconds": 360}, dry_run=False)
+        self.assertEqual(360, await_broker.call_args.args[-1])
+        self.assertEqual(360, evidence["recoveryTimeoutSeconds"])
         self.assertEqual("warmup-uid", evidence["nextBrokerPodUid"])
         self.assertEqual("new-epoch", evidence["nextBrokerEpoch"])
         self.assertIn('kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"', run.call_args_list[2].args[0])

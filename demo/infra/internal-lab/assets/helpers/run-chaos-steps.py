@@ -525,9 +525,9 @@ def verified_drain_connection(
 
 
 def await_warmup_broker(
-    kubectl: list[str], selector: str, epoch_file: str, previous_epoch: str
+    kubectl: list[str], selector: str, epoch_file: str, previous_epoch: str, timeout_seconds: int
 ) -> tuple[dict[str, Any], str]:
-    deadline = time.monotonic() + 210
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         running = run([*kubectl, "get", "pods", "-l", selector, "-o", "json"], capture_output=True)
         for pod in json.loads(running.stdout)["items"]:
@@ -542,17 +542,19 @@ def await_warmup_broker(
             if marker.returncode == 0 and (epoch := marker.stdout.strip()) and epoch != previous_epoch:
                 return metadata, epoch
         time.sleep(2)
-    raise RuntimeError(f"Temporary Kafka did not become ready with a new epoch after {previous_epoch}")
+    raise RuntimeError(f"Temporary Kafka did not become ready within {timeout_seconds}s with a new epoch after {previous_epoch}")
 
 
 def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | None:
     namespace = "ckc-perf"
     selector = "ckc.dev/component=warmup-kafka"
     mode = params["mode"]
+    recovery_timeout = params.get("recoveryTimeoutSeconds", 210)
     if mode not in ("planned", "abrupt"):
         raise ValueError("Temporary Kafka stop mode must be planned or abrupt")
     if dry_run:
-        log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING")
+        log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING "
+            f"and wait up to {recovery_timeout}s for recovery")
         return None
     run_id = os.environ["TEST_RUN_ID"]
     kubectl = ["kubectl", "--request-timeout=5s", "-n", namespace]
@@ -580,14 +582,14 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
     address = f"[{pod_ip}]:9092" if ":" in pod_ip else f"{pod_ip}:9092"
     details = {
         "mode": mode, **pod_impact_details(broker, None), "brokerEpoch": epoch, "advertisedBroker": address,
-        "warmingSessions": sessions,
+        "warmingSessions": sessions, "recoveryTimeoutSeconds": recovery_timeout,
     }
     if mode == "abrupt":
         result = run([
             *exec_in_broker, "bash", "-c", 'kill -KILL "$(cat /var/run/ckc-warmup-kafka/broker.pid)"',
         ], check=False)
         details["execExitCode"] = result.returncode
-        restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch)
+        restarted, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
         previous = run([*kubectl, "logs", name, "-c", "kafka", "--previous", "--timestamps"], capture_output=True)
         details["nextBrokerEpoch"] = next_epoch
         details["nextBrokerPodUid"] = restarted["uid"]
@@ -652,7 +654,7 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
     positions = [timeline.find(marker) for marker in ordered_markers]
     if not connection or positions[0] < 0 or any(a >= b for a, b in zip(positions, positions[1:])):
         raise RuntimeError(f"Planned stop of {uid} did not prove drain and reconnection after EndpointSlice termination")
-    replacement, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch)
+    replacement, next_epoch = await_warmup_broker(kubectl, selector, epoch_file, epoch, recovery_timeout)
     if replacement["uid"] == uid:
         raise RuntimeError(f"Planned deletion did not replace broker pod {uid}")
     details["nextBrokerEpoch"] = next_epoch
