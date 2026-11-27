@@ -570,7 +570,7 @@
 | [INFRA-363](#infra-363) | Configure a separate internal-lab Redis endpoint address. | DONE |
 | [INFRA-364](#infra-364) | Select pods by creation order in chaos actions. | DONE |
 | [INFRA-365](#infra-365) | Define four independent warm-up chaos experiments. | DONE |
-| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | IN_PROGRESS |
+| [INFRA-366](#infra-366) | Package coordinated shutdown for temporary warm-up Kafka and verify it on optilab. | DONE |
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
 | [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
@@ -6985,6 +6985,7 @@ Split the qualification into separate planned and abrupt experiments with top-le
 Passed 94 orchestration tests and 245 internal-lab tests. Updated optilab and verified both installed chaos plans in dry-run mode.
 Abrupt run 20261127T180246Z recovered within 360 seconds but a failed intermediate bootstrap replaced the previous container log. Verify the original Kafka exit and stopped epoch in run- and pod-scoped Loki logs.
 Replayed the retained Loki query for the failed run and confirmed evidence for the original SIGKILL and the fresh epoch. Passed all 245 internal-lab tests.
+Live abrupt run 20261127T183552Z passed. Loki confirmed the original SIGKILL and a fresh epoch on the same pod in about 229 seconds. The audit matched all 32,992,854 publications on the main topics with zero missing terminal outcomes, duplicates, or handler failures.
 
 <a id="core-100"></a>
 ### CORE-100 - Deliver results during planned warm-up Kafka drain
