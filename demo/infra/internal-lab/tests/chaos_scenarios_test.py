@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -81,6 +82,69 @@ class ChaosScenariosTest(unittest.TestCase):
             ]
         )
         self.assertEqual(["one", "two"], chaos_runner.warming_sessions(logs))
+
+    def test_verified_scale_up_requires_two_replicas(self) -> None:
+        step = {"at": "30s", "type": "deployment_scale", "params": {"replicas": 2, "verify_warmup": True}}
+        self.assertTrue(self.normalize([step])[0]["params"]["verifyWarmup"])
+        with self.assertRaisesRegex(ValueError, "requires a top-level scale to 2 replicas"):
+            self.normalize([step | {"params": {"replicas": 3, "verify_warmup": True}}])
+
+    def test_verified_scale_up_distinguishes_cold_donor_and_warm_recipient(self) -> None:
+        mappings = chaos_runner.warmup_scale_up.MAPPINGS
+
+        def event(phase, participant="null", session="null", reason="null"):
+            return f"Warm-up lifecycle: phase={phase}, participantId={participant}, sessionId={session}, reasonCode={reason}"
+
+        ready = [event("MAIN_READY", participant) for participant in mappings]
+        cold = event("COLD_FALLBACK", reason="incomplete_donor_coverage")
+        donor = "\n".join([cold, *ready])
+        successful = "\n".join([event("WARMING", session="one"), event("RECIPIENT_FINISHED", session="one"), *ready])
+        forwardings = "\n".join(
+            f"Warm-up record forwarded: sessionId=one, source={source}-2@7, destination={destination}-0@5"
+            for source, destination, _, _ in mappings.values()
+        )
+        environment = {
+            "SPRING_PROFILES_ACTIVE": "ckc-spring-boot", "TRAFFIC_WARMUP_ENABLED": "true",
+            "KAFKA_BOOTSTRAP_SERVERS": "main-kafka:9092",
+            "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "DEMO_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT", "AUDIT_LOG_ENABLED": "true",
+        }
+        deployment = {"spec": {"replicas": 1, "template": {"spec": {"containers": [{
+            "name": "demo", "env": [{"name": name, "value": value} for name, value in environment.items()]
+        }]}}}}
+        pods = [
+            {"metadata": {"name": name, "uid": f"{name}-uid"}, "status": {"phase": "Running"}}
+            for name in ("donor", "recipient")
+        ]
+        response = lambda data: subprocess.CompletedProcess([], 0, data, "")
+        for logs, status in ((successful, "passed"), (donor, "failed")):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                replies = [
+                    json.dumps(deployment), json.dumps({"items": pods[:1]}), donor,
+                    json.dumps({"items": pods}), logs,
+                ]
+                if status == "passed":
+                    replies.append(donor + "\n" + forwardings)
+                with (
+                    patch.dict(os.environ, {"TEST_RUN_ID": "test", "EXPERIMENT_EVENTS_FILE": str(root / "events.jsonl")}),
+                    patch.object(chaos_runner, "run", side_effect=map(response, replies)),
+                    patch.object(chaos_runner, "scale_deployment") as scale,
+                ):
+                    scenario = self.normalize([{
+                        "at": "30s", "type": "deployment_scale", "params": {"replicas": 2, "verify_warmup": True}
+                    }])[0]
+                    detail = chaos_runner.start_scenario(scenario, "/configure-stubs", dry_run=False)
+                    scale.assert_called_once()
+                proof = json.loads((root / "diagnostics" / "warmup-scale-up.json").read_text())
+                self.assertEqual(status, detail["warmupVerification"])
+                self.assertEqual(status, proof["status"])
+                if status == "passed":
+                    self.assertEqual("one", proof["session"])
+                    self.assertEqual(set(mappings), set(proof["offsets"]))
+                else:
+                    self.assertIn("COLD_FALLBACK", proof["error"])
 
     def test_planned_broker_evidence_matches_new_connection_to_old_address_and_acknowledgement(self) -> None:
         records = [

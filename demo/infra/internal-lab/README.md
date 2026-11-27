@@ -229,6 +229,32 @@ cleanup and returns exit code zero.
 lab experiment start smoke.yaml ckc-spring-boot-smoke.yaml
 ```
 
+To qualify traffic warm-up through the starter with a controlled one-to-two pod scale-up:
+
+```bash
+lab experiment start ckc-spring-boot-warmup-scale-up-local.yaml
+```
+
+The target uses PLAINTEXT on the main Kafka, a dedicated warm-up Kafka, and a steady workload
+with audit enabled. The scale step verifies that the original pod cold-started all three consumers,
+then adds one replica. The new pod must finish a warm recipient session and reach `MAIN_READY`
+for all three consumers. The audit analyzer reconciles the source and destination offsets for that
+session and fails the target if verification or delivery fails. The evidence bundle contains
+`warmup-scale-up.json` alongside the lifecycle logs, metrics, and report. The audit archive also
+contains the offset mapping and raw audit log.
+
+For a load comparison through the starter, run:
+
+```bash
+lab experiment start ckc-spring-boot-sequential-warmup-scale-up-20k-local.yaml
+```
+
+This runs a cold and a warm target for 45 minutes each. Both repeat the sequential
+1-to-4 pod autoscaling workload and ramp to 20,000 TPS with stubs on the controller.
+The warm target uses the existing 150-second two-stage quota and a dedicated warm-up
+Kafka. Both targets use PLAINTEXT on main Kafka, preserve key ordering for orders and batches,
+and replace queued telemetry records by key without an age cutoff.
+
 Inspect or control it from any later shell in the same checkout:
 
 ```bash

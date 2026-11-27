@@ -17,6 +17,38 @@ EXAMPLE = REPO_ROOT / "demo/infra/shared/experiment_orchestration/examples/porta
 
 
 class DeploymentPlanTest(unittest.TestCase):
+    def test_spring_boot_scale_up_materializes_dedicated_kafka_only_when_enabled(self) -> None:
+        source = REPO_ROOT / "demo/infra/experiments/ckc-spring-boot-warmup-scale-up-local.yaml"
+        spec = yaml.safe_load(source.read_text(encoding="utf-8"))
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                spec["targets"][0]["runtime"]["env"]["TRAFFIC_WARMUP_ENABLED"] = enabled
+                case = Path(self.temp.name) / str(enabled)
+                case.mkdir()
+                path = case / source.name
+                path.write_text(yaml.safe_dump(spec), encoding="utf-8")
+                resolved = resolve_experiment_definition(path, environment="internal-lab")
+                target, = materialize_experiment(resolved, output_dir=case / "materialized", repo_dir=REPO_ROOT)
+                plan, definition, env = self._materialized_application(target)
+
+                self.assertEqual("ckc-spring-boot", env["SPRING_PROFILES_ACTIVE"])
+                self.assertEqual("true", env["AUDIT_LOG_ENABLED"])
+                self.assertEqual("PLAINTEXT", env["DEMO_KAFKA_SECURITY_PROTOCOL"])
+                self.assertEqual("main-kafka:9092", env["KAFKA_BOOTSTRAP_SERVERS"])
+                self.assertEqual(1, plan["application"]["configuration"]["replicas"])
+                self.assertFalse(plan["application"]["configuration"]["hpa"]["enabled"])
+                self.assertEqual("plaintext", plan["environment"]["lab"]["kafka"]["transport"])
+                self.assertEqual([{
+                    "at": "30s", "type": "deployment_scale", "target": "ckc-demo",
+                    "params": {"replicas": 2, "verify_warmup": True},
+                }], definition["chaos_steps"])
+                self.assertEqual("FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY", env["TELEMETRY_PROCESSING_MODE"])
+                self.assertEqual(enabled, "warmup-kafka" in plan["project_resources"])
+                self.assertEqual(str(enabled).lower(), env["TRAFFIC_WARMUP_ENABLED"])
+                for role in ("CONTROL", "DESTINATION"):
+                    setting = f"TRAFFIC_WARMUP_{role}_KAFKA_BOOTSTRAP_SERVERS"
+                    self.assertEqual("ckc-warmup-kafka:9092" if enabled else None, env.get(setting))
+
     def materialize(self, environment: str) -> tuple[Path, dict, object]:
         root = Path(self.temp.name)
         resolved = resolve_experiment_definition(EXAMPLE, environment=environment)
@@ -450,6 +482,46 @@ class DeploymentPlanTest(unittest.TestCase):
         self.assertEqual("150", environment["TRAFFIC_WARMUP_DURATION_SECONDS"])
         self.assertEqual("15", environment["TRAFFIC_WARMUP_PRODUCER_LINGER_MS"])
         self.assertEqual("32768", environment["TRAFFIC_WARMUP_PRODUCER_BATCH_SIZE"])
+
+    def test_materializes_sequential_spring_boot_cold_and_warm_comparison(self) -> None:
+        catalog = REPO_ROOT / "demo/infra/experiments"
+        reference = yaml.safe_load((catalog / "ckc-sequential-warmup-scale-up-20k-local.yaml").read_text())
+        source = catalog / "ckc-spring-boot-sequential-warmup-scale-up-20k-local.yaml"
+        experiment = yaml.safe_load(source.read_text())
+        self.assertEqual(reference["workload"], experiment["workload"])
+        resolved = resolve_experiment_definition(source, environment="internal-lab")
+        cold, warm = materialize_experiment(resolved, output_dir=Path(self.temp.name), repo_dir=REPO_ROOT)
+
+        for target, expected in ((cold, False), (warm, True)):
+            with self.subTest(warmup=expected):
+                plan, definition, env = self._materialized_application(target)
+                self._assert_controller_stubs_target(plan, definition)
+                self.assertEqual("plaintext", plan["environment"]["lab"]["kafka"]["transport"])
+                self.assertNotIn("chaos_steps", definition)
+                self.assertEqual("ckc-spring-boot", env["SPRING_PROFILES_ACTIVE"])
+                self.assertEqual("PLAINTEXT", env["DEMO_KAFKA_SECURITY_PROTOCOL"])
+                self.assertEqual("true", env["DEMO_CONSUMER_PROCESSING_ENABLED"])
+                self.assertEqual("true", env["AUDIT_LOG_ENABLED"])
+                self.assertEqual("true", env["CKC_METRICS_ENABLED"])
+                self.assertEqual("", env["CKC_TELEMETRY_FRESHNESS_MAX_RECORD_AGE"])
+                self.assertEqual(str(expected).lower(), env["TRAFFIC_WARMUP_ENABLED"])
+                self.assertEqual(expected, "warmup-kafka" in plan["project_resources"])
+                for topic in ("ORDER", "BATCH", "CAULDRON"):
+                    consumer = "TELEMETRY" if topic == "CAULDRON" else topic
+                    self.assertEqual("500", env[f"{consumer}_WORKER_CONCURRENCY"])
+                    mode = (
+                        "FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY" if consumer == "TELEMETRY"
+                        else "AT_LEAST_ONCE_KEY_ORDERING"
+                    )
+                    self.assertEqual(mode, env[f"{consumer}_PROCESSING_MODE"])
+                    self.assertEqual(
+                        "1 -> (60s, first linear) -> 100 -> (90s, second linear) -> 300" if expected else None,
+                        env.get(f"TRAFFIC_WARMUP_{topic}_QUOTA_PROFILE"),
+                    )
+                if expected:
+                    self.assertEqual("150", env["TRAFFIC_WARMUP_DURATION_SECONDS"])
+                    self.assertEqual("300", env["TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS"])
+                    self.assertEqual("ckc-warmup-kafka:9092", env["TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS"])
 
     def _assert_controller_stubs_target(self, plan, definition) -> None:
         self.assertEqual(20_000, plan["workload"]["load"]["base_tps"])

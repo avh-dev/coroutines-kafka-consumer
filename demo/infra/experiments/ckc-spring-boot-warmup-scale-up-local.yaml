@@ -1,0 +1,77 @@
+schema_version: 2
+name: ckc-spring-boot-warmup-scale-up-local
+description: >-
+  Qualify Spring Boot starter warm-up by scaling from one established donor to
+  two application pods during a steady audited workload.
+workload:
+  stubs:
+    error_rate_percent: 0
+    eta: &fast-stub {percentiles: {p90: 10, p95: 20, p99: 40, p100: 60}}
+    flavour: *fast-stub
+    registry: {percentiles: {p90: 2, p95: 3, p99: 4, p100: 5}}
+  load:
+    shards: 1
+    workers: 16
+    base_tps: 500
+    producer_capacity_tps: {order: 1000, batch: 1000, telemetry: 1000}
+    load_profile: >-
+      0 -> (10s, ramp-up) -> 100 -> (150s, steady) -> 100 ->
+      (10s, cool-down) -> 0
+    telemetry_source_mode: FLEET
+    telemetry_publish_interval_seconds: 1
+    cauldron_count: 300
+    min_orders_per_batch: 2
+    max_orders_per_batch: 4
+    min_brewing_steps: 5
+    max_brewing_steps: 8
+    diagnostics_blob_size: 64
+    audit_log_enabled: true
+    consumer_drain_required: true
+  measurement_windows:
+  - {name: steady-load, start: 10s, duration: 150s}
+  chaos:
+  - at: 30s
+    type: deployment_scale
+    target: ckc-demo
+    params: {replicas: 2, verify_warmup: true}
+  topics:
+    order: {kafka_topic: order.events.v1, traffic_percent: 35, max_e2e_latency_ms: 2000}
+    batch: {kafka_topic: batch.events.v1, traffic_percent: 25, max_e2e_latency_ms: 2000}
+    telemetry: {kafka_topic: cauldron.events.v1, traffic_percent: 40, max_e2e_latency_ms: 2000}
+targets:
+- name: ckc-spring-boot
+  implementation: ckc-spring-boot
+  application:
+    replicas: 1
+    hpa: {enabled: false}
+  runtime:
+    env:
+      DEMO_CONSUMER_PROCESSING_ENABLED: true
+      AUDIT_LOG_ENABLED: true
+      CKC_METRICS_ENABLED: true
+      TRAFFIC_WARMUP_ENABLED: true
+      TRAFFIC_WARMUP_MAX_INFLIGHT_DELEGATIONS: 64
+      TRAFFIC_WARMUP_DURATION_SECONDS: 30
+      TRAFFIC_WARMUP_OFFER_WINDOW_MS: 1500
+      TRAFFIC_WARMUP_ORDER_QUOTA_PROFILE: '20'
+      TRAFFIC_WARMUP_BATCH_QUOTA_PROFILE: '20'
+      TRAFFIC_WARMUP_CAULDRON_QUOTA_PROFILE: '20'
+    planning_latency: {order_ms: 51.8, batch_ms: 5.16, telemetry_ms: 3.0}
+    topics:
+      order: {partitions: 4, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      batch: {partitions: 4, processing_mode: AT_LEAST_ONCE_NO_ORDERING}
+      telemetry: {partitions: 4, processing_mode: FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY}
+environments:
+  internal-lab:
+    lab:
+      profile: installed
+      kafka:
+        transport: plaintext
+    warmup_kafka:
+      enabled: true
+      placement: application
+      topics:
+      - ckc.traffic-warmup.v6.control
+      - ckc.traffic-warmup.v6.order.events
+      - ckc.traffic-warmup.v6.batch.events
+      - ckc.traffic-warmup.v6.cauldron.events

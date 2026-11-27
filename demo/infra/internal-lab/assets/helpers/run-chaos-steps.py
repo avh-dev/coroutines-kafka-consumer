@@ -14,12 +14,18 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from experiment_events import append_event, utc_iso
+
+SHARED_ROOT = Path(__file__).resolve().parents[3] / "shared"
+if SHARED_ROOT.is_dir():
+    sys.path.insert(0, str(SHARED_ROOT))
+
+from experiment_orchestration import warmup_scale_up
 
 
 def parse_args() -> argparse.Namespace:
@@ -659,6 +665,120 @@ def scale_deployment(params: dict[str, Any], *, dry_run: bool) -> None:
     ])
 
 
+def qualify_warmup_scale_up(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    if dry_run:
+        scale_deployment(params, dry_run=True)
+        log("dry-run: would verify cold donor startup, warm recipient startup, and forwarding")
+        return {}
+
+    run_id = os.environ["TEST_RUN_ID"]
+    proof_path = Path(os.environ["EXPERIMENT_EVENTS_FILE"]).parent / "diagnostics" / warmup_scale_up.EVIDENCE_FILE
+    kubectl = ["kubectl", "-n", str(params["namespace"]), "--request-timeout=5s"]
+    selector = f"ckc.dev/component=application,ckc.dev/test-run-id={run_id}"
+    proof: dict[str, Any] = {"status": "failed", "runId": run_id}
+
+    def pods() -> dict[str, str]:
+        result = run([*kubectl, "get", "pods", "-l", selector, "-o", "json"], capture_output=True)
+        items = json.loads(result.stdout)["items"]
+        active = [pod for pod in items if not pod["metadata"].get("deletionTimestamp")]
+        if any(
+            pod["status"].get("phase") == "Failed"
+            or any(status.get("restartCount", 0) for status in pod["status"].get("containerStatuses", []))
+            for pod in active
+        ):
+            raise ValueError("An application pod restarted or failed during warm-up qualification")
+        return {pod["metadata"]["uid"]: pod["metadata"]["name"] for pod in active}
+
+    def pod_logs(name: str) -> str:
+        # A new pod may be scheduled before its container starts.
+        result = run([*kubectl, "logs", name, "-c", "demo", "--timestamps"], check=False, capture_output=True)
+        return result.stdout if result.returncode == 0 else ""
+
+    try:
+        deployment = json.loads(run([
+            *kubectl, "get", "deployment", str(params["target"]), "-o", "json"
+        ], capture_output=True).stdout)
+        env = {
+            setting["name"]: setting.get("value")
+            for container in deployment["spec"]["template"]["spec"]["containers"] if container["name"] == "demo"
+            for setting in container.get("env", [])
+        }
+        main_bootstrap = env.get("KAFKA_BOOTSTRAP_SERVERS")
+        expected_env = {
+            "SPRING_PROFILES_ACTIVE": "ckc-spring-boot",
+            "TRAFFIC_WARMUP_ENABLED": "true",
+            "TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "TRAFFIC_WARMUP_DESTINATION_KAFKA_BOOTSTRAP_SERVERS": "ckc-warmup-kafka:9092",
+            "DEMO_KAFKA_SECURITY_PROTOCOL": "PLAINTEXT",
+            "AUDIT_LOG_ENABLED": "true",
+        }
+        proof["deployment"] = {
+            "replicas": deployment["spec"].get("replicas"),
+            **{key: env.get(key) for key in expected_env},
+        }
+        if proof["deployment"] != {"replicas": 1, **expected_env}:
+            raise ValueError(f"Unexpected application deployment: {proof['deployment']}")
+        proof["deployment"]["KAFKA_BOOTSTRAP_SERVERS"] = main_bootstrap
+        if not main_bootstrap or main_bootstrap == expected_env["TRAFFIC_WARMUP_CONTROL_KAFKA_BOOTSTRAP_SERVERS"]:
+            raise ValueError(f"Expected a separate main Kafka connection, got {main_bootstrap!r}")
+
+        initial = pods()
+        if len(initial) != 1:
+            raise ValueError(f"Expected one donor pod, got {initial}")
+        donor_uid, donor_name = next(iter(initial.items()))
+        donor_logs = pod_logs(donor_name)
+        proof["donor"] = {
+            "pod": donor_name, "uid": donor_uid,
+            "lifecycle": [asdict(event) for event in warmup_scale_up.lifecycle(donor_logs)],
+        }
+        if not warmup_scale_up.donor_is_ready(donor_logs):
+            raise ValueError(f"Donor {donor_name} did not reach MAIN_READY for all participants after cold fallback")
+
+        proof["scaleAt"] = utc_iso()
+        scale_deployment(params, dry_run=False)
+        recipient_uid = None
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            current = pods()
+            if current.get(donor_uid) != donor_name or len(current) > 2:
+                raise ValueError(f"Unexpected application pods after scaling: {current}")
+            if len(current) == 2:
+                uid, recipient_name = next((uid, name) for uid, name in current.items() if uid != donor_uid)
+                if recipient_uid is not None and uid != recipient_uid:
+                    raise ValueError("Recipient pod was replaced during warm-up qualification")
+                recipient_uid = uid
+                recipient_logs = pod_logs(recipient_name)
+                proof["recipient"] = {
+                    "pod": recipient_name, "uid": recipient_uid,
+                    "lifecycle": [asdict(event) for event in warmup_scale_up.lifecycle(recipient_logs)],
+                }
+                session = warmup_scale_up.recipient_session(recipient_logs)
+                if session is not None:
+                    proof["session"] = session
+                    offsets = warmup_scale_up.forwarding_offsets(pod_logs(donor_name), session)
+                    proof["offsets"] = offsets
+                    if all(offsets.values()):
+                        proof["status"] = "passed"
+                        break
+            elif recipient_uid is not None:
+                raise ValueError("Recipient pod disappeared during warm-up qualification")
+            time.sleep(2)
+        else:
+            raise ValueError("Timed out waiting for successful recipient warm-up, MAIN_READY and all three mappings")
+    except (ValueError, subprocess.CalledProcessError) as error:
+        proof["error"] = str(error)
+        log(f"Warm-up scale-up verification failed: {error}")
+    finally:
+        proof_path.parent.mkdir(parents=True, exist_ok=True)
+        proof_path.write_text(json.dumps(proof, indent=2) + "\n", encoding="utf-8")
+    return {
+        "replicas": params["replicas"],
+        "warmupVerification": proof["status"],
+        "session": proof.get("session"),
+        "error": proof.get("error"),
+    }
+
+
 def deployment_replicas(namespace: str, deployment: str) -> int:
     result = run(
         ["kubectl", "-n", namespace, "get", "deployment", deployment, "-o", "jsonpath={.spec.replicas}"],
@@ -772,6 +892,8 @@ def start_scenario(
     if not isinstance(params, dict):
         raise ValueError(f"{scenario_type} params must be an object.")
     if scenario_type == "deployment_scale":
+        if params.get("verifyWarmup"):
+            return qualify_warmup_scale_up(params, dry_run=dry_run)
         scale_deployment(params, dry_run=dry_run)
     elif scenario_type == "pod_delete":
         return delete_pod(params, dry_run=dry_run)

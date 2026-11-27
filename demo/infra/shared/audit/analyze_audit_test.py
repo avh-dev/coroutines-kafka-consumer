@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import gzip
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 def load_analyzer():
@@ -20,6 +26,72 @@ def load_analyzer():
 
 
 analyzer = load_analyzer()
+
+
+class WarmupScaleUpAuditTest(unittest.TestCase):
+    def test_reconciles_all_mappings_and_fails_with_missing_or_ambiguous_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata = root / "run-metadata.json"
+            metadata.write_text(json.dumps({"run_id": "test"}), encoding="utf-8")
+            proof = root / "warmup-scale-up.json"
+            audit = root / "audit.log.gz"
+            command = [
+                sys.executable, analyzer.__file__, "--input-file", str(audit), "--require-records",
+                "--metadata-file", str(metadata), "--warmup-scale-up-evidence", str(proof),
+            ]
+            participants = ["order-events", "batch-events", "cauldron-events"]
+            evidence = {
+                "status": "passed", "runId": "test", "scaleAt": "1970-01-01T00:00:02Z",
+                "session": "session", "donor": {"pod": "pod-1"}, "recipient": {"pod": "pod-2"},
+                "offsets": {
+                    participant: [{"source": [2, 7], "destination": [0, 5]}]
+                    for participant in participants
+                },
+            }
+            records = [
+                line
+                for topic in (1, 2, 3)
+                for line in (
+                    f"P|{topic}|2|1|1000|1000|cold",
+                    f"C|{topic}|2|1|1005|cold",
+                    f"P|{topic}|2|7|3000|3000|warm",
+                    f"C|{topic + 100}|0|5|3005|warm",
+                    f"C|{topic}|2|7|3006|warm",
+                )
+            ]
+            for label, lines, qualified, error in (
+                ("successful", records, evidence, None),
+                ("missing donor audit", [line for line in records if line != "C|3|2|7|3006|warm"],
+                 evidence, "Source delivery failed"),
+                ("incorrect recipient key", [line.replace("C|103|0|5|3005|warm", "C|103|0|5|3005|wrong") for line in records],
+                 evidence, "Forwarding audit mismatch"),
+                ("unmatched recipient offset", [*records, "C|101|0|6|3005|warm"], evidence, "no matching forwarding event"),
+                ("duplicate recipient audit", [*records, "C|101|0|5|3005|warm"], evidence, "Forwarding audit mismatch"),
+                ("cold recipient", records, evidence | {"status": "failed", "error": "Recipient COLD_FALLBACK"}, "COLD_FALLBACK"),
+                ("missing proof", records, None, "No such file"),
+            ):
+                with self.subTest(label=label):
+                    if qualified is None:
+                        proof.unlink()
+                    else:
+                        proof.write_text(json.dumps(qualified), encoding="utf-8")
+                    with gzip.open(audit, "wt", encoding="utf-8") as output:
+                        output.write("\n".join(lines) + "\n")
+                    completed = subprocess.run(command, capture_output=True, text=True)
+                    document = yaml.safe_load(completed.stdout)["audit"]
+                    result = document["warmup_scale_up"]
+                    if error is None:
+                        self.assertEqual(0, completed.returncode, completed.stderr)
+                        self.assertEqual("passed", result["status"])
+                        self.assertEqual(dict.fromkeys(participants, 1), result["processed_by_participant"])
+                        self.assertEqual(6, document["totals"]["processed"])
+                        self.assertEqual(0, document["totals"]["without_publish"]["processed"])
+                        self.assertEqual(3, len(document["topics"]))
+                    else:
+                        self.assertEqual(2, completed.returncode, completed.stderr)
+                        self.assertEqual("failed", result["status"])
+                        self.assertIn(error, result["error"])
 
 
 def latency_rule(

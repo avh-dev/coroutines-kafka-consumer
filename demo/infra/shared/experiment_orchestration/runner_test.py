@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from . import runner
 from .runner import AwsAdapter, InternalLabAdapter, RunRequest, run
 
 
@@ -35,7 +36,7 @@ class SharedExperimentRunnerTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    @mock.patch("demo.infra.shared.experiment_orchestration.runner.execute", return_value=0)
+    @mock.patch.object(runner, "execute", return_value=0)
     def test_shared_runner_validates_then_dispatches_aws(self, execute: mock.Mock) -> None:
         self.assertEqual(0, run(self.request("aws")))
         command = execute.call_args.args[0]

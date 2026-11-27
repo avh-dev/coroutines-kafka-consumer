@@ -135,7 +135,7 @@ def traffic_warmup_enabled(
     profile: str | None, runtime_env: Mapping[str, Any], warmup_kafka: Mapping[str, Any]
 ) -> bool:
     value = runtime_env.get("TRAFFIC_WARMUP_ENABLED", warmup_kafka.get("enabled", False))
-    return profile in {"ckc", "ckc-sync"} and str(value).strip().lower() in {"true", "on", "yes", "1"}
+    return profile in {"ckc", "ckc-sync", "ckc-spring-boot"} and str(value).strip().lower() in {"true", "on", "yes", "1"}
 
 
 def build_deployment_plan(

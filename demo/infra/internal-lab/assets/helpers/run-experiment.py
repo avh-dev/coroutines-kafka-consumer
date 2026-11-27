@@ -28,6 +28,7 @@ if SHARED_ROOT.is_dir():
     sys.path.insert(0, str(SHARED_ROOT))
 
 from experiment_report import generate_experiment_reports
+from experiment_orchestration import warmup_scale_up
 from experiment_notifications import load_environment_file, notify
 from experiment_progress import ProgressWriter
 from experiment_test import (
@@ -1017,6 +1018,10 @@ def analyze_one(
         "--require-records",
     ]
     command.extend(["--latency-limits-file", str(latency_limits_file)])
+    if result.get("verify_warmup_scale_up"):
+        command.extend([
+            "--warmup-scale-up-evidence", str(run_dir / "diagnostics" / warmup_scale_up.EVIDENCE_FILE)
+        ])
     windows_file = measurement_windows_file(result, audit_dir)
     if windows_file is not None:
         command.extend(["--measurement-windows-file", str(windows_file)])
@@ -1033,7 +1038,7 @@ def analyze_one(
             if match and progress_callback is not None:
                 progress_callback(str(result.get("name") or run_dir.name), int(match.group(1)))
         exit_code = process.wait()
-    if exit_code == 0 and input_file.suffix != ".gz":
+    if (exit_code == 0 or result.get("verify_warmup_scale_up")) and input_file.suffix != ".gz":
         subprocess.run(["gzip", "-1", str(input_file)], check=False)
     counters = run_dir / "diagnostics" / "network-counters"
     if exit_code == 0 and counters.is_dir():
@@ -1209,6 +1214,12 @@ def run_experiment(
                 hook,
                 log_dir,
             )
+            if warmup_scale_up.qualification_requested(target_definition):
+                result["verify_warmup_scale_up"] = True
+                if result["exit_code"] == 0 and not has_audit_input(result["audit_dir"]):
+                    result["exit_code"] = 1
+                    result["run_status"] = dict(result.get("run_status") or {}, status="failed", exit_code=1)
+                    print(f"{result['name']}: required warm-up audit input is missing.", file=sys.stderr)
             results.append(result)
             if result["interrupted"]:
                 break
@@ -1298,6 +1309,10 @@ def run_experiment(
                 for future in concurrent.futures.as_completed(futures):
                     ordered_results[futures[future]] = future.result()
             analysis_results.extend(result for result in ordered_results if result is not None)
+            for result, analysis in zip(auditable_runs, analysis_results, strict=True):
+                if result.get("verify_warmup_scale_up") and analysis["exit_code"] != 0:
+                    result["exit_code"] = result["exit_code"] or 1
+                    result["run_status"] = dict(result.get("run_status") or {}, status="failed", exit_code=result["exit_code"])
             notify(hook, "audit_analysis_finished", {"experiment": experiment_name, "analysis": analysis_results}, log_dir)
 
     analysis_exit_code = next((analysis["exit_code"] for analysis in analysis_results if analysis["exit_code"] != 0), 0)

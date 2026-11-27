@@ -147,8 +147,8 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(1, len(drop_panels))
         target = drop_panels[0]["targets"][0]
         self.assertIn("demo_ckc_record_dropped_total", target["expr"])
-        self.assertIn('consumer_id=\"cauldron_events\"', target["expr"])
-        self.assertNotIn("order_events|batch_events", target["expr"])
+        self.assertIn('consumer_id=~"cauldron[-_]events"', target["expr"])
+        self.assertNotIn("(order|batch)[-_]events", target["expr"])
         self.assertEqual("{{reason}} {{pod_legend}}", target["legendFormat"])
         self.assertEqual("ops", drop_panels[0]["fieldConfig"]["defaults"]["unit"])
 

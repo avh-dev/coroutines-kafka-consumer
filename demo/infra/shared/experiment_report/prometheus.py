@@ -173,21 +173,21 @@ STANDARD_MEASUREMENTS = {
     ),
     "telemetry_poll_batch_average_records": (
         "sum(increase(demo_ckc_poll_records_sum"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])) / '
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}])) / '
         "clamp_min(sum(increase(demo_ckc_poll_records_count"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}])), 1)'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}])), 1)'
     ),
     "telemetry_poll_batch_max_records": (
         "max(max_over_time(demo_ckc_poll_records_max"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "telemetry_active_workers_average": (
         "avg(avg_over_time(demo_ckc_workers_active"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "telemetry_active_workers_max": (
         "max(max_over_time(demo_ckc_workers_active"
-        '{{consumer_id="cauldron_events", pod=~"ckc-demo-.+"}}[{window}]))'
+        '{{consumer_id=~"cauldron[-_]events", pod=~"ckc-demo-.+"}}[{window}]))'
     ),
     "processing_worker_cpu_average_cores": (
         "sum(increase(thread_stats_cpu_seconds_total"

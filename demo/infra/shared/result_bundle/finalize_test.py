@@ -142,6 +142,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             (diagnostics / "pcap-analysis").mkdir(parents=True)
             (diagnostics / "pcap-analysis" / "summary.json").write_text('{"status":"success"}\n', encoding="utf-8")
             (diagnostics / "kafka-metadata.json").write_text('{"topics":[]}\n', encoding="utf-8")
+            (diagnostics / "warmup-scale-up.json").write_text('{"status":"passed"}\n', encoding="utf-8")
             (diagnostics / "stubs-preparation.json").write_text(
                 '{"status":"ready","settings_version":"v1"}\n', encoding="utf-8"
             )
@@ -261,6 +262,7 @@ class CanonicalFinalizerTest(unittest.TestCase):
             self.assertIn(f"{identity}/diagnostics/targets/run-a/tcpdump/steady/application/capture.pcap.gz", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/pcap-analysis/summary.json", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/kafka-metadata.json", evidence_names)
+            self.assertIn(f"{identity}/diagnostics/targets/run-a/warmup-scale-up.json", evidence_names)
             self.assertIn(f"{identity}/diagnostics/targets/run-a/stubs-preparation.json", evidence_names)
             self.assertEqual(3, restore_compose.count("CKC_RESTORE_UID"))
             self.assertIn("GF_SECURITY_COOKIE_NAME: ckc_restore_${CKC_RESTORE_GRAFANA_PORT:-3002}", restore_compose)
