@@ -17,7 +17,6 @@ import avh.ckc.warmup.protocol.WarmupLivenessProbe
 import avh.ckc.warmup.protocol.WarmupRecordId
 import avh.ckc.warmup.protocol.WarmupSessionEndState
 import avh.ckc.warmup.protocol.WarmupSessionId
-import java.nio.file.Files
 import java.time.Duration as JavaDuration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
@@ -1395,39 +1394,6 @@ internal class WarmupBrokerRecoveryIntegrationTest : WarmupContextKafkaFixture()
                 yield()
             }
         }
-    }
-
-    private suspend fun awaitLifecycle(
-        observer: KafkaBrokerLifecycleLog,
-        matches: (BrokerLifecycleEvent) -> Boolean
-    ): BrokerLifecycleEvent = withTimeout(12.seconds) {
-        while (true) {
-            val records = observer.poll(JavaDuration.ofMillis(100))
-            records.firstOrNull { matches(it.event) }?.let { return@withTimeout it.event }
-            yield()
-        }
-        error("Unreachable")
-    }
-
-    private suspend fun startBrokerWitness(bootstrap: String, topic: String, epoch: String): AutoCloseable {
-        val directory = Files.createTempDirectory("ckc-broker-witness")
-        val ready = directory.resolve("ready")
-        val process = launchBrokerLifecycleCli("serve", bootstrap, topic, epoch, "10000", ready.toString())
-        fun close() {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS)
-            Files.deleteIfExists(ready)
-            Files.deleteIfExists(directory)
-        }
-        try {
-            awaitFor {
-                check(process.isAlive) { process.inputStream.bufferedReader().readText() }
-                Files.exists(ready)
-            }
-        } catch (error: Throwable) {
-            close()
-            throw error
-        }
-        return AutoCloseable { close() }
     }
 
     private fun recoveryContext(

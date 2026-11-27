@@ -15,6 +15,7 @@ import avh.ckc.warmup.donor.WarmupDonorSessionPreparation
 import avh.ckc.warmup.kafka.WarmupControlChannel
 import avh.ckc.warmup.kafka.WarmupControlTransport
 import avh.ckc.warmup.kafka.WarmupControlTransportConfiguration
+import avh.ckc.warmup.kafka.WarmupSubscriptionValidation
 import avh.ckc.warmup.protocol.SessionAccepted
 import avh.ckc.warmup.protocol.WarmupControlMessageHandler
 import avh.ckc.warmup.protocol.WarmupControlNamespace
@@ -40,10 +41,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.apache.kafka.clients.admin.Admin
 import org.slf4j.LoggerFactory
 
 /**
@@ -64,6 +67,7 @@ import org.slf4j.LoggerFactory
  */
 class TrafficWarmupContext internal constructor(
     private val configuration: TrafficWarmupContextConfiguration,
+    private val subscriptionAdminFactory: (Map<String, Any?>) -> Admin = Admin::create,
     private val controlTransportFactory: (
         WarmupControlTransportConfiguration, WarmupControlMessageHandler, CoroutineScope,
         CoroutineDispatcher
@@ -118,7 +122,7 @@ class TrafficWarmupContext internal constructor(
     private var recipientAttempt: WarmupRecipientAttempt? = null
     private var brokerCleanup: Deferred<Set<String>>? = null
     private var brokerLifecycle: WarmupBrokerLifecycle? = null
-    private var brokerControlReady: Deferred<Boolean>? = null
+    private var protocolStartup: Deferred<String?>? = null
 
     private lateinit var transport: WarmupControlChannel
     private lateinit var donorStore: LogicalWarmupDonorSessionStore
@@ -183,6 +187,7 @@ class TrafficWarmupContext internal constructor(
     }
 
     private fun requestStart(state: ParticipantState) {
+        var startupToStart: Job? = null
         var workflowToStart: Job? = null
         var launchCold = false
         var terminalFailure: Throwable? = null
@@ -192,13 +197,11 @@ class TrafficWarmupContext internal constructor(
             state.startRequested = true
             if (!registrationFrozen) {
                 registrationFrozen = true
-                val protocolInitialized = try {
+                try {
                     initializeProtocolLocked()
-                    true
                 } catch (error: Throwable) {
                     if (error.isFatalJvmError()) throw error
                     log.warn("Traffic warm-up protocol initialization failed; using cold start", error)
-                    false
                 }
                 val attempt = WarmupRecipientAttempt(
                     configuration = configuration,
@@ -211,16 +214,15 @@ class TrafficWarmupContext internal constructor(
                     runtime = if (::runtime.isInitialized) runtime else null,
                     transport = if (::transport.isInitialized) transport else null,
                     brokerLifecycle = brokerLifecycle,
-                    brokerControlReady = brokerControlReady,
+                    protocolStartup = protocolStartup,
                     awaitParticipants = ::awaitAllParticipantsStarted,
                     observe = ::observe,
                     onCompleted = ::launchRequestedMainRuntimes,
                     onCleanupIncomplete = ::failParticipantReadiness
                 )
                 recipientAttempt = attempt
-                workflowToStart = attempt.prepareWorkflow(protocolInitialized)
-                brokerControlReady?.start()
-                brokerLifecycle?.start()
+                startupToStart = protocolStartup
+                workflowToStart = attempt.prepareWorkflow()
             } else {
                 recipientAttempt?.outcome()?.let { outcome ->
                     terminalFailure = outcome.cleanupFailure
@@ -230,6 +232,7 @@ class TrafficWarmupContext internal constructor(
         }
         observe(TrafficWarmupLifecyclePhase.WAITING_FOR_PARTICIPANTS, state.participant.participantId)
         startSignal.trySend(Unit)
+        startupToStart?.start()
         workflowToStart?.start()
         terminalFailure?.let { state.ready.completeExceptionally(it) }
         if (launchCold) scope.launch { startMain(state) }
@@ -238,13 +241,13 @@ class TrafficWarmupContext internal constructor(
     private suspend fun requestStop(state: ParticipantState) {
         val attempt: CompletableDeferred<Unit>
         val ownsAttempt: Boolean
-        val workflow: Job?
+        val recipient: WarmupRecipientAttempt?
         val launchFinished: CompletableDeferred<Unit>?
         synchronized(lock) {
             state.stopAttempt?.let {
                 attempt = it
                 ownsAttempt = false
-                workflow = null
+                recipient = null
                 launchFinished = null
                 return@synchronized
             }
@@ -252,7 +255,7 @@ class TrafficWarmupContext internal constructor(
             state.stopAttempt = attempt
             ownsAttempt = true
             state.stopRequested = true
-            workflow = recipientAttempt?.pendingWorkflow()
+            recipient = recipientAttempt
             launchFinished = state.mainLaunchFinished
             if (!state.ready.isCompleted) {
                 state.ready.completeExceptionally(ParticipantStoppedBeforeMainReady())
@@ -270,8 +273,7 @@ class TrafficWarmupContext internal constructor(
             if (current == null) failure = error else current.addSuppressed(error)
         }
         try {
-            workflow?.cancel(CancellationException("Warm-up participant stopped"))
-            workflow?.join()
+            recipient?.stopForParticipant()
             launchFinished?.await()
         } catch (error: Throwable) {
             recordFailure(error)
@@ -402,10 +404,20 @@ class TrafficWarmupContext internal constructor(
         donorSessionManager = newDonorSessionManager
         runtime = newRuntime
         configuration.brokerLifecycleConfiguration?.let { broker ->
-            brokerControlReady = scope.async(start = CoroutineStart.LAZY) { newRuntime.startControl() }
             brokerLifecycle = WarmupBrokerLifecycle(
                 broker, scope, execution.blocking, ::fenceBrokerAdmission, ::reopenBrokerAdmission
             )
+        }
+        protocolStartup = scope.async(start = CoroutineStart.LAZY) {
+            val validation = WarmupSubscriptionValidation(
+                configuration.preparationTimeout, execution.blocking, subscriptionAdminFactory
+            )
+            validation.failureReason(registered)?.let { return@async it }
+
+            // Participant stop may cancel the recipient attempt while this context still serves donors.
+            ensureActive()
+            brokerLifecycle?.start()
+            if (newRuntime.startControl()) null else "control_unavailable"
         }
     }
 
@@ -579,21 +591,16 @@ class TrafficWarmupContext internal constructor(
             }
         }
         if (!close) return
-        val donorsDrained = !::donorStore.isInitialized || withTimeoutOrNull(configuration.completionTimeout) {
-            while (donorStore.admittedSessionCount() != 0) delay(10)
-            true
-        } == true
-        if (!donorsDrained) {
-            synchronized(lock) { sharedClosed = false }
-            error("Warm-up donor sessions did not drain before context shutdown")
-        }
-        val donorCleanupComplete = !::donorSessionManager.isInitialized ||
-            donorSessionManager.awaitCleanupBarrier(configuration.completionTimeout)
-        if (!donorCleanupComplete) {
-            synchronized(lock) { sharedClosed = false }
-            error("Warm-up donor resource cleanup did not complete before context shutdown")
-        }
         try {
+            protocolStartup?.cancelAndJoin()
+            val donorsDrained = !::donorStore.isInitialized || withTimeoutOrNull(configuration.completionTimeout) {
+                while (donorStore.admittedSessionCount() != 0) delay(10)
+                true
+            } == true
+            check(donorsDrained) { "Warm-up donor sessions did not drain before context shutdown" }
+            val donorCleanupComplete = !::donorSessionManager.isInitialized ||
+                donorSessionManager.awaitCleanupBarrier(configuration.completionTimeout)
+            check(donorCleanupComplete) { "Warm-up donor resource cleanup did not complete before context shutdown" }
             if (::runtime.isInitialized) {
                 runtime.stop()
                 runtime.close()

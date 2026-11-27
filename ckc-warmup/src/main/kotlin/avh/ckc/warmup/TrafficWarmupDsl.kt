@@ -241,6 +241,8 @@ class TrafficWarmupConsumerConfiguration<K, V> internal constructor() {
      * Maps one subscribed source topic to a dedicated warm-up topic with exactly partition 0.
      * Each source topic can be mapped once per participant. Destination topic names must be
      * unique across the context, including across distinct destination connections.
+     * If a destination name also appears in a main subscription, startup checks the Kafka cluster IDs.
+     * A confirmed overlap or unavailable cluster identity disables warm-up for the context.
      */
     fun mapTopic(
         sourceTopic: String,
@@ -358,10 +360,9 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
         require(configuration.mappings.keys.all(configuredTopics::contains)) {
             "Every warm-up source topic must belong to the main consumer subscription"
         }
-        validateWarmupParticipantConnections(
-            configuration.warmupConsumerProperties,
-            configuration.forwardingProducerProperties
-        )
+        val warmupConsumerProperties = configuration.warmupConsumerProperties.toMap()
+        val forwardingProducerProperties = configuration.forwardingProducerProperties.toMap()
+        validateWarmupParticipantConnections(warmupConsumerProperties, forwardingProducerProperties)
         val protocolMappings = configuration.mappings.values.map { mapping ->
             WarmupTopicMapping(
                 participantId = id,
@@ -370,7 +371,7 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
                 mappingFingerprint = mappingFingerprint(
                     id,
                     mapping,
-                    configuration.warmupConsumerProperties
+                    warmupConsumerProperties
                 ),
                 quota = mapping.quota
             )
@@ -380,9 +381,10 @@ fun <K, V> CoroutinesKafkaConsumerBuilder<K, V>.trafficWarmup(
         val participant = TrafficWarmupParticipant(
             participantId = id,
             mappings = protocolMappings,
-            warmupConsumerProperties = configuration.warmupConsumerProperties,
-            forwardingProducerProperties = configuration.forwardingProducerProperties,
+            warmupConsumerProperties = warmupConsumerProperties,
+            forwardingProducerProperties = forwardingProducerProperties,
             mainProperties = consumerProperties,
+            mainTopics = configuredTopics,
             runtimeFactory = runtimeFactory,
             mainConsumer = main,
             dataPlane = dataPlane,

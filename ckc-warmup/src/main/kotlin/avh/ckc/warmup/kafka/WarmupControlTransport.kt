@@ -486,7 +486,7 @@ internal class WarmupControlTransport(
         throw cancelled
     } catch (error: Throwable) {
         if (error.isFatalJvmError()) throw error
-        val cause = unwrapControlMetadataFailure(error)
+        val cause = unwrapKafkaMetadataFailure(error)
         when (cause) {
             is KafkaTimeoutException, is java.util.concurrent.TimeoutException, is RetriableException ->
                 WarmupControlTopicIdentityCheck.Unavailable
@@ -511,7 +511,7 @@ internal class WarmupControlTransport(
             result
         } catch (error: Throwable) {
             if (error.isFatalJvmError()) throw error
-            val cause = unwrapControlMetadataFailure(error)
+            val cause = unwrapKafkaMetadataFailure(error)
             if (cause is KafkaTimeoutException ||
                 cause is java.util.concurrent.TimeoutException ||
                 cause is RetriableException
@@ -733,9 +733,9 @@ private fun classifyPollFailure(error: Throwable): WarmupControlPollFailure {
     }
 }
 
-private tailrec fun unwrapControlMetadataFailure(error: Throwable): Throwable =
+internal tailrec fun unwrapKafkaMetadataFailure(error: Throwable): Throwable =
     if (error is ExecutionException && error.cause != null) {
-        unwrapControlMetadataFailure(error.cause!!)
+        unwrapKafkaMetadataFailure(error.cause!!)
     } else {
         error
     }
