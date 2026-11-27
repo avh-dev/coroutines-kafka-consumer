@@ -574,7 +574,8 @@ lab experiment status
 ```
 
 Both targets start with one demo pod, scale to two at 7:00, and scale to three at 7:30. At 8:15
-`warmup_broker_stop` checks for two `WARMING` sessions before affecting the temporary broker.
+`warmup_broker_stop` checks for two `WARMING` sessions in the run's Loki lifecycle logs
+before affecting the temporary broker.
 The planned target deletes the pod with its configured grace period. The abrupt target sends
 `SIGKILL` to the Kafka process. Each target scales to four at 12:30, after confirming the new
 broker is ready and has published a different epoch.

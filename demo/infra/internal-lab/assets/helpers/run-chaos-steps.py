@@ -26,6 +26,7 @@ if SHARED_ROOT.is_dir():
     sys.path.insert(0, str(SHARED_ROOT))
 
 from experiment_orchestration import warmup_scale_up
+from result_bundle.collect import http_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -463,11 +464,22 @@ def delete_pod(params: dict[str, Any], *, dry_run: bool) -> dict[str, Any] | Non
     return details
 
 
-def warmup_app_logs(kubectl: list[str]) -> str:
-    return run([
-        *kubectl, "logs", "-l", "ckc.dev/component=application", "--all-containers",
-        "--prefix", "--timestamps", "--since=4m", "--tail=4000", "--ignore-errors=true",
-    ], capture_output=True).stdout
+def warmup_app_logs(run_id: str, marker: str) -> str:
+    selector = '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id=' + json.dumps(run_id) + '}'
+    end = time.time_ns()
+    payload = http_json("http://127.0.0.1:3100", "/loki/api/v1/query_range", {
+        "query": f"{selector} |= {json.dumps(marker)}",
+        "start": str(end - 240_000_000_000),
+        "end": str(end),
+        "limit": "1000",
+        "direction": "backward",
+    }, timeout=5)
+    records = [
+        (int(timestamp), line)
+        for stream in payload["data"]["result"]
+        for timestamp, line in stream["values"]
+    ]
+    return "\n".join(line for _, line in sorted(set(records)))
 
 
 def warming_sessions(logs: str) -> list[str]:
@@ -542,10 +554,11 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
     if dry_run:
         log(f"dry-run: would stop temporary Kafka mode={mode} after two recipients reach WARMING")
         return None
+    run_id = os.environ["TEST_RUN_ID"]
     kubectl = ["kubectl", "--request-timeout=5s", "-n", namespace]
     deadline = time.monotonic() + 35
     while True:
-        sessions = warming_sessions(warmup_app_logs(kubectl))
+        sessions = warming_sessions(warmup_app_logs(run_id, "Warm-up lifecycle: phase="))
         if len(sessions) >= 2:
             break
         if time.monotonic() >= deadline:
@@ -621,7 +634,16 @@ def stop_warmup_broker(params: dict[str, Any], *, dry_run: bool) -> dict[str, An
         details["terminatingEndpoint"] = terminating
         lines = broker_stop_lines(path.read_text(encoding="utf-8"))
         details["brokerEvents"] = lines
-    connection = verified_drain_connection(lines, warmup_app_logs(kubectl), terminating, address, epoch) if terminating else None
+    connection = None
+    if terminating:
+        # Loki may still be ingesting the final log when the old broker stops.
+        deadline = time.monotonic() + 10
+        while True:
+            logs = warmup_app_logs(run_id, "opening final confirmation connection")
+            connection = verified_drain_connection(lines, logs, terminating, address, epoch)
+            if connection or time.monotonic() >= deadline:
+                break
+            time.sleep(1)
     details["finalConfirmationConnection"] = connection
     log(f"warmup-broker-stop evidence={json.dumps(details, sort_keys=True)}")
     timeline = "\n".join(lines)

@@ -83,6 +83,24 @@ class ChaosScenariosTest(unittest.TestCase):
         )
         self.assertEqual(["one", "two"], chaos_runner.warming_sessions(logs))
 
+    def test_broker_guard_queries_lifecycle_lines_for_the_run_before_applying_the_limit(self) -> None:
+        def phase(name: str, session: str) -> str:
+            return f"Warm-up lifecycle: phase={name}, participantId=null, sessionId={session}"
+
+        payload = {"data": {"result": [
+            {"values": [["30", phase("COMPLETING", "finished")], ["20", phase("WARMING", "two")]]},
+            {"values": [["15", phase("WARMING", "one")], ["10", phase("WARMING", "finished")]]},
+        ]}}
+        with patch.object(chaos_runner, "http_json", return_value=payload) as query:
+            logs = chaos_runner.warmup_app_logs("run-366", "Warm-up lifecycle: phase=")
+
+        self.assertEqual(["one", "two"], chaos_runner.warming_sessions(logs))
+        self.assertEqual(
+            '{namespace="ckc-perf",app="ckc-demo",container="demo",run_id="run-366"}'
+            ' |= "Warm-up lifecycle: phase="',
+            query.call_args.args[2]["query"],
+        )
+
     def test_verified_scale_up_requires_two_replicas(self) -> None:
         step = {"at": "30s", "type": "deployment_scale", "params": {"replicas": 2, "verify_warmup": True}}
         self.assertTrue(self.normalize([step])[0]["params"]["verifyWarmup"])
@@ -178,6 +196,7 @@ class ChaosScenariosTest(unittest.TestCase):
             "status": {"podIP": "10.12.13.14"},
         }
         with (
+            patch.dict(os.environ, {"TEST_RUN_ID": "run-366"}),
             patch.object(chaos_runner, "warmup_app_logs", return_value=""),
             patch.object(chaos_runner, "warming_sessions", return_value=["session-1", "session-2"]),
             patch.object(chaos_runner, "select_running_pod", return_value=metadata),

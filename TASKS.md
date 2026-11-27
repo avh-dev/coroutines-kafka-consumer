@@ -6978,6 +6978,8 @@ Capture separate optilab evidence for planned shutdown and abrupt Kafka loss.
 Passed the demo, orchestrator, internal-lab, and supervisor unit suites and the built-image Kafka stop and restart test.
 Automate the two qualification targets with the established scale-up schedule and capture the broker and EndpointSlice evidence at impact.
 Enable coordinated shutdown in the four established warm-up chaos experiments with their existing schedules.
+Read run-scoped Loki lifecycle and final-confirmation logs with server-side filtering before the result limit. Replay of both failed qualification targets from experiment 20261124T060027Z recovered two warming sessions at each scheduled stop.
+Passed 245 internal-lab tests and validated the qualification launch command in dry-run mode. Live qualification remains pending.
 
 <a id="core-100"></a>
 ### CORE-100 - Deliver results during planned warm-up Kafka drain
