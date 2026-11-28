@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from array import array
 import gzip
 import json
 import math
@@ -21,6 +22,11 @@ TOPIC_NAMES = {
     2: "batch.events.v1",
     3: "cauldron.events.v1",
 }
+
+TIMELINE_STEP_SECONDS = 1
+TIMELINE_WINDOW_SECONDS = 5
+TIMELINE_P99_MIN_SAMPLES = 100
+TIMELINE_P999_MIN_SAMPLES = 1_000
 
 class RecordKey(NamedTuple):
     topic_id: int
@@ -232,6 +238,170 @@ class OnlineAgeStats:
             "avg_ms": round(self.total_ms / self.count, 3) if self.count else None,
             "min_ms": self.min_ms,
             "max_ms": self.max_ms,
+        }
+
+
+@dataclass(slots=True)
+class TimelineStats:
+    """Exact one-second audit series used by the report timeline."""
+
+    scenario_start_ms: int | None
+    published_by_second: Counter[int] = field(default_factory=Counter)
+    processed_by_second: Counter[int] = field(default_factory=Counter)
+    latency_samples_by_second: dict[int, array] = field(default_factory=dict)
+
+    def _second(self, timestamp_ms: int | None) -> int | None:
+        if timestamp_ms is None or self.scenario_start_ms is None:
+            return None
+        return math.floor((timestamp_ms - self.scenario_start_ms) / 1000)
+
+    def add_published(self, timestamp_ms: int | None) -> None:
+        second = self._second(timestamp_ms)
+        if second is not None:
+            self.published_by_second[second] += 1
+
+    def add_processed(self, timestamp_ms: int | None) -> None:
+        second = self._second(timestamp_ms)
+        if second is not None:
+            self.processed_by_second[second] += 1
+
+    def add_latency(self, timestamp_ms: int | None, latency_ms: int) -> None:
+        second = self._second(timestamp_ms)
+        if second is not None:
+            samples = self.latency_samples_by_second.setdefault(second, array("I"))
+            samples.append(latency_ms)
+
+    def merge(self, other: "TimelineStats") -> None:
+        self.published_by_second.update(other.published_by_second)
+        self.processed_by_second.update(other.processed_by_second)
+        for second, samples in other.latency_samples_by_second.items():
+            self.latency_samples_by_second.setdefault(second, array("I")).extend(samples)
+
+    def histogram(self) -> Counter[int]:
+        histogram: Counter[int] = Counter()
+        for samples in self.latency_samples_by_second.values():
+            histogram.update(samples)
+        return histogram
+
+    @staticmethod
+    def _percentile(
+        histogram: Counter[int], quantile: float, minimum_samples: int
+    ) -> tuple[int | float | None, int]:
+        count = sum(histogram.values())
+        if count < minimum_samples:
+            return None, count
+        items = sorted(histogram.items())
+        return rounded_number(histogram_percentile(items, count, quantile)), count
+
+    def summary(
+        self,
+        threshold_ms: int | float | None,
+        *,
+        window_seconds: int = TIMELINE_WINDOW_SECONDS,
+        p99_min_samples: int = TIMELINE_P99_MIN_SAMPLES,
+        p999_min_samples: int = TIMELINE_P999_MIN_SAMPLES,
+        matching_mode: str = "exact",
+        observed_until_second: int | None = None,
+    ) -> dict[str, object]:
+        event_seconds = set(self.published_by_second) | set(self.processed_by_second)
+        event_seconds |= set(self.latency_samples_by_second)
+        if not event_seconds:
+            return {
+                "status": "UNAVAILABLE",
+                "episode_status": "UNAVAILABLE",
+                "threshold_ms": threshold_ms,
+                "computed_p99_seconds": 0,
+                "unavailable_p99_seconds": 0,
+                "scenario_start_ms": self.scenario_start_ms,
+                "step_seconds": TIMELINE_STEP_SECONDS,
+                "window_seconds": window_seconds,
+                "p99_min_samples": p99_min_samples,
+                "p999_min_samples": p999_min_samples,
+                "matching_mode": matching_mode,
+                "points": [],
+                "episodes": [],
+                "observed_from_second": None,
+                "observed_until_second": None,
+            }
+
+        first_second = min(0, min(event_seconds))
+        last_second = max(max(event_seconds), observed_until_second if observed_until_second is not None else 0)
+        points: list[dict[str, object]] = []
+        episodes: list[dict[str, object]] = []
+        active: dict[str, object] | None = None
+        for second in range(first_second, last_second + 1):
+            histogram: Counter[int] = Counter()
+            for candidate in range(second - window_seconds + 1, second + 1):
+                histogram.update(self.latency_samples_by_second.get(candidate, ()))
+            p99, p99_samples = self._percentile(histogram, 0.99, p99_min_samples)
+            p999, p999_samples = self._percentile(histogram, 0.999, p999_min_samples)
+            point = {
+                "second": second,
+                "published": self.published_by_second.get(second, 0),
+                "processed": self.processed_by_second.get(second, 0),
+                "p99_ms": p99,
+                "p99_samples": p99_samples,
+                "p999_ms": p999,
+                "p999_samples": p999_samples,
+            }
+            points.append(point)
+            exceeded = threshold_ms is not None and p99 is not None and p99 > threshold_ms
+            if exceeded:
+                if active is None:
+                    active = {
+                        "start_second": second,
+                        "end_second": second + 1,
+                        "peak_p99_ms": p99,
+                        "peak_p99_samples": p99_samples,
+                        "peak_p999_ms": p999,
+                        "peak_p999_samples": p999_samples,
+                        "threshold_ms": threshold_ms,
+                    }
+                else:
+                    active["end_second"] = second + 1
+                    if p99 is not None and p99 > active["peak_p99_ms"]:
+                        active["peak_p99_ms"] = p99
+                        active["peak_p99_samples"] = p99_samples
+                    if p999 is not None and (
+                        active["peak_p999_ms"] is None or p999 > active["peak_p999_ms"]
+                    ):
+                        active["peak_p999_ms"] = p999
+                        active["peak_p999_samples"] = p999_samples
+            elif active is not None:
+                active["duration_seconds"] = active["end_second"] - active["start_second"]
+                episodes.append(active)
+                active = None
+        if active is not None:
+            active["duration_seconds"] = active["end_second"] - active["start_second"]
+            episodes.append(active)
+
+        computed_p99_seconds = sum(1 for point in points if point["p99_ms"] is not None)
+        if threshold_ms is None:
+            status = "UNAVAILABLE"
+        elif matching_mode != "exact":
+            status = "INCOMPLETE"
+        elif computed_p99_seconds == 0:
+            status = "UNAVAILABLE"
+        else:
+            status = "AVAILABLE"
+        return {
+            "status": status,
+            "episode_status": (
+                "HAS_EPISODES" if episodes else "NO_EPISODES"
+            ) if status in {"AVAILABLE", "INCOMPLETE"} else "UNAVAILABLE",
+            "threshold_ms": threshold_ms,
+            "computed_p99_seconds": computed_p99_seconds,
+            "unavailable_p99_seconds": len(points) - computed_p99_seconds,
+            "scenario_start_ms": self.scenario_start_ms,
+            "step_seconds": TIMELINE_STEP_SECONDS,
+            "window_seconds": window_seconds,
+            "p99_min_samples": p99_min_samples,
+            "p999_min_samples": p999_min_samples,
+            "matching_mode": matching_mode,
+            "points": points,
+            "episodes": episodes,
+            "observed_from_second": first_second,
+            "observed_until_second": last_second + 1,
         }
 
 
@@ -649,6 +819,7 @@ class ClosedRecordState:
 @dataclass(slots=True)
 class AuditStats:
     open_record_ttl_ms: int | None
+    scenario_start_ms: int | None = None
     latency_limit_ms: int | float | None = None
     latency_sla_rules: tuple[LatencySlaRule, ...] = ()
     key_fairness: KeyFairnessStats | None = None
@@ -694,9 +865,11 @@ class AuditStats:
     e2e_latency_histogram: dict[int, int] = field(default_factory=dict)
     e2e_exceeded: int = 0
     e2e_invalid_negative: int = 0
+    timeline: TimelineStats = field(init=False)
     key_order_collector: Callable[[AuditRecord], None] | None = None
 
     def __post_init__(self) -> None:
+        self.timeline = TimelineStats(self.scenario_start_ms)
         self.latency_sla = {
             rule.id: LatencySlaStats(rule)
             for rule in self.latency_sla_rules
@@ -760,6 +933,7 @@ class AuditStats:
             return
 
         state.published = record
+        self.timeline.add_published(record.kafka_timestamp_ms)
         state.last_seen_ms = record.audit_timestamp_ms
         if self.open_record_ttl_ms is not None:
             self.open_expiry_queue.append((state.last_seen_ms, record.key))
@@ -805,6 +979,7 @@ class AuditStats:
                 elif state.failed is not None or state.dropped is not None:
                     self.unexpected_terminal_outcomes += 1
                 state.processed = record
+                self.timeline.add_processed(record.audit_timestamp_ms)
                 state.processed_count = 1
                 self.processed_unique += 1
                 for latency in self.latency_sla.values():
@@ -909,6 +1084,7 @@ class AuditStats:
                 )
                 closed.processed_seen = True
                 self.processed_unique += 1
+                self.timeline.add_processed(record.audit_timestamp_ms)
                 if lifecycle_handoff:
                     self.lifecycle_handoff_reprocessed += 1
                 elif had_other_outcome:
@@ -974,6 +1150,7 @@ class AuditStats:
                 self.unexpected_terminal_outcomes += 1
         if record.record_type == "C":
             self.processed_unique += 1
+            self.timeline.add_processed(record.audit_timestamp_ms)
         elif record.record_type == "F":
             self.failed_unique += 1
         else:
@@ -1028,7 +1205,11 @@ class AuditStats:
                     self.e2e_invalid_negative += 1
                 else:
                     self.e2e_latency.add(latency_ms)
-                    self.e2e_latency_histogram[latency_ms] = self.e2e_latency_histogram.get(latency_ms, 0) + 1
+                    if self.scenario_start_ms is None:
+                        self.e2e_latency_histogram[latency_ms] = (
+                            self.e2e_latency_histogram.get(latency_ms, 0) + 1
+                        )
+                    self.timeline.add_latency(state.processed.audit_timestamp_ms, latency_ms)
                     if self.latency_limit_ms is not None and latency_ms > self.latency_limit_ms:
                         self.e2e_exceeded += 1
                 for latency in self.latency_sla.values():
@@ -1094,12 +1275,14 @@ class AuditAccumulator:
     def __init__(
         self,
         open_record_ttl_ms: int | None,
+        scenario_start_ms: int | None = None,
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
         cohort_keys: set[RecordKey] | None = None,
         key_order_spool: ExactKeyOrderSpool | None = None,
     ) -> None:
         self.open_record_ttl_ms = open_record_ttl_ms
+        self.scenario_start_ms = scenario_start_ms
         self.latency_sla_rules = latency_sla_rules
         self.latency_limits_ms = latency_limits_ms or {}
         self.owns_key_order_spool = open_record_ttl_ms is None and key_order_spool is None
@@ -1118,11 +1301,21 @@ class AuditAccumulator:
             for topic_id in TOPIC_NAMES
         }
         self.record_count = 0
+        self.observed_until_ms: int | None = None
         self.cohort_keys = cohort_keys
 
     def add(self, record: AuditRecord) -> None:
         if self.cohort_keys is not None and record.key not in self.cohort_keys:
             return
+        event_timestamp_ms = max(
+            record.audit_timestamp_ms,
+            record.kafka_timestamp_ms if record.kafka_timestamp_ms is not None else record.audit_timestamp_ms,
+        )
+        self.observed_until_ms = (
+            event_timestamp_ms
+            if self.observed_until_ms is None
+            else max(self.observed_until_ms, event_timestamp_ms)
+        )
         self.record_count += 1
         topic_stats = self.by_topic.get(record.key.topic_id)
         if topic_stats is None:
@@ -1152,12 +1345,16 @@ class AuditAccumulator:
         return stats.open_by_key.get(key) if stats is not None else None
 
     def _new_topic_stats(self, topic_id: int) -> AuditStats:
+        topic_rules = tuple(
+            rule for rule in self.latency_sla_rules if rule.applies_to(topic_id)
+        )
         stats = AuditStats(
             open_record_ttl_ms=self.open_record_ttl_ms,
-            latency_limit_ms=self.latency_limits_ms.get(topic_id),
-            latency_sla_rules=tuple(
-                rule for rule in self.latency_sla_rules if rule.applies_to(topic_id)
-            ),
+            scenario_start_ms=self.scenario_start_ms,
+            latency_limit_ms=self.latency_limits_ms.get(topic_id)
+            if topic_id in self.latency_limits_ms
+            else (topic_rules[0].max_ms if len(topic_rules) == 1 else None),
+            latency_sla_rules=topic_rules,
             key_fairness=KeyFairnessStats() if topic_id == 3 else None,
         )
         if self.key_order_spool is not None and self.key_order_scope is not None:
@@ -1184,12 +1381,14 @@ class MultiWindowAuditAccumulator:
         self,
         open_record_ttl_ms: int | None,
         windows: tuple[MeasurementWindow, ...],
+        scenario_start_ms: int | None = None,
         latency_sla_rules: tuple[LatencySlaRule, ...] = (),
         latency_limits_ms: dict[int, int | float] | None = None,
     ) -> None:
         self.key_order_spool = ExactKeyOrderSpool() if open_record_ttl_ms is None else None
         self.complete = AuditAccumulator(
             open_record_ttl_ms=open_record_ttl_ms,
+            scenario_start_ms=scenario_start_ms,
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
             key_order_spool=self.key_order_spool,
@@ -1199,6 +1398,7 @@ class MultiWindowAuditAccumulator:
                 window,
                 AuditAccumulator(
                     open_record_ttl_ms=open_record_ttl_ms,
+                    scenario_start_ms=scenario_start_ms,
                     latency_sla_rules=latency_sla_rules,
                     latency_limits_ms=latency_limits_ms,
                     key_order_spool=self.key_order_spool,
@@ -1484,7 +1684,19 @@ def ordering_summary(stats: ProcessingOrderStats) -> dict[str, int]:
     }
 
 
-def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, object]:
+def e2e_histogram(stats: AuditStats) -> dict[int, int]:
+    if stats.timeline.latency_samples_by_second:
+        return stats.timeline.histogram()
+    return stats.e2e_latency_histogram
+
+
+def stats_summary(
+    stats: AuditStats,
+    topic_id: int | None = None,
+    *,
+    include_timeline: bool = True,
+    observed_until_second: int | None = None,
+) -> dict[str, object]:
     summary: dict[str, object] = {}
     if topic_id is not None:
         summary["topic_id"] = topic_id
@@ -1524,7 +1736,13 @@ def stats_summary(stats: AuditStats, topic_id: int | None = None) -> dict[str, o
             },
         }
     )
-    e2e = histogram_distribution_summary(stats.e2e_latency_histogram)
+    if include_timeline:
+        summary["timeline"] = stats.timeline.summary(
+            stats.latency_limit_ms,
+            matching_mode=("bounded_ttl" if stats.open_record_ttl_ms is not None else "exact"),
+            observed_until_second=observed_until_second,
+        )
+    e2e = histogram_distribution_summary(e2e_histogram(stats))
     e2e.update({
         "limit_ms": stats.latency_limit_ms,
         "exceeded": stats.e2e_exceeded,
@@ -1556,6 +1774,17 @@ def load_metadata(path_value: str | None) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"metadata file must contain a JSON object: {path}")
     return value
+
+
+def scenario_start_ms(metadata: dict[str, object]) -> int | None:
+    value = metadata.get("started_at")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return round(parsed.timestamp() * 1000)
 
 
 def load_latency_sla_rules(path_value: str | None) -> tuple[LatencySlaRule, ...]:
@@ -1666,6 +1895,7 @@ def load_measurement_windows(path_value: str | None) -> tuple[MeasurementWindow,
 def aggregate_stats(accumulator: AuditAccumulator, excluded_topics: frozenset[int] = frozenset()) -> AuditStats:
     aggregate = AuditStats(
         open_record_ttl_ms=accumulator.open_record_ttl_ms,
+        scenario_start_ms=accumulator.scenario_start_ms,
         latency_sla_rules=accumulator.latency_sla_rules,
     )
     scalar_fields = (
@@ -1708,7 +1938,7 @@ def aggregate_stats(accumulator: AuditAccumulator, excluded_topics: frozenset[in
             aggregate.replay_dropped_after_processed_by_reason[reason] = (
                 aggregate.replay_dropped_after_processed_by_reason.get(reason, 0) + count
             )
-        for latency_ms, count in stats.e2e_latency_histogram.items():
+        for latency_ms, count in e2e_histogram(stats).items():
             aggregate.e2e_latency_histogram[latency_ms] = (
                 aggregate.e2e_latency_histogram.get(latency_ms, 0) + count
             )
@@ -1734,7 +1964,135 @@ def aggregate_stats(accumulator: AuditAccumulator, excluded_topics: frozenset[in
     return aggregate
 
 
-def audit_summary(accumulator: AuditAccumulator, excluded_topics: frozenset[int] = frozenset()) -> dict[str, object]:
+def _observed_until_second(accumulator: AuditAccumulator) -> int | None:
+    if accumulator.observed_until_ms is None or accumulator.scenario_start_ms is None:
+        return None
+    return math.floor((accumulator.observed_until_ms - accumulator.scenario_start_ms) / 1000)
+
+
+def target_timeline_from_topics(
+    topics: dict[str, dict[str, object]],
+    *,
+    scenario_start_ms: int | None,
+    matching_mode: str,
+) -> dict[str, object]:
+    points_by_second: dict[int, dict[str, int]] = {}
+    for topic in topics.values():
+        timeline = topic.get("timeline")
+        if not isinstance(timeline, dict):
+            continue
+        for point in timeline.get("points", []):
+            second = int(point["second"])
+            target = points_by_second.setdefault(second, {"published": 0, "processed": 0})
+            target["published"] += int(point.get("published") or 0)
+            target["processed"] += int(point.get("processed") or 0)
+    if not points_by_second:
+        return TimelineStats(scenario_start_ms).summary(None, matching_mode=matching_mode)
+    first_second = min(points_by_second)
+    last_second = max(points_by_second)
+    points = [
+        {
+            "second": second,
+            "published": points_by_second.get(second, {}).get("published", 0),
+            "processed": points_by_second.get(second, {}).get("processed", 0),
+            "p99_ms": None,
+            "p99_samples": 0,
+            "p999_ms": None,
+            "p999_samples": 0,
+        }
+        for second in range(first_second, last_second + 1)
+    ]
+    return {
+        "status": "UNAVAILABLE",
+        "episode_status": "UNAVAILABLE",
+        "threshold_ms": None,
+        "computed_p99_seconds": 0,
+        "unavailable_p99_seconds": len(points),
+        "scenario_start_ms": scenario_start_ms,
+        "step_seconds": TIMELINE_STEP_SECONDS,
+        "window_seconds": TIMELINE_WINDOW_SECONDS,
+        "p99_min_samples": TIMELINE_P99_MIN_SAMPLES,
+        "p999_min_samples": TIMELINE_P999_MIN_SAMPLES,
+        "matching_mode": matching_mode,
+        "p99_scope": "per_topic",
+        "points": points,
+        "episodes": [],
+        "observed_from_second": first_second,
+        "observed_until_second": last_second + 1,
+    }
+
+
+def audit_summary(
+    accumulator: AuditAccumulator,
+    excluded_topics: frozenset[int] = frozenset(),
+    *,
+    include_timeline: bool = True,
+) -> dict[str, object]:
+    observed_until_second = _observed_until_second(accumulator)
+    diagnostic_topic_ids = frozenset(accumulator.by_topic) - frozenset(TOPIC_NAMES)
+    aggregate_excluded_topics = frozenset(excluded_topics) | diagnostic_topic_ids
+    topics = {
+        TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(
+            topic_stats,
+            topic_id,
+            include_timeline=include_timeline,
+            observed_until_second=observed_until_second,
+        )
+        for topic_id, topic_stats in accumulator.by_topic.items()
+        if topic_id not in excluded_topics
+    }
+    application_topics = {
+        name: topic for name, topic in topics.items()
+        if name in TOPIC_NAMES.values()
+    }
+    intervals = sorted(
+        (episode["start_second"], episode["end_second"])
+        for topic in application_topics.values()
+        for episode in topic.get("timeline", {}).get("episodes", [])
+    )
+    target_episodes: list[dict[str, int]] = []
+    for start, end in intervals:
+        if target_episodes and start <= target_episodes[-1]["end_second"]:
+            target_episodes[-1]["end_second"] = max(target_episodes[-1]["end_second"], end)
+        else:
+            target_episodes.append({"start_second": start, "end_second": end})
+    aggregate = aggregate_stats(accumulator, aggregate_excluded_topics)
+    aggregate_summary = stats_summary(aggregate, include_timeline=False)
+    timeline = target_timeline_from_topics(
+        application_topics if include_timeline else {},
+        scenario_start_ms=accumulator.scenario_start_ms,
+        matching_mode=("bounded_ttl" if accumulator.open_record_ttl_ms is not None else "exact"),
+    )
+    timeline["episodes"] = [
+        {**episode, "duration_seconds": episode["end_second"] - episode["start_second"]}
+        for episode in target_episodes
+    ]
+    evaluated_topics = [
+        topic for topic in application_topics.values()
+        if topic.get("timeline", {}).get("status") in {"AVAILABLE", "INCOMPLETE"}
+    ]
+    unavailable_topics = [
+        name for name, topic in application_topics.items()
+        if topic.get("timeline", {}).get("status") == "UNAVAILABLE"
+    ]
+    if not evaluated_topics:
+        timeline["status"] = "UNAVAILABLE"
+        timeline["episode_status"] = "UNAVAILABLE"
+    elif unavailable_topics:
+        timeline["status"] = "PARTIAL"
+        timeline["episode_status"] = "HAS_EPISODES" if target_episodes else "NO_EPISODES"
+    elif any(topic["timeline"]["status"] == "INCOMPLETE" for topic in evaluated_topics):
+        timeline["status"] = "INCOMPLETE"
+        timeline["episode_status"] = "HAS_EPISODES" if target_episodes else "NO_EPISODES"
+    else:
+        timeline["status"] = "AVAILABLE"
+        timeline["episode_status"] = "HAS_EPISODES" if target_episodes else "NO_EPISODES"
+    timeline["evaluated_topics"] = len(evaluated_topics)
+    timeline["unavailable_topics"] = unavailable_topics
+    timeline["diagnostic_topics"] = [
+        TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}")
+        for topic_id in sorted(diagnostic_topic_ids)
+    ]
     return {
         "records_read": accumulator.record_count,
         "delivery_matching": {
@@ -1745,13 +2103,120 @@ def audit_summary(accumulator: AuditAccumulator, excluded_topics: frozenset[int]
                 else None
             ),
         },
-        "totals": stats_summary(aggregate_stats(accumulator, excluded_topics)),
-        "topics": {
-            TOPIC_NAMES.get(topic_id, f"unknown-topic-{topic_id}"): stats_summary(topic_stats, topic_id)
-            for topic_id, topic_stats in accumulator.by_topic.items()
-            if topic_id not in excluded_topics
-        },
+        "totals": aggregate_summary,
+        "topics": topics,
+        "timeline": timeline,
     }
+
+
+def clipped_timeline(
+    timeline: dict[str, object],
+    window: MeasurementWindow,
+    scenario_start_ms: int | None,
+) -> dict[str, object]:
+    """Project the canonical completion timeline onto a publication window."""
+    if scenario_start_ms is None:
+        return {
+            "status": "UNAVAILABLE",
+            "episode_status": "UNAVAILABLE",
+            "threshold_ms": timeline.get("threshold_ms"),
+            "computed_p99_seconds": 0,
+            "unavailable_p99_seconds": 0,
+            "matching_mode": timeline.get("matching_mode"),
+            "source": "full_target_completion_timeline",
+            "window_start_second": None,
+            "window_end_second": None,
+            "observed_from_second": None,
+            "observed_until_second": None,
+            "points": [],
+            "episodes": [],
+        }
+    start_second = (window.published_from_ms - scenario_start_ms) / 1000
+    end_second = (window.published_until_ms - scenario_start_ms) / 1000
+    observed_start = timeline.get("observed_from_second")
+    observed_end = timeline.get("observed_until_second")
+    if observed_start is not None and observed_end is not None:
+        observed_start = max(observed_start, start_second)
+        observed_end = min(observed_end, end_second)
+        if observed_start >= observed_end:
+            observed_start = observed_end = None
+
+    def overlaps(point: dict[str, object], start: float, end: float) -> bool:
+        second = point["second"]
+        return second < end and second + 1 > start
+
+    points = [
+        point for point in timeline.get("points", [])
+        if observed_start is not None and observed_end is not None
+        and overlaps(point, observed_start, observed_end)
+    ]
+    episodes: list[dict[str, object]] = []
+    for episode in timeline.get("episodes", []):
+        start = max(float(episode["start_second"]), start_second)
+        end = min(float(episode["end_second"]), end_second)
+        if end <= start:
+            continue
+        clipped = dict(episode)
+        if "peak_p99_ms" in episode:
+            episode_points = [point for point in points if overlaps(point, start, end)]
+            for percentile in ("p99", "p999"):
+                value_key = f"{percentile}_ms"
+                samples_key = f"{percentile}_samples"
+                peak = max(
+                    (point for point in episode_points if point.get(value_key) is not None),
+                    key=lambda point: point[value_key],
+                    default={},
+                )
+                clipped[f"peak_{value_key}"] = peak.get(value_key)
+                clipped[f"peak_{samples_key}"] = peak.get(samples_key)
+        clipped.update({
+            "start_second": int(start) if start.is_integer() else start,
+            "end_second": int(end) if end.is_integer() else end,
+            "duration_seconds": end - start,
+        })
+        episodes.append(clipped)
+    result = {
+        key: value
+        for key, value in timeline.items()
+        if key not in {"points", "episodes", "observed_from_second", "observed_until_second"}
+    }
+    result.update({
+        "source": "full_target_completion_timeline",
+        "window_start_second": start_second,
+        "window_end_second": end_second,
+        "points": points,
+        "episodes": episodes,
+        "observed_from_second": observed_start,
+        "observed_until_second": observed_end,
+    })
+    computed_p99_seconds = 0
+    unavailable_p99_seconds = 0
+    if observed_start is not None and observed_end is not None:
+        for point in points:
+            second = point["second"]
+            duration = min(second + 1, observed_end) - max(second, observed_start)
+            if point.get("p99_ms") is None:
+                unavailable_p99_seconds += duration
+            else:
+                computed_p99_seconds += duration
+    threshold_ms = result.get("threshold_ms")
+    matching_mode = result.get("matching_mode")
+    if result.get("p99_scope") == "per_topic":
+        result["status"] = timeline.get("status", "UNAVAILABLE")
+        result["episode_status"] = "HAS_EPISODES" if episodes else "NO_EPISODES"
+    elif threshold_ms is None or computed_p99_seconds == 0:
+        result["status"] = "UNAVAILABLE"
+        result["episode_status"] = "UNAVAILABLE"
+    elif matching_mode != "exact":
+        result["status"] = "INCOMPLETE"
+        result["episode_status"] = "HAS_EPISODES" if episodes else "NO_EPISODES"
+    else:
+        result["status"] = "AVAILABLE"
+        result["episode_status"] = "HAS_EPISODES" if episodes else "NO_EPISODES"
+    # Audit window bounds have millisecond precision.
+    result["computed_p99_seconds"] = round(computed_p99_seconds, 3)
+    result["unavailable_p99_seconds"] = round(unavailable_p99_seconds, 3)
+    return result
 
 
 def summary_document(
@@ -1761,15 +2226,69 @@ def summary_document(
 ) -> dict[str, object]:
     if isinstance(accumulator, MultiWindowAuditAccumulator):
         audit = audit_summary(accumulator.complete, excluded_topics)
-        audit["measurement_windows"] = [
-            {
+        audit["measurement_windows"] = []
+        for window, window_accumulator in accumulator.windows:
+            window_audit = audit_summary(
+                window_accumulator,
+                excluded_topics,
+                include_timeline=False,
+            )
+            window_audit["timeline"] = clipped_timeline(
+                audit["timeline"], window, accumulator.complete.scenario_start_ms
+            )
+            window_audit["timeline"]["episode_source"] = "full_target_completion_timeline"
+            window_topic_timelines: dict[str, dict[str, object]] = {}
+            for topic_name, topic_summary in window_audit["topics"].items():
+                full_topic = audit["topics"].get(topic_name)
+                if isinstance(full_topic, dict) and isinstance(full_topic.get("timeline"), dict):
+                    topic_timeline = clipped_timeline(
+                        full_topic["timeline"], window, accumulator.complete.scenario_start_ms
+                    )
+                    topic_summary["episode_intersections"] = topic_timeline["episodes"]
+                    if topic_name in TOPIC_NAMES.values():
+                        window_topic_timelines[topic_name] = topic_timeline
+            evaluated_window_topics = [
+                topic for topic in window_topic_timelines.values()
+                if topic["status"] in {"AVAILABLE", "INCOMPLETE"}
+            ]
+            unavailable_window_topics = [
+                name for name, topic in window_topic_timelines.items()
+                if topic["status"] == "UNAVAILABLE"
+            ]
+            window_audit["timeline"]["coverage_by_topic"] = {
+                name: {
+                    "status": topic["status"],
+                    "computed_p99_seconds": topic["computed_p99_seconds"],
+                    "unavailable_p99_seconds": topic["unavailable_p99_seconds"],
+                }
+                for name, topic in window_topic_timelines.items()
+            }
+            if not evaluated_window_topics:
+                window_audit["timeline"]["status"] = "UNAVAILABLE"
+                window_audit["timeline"]["episode_status"] = "UNAVAILABLE"
+            elif unavailable_window_topics:
+                window_audit["timeline"]["status"] = "PARTIAL"
+                window_audit["timeline"]["episode_status"] = (
+                    "HAS_EPISODES" if window_audit["timeline"]["episodes"] else "NO_EPISODES"
+                )
+            elif any(topic["status"] == "INCOMPLETE" for topic in evaluated_window_topics):
+                window_audit["timeline"]["status"] = "INCOMPLETE"
+                window_audit["timeline"]["episode_status"] = (
+                    "HAS_EPISODES" if window_audit["timeline"]["episodes"] else "NO_EPISODES"
+                )
+            else:
+                window_audit["timeline"]["status"] = "AVAILABLE"
+                window_audit["timeline"]["episode_status"] = (
+                    "HAS_EPISODES" if window_audit["timeline"]["episodes"] else "NO_EPISODES"
+                )
+            window_audit["timeline"]["evaluated_topics"] = len(evaluated_window_topics)
+            window_audit["timeline"]["unavailable_topics"] = unavailable_window_topics
+            audit["measurement_windows"].append({
                 "name": window.name,
                 "published_from_ms": window.published_from_ms,
                 "published_until_ms": window.published_until_ms,
-                **audit_summary(window_accumulator, excluded_topics),
-            }
-            for window, window_accumulator in accumulator.windows
-        ]
+                **window_audit,
+            })
     else:
         audit = audit_summary(accumulator, excluded_topics)
     document: dict[str, object] = {"audit": audit}
@@ -1877,8 +2396,11 @@ def print_yaml(value: object, indent: int = 0) -> None:
                 print(f"{prefix}{key}:")
                 print_yaml(nested, indent + 2)
             elif isinstance(nested, list):
-                print(f"{prefix}{key}:")
-                print_yaml(nested, indent + 2)
+                if nested:
+                    print(f"{prefix}{key}:")
+                    print_yaml(nested, indent + 2)
+                else:
+                    print(f"{prefix}{key}: []")
             else:
                 print(f"{prefix}{key}: {yaml_scalar(nested)}")
     elif isinstance(value, list):
@@ -1932,17 +2454,21 @@ def main() -> int:
     latency_sla_rules = load_latency_sla_rules(args.sla_profile_file)
     latency_limits_ms = load_latency_limits(args.latency_limits_file)
     measurement_windows = load_measurement_windows(args.measurement_windows_file)
+    metadata = load_metadata(args.metadata_file)
+    timeline_start_ms = scenario_start_ms(metadata)
     accumulator: AuditAccumulator | MultiWindowAuditAccumulator
     if measurement_windows:
         accumulator = MultiWindowAuditAccumulator(
             open_record_ttl_ms=open_record_ttl_ms,
             windows=measurement_windows,
+            scenario_start_ms=timeline_start_ms,
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
         )
     else:
         accumulator = AuditAccumulator(
             open_record_ttl_ms=open_record_ttl_ms,
+            scenario_start_ms=timeline_start_ms,
             latency_sla_rules=latency_sla_rules,
             latency_limits_ms=latency_limits_ms,
             cohort_keys=cohort_keys(args),
@@ -1956,7 +2482,6 @@ def main() -> int:
     if args.require_records and accumulator.record_count == 0:
         raise ValueError("no audit records were read")
 
-    metadata = load_metadata(args.metadata_file)
     if not args.warmup_scale_up_evidence:
         print_yaml(summary_document(accumulator, metadata))
         return 0

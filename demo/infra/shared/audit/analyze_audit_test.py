@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import gzip
+import io
 import json
+import contextlib
 import subprocess
 import sys
 import tempfile
@@ -112,10 +114,14 @@ def analyze(
     lines: list[str],
     open_record_ttl_ms: int | None = None,
     latency_sla_rules: tuple[object, ...] = (),
+    scenario_start_ms: int | None = None,
+    latency_limits_ms: dict[int, int | float] | None = None,
 ) -> dict[str, object]:
     accumulator = analyzer.AuditAccumulator(
         open_record_ttl_ms=open_record_ttl_ms,
+        scenario_start_ms=scenario_start_ms,
         latency_sla_rules=latency_sla_rules,
+        latency_limits_ms=latency_limits_ms,
     )
     for line in lines:
         accumulator.add(analyzer.parse_record(line))
@@ -124,6 +130,255 @@ def analyze(
 
 
 class AuditAnalyzerFairnessTest(unittest.TestCase):
+    def test_timeline_uses_kafka_publication_time_and_completion_time(self) -> None:
+        start_ms = 1_000_000
+        document = analyze(
+            [
+                f"P|1|0|1|{start_ms + 58_000}|{start_ms + 59_000}|late",
+                f"C|1|0|1|{start_ms + 72_000}|late",
+            ],
+            scenario_start_ms=start_ms,
+            latency_limits_ms={1: 2_000},
+        )
+
+        timeline = document["audit"]["topics"]["order.events.v1"]["timeline"]
+        points = {point["second"]: point for point in timeline["points"]}
+        self.assertEqual(1, points[58]["published"])
+        self.assertEqual(0, points[58]["processed"])
+        self.assertEqual(1, points[72]["processed"])
+        self.assertEqual(14_000, document["audit"]["topics"]["order.events.v1"]["e2e_latency"]["max"])
+
+    def test_exact_slow_count_can_exist_without_a_p99_episode(self) -> None:
+        start_ms = 1_000_000
+        document = analyze(
+            [
+                f"P|1|0|1|{start_ms + 1_000}|{start_ms + 1_000}|slow",
+                f"C|1|0|1|{start_ms + 4_000}|slow",
+            ],
+            scenario_start_ms=start_ms,
+            latency_limits_ms={1: 2_000},
+        )
+
+        topic = document["audit"]["topics"]["order.events.v1"]
+        self.assertEqual(1, topic["e2e_latency"]["exceeded"])
+        self.assertEqual([], topic["timeline"]["episodes"])
+        self.assertEqual("UNAVAILABLE", topic["timeline"]["status"])
+        self.assertEqual("UNAVAILABLE", topic["timeline"]["episode_status"])
+
+    def test_timeline_episode_is_strictly_above_limit_and_keeps_peak_sample_count(self) -> None:
+        start_ms = 1_000_000
+        lines = []
+        for offset in range(100):
+            published = start_ms + 10_000
+            lines.extend((
+                f"P|1|0|{offset + 1}|{published}|{published}|slow-{offset}",
+                f"C|1|0|{offset + 1}|{start_ms + 13_000}|slow-{offset}",
+            ))
+        document = analyze(
+            lines,
+            scenario_start_ms=start_ms,
+            latency_limits_ms={1: 2_000},
+        )
+
+        timeline = document["audit"]["topics"]["order.events.v1"]["timeline"]
+        self.assertEqual(1, len(timeline["episodes"]))
+        episode = timeline["episodes"][0]
+        self.assertEqual(13, episode["start_second"])
+        self.assertEqual(3_000, episode["peak_p99_ms"])
+        self.assertEqual(100, episode["peak_p99_samples"])
+
+    def test_lifecycle_handoff_success_is_present_once_in_processed_timeline(self) -> None:
+        start_ms = 1_000_000
+        for ttl in (None, 60_000):
+            with self.subTest(open_record_ttl_ms=ttl):
+                document = analyze(
+                    [
+                        f"P|1|0|1|{start_ms + 1_000}|{start_ms + 1_000}|handoff",
+                        f"D|1|0|1|{start_ms + 1_100}|handoff|lifecycle",
+                        f"C|1|0|1|{start_ms + 2_000}|handoff",
+                        f"C|1|0|1|{start_ms + 2_100}|handoff",
+                    ],
+                    open_record_ttl_ms=ttl,
+                    scenario_start_ms=start_ms,
+                )
+                topic = document["audit"]["topics"]["order.events.v1"]
+                self.assertEqual(1, topic["processed"])
+                self.assertEqual(1, sum(point["processed"] for point in topic["timeline"]["points"]))
+                self.assertEqual(1, topic["timeline"]["points"][2]["processed"])
+                self.assertEqual(1, topic["duplicates"]["processed"])
+
+    def test_full_observation_boundary_keeps_quiet_topic_tail_for_rolling_p99(self) -> None:
+        start_ms = 1_000_000
+        lines = []
+        for offset in range(100):
+            lines.extend((
+                f"P|1|0|{offset + 1}|{start_ms + 10_000}|{start_ms + 10_000}|slow-{offset}",
+                f"C|1|0|{offset + 1}|{start_ms + 13_000}|slow-{offset}",
+            ))
+        lines.extend((
+            f"P|2|0|1|{start_ms + 40_000}|{start_ms + 40_000}|boundary",
+            f"C|2|0|1|{start_ms + 40_100}|boundary",
+        ))
+        document = analyze(
+            lines,
+            scenario_start_ms=start_ms,
+            latency_limits_ms={1: 2_000},
+        )
+
+        timeline = document["audit"]["topics"]["order.events.v1"]["timeline"]
+        self.assertEqual(41, timeline["observed_until_second"])
+        self.assertEqual(5, timeline["episodes"][0]["duration_seconds"])
+        self.assertEqual(41, len(timeline["points"]))
+
+    def test_yaml_serialization_preserves_empty_timeline_lists(self) -> None:
+        start_ms = 1_000_000
+        accumulator = analyzer.AuditAccumulator(open_record_ttl_ms=None, scenario_start_ms=start_ms)
+        accumulator.add(analyzer.parse_record(
+            f"P|1|0|1|{start_ms + 1_000}|{start_ms + 1_000}|published"
+        ))
+        accumulator.finish()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            analyzer.print_yaml(analyzer.summary_document(accumulator, {}))
+        document = yaml.safe_load(output.getvalue())
+        timeline = document["audit"]["topics"]["order.events.v1"]["timeline"]
+        self.assertIn("timeline", document["audit"])
+        self.assertNotIn("timeline", document["audit"]["totals"])
+        self.assertIsInstance(timeline["points"], list)
+        self.assertIsInstance(timeline["episodes"], list)
+        self.assertEqual([], timeline["episodes"])
+
+    def test_measurement_window_clips_full_completion_episodes(self) -> None:
+        start_ms = 1_000_000
+        window = analyzer.MeasurementWindow("load", start_ms, start_ms + 60_000)
+        accumulator = analyzer.MultiWindowAuditAccumulator(
+            open_record_ttl_ms=None,
+            windows=(window,),
+            scenario_start_ms=start_ms,
+            latency_limits_ms={1: 2_000},
+        )
+        for offset in range(100):
+            accumulator.add(analyzer.parse_record(
+                f"P|1|0|{offset + 1}|{start_ms + 58_000}|{start_ms + 58_000}|late-{offset}"
+            ))
+            accumulator.add(analyzer.parse_record(
+                f"C|1|0|{offset + 1}|{start_ms + 72_000}|late-{offset}"
+            ))
+        accumulator.add(analyzer.parse_record(
+            f"P|2|0|1|{start_ms + 90_000}|{start_ms + 90_000}|boundary"
+        ))
+        accumulator.add(analyzer.parse_record(
+            f"C|2|0|1|{start_ms + 90_100}|boundary"
+        ))
+        accumulator.finish()
+
+        audit = analyzer.summary_document(accumulator, {})["audit"]
+        self.assertEqual(1, len(audit["topics"]["order.events.v1"]["timeline"]["episodes"]))
+        window_audit = audit["measurement_windows"][0]
+        self.assertEqual([], window_audit["timeline"]["episodes"])
+        self.assertEqual("UNAVAILABLE", window_audit["timeline"]["status"])
+        self.assertEqual("UNAVAILABLE", window_audit["timeline"]["episode_status"])
+        self.assertEqual("full_target_completion_timeline", window_audit["timeline"]["source"])
+        self.assertEqual([], window_audit["topics"]["order.events.v1"]["episode_intersections"])
+
+    def test_window_totals_merge_topic_latency_including_late_completion(self) -> None:
+        accumulator = analyzer.MultiWindowAuditAccumulator(
+            open_record_ttl_ms=None,
+            windows=(analyzer.MeasurementWindow("load", 1000, 2000),),
+            scenario_start_ms=1000,
+        )
+        for line in (
+            "P|1|0|1|1100|1100|order",
+            "P|2|0|1|1200|1200|batch",
+            "C|1|0|1|1600|order",
+            "P|1|0|2|2000|2000|outside-window",
+            "C|2|0|1|2700|batch",
+            "C|1|0|2|5000|outside-window",
+        ):
+            accumulator.add(analyzer.parse_record(line))
+        accumulator.finish()
+
+        window, = analyzer.summary_document(accumulator, {})["audit"]["measurement_windows"]
+        latency = window["totals"]["e2e_latency"]
+        self.assertEqual(2, latency["count"])
+        self.assertEqual(1490, latency["p99"])
+        self.assertEqual(1500, latency["max"])
+
+    def test_fractional_window_projects_points_peaks_and_observation_consistently(self) -> None:
+        start_ms = 1_000_000
+        stats = analyzer.TimelineStats(start_ms)
+        for second, latency_ms, count in ((4, 5000, 1000), (9, 3000, 100)):
+            for _ in range(count):
+                stats.add_latency(start_ms + second * 1000, latency_ms)
+        timeline = stats.summary(2000, observed_until_second=10)
+        self.assertEqual(5000, timeline["episodes"][0]["peak_p999_ms"])
+
+        def project(start_offset_ms: int, end_offset_ms: int) -> dict[str, object]:
+            window = analyzer.MeasurementWindow(
+                "window", start_ms + start_offset_ms, start_ms + end_offset_ms,
+            )
+            return analyzer.clipped_timeline(timeline, window, start_ms)
+
+        fractional = project(9500, 9750)
+        self.assertEqual([9], [point["second"] for point in fractional["points"]])
+        self.assertEqual((9.5, 9.75), (
+            fractional["observed_from_second"], fractional["observed_until_second"],
+        ))
+        self.assertEqual("HAS_EPISODES", fractional["episode_status"])
+        self.assertEqual(0.25, fractional["computed_p99_seconds"])
+        self.assertEqual(0, fractional["unavailable_p99_seconds"])
+        episode, = fractional["episodes"]
+        self.assertEqual((9.5, 9.75, 0.25), (
+            episode["start_second"], episode["end_second"], episode["duration_seconds"],
+        ))
+        self.assertEqual(3000, episode["peak_p99_ms"])
+        self.assertEqual(100, episode["peak_p99_samples"])
+        self.assertIsNone(episode["peak_p999_ms"])
+        self.assertIsNone(episode["peak_p999_samples"])
+
+        mixed = project(3750, 4500)
+        self.assertEqual(0.5, mixed["computed_p99_seconds"])
+        self.assertEqual(0.25, mixed["unavailable_p99_seconds"])
+
+        truncated = project(9000, 15000)
+        self.assertEqual(15, truncated["window_end_second"])
+        self.assertEqual((9, 11), (
+            truncated["observed_from_second"], truncated["observed_until_second"],
+        ))
+        self.assertEqual([9, 10], [point["second"] for point in truncated["points"]])
+        self.assertEqual(2, truncated["computed_p99_seconds"])
+        self.assertEqual(0, truncated["unavailable_p99_seconds"])
+        outside = project(11000, 15000)
+        self.assertIsNone(outside["observed_from_second"])
+        self.assertIsNone(outside["observed_until_second"])
+        self.assertEqual([], outside["points"])
+        self.assertEqual([], outside["episodes"])
+        self.assertEqual("UNAVAILABLE", outside["episode_status"])
+
+    def test_target_flow_excludes_diagnostic_topics_but_keeps_them_in_topic_evidence(self) -> None:
+        start_ms = 1_000_000
+        lines = [
+            f"P|{topic}|0|1|{start_ms + 1_000}|{start_ms + 1_000}|app-{topic}"
+            for topic in (1, 2, 3)
+        ]
+        lines.extend(
+            f"C|{topic}|0|1|{start_ms + 1_100}|app-{topic}"
+            for topic in (1, 2, 3)
+        )
+        lines.append(f"C|101|0|1|{start_ms + 1_200}|warmup")
+        document = analyze(lines, scenario_start_ms=start_ms)
+        audit = document["audit"]
+
+        self.assertEqual(3, audit["totals"]["published"])
+        self.assertEqual(3, audit["totals"]["processed"])
+        self.assertEqual(
+            1,
+            audit["topics"]["unknown-topic-101"]["without_publish"]["processed"],
+        )
+        self.assertIn("unknown-topic-101", audit["timeline"]["diagnostic_topics"])
+        self.assertEqual(3, sum(point["published"] for point in audit["timeline"]["points"]))
+        self.assertEqual(3, sum(point["processed"] for point in audit["timeline"]["points"]))
+
     def test_single_pass_accumulates_complete_and_named_publication_windows(self) -> None:
         accumulator = analyzer.MultiWindowAuditAccumulator(
             open_record_ttl_ms=None,

@@ -576,6 +576,7 @@
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
 | [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
 | [INFRA-370](#infra-370) | Show completed offsets and holes together in CKC Runtime. | DONE |
+| [INFRA-371](#infra-371) | Add audit-derived throughput, rolling E2E latency, and latency episodes to experiment reports. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -7230,3 +7231,20 @@ Added one CKC Runtime panel for the two CORE-114 gauges, summing each gauge acro
 Completed ahead includes marked positions beyond the processed frontier, including closed Kafka gaps; Holes counts unmarked positions up to the highest mark.
 Verified dashboard generation for internal-lab and AWS, both PromQL queries in both grouping modes, and the provisioned panel in Grafana on optilab.
 All 31 shared dashboard tests and 245 internal-lab unit tests passed.
+
+<a id="infra-371"></a>
+### INFRA-371 - Add audit-derived throughput, rolling E2E latency, and latency episodes to experiment reports
+
+_Date: 2026-11-28_
+
+Add reproducible per-topic and target-level published/processed second-by-second series from the audit's matched records.
+Persist exact latency-SLA counts together with rolling p99/p99.9 points, coverage metadata, and topic/target latency episodes.
+Preserve publication-window measurement semantics and support late successful completions after load publication ends.
+Reuse the same report model for internal-lab and AWS, with graceful degradation for legacy summaries that lack raw audit data.
+Focused analyzer and report tests pass. The full exact replay of the 25 November archive read 66,109,411 records in 27:34.59, reached 477,732 KiB RSS, and produced a 4.0 MiB YAML model.
+Its control values match the saved summary: sequential-scale-up order traffic is 91 / 6,201,617 with p99 700 ms and maximum 30,408 ms.
+An independent archive comparison selected a 5-second rolling window with a 1-second step and a 100-sample p99 minimum: it exposes the short batch/cauldron spike at seconds 538–542, while 15 and 30 seconds keep those p99 values below one second.
+The original archive summary was not modified.
+Preserve window audit evidence when Prometheus is unavailable. Project fractional windows by overlapping second buckets, clip observed bounds to the available data, and calculate episode peaks from the projected points.
+Measure fractional p99 coverage by duration and merge topic E2E histograms into window totals, including late completions in the publication cohort.
+Pre-merge checks passed 34 audit analyzer, 245 internal-lab, 97 AWS, and 9 shared report tests.
