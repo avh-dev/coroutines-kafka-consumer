@@ -2326,6 +2326,119 @@
           "title": "CKC Commit Metadata Limit Utilization",
           "type": "timeseries",
           "id": 138
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "Offsets",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "symlog",
+                  "log": 10,
+                  "linearThreshold": 1
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short",
+              "decimals": 0,
+              "min": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 66
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            },
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_completed_ahead{consumer_id=~\"(order|batch|cauldron)[-_]events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 0), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_completed_ahead{consumer_id=~\"(order|batch|cauldron)[-_]events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 0), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} completed ahead",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(label_join((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_hole_offsets{consumer_id=~\"(order|batch|cauldron)[-_]events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) > 0), \"pod_legend\", \"\", \"pod\")) or (label_replace((sum by (consumer_id, ${pod_grouping}) (demo_ckc_offsettracker_hole_offsets{consumer_id=~\"(order|batch|cauldron)[-_]events\", pod=~\"$pod\"})) and on() (count(count by (pod) (max_over_time(container_cpu_usage_seconds_total{namespace=\"ckc-perf\", container=\"demo\", pod=~\"$pod\"}[$__range]))) <= 0), \"pod_legend\", \"\", \"pod\", \".*\"))",
+              "legendFormat": "{{consumer_id}} {{pod_legend}} holes",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "description": "Sum across selected partitions for each consumer and pod grouping. Combined sums across partitions from all selected pods; By pod shows a separate sum per consumer and pod. Completed ahead counts marked positions beyond the processed frontier, including closed Kafka gaps. Holes counts individual unmarked positions up to the highest mark. Available in at-least-once modes.",
+          "title": "CKC Offset Tracker Window",
+          "type": "timeseries",
+          "id": 178
         }
       ],
       "title": "CKC Runtime",
@@ -8709,6 +8822,6 @@
   "timezone": "",
   "title": "CKC Overview",
   "uid": "ckc-overview",
-  "version": 24,
+  "version": 25,
   "weekStart": ""
 }

@@ -393,6 +393,15 @@ class DashboardTest(unittest.TestCase):
         runtime = next(panel for panel in dashboard["panels"] if panel.get("title") == "CKC Runtime")
         panels = {panel["title"]: panel for panel in runtime["panels"]}
 
+        offset_window = panels["CKC Offset Tracker Window"]
+        self.assertEqual(2, len(offset_window["targets"]))
+        for target in offset_window["targets"]:
+            self.assertIn("sum by (consumer_id, ${pod_grouping})", target["expr"])
+            self.assertNotIn("max by (consumer_id, ${pod_grouping})", target["expr"])
+            self.assertIn('pod=~"$pod"', target["expr"])
+        self.assertIn("Combined sums across partitions from all selected pods", offset_window["description"])
+        self.assertIn("By pod shows a separate sum", offset_window["description"])
+
         total = panels["CKC Offset Tracker Total Capacity"]["targets"][0]
         maximum = panels["CKC Offset Tracker Maximum Partition Capacity"]["targets"][0]
         self.assertIn("sum by (consumer_id, ${pod_grouping})", total["expr"])
