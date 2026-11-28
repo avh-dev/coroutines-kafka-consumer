@@ -575,6 +575,7 @@
 | [INFRA-367](#infra-367) | Set a limit of 200 in-flight warm-up delegations in the optilab recipient-loss experiment. | DONE |
 | [INFRA-368](#infra-368) | Limit in-flight warm-up delegations in all enabled experiment profiles. | DONE |
 | [INFRA-369](#infra-369) | Qualify Spring Boot starter warm-up and compare cold and warm scaling at 20k TPS. | DONE |
+| [INFRA-370](#infra-370) | Show completed offsets and holes together in CKC Runtime. | DONE |
 | [GLOBAL-1](#global-1) | Shorten repository module names to `ckc-*` while preserving full published artifact names.                                              | DONE |
 | [GLOBAL-2](#global-2) | Separate production modules from demo, demo infrastructure, and experiment code in the repository layout.                                | DONE |
 | [GLOBAL-5](#global-5) | Implement real-traffic warm-up through shared single-partition Kafka topics with isolated recipient sessions and multi-session donors. | IN_PROGRESS |
@@ -7219,3 +7220,13 @@ Track marked offsets and the highest mark incrementally, with constant-time read
 Expose `offsettracker.completed.ahead` and `offsettracker.hole.offsets` through the existing partition gauge lifecycle.
 Keep the window gauges limited to at-least-once modes and roll back partial registrations on a registry error.
 Document both gauges in Exported Metrics. Passed all 242 core unit tests, including the blocked frontier, both freshness-first assignments, a registration conflict and retry, Kafka offset gaps, metadata restore, and ring compaction.
+
+<a id="infra-370"></a>
+### INFRA-370 - Show the offset tracker window in CKC Runtime
+
+_Date: 2026-11-28_
+
+Added one CKC Runtime panel for the two CORE-114 gauges, summing each gauge across partitions for the selected consumer and pod grouping. Combined includes all selected pods; By pod keeps separate consumer and pod series.
+Completed ahead includes marked positions beyond the processed frontier, including closed Kafka gaps; Holes counts unmarked positions up to the highest mark.
+Verified dashboard generation for internal-lab and AWS, both PromQL queries in both grouping modes, and the provisioned panel in Grafana on optilab.
+All 31 shared dashboard tests and 245 internal-lab unit tests passed.
