@@ -28,6 +28,10 @@ internal class OffsetTracker(
     var lastProcessedOffset: Long = max(-1, initialProcessedOffset)
         private set
 
+    private var completedAheadCount = 0
+    // This high-water mark is only used for the window size while it is ahead of the frontier.
+    private var highestMarkedOffset = lastProcessedOffset
+
     /**
      * Ring bitset capacity in bits.
      * A minimum of two 64-bit words is required to handle out-of-order offsets.
@@ -76,6 +80,20 @@ internal class OffsetTracker(
         wordMask = words.size - 1
         headWordIndex = snapshot.headWordIndex
         headWordOffset = snapshot.headWordOffset
+
+        // The head word can still contain bits covered by the committed offset.
+        val firstLiveBit = (lastProcessedOffset - headWordOffset + 1).coerceAtMost(capacityBits.toLong()).toInt()
+        val firstLiveWord = firstLiveBit ushr 6
+        for (logicalWordIndex in firstLiveWord until words.size) {
+            val wordIndex = (headWordIndex + logicalWordIndex) and wordMask
+            var marked = words[wordIndex]
+            if (logicalWordIndex == firstLiveWord) {
+                marked = marked and (-1L shl (firstLiveBit and 63))
+            }
+            if (marked == 0L) continue
+            completedAheadCount += marked.countOneBits()
+            highestMarkedOffset = headWordOffset + logicalWordIndex * 64L + (63 - marked.countLeadingZeroBits())
+        }
     }
 
     /**
@@ -103,16 +121,20 @@ internal class OffsetTracker(
              * so (1L shl bitIndex) is equivalent to (1L shl (bitIndex and 63)).
              * Adding an explicit mask would be redundant here.
              */
-            words[wordIndex] = words[wordIndex] or (1L shl bitIndex)
+            val bit = 1L shl bitIndex
+            val previous = words[wordIndex]
+            if ((previous and bit) != 0L) return
+            words[wordIndex] = previous or bit
+            completedAheadCount++
+            highestMarkedOffset = max(highestMarkedOffset, offset)
         }
     }
 
     /** Marks every offset in `[fromInclusive, toExclusive)` as processed. */
     fun markProcessedRange(fromInclusive: Long, toExclusive: Long) {
         synchronized(this) {
-            if (fromInclusive >= toExclusive || toExclusive <= headWordOffset) return
-
-            val firstOffset = max(fromInclusive, headWordOffset)
+            val firstOffset = max(fromInclusive, lastProcessedOffset + 1)
+            if (firstOffset >= toExclusive) return
             val lastOffset = toExclusive - 1
             val lastBitIndex = bitIndex(lastOffset)
             if (lastBitIndex >= capacityBits) {
@@ -127,9 +149,13 @@ internal class OffsetTracker(
                 val logicalWordIndex = (currentBitIndex ushr 6).toInt()
                 val wordIndex = (logicalWordIndex + headWordIndex) and wordMask
                 val lowBits = if (bitCount == 64) -1L else (1L shl bitCount) - 1L
-                words[wordIndex] = words[wordIndex] or (lowBits shl bitInWord)
+                val bits = lowBits shl bitInWord
+                val previous = words[wordIndex]
+                completedAheadCount += (bits and previous.inv()).countOneBits()
+                words[wordIndex] = previous or bits
                 currentBitIndex += bitCount
             }
+            highestMarkedOffset = max(highestMarkedOffset, lastOffset)
         }
     }
 
@@ -152,6 +178,7 @@ internal class OffsetTracker(
             if (toExclusive <= lastProcessedOffset + 1) return true
 
             val rebasedWords = LongArray(words.size)
+            var removedCount = 0
             for (logicalWordIndex in words.indices) {
                 val physicalWordIndex = (headWordIndex + logicalWordIndex) and wordMask
                 var marked = words[physicalWordIndex]
@@ -163,12 +190,15 @@ internal class OffsetTracker(
                     if (newBitIndex in 0 until capacityBits.toLong()) {
                         val newWordIndex = (newBitIndex ushr 6).toInt()
                         rebasedWords[newWordIndex] = rebasedWords[newWordIndex] or (1L shl newBitIndex.toInt())
+                    } else if (offset > lastProcessedOffset) {
+                        removedCount++
                     }
                     marked = marked and (marked - 1)
                 }
             }
 
             lastProcessedOffset = toExclusive - 1
+            completedAheadCount -= removedCount
             words = rebasedWords
             headWordOffset = toExclusive
             headWordIndex = 0
@@ -228,6 +258,7 @@ internal class OffsetTracker(
 
             // Commit only if progress has been made.
             if (offsetToCommit > lastProcessedOffset) {
+                completedAheadCount -= (offsetToCommit - lastProcessedOffset).toInt()
                 lastProcessedOffset = offsetToCommit
             }
         }
@@ -235,6 +266,15 @@ internal class OffsetTracker(
 
     val bitCapacity: Int
         get() = synchronized(this) { capacityBits }
+
+    val completedAhead: Int
+        get() = synchronized(this) { completedAheadCount }
+
+    val holeOffsets: Int
+        get() = synchronized(this) {
+            val windowSize = (highestMarkedOffset - lastProcessedOffset).coerceAtLeast(0).toInt()
+            windowSize - completedAheadCount
+        }
 
     /**
      * Shrinks an oversized ring when its live words fit into at most one quarter of the current storage.

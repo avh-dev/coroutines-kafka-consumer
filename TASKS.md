@@ -110,6 +110,7 @@
 | [CORE-111](#core-111) | Configure traffic warm-up through the Spring Boot starter. | DONE |
 | [CORE-112](#core-112) | Honor the donor processing policy for remote warm-up discards. | DONE |
 | [CORE-113](#core-113) | Reject warm-up routes into main subscriptions on the same Kafka cluster. | DONE |
+| [CORE-114](#core-114) | Expose completed and unmarked offsets ahead of the commit frontier. | DONE |
 | [DEMO-1](#demo-1) | Add a Spring Boot demo application with shared protobuf contracts, local docker-compose environment, Prometheus endpoint, and order query API for comparing CKC and Spring Kafka consumers.           | DONE |
 | [DEMO-2](#demo-2) | README added to `ckc-demo` and `ckc-demo-contracts`                                                                                                       | DONE |
 | [DEMO-3](#demo-3) | Extend the local demo environment with Grafana/Prometheus provisioning, a prebuilt CKC dashboard, local LT-oriented stub support, and improve CKC demo failure visibility in logs.                    | DONE |
@@ -7208,3 +7209,13 @@ Keep cluster lookup warnings limited to the fallback reason, route, and exceptio
 Review checks passed all 160 warm-up unit tests, 60 Kafka warm-up scenarios, both scenarios without Micrometer, all 65 starter tests, and all 120 demo tests. Core checks were up to date. Repeated the warm-up unit suite and the 14 Kafka startup, subscription validation, and participant lifecycle scenarios after the final shutdown cleanup adjustment.
 Resolve a recipient attempt as participant_stopped if its workflow was cancelled before it could record an outcome. A deterministic test holds the first participant's startup observer while a second participant starts and stops, then verifies the surviving main runtime starts once and becomes ready.
 The startup race regression reproduced an awaitReady timeout before the fix. After the fix, all 161 warm-up unit tests, 28 Kafka startup, lifecycle, routing, and broker recovery scenarios, two scenarios without Micrometer, and 65 starter tests passed.
+
+<a id="core-114"></a>
+### CORE-114 - Expose offset tracker window gauges
+
+_Date: 2026-11-28_
+
+Track marked offsets and the highest mark incrementally, with constant-time reads.
+Expose `offsettracker.completed.ahead` and `offsettracker.hole.offsets` through the existing partition gauge lifecycle.
+Keep the window gauges limited to at-least-once modes and roll back partial registrations on a registry error.
+Document both gauges in Exported Metrics. Passed all 242 core unit tests, including the blocked frontier, both freshness-first assignments, a registration conflict and retry, Kafka offset gaps, metadata restore, and ring compaction.

@@ -20,11 +20,13 @@ import kotlin.time.Duration
  */
 internal class PartitionState(
     val topicPartition: TopicPartition,
-    private val maxTrackedOffsets: Int = 1_048_576
+    private val maxTrackedOffsets: Int = 1_048_576,
+    override val tracksProcessedOffsets: Boolean = true
 ) : ConsumerPartitionStats {
     internal val maxTrackedOffsetsPerPartition: Int
         get() = maxTrackedOffsets
 
+    @Volatile
     private var offsetTracker: OffsetTracker = OffsetTracker(-1, maxCapacityBits = maxTrackedOffsets)
     private var initialized = false
     private var nextObservedOffset = 0L
@@ -47,6 +49,12 @@ internal class PartitionState(
 
     override val offsetTrackerBitCapacity: Int
         get() = offsetTracker.bitCapacity
+
+    override val offsetTrackerCompletedAhead: Int
+        get() = offsetTracker.completedAhead
+
+    override val offsetTrackerHoleOffsets: Int
+        get() = offsetTracker.holeOffsets
 
     /**
      * Initializes (or resets) the tracker if [initialPosition] is not the next offset

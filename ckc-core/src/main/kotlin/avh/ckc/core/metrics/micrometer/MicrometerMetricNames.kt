@@ -45,3 +45,5 @@ internal const val ORDERING_QUEUE_SIZE = "ordering.queue.size"
 internal const val ORDERING_QUEUE_MAX = "ordering.queue.max"
 
 internal const val OFFSETTRACKER_CAPACITY = "offsettracker.capacity"
+internal const val OFFSETTRACKER_COMPLETED_AHEAD = "offsettracker.completed.ahead"
+internal const val OFFSETTRACKER_HOLE_OFFSETS = "offsettracker.hole.offsets"

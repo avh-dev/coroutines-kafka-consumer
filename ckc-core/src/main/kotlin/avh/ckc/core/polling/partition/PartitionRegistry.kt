@@ -38,7 +38,8 @@ import kotlin.time.Duration
  *   may allocate extra space; this is typically acceptable for Kafka partitioning patterns.
  */
 internal class PartitionRegistry(
-    private val maxTrackedOffsetsPerPartition: Int = 1_048_576
+    private val maxTrackedOffsetsPerPartition: Int = 1_048_576,
+    private val tracksProcessedOffsets: Boolean = true
 ) {
     private val recordLeases = IdentityHashMap<ConsumerRecord<*, *>, PartitionLease>()
     private val activeJobs = IdentityHashMap<ConsumerRecord<*, *>, Job>()
@@ -86,7 +87,7 @@ internal class PartitionRegistry(
                 val partition = tp.partition()
                 var partitionState = partitionStates[partition]
                 if (partitionState == null) {
-                   partitionState = PartitionState(tp, maxTrackedOffsetsPerPartition)
+                   partitionState = PartitionState(tp, maxTrackedOffsetsPerPartition, tracksProcessedOffsets)
                    partitionStates[partition] = partitionState
                 }
                 partitionState.activate()

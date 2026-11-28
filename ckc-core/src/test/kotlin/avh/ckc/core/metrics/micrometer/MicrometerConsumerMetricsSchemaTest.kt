@@ -1,5 +1,8 @@
 package avh.ckc.core.metrics.micrometer
 
+import avh.ckc.core.PollLoopFixture
+import avh.ckc.core.ProcessingMode
+import avh.ckc.core.emptyRecords
 import avh.ckc.core.metrics.BackpressureAction
 import avh.ckc.core.metrics.ConsumerPartitionStats
 import avh.ckc.core.metrics.ConsumerRuntimeStats
@@ -8,13 +11,18 @@ import avh.ckc.core.metrics.OffsetCommitMetadataStats
 import avh.ckc.core.metrics.RecordDropReason
 import avh.ckc.core.metrics.RecordHandoffReason
 import avh.ckc.core.metrics.LifecycleOutcome
+import avh.ckc.core.polling.partition.PartitionState
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -562,13 +570,9 @@ class MicrometerConsumerMetricsSchemaTest {
     }
 
     @Test
-    fun `when partition metrics are bound then offset tracker capacity gauge exposes current value`() {
+    fun `partition gauges expose live offsets while the commit frontier is blocked`() {
         val registry = SimpleMeterRegistry()
-        val stats = MutablePartitionStats(
-            topic = "orders",
-            partition = 2,
-            offsetTrackerBitCapacity = 128
-        )
+        val stats = PartitionState(TopicPartition("orders", 2)).apply { init(100L) }
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         ) {
@@ -577,42 +581,104 @@ class MicrometerConsumerMetricsSchemaTest {
 
         metrics.bindPartitionMetrics(0, stats)
 
-        assertEquals(
-            128.0,
-            registry.get("test.ckc.offsettracker.capacity")
-                .tag("consumer_id", "telemetry")
-                .tag("topic", "orders")
-                .tag("partition", "2")
-                .gauge()
-                .value()
-        )
+        fun gaugeValue(suffix: String): Double = registry.get("test.ckc.offsettracker.$suffix")
+            .tag("consumer_id", "telemetry")
+            .tag("topic", "orders")
+            .tag("partition", "2")
+            .gauge()
+            .value()
 
-        stats.offsetTrackerBitCapacity = 512
+        assertEquals(128.0, gaugeValue("capacity"))
+        assertEquals(0.0, gaugeValue("completed.ahead"))
+        assertEquals(0.0, gaugeValue("hole.offsets"))
 
-        assertEquals(
-            512.0,
-            registry.get("test.ckc.offsettracker.capacity")
-                .tag("consumer_id", "telemetry")
-                .tag("topic", "orders")
-                .tag("partition", "2")
-                .gauge()
-                .value()
-        )
+        for (offset in 101L..1000L) stats.markProcessed(offset)
+        assertEquals(1024.0, gaugeValue("capacity"))
+        assertEquals(900.0, gaugeValue("completed.ahead"))
+        assertEquals(1.0, gaugeValue("hole.offsets"))
+
+        stats.markProcessed(500L)
+        assertEquals(900.0, gaugeValue("completed.ahead"))
+        assertEquals(1.0, gaugeValue("hole.offsets"))
+
+        stats.markProcessed(100L)
+        assertEquals(1000L, stats.advanceAndGetCommitData()?.offset)
+        assertEquals(0.0, gaugeValue("completed.ahead"))
+        assertEquals(0.0, gaugeValue("hole.offsets"))
 
         metrics.unbindPartitionMetrics(0, stats)
 
-        assertTrue(
-            registry.find("test.ckc.offsettracker.capacity")
-                .tag("consumer_id", "telemetry")
-                .tag("topic", "orders")
-                .tag("partition", "2")
-                .meters()
-                .isEmpty()
-        )
+        assertTrue(registry.meters.none { it.id.name.startsWith("test.ckc.offsettracker.") })
     }
 
     @Test
-    fun `when partition moves between poll loops then concurrent stale unbind cannot remove new gauge`() {
+    fun `assigning a freshness-first partition only binds the tracker capacity gauge`() = runBlocking {
+        val modes = listOf(
+            ProcessingMode.FRESHNESS_FIRST_DROP_OLDEST,
+            ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY
+        )
+        for (mode in modes) {
+            val registry = SimpleMeterRegistry()
+            val metrics = micrometerConsumerMetrics<ByteArray, ByteArray>(
+                MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+            )
+            val fixture = PollLoopFixture(
+                processingMode = mode,
+                metrics = metrics,
+                workChannelCapacity = 4,
+                pollAnswer = { emptyRecords() }
+            )
+            val job = fixture.start()
+            try {
+                withTimeout(2_000) { fixture.loop.readiness().await() }
+
+                assertEquals(
+                    128.0,
+                    registry.get("test.ckc.offsettracker.capacity")
+                        .tag("topic", fixture.topicPartition.topic())
+                        .tag("partition", fixture.topicPartition.partition().toString())
+                        .gauge().value()
+                )
+                assertTrue(registry.find("test.ckc.offsettracker.completed.ahead").gauges().isEmpty())
+                assertTrue(registry.find("test.ckc.offsettracker.hole.offsets").gauges().isEmpty())
+            } finally {
+                job.cancelAndJoin()
+                fixture.loop.releaseResources()
+                registry.close()
+            }
+        }
+    }
+
+    @Test
+    fun `partially registered partition gauges are removed before another owner binds them`() {
+        val registry = SimpleMeterRegistry()
+        val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
+            MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
+        ) {
+            consumerId = "telemetry"
+        }
+        val holeName = "test.ckc.offsettracker.hole.offsets"
+        val conflict = registry.counter(holeName, "consumer_id", "telemetry", "topic", "orders", "partition", "2")
+        val oldStats = TestPartitionStats("orders", 2, 128, 10, 2)
+
+        assertThrows(IllegalArgumentException::class.java) { metrics.bindPartitionMetrics(1, oldStats) }
+
+        assertTrue(registry.find("test.ckc.offsettracker.capacity").gauges().isEmpty())
+        assertTrue(registry.find("test.ckc.offsettracker.completed.ahead").gauges().isEmpty())
+        assertEquals(conflict, registry.get(holeName).counter())
+
+        registry.remove(conflict)
+        val newStats = TestPartitionStats("orders", 2, 512, 20, 3)
+        metrics.bindPartitionMetrics(2, newStats)
+        metrics.unbindPartitionMetrics(1, oldStats)
+
+        assertEquals(512.0, registry.get("test.ckc.offsettracker.capacity").gauge().value())
+        assertEquals(20.0, registry.get("test.ckc.offsettracker.completed.ahead").gauge().value())
+        assertEquals(3.0, registry.get(holeName).gauge().value())
+    }
+
+    @Test
+    fun `when partition moves between poll loops then concurrent stale unbind cannot remove new gauges`() {
         val registry = SimpleMeterRegistry()
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
@@ -623,8 +689,8 @@ class MicrometerConsumerMetricsSchemaTest {
 
         try {
             repeat(200) { iteration ->
-                val oldStats = MutablePartitionStats("orders", 2, 128)
-                val newStats = MutablePartitionStats("orders", 2, 512 + iteration)
+                val oldStats = TestPartitionStats("orders", 2, 128)
+                val newStats = TestPartitionStats("orders", 2, 512 + iteration, iteration + 1, iteration + 2)
                 metrics.bindPartitionMetrics(1, oldStats)
                 val start = CountDownLatch(1)
 
@@ -641,12 +707,17 @@ class MicrometerConsumerMetricsSchemaTest {
                 staleUnbind.get(2, TimeUnit.SECONDS)
 
                 val gauges = registry.find("test.ckc.offsettracker.capacity")
-                    .tag("consumer_id", "telemetry")
-                    .tag("topic", "orders")
-                    .tag("partition", "2")
                     .gauges()
                 assertEquals(1, gauges.size)
                 assertEquals(newStats.offsetTrackerBitCapacity.toDouble(), gauges.single().value())
+                assertEquals(
+                    newStats.offsetTrackerCompletedAhead.toDouble(),
+                    registry.get("test.ckc.offsettracker.completed.ahead").gauge().value()
+                )
+                assertEquals(
+                    newStats.offsetTrackerHoleOffsets.toDouble(),
+                    registry.get("test.ckc.offsettracker.hole.offsets").gauge().value()
+                )
             }
         } finally {
             executor.shutdownNow()
@@ -656,7 +727,7 @@ class MicrometerConsumerMetricsSchemaTest {
     @Test
     fun `when partition moves with same stats instance then stale owner cannot remove gauge`() {
         val registry = SimpleMeterRegistry()
-        val stats = MutablePartitionStats("orders", 2, 128)
+        val stats = TestPartitionStats("orders", 2, 128)
         val metrics = micrometerConsumerMetrics<String, TestLifecycleEvent>(
             MicrometerConsumerMetricsSchema(registry, metricPrefix = "test")
         ) {
@@ -876,9 +947,13 @@ class MicrometerConsumerMetricsSchemaTest {
         override var maxObservedOrderingQueueSize: Int
     ) : ConsumerRuntimeStats
 
-    private class MutablePartitionStats(
+    private class TestPartitionStats(
         override val topic: String,
         override val partition: Int,
-        override var offsetTrackerBitCapacity: Int
-    ) : ConsumerPartitionStats
+        override val offsetTrackerBitCapacity: Int,
+        override val offsetTrackerCompletedAhead: Int = 0,
+        override val offsetTrackerHoleOffsets: Int = 0
+    ) : ConsumerPartitionStats {
+        override val tracksProcessedOffsets = true
+    }
 }

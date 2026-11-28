@@ -367,11 +367,26 @@ derived from the count of `myapp.ckc.record.failed.duration`.
       <td><code>consumer_id</code>, <code>topic</code>, <code>partition</code></td>
       <td>Current bit capacity used by the assigned partition offset tracker.</td>
     </tr>
+    <tr>
+      <td><code>ckc.offsettracker.completed.ahead</code></td>
+      <td>Gauge</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>partition</code></td>
+      <td>Marked offset positions ahead of the processed frontier, including Kafka offset gaps the tracker has closed.</td>
+    </tr>
+    <tr>
+      <td><code>ckc.offsettracker.hole.offsets</code></td>
+      <td>Gauge</td>
+      <td><code>consumer_id</code>, <code>topic</code>, <code>partition</code></td>
+      <td>Individual unmarked offsets from the processed frontier plus one through the highest marked offset, inclusive.</td>
+    </tr>
   </tbody>
 </table>
 
 `consumer_id` is always present. If `micrometerConsumerMetrics(...)` is called without an explicit
 value, the schema uses `consumer_id=default`.
+
+The `offsettracker.completed.ahead` and `offsettracker.hole.offsets` gauges are available in
+`AT_LEAST_ONCE_*` modes. Both read zero when the window contains no marked offsets.
 
 Commit metadata observations are recorded per partition when preparing a commit, including retries.
 `included=true` means the candidate fits CKC's local 4096-byte limit and is attached to the commit attempt;

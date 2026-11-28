@@ -63,7 +63,7 @@ class PollLoopFixture(
             ProcessingMode.FRESHNESS_FIRST_REPLACE_PENDING_BY_KEY -> BufferOverflow.DROP_OLDEST
         }
     )
-    internal val registry = PartitionRegistry(maxTrackedOffsetsPerPartition)
+    internal val registry = PartitionRegistry(maxTrackedOffsetsPerPartition, processingMode.tracksProcessedOffsets())
     private val baseRecordSink = object : PolledRecordSink<ByteArray, ByteArray> {
         override fun tryEmit(record: ConsumerRecord<ByteArray, ByteArray>): Boolean {
             if (processingMode.tracksProcessedOffsets() &&
