@@ -2485,6 +2485,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "published_until_ms": 2,
                     "totals": {"published": 1, "processed": 1},
                     "topics": {"order.events.v1": {"published": 1, "processed": 1}},
+                    "timeline": {"status": "AVAILABLE", "episode_status": "HAS_EPISODES", "episodes": [{"start_second": 11, "end_second": 12}]},
                 },
                 {
                     "name": "degraded",
@@ -2492,6 +2493,7 @@ class ExperimentReportTest(unittest.TestCase):
                     "published_until_ms": 4,
                     "totals": {"published": 1, "processed": 1},
                     "topics": {"order.events.v1": {"published": 1, "processed": 1}},
+                    "timeline": {"status": "AVAILABLE", "episode_status": "NO_EPISODES", "episodes": []},
                 },
             ]
             self.write_yaml(audit_path, audit_document)
@@ -2512,12 +2514,33 @@ class ExperimentReportTest(unittest.TestCase):
             windows = model["targets"][0]["measurement_windows"]
             self.assertEqual(["baseline", "degraded"], [window["name"] for window in windows])
             self.assertEqual([1, 1], [window["delivery"]["published"] for window in windows])
+            self.assertEqual(
+                ["HAS_EPISODES", "NO_EPISODES"],
+                [window["timeline"]["episode_status"] for window in windows],
+            )
             markdown = outputs[0].read_text(encoding="utf-8")
             self.assertIn("baseline window · 10–20 s", markdown)
             self.assertIn("degraded window · 30–40 s", markdown)
             timeline = (outputs[0].parent / "load-profile.svg").read_text(encoding="utf-8")
             self.assertIn(">Baseline</text>", timeline)
             self.assertIn(">Degraded</text>", timeline)
+
+            for collector in ("collect_standard_measurements", "collect_kafka_network_counters"):
+                with self.subTest(failed_collector=collector), patch(
+                    f"experiment_report.analyze.{collector}",
+                    side_effect=ConnectionError("Prometheus offline"),
+                ):
+                    outputs = generate_experiment_reports(summary_path, root / "lab")
+                    offline_model = yaml.safe_load(
+                        (outputs[0].parent / "report-model.yaml").read_text(encoding="utf-8")
+                    )
+                    offline_windows = offline_model["targets"][0]["measurement_windows"]
+                    self.assertEqual(
+                        [{"start_second": 11, "end_second": 12}],
+                        offline_windows[0]["timeline"]["episodes"],
+                    )
+                    self.assertEqual([], offline_windows[1]["timeline"]["episodes"])
+                    self.assertEqual([1, 1], [window["delivery"]["published"] for window in offline_windows])
 
     def test_report_renders_cost_evidence_without_treating_pending_data_as_zero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

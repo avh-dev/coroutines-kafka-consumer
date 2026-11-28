@@ -61,6 +61,7 @@ class TargetReport:
     pcap_analysis: dict[str, Any]
     network_counters: dict[str, Any]
     time_series: dict[str, list[dict[str, float]]]
+    audit_timeline: dict[str, Any] = field(default_factory=dict)
     resource_windows: list[dict[str, Any]] = field(default_factory=list)
     full_target_budget: dict[str, Any] = field(default_factory=dict)
     warmup: dict[str, Any] = field(default_factory=dict)

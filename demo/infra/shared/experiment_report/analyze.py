@@ -1197,59 +1197,45 @@ def analyze_experiment(
                 time_series = collect_report_time_series(prometheus, start, target_load_duration)
             except Exception as error:
                 warnings.append(f"Prometheus time series are unavailable: {error}")
-            for window in configured_measurement_windows(target_load_test, target_load_duration):
-                result = {
-                    **window,
-                    "delivery": {},
-                    "topic_evidence": {},
-                    "measurements": {name: None for name in STANDARD_MEASUREMENTS},
-                    "network_counters": {"status": "unavailable", "source": "nftables via Prometheus"},
-                }
-                window_start = float(window.get("start_seconds") or 0)
-                window_duration = float(window.get("duration_seconds") or 0)
-                if window_duration > 0 and window_start + window_duration <= target_load_duration:
-                    try:
-                        collected_measurements = collect_standard_measurements(
-                            prometheus, start + timedelta(seconds=window_start), window_duration
-                        )
-                        window_network_counters = collect_kafka_network_counters(
-                            prometheus,
-                            start + timedelta(seconds=window_start),
-                            window_duration,
-                            run_dir.name,
-                            implementation,
-                        )
-                        audit_document = window_audit(audit, window, warnings)
-                        result.update({
-                            "delivery": (
-                                audit_document.get("totals", {})
-                                if isinstance(audit_document.get("totals"), dict) else {}
-                            ),
-                            "topic_evidence": (
-                                audit_document.get("topics", {})
-                                if isinstance(audit_document.get("topics"), dict) else {}
-                            ),
-                            "measurements": collected_measurements,
-                            "network_counters": window_network_counters,
-                        })
-                    except Exception as error:
-                        name = str(window.get("name") or "unnamed")
-                        warnings.append(f"Measurement window {name} is unavailable: {error}")
-                else:
-                    name = str(window.get("name") or "unnamed")
-                    warnings.append(
-                        f"Configured measurement window {name} falls outside the planned load profile"
-                    )
-                measurement_window_results.append(result)
         else:
             warnings.append("Run start time is unavailable; Prometheus measurements were not collected")
-            measurement_window_results = [{
+        for window in configured_measurement_windows(target_load_test, target_load_duration):
+            result = {
                 **window,
                 "delivery": {},
                 "topic_evidence": {},
+                "timeline": {},
                 "measurements": {name: None for name in STANDARD_MEASUREMENTS},
-                "network_counters": {"status": "unavailable"},
-            } for window in configured_measurement_windows(target_load_test, target_load_duration)]
+                "network_counters": {"status": "unavailable", "source": "nftables via Prometheus"},
+            }
+            name = str(window.get("name") or "unnamed")
+            window_offset = float(window.get("start_seconds") or 0)
+            window_duration = float(window.get("duration_seconds") or 0)
+            if window_duration > 0 and window_offset + window_duration <= target_load_duration:
+                audit_document = window_audit(audit, window, warnings)
+                for field, key in (
+                    ("delivery", "totals"), ("topic_evidence", "topics"), ("timeline", "timeline"),
+                ):
+                    value = audit_document.get(key)
+                    if isinstance(value, dict):
+                        result[field] = value
+                if start is not None:
+                    window_start = start + timedelta(seconds=window_offset)
+                    try:
+                        result["measurements"] = collect_standard_measurements(
+                            prometheus, window_start, window_duration
+                        )
+                    except Exception as error:
+                        warnings.append(f"Prometheus measurements for window {name} are unavailable: {error}")
+                    try:
+                        result["network_counters"] = collect_kafka_network_counters(
+                            prometheus, window_start, window_duration, run_dir.name, implementation
+                        )
+                    except Exception as error:
+                        warnings.append(f"Kafka network counters for window {name} are unavailable: {error}")
+            else:
+                warnings.append(f"Configured measurement window {name} falls outside the planned load profile")
+            measurement_window_results.append(result)
         first_window = measurement_window_results[0] if measurement_window_results else {}
         window_measurements = first_window.get("measurements", {})
         window_delivery = first_window.get("delivery", {})
@@ -1468,6 +1454,7 @@ def analyze_experiment(
                 pcap_analysis=packet_capture_analysis(run_dir, bool(packet_captures.get("enabled")), warnings),
                 network_counters=network_counters,
                 time_series=time_series,
+                audit_timeline=audit.get("timeline", {}) if isinstance(audit.get("timeline"), dict) else {},
                 resource_windows=resource_windows,
                 full_target_budget=full_target_budget,
                 warmup=warmup,
