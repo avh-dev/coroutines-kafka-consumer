@@ -150,11 +150,12 @@ class CoroutinesKafkaConsumer<K, V> internal constructor(
     private val termination = CompletableDeferred<Throwable?>()
     private val shutdownCompletion = CompletableDeferred<Unit>()
     private val consumerConfigAdapter = KafkaConsumerConfigAdapter(effectiveConsumerProperties)
-    private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition)
+    private val trackOffsets = processingMode.tracksProcessedOffsets()
+    private val partitionRegistry = PartitionRegistry(maxTrackedOffsetsPerPartition, trackOffsets)
     // Freshness-first needs ownership generation checks, but must not retain/advance an offset tracker.
     private val processedRecordTracker: ProcessedRecordTracker = PartitionProcessedRecordTracker(
         partitionRegistry = partitionRegistry,
-        trackOffsets = processingMode.tracksProcessedOffsets()
+        trackOffsets = trackOffsets
     )
     private val lifecycleJob = SupervisorJob(parentContext[Job])
     private val scope = CoroutineScope(

@@ -19,4 +19,13 @@ interface ConsumerPartitionStats {
      * The value can grow under out-of-order processing and is useful for detecting large commit gaps.
      */
     val offsetTrackerBitCapacity: Int
+
+    /** Whether the processing mode tracks completed offsets for this partition. */
+    val tracksProcessedOffsets: Boolean
+
+    /** Marked positions ahead of the processed frontier, including known Kafka offset gaps. */
+    val offsetTrackerCompletedAhead: Int
+
+    /** Unmarked positions between the processed frontier and the greatest marked offset. */
+    val offsetTrackerHoleOffsets: Int
 }

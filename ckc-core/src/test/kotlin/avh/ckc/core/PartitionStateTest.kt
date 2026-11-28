@@ -122,6 +122,8 @@ class PartitionStateTest {
             assertTrue(ps.isProcessed(offset))
         }
         assertFalse(ps.isProcessed(15L))
+        assertEquals(4, ps.offsetTrackerCompletedAhead)
+        assertEquals(1, ps.offsetTrackerHoleOffsets)
 
         ps.advanceAndGetPendingOffsetsCount()
         assertEquals(9L, ps.trackerRefForTest().lastProcessedOffset)
@@ -129,6 +131,8 @@ class PartitionStateTest {
         ps.markProcessed(10L)
         ps.advanceAndGetPendingOffsetsCount()
         assertEquals(14L, ps.trackerRefForTest().lastProcessedOffset)
+        assertEquals(0, ps.offsetTrackerCompletedAhead)
+        assertEquals(0, ps.offsetTrackerHoleOffsets)
     }
 
     @Test

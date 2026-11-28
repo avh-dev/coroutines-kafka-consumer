@@ -31,37 +31,44 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
             initialProcessedOffset = tracker.lastProcessedOffset,
             snapshot = tracker.snapshotRoundTrip()
         )
+        assertEquals(2, restored.completedAhead)
+        assertEquals(1, restored.holeOffsets)
 
         restored.advanceProcessedFrontier()
         assertEquals(10L, restored.lastProcessedOffset)
         restored.markProcessed(11L)
         restored.advanceProcessedFrontier()
         assertEquals(13L, restored.lastProcessedOffset)
+        assertEquals(0, restored.completedAhead)
+        assertEquals(0, restored.holeOffsets)
     }
 
     @Test
     fun `snapshot restores offsets after the ring head advances`() {
         val tracker = OffsetTracker(initialProcessedOffset = -1L, initialCapacity = 128)
-        for (offset in 0L until 128L) {
+        for (offset in 0L until 64L) {
             tracker.markProcessed(offset)
         }
         tracker.advanceProcessedFrontier()
-        assertEquals(127L, tracker.lastProcessedOffset)
+        assertEquals(63L, tracker.lastProcessedOffset)
 
-        tracker.markProcessed(130L)
-        tracker.markProcessed(131L)
+        tracker.markProcessed(128L)
+        tracker.markProcessed(129L)
 
         val restored = OffsetTracker(
             initialProcessedOffset = tracker.lastProcessedOffset,
             snapshot = tracker.snapshotRoundTrip()
         )
+        assertEquals(2, restored.completedAhead)
+        assertEquals(64, restored.holeOffsets)
 
         restored.advanceProcessedFrontier()
-        assertEquals(127L, restored.lastProcessedOffset)
-        restored.markProcessed(128L)
-        restored.markProcessed(129L)
+        assertEquals(63L, restored.lastProcessedOffset)
+        restored.markProcessedRange(64L, 128L)
         restored.advanceProcessedFrontier()
-        assertEquals(131L, restored.lastProcessedOffset)
+        assertEquals(129L, restored.lastProcessedOffset)
+        assertEquals(0, restored.completedAhead)
+        assertEquals(0, restored.holeOffsets)
     }
 
     @Test
@@ -103,9 +110,13 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         tracker.advanceProcessedFrontier()
         assertEquals(1_023L, tracker.lastProcessedOffset)
 
+        assertEquals(1, tracker.completedAhead)
+        assertEquals(76, tracker.holeOffsets)
         tracker.compact()
 
         assertEquals(128, tracker.bitCapacity)
+        assertEquals(1, tracker.completedAhead)
+        assertEquals(76, tracker.holeOffsets)
         assertTrue(tracker.isProcessed(1_100L))
         for (offset in 1_024L until 1_100L) {
             tracker.markProcessed(offset)
@@ -187,10 +198,15 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
     fun `skipping gap at frontier preserves processed bits beyond new head`() {
         val tracker = OffsetTracker(initialProcessedOffset = -1L, maxCapacityBits = 128)
         tracker.markProcessed(0L)
+        tracker.markProcessed(2L)
         tracker.markProcessed(5L)
         tracker.advanceProcessedFrontier()
 
+        assertEquals(2, tracker.completedAhead)
+        assertEquals(3, tracker.holeOffsets)
         assertTrue(tracker.skipContiguousProcessedRange(1L, 3L))
+        assertEquals(1, tracker.completedAhead)
+        assertEquals(2, tracker.holeOffsets)
         assertTrue(tracker.isProcessed(5L))
         tracker.markProcessed(3L)
         tracker.markProcessed(4L)
@@ -216,9 +232,12 @@ class OffsetTrackerTest : AbstractOffsetTrackerTest() {
         tracker.markProcessed(10L)
         tracker.markProcessedRange(12L, 200L)
         tracker.markProcessed(200L)
+        tracker.markProcessedRange(13L, 201L)
 
         tracker.advanceProcessedFrontier()
         assertEquals(10L, tracker.lastProcessedOffset)
+        assertEquals(189, tracker.completedAhead)
+        assertEquals(1, tracker.holeOffsets)
         assertFalse(tracker.isProcessed(11L))
         assertTrue(tracker.isProcessed(12L))
         assertTrue(tracker.isProcessed(200L))

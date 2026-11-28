@@ -112,17 +112,22 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
             if (current?.pollLoopId == pollLoopId && current.stats === stats) return
             if (current != null) {
                 partitionMeters.remove(key)
-                schema.meterRegistry.remove(current.meter)
+                current.meters.forEach(schema.meterRegistry::remove)
             }
 
-            val meter = Gauge.builder(schema.metricName(OFFSETTRACKER_CAPACITY), stats) {
-                it.offsetTrackerBitCapacity.toDouble()
+            val tags = consumerTags.and("topic", stats.topic, "partition", stats.partition.toString())
+            val meters = mutableListOf<Meter>()
+            try {
+                meters += gauge(OFFSETTRACKER_CAPACITY, stats, tags) { it.offsetTrackerBitCapacity.toDouble() }
+                if (stats.tracksProcessedOffsets) {
+                    meters += gauge(OFFSETTRACKER_COMPLETED_AHEAD, stats, tags) { it.offsetTrackerCompletedAhead.toDouble() }
+                    meters += gauge(OFFSETTRACKER_HOLE_OFFSETS, stats, tags) { it.offsetTrackerHoleOffsets.toDouble() }
+                }
+                partitionMeters[key] = PartitionMeterBinding(pollLoopId, stats, meters)
+            } catch (failure: Exception) {
+                meters.forEach(schema.meterRegistry::remove)
+                throw failure
             }
-                .tags(consumerTags)
-                .tag("topic", stats.topic)
-                .tag("partition", stats.partition.toString())
-                .register(schema.meterRegistry)
-            partitionMeters[key] = PartitionMeterBinding(pollLoopId, stats, meter)
         }
     }
 
@@ -132,7 +137,7 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
             val current = partitionMeters[key] ?: return
             if (current.pollLoopId != pollLoopId || current.stats !== stats) return
             partitionMeters.remove(key)
-            schema.meterRegistry.remove(current.meter)
+            current.meters.forEach(schema.meterRegistry::remove)
         }
     }
 
@@ -273,13 +278,14 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private fun counter(suffix: String, tags: Iterable<Tag> = consumerTags): Counter =
         schema.counter(suffix, tags)
 
-    private fun gauge(
+    private fun <S : Any> gauge(
         suffix: String,
-        stats: ConsumerRuntimeStats,
-        valueFunction: (ConsumerRuntimeStats) -> Double
+        stats: S,
+        tags: Tags = consumerTags,
+        valueFunction: (S) -> Double
     ): Gauge =
         Gauge.builder(schema.metricName(suffix), stats, valueFunction)
-            .tags(consumerTags)
+            .tags(tags)
             .register(schema.meterRegistry)
 
     override fun extensionGaugeValue(suffix: String): AtomicInteger =
@@ -300,6 +306,6 @@ internal class BoundMicrometerConsumerMetrics<K, V>(
     private data class PartitionMeterBinding(
         val pollLoopId: Int,
         val stats: ConsumerPartitionStats,
-        val meter: Meter
+        val meters: List<Meter>
     )
 }
